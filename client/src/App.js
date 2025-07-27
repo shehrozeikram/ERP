@@ -26,6 +26,7 @@ import AccountList from './pages/Finance/AccountList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import CRMDashboard from './pages/CRM/CRMDashboard';
+import Leads from './pages/CRM/Leads';
 import Profile from './pages/Profile/Profile';
 import UserManagement from './pages/Admin/UserManagement';
 import NotFound from './pages/NotFound/NotFound';
@@ -195,6 +196,22 @@ function App() {
             <Route 
               path="/crm" 
               element={<ProtectedRoute><CRMDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/leads" 
+              element={<ProtectedRoute><Leads /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/leads/new" 
+              element={<ProtectedRoute><Leads /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/leads/:id" 
+              element={<ProtectedRoute><Leads /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/leads/:id/edit" 
+              element={<ProtectedRoute><Leads /></ProtectedRoute>} 
             />
 
             {/* Profile */}

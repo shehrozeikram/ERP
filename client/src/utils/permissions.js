@@ -42,6 +42,13 @@ export const PERMISSIONS = {
     description: 'CRM module management'
   },
   
+  // Sales Representative has access to CRM and Sales modules
+  sales_rep: {
+    canAccessAll: false,
+    modules: ['dashboard', 'crm', 'sales'],
+    description: 'Sales and CRM access'
+  },
+  
   // Employee has limited access
   employee: {
     canAccessAll: false,
@@ -123,12 +130,14 @@ export const MODULES = {
     path: '/crm',
     icon: 'ContactSupport',
     description: 'Customer Relationship Management',
-    roles: ['admin', 'crm_manager'],
+    roles: ['admin', 'crm_manager', 'sales_rep'],
     subItems: [
       { name: 'CRM Dashboard', path: '/crm' },
       { name: 'Leads', path: '/crm/leads' },
       { name: 'Contacts', path: '/crm/contacts' },
-      { name: 'Opportunities', path: '/crm/opportunities' }
+      { name: 'Companies', path: '/crm/companies' },
+      { name: 'Opportunities', path: '/crm/opportunities' },
+      { name: 'Reports', path: '/crm/reports' }
     ]
   },
   
