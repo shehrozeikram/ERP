@@ -101,8 +101,8 @@ const leadSchema = new mongoose.Schema({
   },
   annualRevenue: {
     type: String,
-    enum: ['Less than $1M', '$1M - $10M', '$10M - $50M', '$50M - $100M', '$100M+'],
-    default: 'Less than $1M'
+    enum: ['Less than ₨100M', '₨100M - ₨1B', '₨1B - ₨5B', '₨5B - ₨10B', '₨10B+', 'Less than $1M', '$1M - $10M', '$10M - $50M', '$50M - $100M', '$100M+'],
+    default: 'Less than ₨100M'
   },
 
   // ==================== TAJ RESIDENCIA SPECIFIC FIELDS ====================
@@ -374,6 +374,11 @@ leadSchema.pre('save', function(next) {
   
   // Score based on annual revenue
   const revenueScores = {
+    'Less than ₨100M': 10,
+    '₨100M - ₨1B': 20,
+    '₨1B - ₨5B': 30,
+    '₨5B - ₨10B': 40,
+    '₨10B+': 50,
     'Less than $1M': 10,
     '$1M - $10M': 20,
     '$10M - $50M': 30,

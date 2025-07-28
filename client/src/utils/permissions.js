@@ -28,11 +28,11 @@ export const PERMISSIONS = {
     description: 'Procurement module management'
   },
   
-  // Sales Manager has access to Sales module
+  // Sales Manager has access to Sales and CRM modules
   sales_manager: {
     canAccessAll: false,
-    modules: ['dashboard', 'sales'],
-    description: 'Sales module management'
+    modules: ['dashboard', 'crm', 'sales'],
+    description: 'Sales and CRM access'
   },
   
   // CRM Manager has access to CRM module
@@ -40,13 +40,6 @@ export const PERMISSIONS = {
     canAccessAll: false,
     modules: ['dashboard', 'crm'],
     description: 'CRM module management'
-  },
-  
-  // Sales Representative has access to CRM and Sales modules
-  sales_rep: {
-    canAccessAll: false,
-    modules: ['dashboard', 'crm', 'sales'],
-    description: 'Sales and CRM access'
   },
   
   // Employee has limited access
@@ -79,7 +72,8 @@ export const MODULES = {
       { name: 'Departments', path: '/hr/departments' },
       { name: 'Attendance', path: '/hr/attendance' },
       { name: 'Biometric Integration', path: '/hr/biometric' },
-      { name: 'Payroll', path: '/hr/payroll' }
+      { name: 'Payroll', path: '/hr/payroll' },
+      { name: 'Reports', path: '/hr/reports' }
     ]
   },
   
@@ -130,11 +124,12 @@ export const MODULES = {
     path: '/crm',
     icon: 'ContactSupport',
     description: 'Customer Relationship Management',
-    roles: ['admin', 'crm_manager', 'sales_rep'],
+    roles: ['admin', 'crm_manager', 'sales_manager'],
     subItems: [
       { name: 'CRM Dashboard', path: '/crm' },
       { name: 'Leads', path: '/crm/leads' },
       { name: 'Contacts', path: '/crm/contacts' },
+      { name: 'Campaigns', path: '/crm/campaigns' },
       { name: 'Companies', path: '/crm/companies' },
       { name: 'Opportunities', path: '/crm/opportunities' },
       { name: 'Reports', path: '/crm/reports' }
@@ -221,6 +216,9 @@ export const isRouteAccessible = (userRole, path) => {
           if (path === subItem.path) return true;
         }
       }
+      
+      // Check if path starts with module path (for dynamic routes)
+      if (path.startsWith(module.path + '/')) return true;
     }
   }
   

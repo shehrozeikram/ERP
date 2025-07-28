@@ -34,7 +34,8 @@ import {
   InputAdornment,
   Collapse,
   CardHeader,
-  Divider
+  Divider,
+  Snackbar
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -61,12 +62,14 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import crmService from '../../services/crmService';
+import { formatPKR } from '../../utils/currency';
 
 const Leads = () => {
   const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
@@ -81,6 +84,19 @@ const Leads = () => {
   const [selectedLead, setSelectedLead] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState(null);
+  const [leadDialog, setLeadDialog] = useState({ open: false, mode: 'add', lead: null });
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    company: '',
+    source: 'Website',
+    status: 'New',
+    priority: 'Medium',
+    business: 'SGC General',
+    assignedTo: ''
+  });
 
   const loadLeads = useCallback(async () => {
     try {
@@ -220,6 +236,59 @@ const Leads = () => {
     setDeleteDialogOpen(true);
   };
 
+  const handleFormChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleAddLead = () => {
+    setFormData({
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      company: '',
+      source: 'Website',
+      status: 'New',
+      priority: 'Medium',
+      business: 'SGC General',
+      assignedTo: ''
+    });
+    setLeadDialog({ open: true, mode: 'add', lead: null });
+  };
+
+  const handleEditLead = (lead) => {
+    setFormData({
+      firstName: lead.firstName || '',
+      lastName: lead.lastName || '',
+      email: lead.email || '',
+      phone: lead.phone || '',
+      company: lead.company || '',
+      source: lead.source || 'Website',
+      status: lead.status || 'New',
+      priority: lead.priority || 'Medium',
+      business: lead.business || 'SGC General',
+      assignedTo: lead.assignedTo?._id || ''
+    });
+    setLeadDialog({ open: true, mode: 'edit', lead });
+  };
+
+  const handleSaveLead = async () => {
+    try {
+      if (leadDialog.mode === 'add') {
+        await crmService.createLead(formData);
+        setSuccess('Lead added successfully!');
+      } else {
+        await crmService.updateLead(leadDialog.lead._id, formData);
+        setSuccess('Lead updated successfully!');
+      }
+      setLeadDialog({ open: false, mode: 'add', lead: null });
+      loadLeads();
+    } catch (err) {
+      console.error('Error saving lead:', err);
+      setError('Failed to save lead. Please try again.');
+    }
+  };
+
   const getStatusColor = (status) => {
     return crmService.getStatusColor(status);
   };
@@ -258,8 +327,8 @@ const Leads = () => {
   };
 
   const formatCurrency = (amount) => {
-    if (!amount) return '0';
-    return new Intl.NumberFormat('en-IN').format(amount);
+    if (!amount) return '₨0';
+    return formatPKR(amount);
   };
 
   const getDaysUntilFollowUp = (followUpDate) => {
@@ -422,7 +491,7 @@ const Leads = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => navigate('/crm/leads/new')}
+            onClick={handleAddLead}
           >
             Add New Lead
           </Button>
@@ -748,7 +817,7 @@ const Leads = () => {
                     <TableCell>
                       {lead.business === 'Taj Residencia' && lead.propertyPrice ? (
                         <Typography variant="body2" fontWeight="bold" color="primary">
-                          ₹{formatCurrency(lead.propertyPrice)}
+                          {formatCurrency(lead.propertyPrice)}
                         </Typography>
                       ) : (
                         <Box display="flex" alignItems="center">
@@ -811,7 +880,7 @@ const Leads = () => {
                         <Tooltip title="Edit Lead">
                           <IconButton
                             size="small"
-                            onClick={() => navigate(`/crm/leads/${lead._id}/edit`)}
+                            onClick={() => handleEditLead(lead)}
                           >
                             <EditIcon />
                           </IconButton>
@@ -844,6 +913,158 @@ const Leads = () => {
         />
       </Card>
 
+      {/* Add/Edit Lead Dialog */}
+      <Dialog
+        open={leadDialog.open}
+        onClose={() => setLeadDialog({ open: false, mode: 'add', lead: null })}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          {leadDialog.mode === 'add' ? 'Add New Lead' : 'Edit Lead'}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="First Name"
+                value={formData.firstName}
+                onChange={(e) => handleFormChange('firstName', e.target.value)}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Last Name"
+                value={formData.lastName}
+                onChange={(e) => handleFormChange('lastName', e.target.value)}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => handleFormChange('email', e.target.value)}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Phone"
+                value={formData.phone}
+                onChange={(e) => handleFormChange('phone', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Company"
+                value={formData.company}
+                onChange={(e) => handleFormChange('company', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Business</InputLabel>
+                <Select
+                  value={formData.business}
+                  onChange={(e) => handleFormChange('business', e.target.value)}
+                  label="Business"
+                >
+                  <MenuItem value="Taj Residencia">Taj Residencia</MenuItem>
+                  <MenuItem value="Boly.pk">Boly.pk</MenuItem>
+                  <MenuItem value="SGC General">SGC General</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Source</InputLabel>
+                <Select
+                  value={formData.source}
+                  onChange={(e) => handleFormChange('source', e.target.value)}
+                  label="Source"
+                >
+                  <MenuItem value="Website">Website</MenuItem>
+                  <MenuItem value="Social Media">Social Media</MenuItem>
+                  <MenuItem value="Referral">Referral</MenuItem>
+                  <MenuItem value="Cold Call">Cold Call</MenuItem>
+                  <MenuItem value="Trade Show">Trade Show</MenuItem>
+                  <MenuItem value="Advertisement">Advertisement</MenuItem>
+                  <MenuItem value="Email Campaign">Email Campaign</MenuItem>
+                  <MenuItem value="Other">Other</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={formData.status}
+                  onChange={(e) => handleFormChange('status', e.target.value)}
+                  label="Status"
+                >
+                  <MenuItem value="New">New</MenuItem>
+                  <MenuItem value="Contacted">Contacted</MenuItem>
+                  <MenuItem value="Qualified">Qualified</MenuItem>
+                  <MenuItem value="Proposal Sent">Proposal Sent</MenuItem>
+                  <MenuItem value="Negotiation">Negotiation</MenuItem>
+                  <MenuItem value="Won">Won</MenuItem>
+                  <MenuItem value="Lost">Lost</MenuItem>
+                  <MenuItem value="Unqualified">Unqualified</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Priority</InputLabel>
+                <Select
+                  value={formData.priority}
+                  onChange={(e) => handleFormChange('priority', e.target.value)}
+                  label="Priority"
+                >
+                  <MenuItem value="Low">Low</MenuItem>
+                  <MenuItem value="Medium">Medium</MenuItem>
+                  <MenuItem value="High">High</MenuItem>
+                  <MenuItem value="Urgent">Urgent</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Assigned To</InputLabel>
+                <Select
+                  value={formData.assignedTo}
+                  onChange={(e) => handleFormChange('assignedTo', e.target.value)}
+                  label="Assigned To"
+                >
+                  <MenuItem value="">Unassigned</MenuItem>
+                  {users.map((user) => (
+                    <MenuItem key={user._id} value={user._id}>
+                      {user.firstName} {user.lastName}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLeadDialog({ open: false, mode: 'add', lead: null })}>
+            Cancel
+          </Button>
+          <Button onClick={handleSaveLead} variant="contained">
+            {leadDialog.mode === 'add' ? 'Add Lead' : 'Update Lead'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Lead</DialogTitle>
@@ -866,10 +1087,31 @@ const Leads = () => {
         color="primary"
         aria-label="add"
         sx={{ position: 'fixed', bottom: 16, right: 16 }}
-        onClick={() => navigate('/crm/leads/new')}
+        onClick={handleAddLead}
       >
         <AddIcon />
       </Fab>
+
+      {/* Success/Error Snackbars */}
+      <Snackbar
+        open={!!success}
+        autoHideDuration={6000}
+        onClose={() => setSuccess(null)}
+      >
+        <Alert onClose={() => setSuccess(null)} severity="success">
+          {success}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+      >
+        <Alert onClose={() => setError(null)} severity="error">
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

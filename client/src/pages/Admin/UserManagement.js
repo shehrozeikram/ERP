@@ -53,6 +53,8 @@ const UserManagement = () => {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   const departments = ['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'];
   const roles = ['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'];
@@ -128,12 +130,15 @@ const UserManagement = () => {
 
   const handleCreateUser = async (userData) => {
     try {
-      await authService.register(userData);
-      console.log('User created successfully');
+      setError(null);
+      const response = await authService.createUser(userData);
+      console.log('User created successfully:', response);
+      setSuccess('User created successfully!');
       setCreateDialogOpen(false);
       loadUsers();
     } catch (error) {
       console.error('Failed to create user:', error);
+      setError(error.response?.data?.message || 'Failed to create user. Please try again.');
     }
   };
 
@@ -170,6 +175,17 @@ const UserManagement = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      {/* Success/Error Alerts */}
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+          {success}
+        </Alert>
+      )}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
               <Box>
         <Typography variant="h4">

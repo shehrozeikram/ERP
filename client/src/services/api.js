@@ -24,11 +24,22 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle auth errors
+// Response interceptor to handle auth errors (less aggressive)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Only handle 401 errors for specific endpoints that should redirect
     if (error.response?.status === 401) {
+      const url = error.config?.url || '';
+      
+      // Don't auto-redirect for employee operations, let components handle it
+      if (url.includes('/hr/employees') || url.includes('/hr/departments') || url.includes('/hr/positions')) {
+        console.log('🔐 401 error on HR endpoint, letting component handle it:', url);
+        return Promise.reject(error);
+      }
+      
+      // For other endpoints, redirect to login
+      console.log('🔐 401 error, redirecting to login:', url);
       localStorage.removeItem('token');
       window.location.href = '/login';
     }

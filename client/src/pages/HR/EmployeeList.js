@@ -91,9 +91,17 @@ const EmployeeList = () => {
       employee.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       employee.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       employee.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.employeeId?.toLowerCase().includes(searchTerm.toLowerCase());
+      employee.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      employee.idCard?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      employee.religion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      employee.maritalStatus?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                  employee.qualification?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            employee.bankName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            employee.spouseName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            employee.appointmentDate?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesDepartment = !departmentFilter || employee.department === departmentFilter;
+    const employeeDepartment = typeof employee.department === 'object' ? employee.department?.name : employee.department;
+    const matchesDepartment = !departmentFilter || employeeDepartment === departmentFilter;
     const matchesStatus = !statusFilter || employee.isActive === (statusFilter === 'active');
 
     return matchesSearch && matchesDepartment && matchesStatus;
@@ -279,6 +287,16 @@ const EmployeeList = () => {
             <TableRow>
               <TableCell>Employee</TableCell>
               <TableCell>Employee ID</TableCell>
+              <TableCell>ID Card</TableCell>
+              <TableCell>Religion</TableCell>
+              <TableCell>Marital Status</TableCell>
+              <TableCell>Qualification</TableCell>
+              <TableCell>Bank Name</TableCell>
+              <TableCell>Spouse Name</TableCell>
+              <TableCell>Appointment Date</TableCell>
+              <TableCell>Probation Period</TableCell>
+              <TableCell>End of Probation</TableCell>
+              <TableCell>Confirmation Date</TableCell>
               <TableCell>Department</TableCell>
               <TableCell>Position</TableCell>
               <TableCell>Email</TableCell>
@@ -306,8 +324,18 @@ const EmployeeList = () => {
                   </Box>
                 </TableCell>
                 <TableCell>{employee.employeeId}</TableCell>
-                <TableCell>{employee.department}</TableCell>
-                <TableCell>{employee.position}</TableCell>
+                <TableCell>{employee.idCard || 'N/A'}</TableCell>
+                <TableCell>{employee.religion || 'N/A'}</TableCell>
+                <TableCell>{employee.maritalStatus || 'N/A'}</TableCell>
+                <TableCell>{employee.qualification || 'N/A'}</TableCell>
+                <TableCell>{typeof employee.bankName === 'object' ? employee.bankName?.name : employee.bankName || 'N/A'}</TableCell>
+                <TableCell>{employee.spouseName || 'N/A'}</TableCell>
+                <TableCell>{employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}</TableCell>
+                <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>
+                <TableCell>{employee.endOfProbationDate ? new Date(employee.endOfProbationDate).toLocaleDateString() : 'N/A'}</TableCell>
+                <TableCell>{employee.confirmationDate ? new Date(employee.confirmationDate).toLocaleDateString() : 'N/A'}</TableCell>
+                <TableCell>{typeof employee.department === 'object' ? employee.department?.name : employee.department}</TableCell>
+                <TableCell>{typeof employee.position === 'object' ? employee.position?.title : employee.position}</TableCell>
                 <TableCell>{employee.email}</TableCell>
                 <TableCell>{employee.phone}</TableCell>
                 <TableCell>
@@ -321,12 +349,14 @@ const EmployeeList = () => {
                   <IconButton
                     size="small"
                     onClick={() => navigate(`/hr/employees/${employee._id}`)}
+                    title="View Details"
                   >
                     <ViewIcon />
                   </IconButton>
                   <IconButton
                     size="small"
                     onClick={() => navigate(`/hr/employees/${employee._id}/edit`)}
+                    title="Edit Employee"
                   >
                     <EditIcon />
                   </IconButton>

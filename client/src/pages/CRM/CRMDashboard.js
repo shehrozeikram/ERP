@@ -50,6 +50,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import crmService from '../../services/crmService';
+import { formatPKR } from '../../utils/currency';
 
 const CRMDashboard = () => {
   const navigate = useNavigate();
@@ -275,6 +276,30 @@ const CRMDashboard = () => {
           >
             New Lead
           </Button>
+                          <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => navigateToSection('contacts/new')}
+                  sx={{ mr: 1 }}
+                >
+                  New Contact
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => navigateToSection('campaigns/new')}
+                  sx={{ mr: 1 }}
+                >
+                  New Campaign
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => navigateToSection('opportunities/new')}
+                  sx={{ mr: 1 }}
+                >
+                  New Opportunity
+                </Button>
           <Button
             variant="outlined"
             startIcon={<AddIcon />}
@@ -531,6 +556,17 @@ const CRMDashboard = () => {
                       sx={{ mb: 2 }}
                     >
                       Add Company
+                    </Button>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={() => navigateToSection('campaigns/new')}
+                      sx={{ mb: 2 }}
+                    >
+                      Add Campaign
                     </Button>
                   </Grid>
                   <Grid item xs={6}>

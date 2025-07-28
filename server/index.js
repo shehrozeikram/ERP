@@ -20,6 +20,18 @@ const financeRoutes = require('./routes/finance');
 const procurementRoutes = require('./routes/procurement');
 const salesRoutes = require('./routes/sales');
 const crmRoutes = require('./routes/crm');
+const campaignRoutes = require('./routes/campaigns');
+const reportsRoutes = require('./routes/reports');
+const positionRoutes = require('./routes/positions');
+const bankRoutes = require('./routes/banks');
+const companyRoutes = require('./routes/companies');
+const projectRoutes = require('./routes/projects');
+const sectionRoutes = require('./routes/sections');
+const designationRoutes = require('./routes/designations');
+const locationRoutes = require('./routes/locations');
+const cityRoutes = require('./routes/cities');
+const provinceRoutes = require('./routes/provinces');
+const countryRoutes = require('./routes/countries');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -38,13 +50,18 @@ mongoose.connect(process.env.MONGODB_URI, {
 app.use(helmet());
 app.use(compression());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
+// Rate limiting (disabled for development)
+if (process.env.NODE_ENV === 'production') {
+  const limiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.'
+  });
+  app.use('/api/', limiter);
+  console.log('🔒 Rate limiting enabled for production');
+} else {
+  console.log('🔓 Rate limiting disabled for development');
+}
 
 // CORS configuration
 app.use(cors({
@@ -84,6 +101,18 @@ app.use('/api/finance', authMiddleware, financeRoutes);
 app.use('/api/procurement', authMiddleware, procurementRoutes);
 app.use('/api/sales', authMiddleware, salesRoutes);
 app.use('/api/crm', authMiddleware, crmRoutes);
+app.use('/api/campaigns', authMiddleware, campaignRoutes);
+app.use('/api/reports', authMiddleware, reportsRoutes);
+app.use('/api/positions', authMiddleware, positionRoutes);
+app.use('/api/banks', authMiddleware, bankRoutes);
+app.use('/api/companies', authMiddleware, companyRoutes);
+app.use('/api/projects', authMiddleware, projectRoutes);
+app.use('/api/sections', authMiddleware, sectionRoutes);
+app.use('/api/designations', authMiddleware, designationRoutes);
+app.use('/api/locations', authMiddleware, locationRoutes);
+app.use('/api/cities', authMiddleware, cityRoutes);
+app.use('/api/provinces', authMiddleware, provinceRoutes);
+app.use('/api/countries', authMiddleware, countryRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

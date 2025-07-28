@@ -8,9 +8,9 @@ const employeeSchema = new mongoose.Schema({
   },
   employeeId: {
     type: String,
-    required: true,
     unique: true,
-    trim: true
+    trim: true,
+    auto: true
   },
   firstName: {
     type: String,
@@ -45,6 +45,26 @@ const employeeSchema = new mongoose.Schema({
     enum: ['male', 'female', 'other'],
     required: [true, 'Gender is required']
   },
+  idCard: {
+    type: String,
+    required: [true, 'ID Card number is required'],
+    trim: true,
+    unique: true
+  },
+  nationality: {
+    type: String,
+    required: [true, 'Nationality is required'],
+    trim: true
+  },
+  profileImage: {
+    type: String,
+    trim: true
+  },
+  religion: {
+    type: String,
+    enum: ['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Buddhism', 'Judaism', 'Other', 'None'],
+    default: 'Islam'
+  },
   maritalStatus: {
     type: String,
     enum: ['Single', 'Married', 'Divorced', 'Widowed'],
@@ -56,21 +76,19 @@ const employeeSchema = new mongoose.Schema({
       required: [true, 'Street address is required']
     },
     city: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'City',
       required: [true, 'City is required']
     },
     state: {
-      type: String,
-      required: [true, 'State is required']
-    },
-    zipCode: {
-      type: String,
-      required: [true, 'Zip code is required']
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Province',
+      required: [true, 'State/Province is required']
     },
     country: {
-      type: String,
-      required: [true, 'Country is required'],
-      default: 'USA'
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Country',
+      required: [true, 'Country is required']
     }
   },
   emergencyContact: {
@@ -89,12 +107,91 @@ const employeeSchema = new mongoose.Schema({
     email: String
   },
   department: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
     required: [true, 'Department is required']
   },
   position: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Position',
     required: [true, 'Position is required']
+  },
+  qualification: {
+    type: String,
+    required: [true, 'Qualification is required'],
+    trim: true
+  },
+  bankName: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bank',
+    required: [true, 'Bank is required']
+  },
+  foreignBankAccount: {
+    type: String,
+    required: false,
+    trim: true
+  },
+  spouseName: {
+    type: String,
+    required: function() {
+      return this.maritalStatus === 'Married';
+    },
+    trim: true
+  },
+  appointmentDate: {
+    type: Date,
+    required: [true, 'Appointment date is required']
+  },
+  probationPeriodMonths: {
+    type: Number,
+    required: [true, 'Probation period is required'],
+    min: [0, 'Probation period cannot be negative'],
+    max: [24, 'Probation period cannot exceed 24 months']
+  },
+  endOfProbationDate: {
+    type: Date,
+    required: [true, 'End of probation date is required']
+  },
+  confirmationDate: {
+    type: Date,
+    required: false
+  },
+  // Placement fields
+  placementCompany: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PlacementCompany',
+    required: false
+  },
+  placementProject: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project',
+    required: false
+  },
+  placementDepartment: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    required: false
+  },
+  placementSection: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Section',
+    required: false
+  },
+  placementDesignation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Designation',
+    required: false
+  },
+  oldDesignation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Designation',
+    required: false,
+    default: undefined
+  },
+  placementLocation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Location',
+    required: false
   },
   manager: {
     type: mongoose.Schema.Types.ObjectId,
@@ -302,10 +399,42 @@ employeeSchema.virtual('attendancePercentage').get(function() {
   return ((this.attendance.presentDays / this.attendance.totalDays) * 100).toFixed(2);
 });
 
-// Pre-save middleware to update user reference
-employeeSchema.pre('save', function(next) {
+// Pre-save middleware to auto-generate Employee ID, calculate probation dates, and update user reference
+employeeSchema.pre('save', async function(next) {
+  // Auto-generate Employee ID if not provided
+  if (!this.employeeId || this.isNew) {
+    try {
+      const lastEmployee = await this.constructor.findOne({}, {}, { sort: { 'employeeId': -1 } });
+      let nextId = 1;
+      
+      if (lastEmployee && lastEmployee.employeeId) {
+        // Extract number from existing employee ID (assuming format like "EMP001", "EMP002", etc.)
+        const match = lastEmployee.employeeId.match(/(\d+)$/);
+        if (match) {
+          nextId = parseInt(match[1]) + 1;
+        }
+      }
+      
+      // Format: 1, 2, 3, etc.
+      this.employeeId = nextId.toString();
+    } catch (error) {
+      console.error('Error generating Employee ID:', error);
+      // Fallback to timestamp-based ID
+      this.employeeId = Date.now().toString().slice(-6);
+    }
+  }
+
+  // Calculate end of probation date if appointment date or probation period changes
+  if (this.isModified('appointmentDate') || this.isModified('probationPeriodMonths')) {
+    if (this.appointmentDate && this.probationPeriodMonths) {
+      const endDate = new Date(this.appointmentDate);
+      endDate.setMonth(endDate.getMonth() + this.probationPeriodMonths);
+      this.endOfProbationDate = endDate;
+    }
+  }
+  
+  // Update corresponding user document
   if (this.isModified('firstName') || this.isModified('lastName') || this.isModified('email')) {
-    // Update corresponding user document
     this.constructor.model('User').findByIdAndUpdate(
       this.user,
       {

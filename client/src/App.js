@@ -15,6 +15,8 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import HRDashboard from './pages/HR/HRDashboard';
 import EmployeeList from './pages/HR/EmployeeList';
 import EmployeeForm from './pages/HR/EmployeeForm';
+import EmployeeView from './pages/HR/EmployeeView';
+import EmployeeReports from './pages/HR/EmployeeReports';
 import Departments from './pages/HR/Departments';
 import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
@@ -27,8 +29,16 @@ import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import CRMDashboard from './pages/CRM/CRMDashboard';
 import Leads from './pages/CRM/Leads';
+import Contacts from './pages/CRM/Contacts';
+import Companies from './pages/CRM/Companies';
+import Campaigns from './pages/CRM/Campaigns';
+import Opportunities from './pages/CRM/Opportunities';
+import Reports from './pages/CRM/Reports';
 import Profile from './pages/Profile/Profile';
 import UserManagement from './pages/Admin/UserManagement';
+import DepartmentManagement from './pages/HR/DepartmentManagement';
+import PositionManagement from './pages/HR/PositionManagement';
+import BankManagement from './pages/HR/BankManagement';
 import NotFound from './pages/NotFound/NotFound';
 
 // Public Route Component (redirects to dashboard if already logged in)
@@ -121,11 +131,19 @@ function App() {
               path="/hr/employees/add" 
               element={<ProtectedRoute><EmployeeForm /></ProtectedRoute>} 
             />
+            <Route
+              path="/hr/reports"
+              element={<ProtectedRoute><EmployeeReports /></ProtectedRoute>}
+            />
             <Route 
               path="/hr/employees/:id" 
+              element={<ProtectedRoute><EmployeeView /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/employees/:id/edit" 
               element={<ProtectedRoute><EmployeeForm /></ProtectedRoute>} 
             />
-                        <Route
+            <Route
               path="/hr/departments"
               element={<ProtectedRoute><Departments /></ProtectedRoute>}
             />
@@ -213,6 +231,74 @@ function App() {
               path="/crm/leads/:id/edit" 
               element={<ProtectedRoute><Leads /></ProtectedRoute>} 
             />
+            <Route 
+              path="/crm/contacts" 
+              element={<ProtectedRoute><Contacts /></ProtectedRoute>} 
+            />https://sso.teachable.com/secure/146684/checkout/4759447/the-ultimate-react-native-course?coupon_code=SITE
+            <Route 
+              path="/crm/contacts/new" 
+              element={<ProtectedRoute><Contacts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/contacts/:id" 
+              element={<ProtectedRoute><Contacts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/contacts/:id/edit" 
+              element={<ProtectedRoute><Contacts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/companies" 
+              element={<ProtectedRoute><Companies /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/companies/new" 
+              element={<ProtectedRoute><Companies /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/companies/:id" 
+              element={<ProtectedRoute><Companies /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/companies/:id/edit" 
+              element={<ProtectedRoute><Companies /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/campaigns" 
+              element={<ProtectedRoute><Campaigns /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/campaigns/new" 
+              element={<ProtectedRoute><Campaigns /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/campaigns/:id" 
+              element={<ProtectedRoute><Campaigns /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/campaigns/:id/edit" 
+              element={<ProtectedRoute><Campaigns /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/opportunities" 
+              element={<ProtectedRoute><Opportunities /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/opportunities/new" 
+              element={<ProtectedRoute><Opportunities /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/opportunities/:id" 
+              element={<ProtectedRoute><Opportunities /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/opportunities/:id/edit" 
+              element={<ProtectedRoute><Opportunities /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/crm/reports" 
+              element={<ProtectedRoute><Reports /></ProtectedRoute>} 
+            />
 
             {/* Profile */}
             <Route 
@@ -224,6 +310,20 @@ function App() {
             <Route 
               path="/admin/users" 
               element={<ProtectedRoute requiredRole="admin"><UserManagement /></ProtectedRoute>} 
+            />
+
+            {/* HR Management Routes */}
+            <Route 
+              path="/hr/departments/manage" 
+              element={<ProtectedRoute><DepartmentManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/positions/manage" 
+              element={<ProtectedRoute><PositionManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/banks/manage" 
+              element={<ProtectedRoute><BankManagement /></ProtectedRoute>} 
             />
 
             {/* Default redirects */}

@@ -25,12 +25,12 @@ const contactSchema = new mongoose.Schema({
   phone: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number']
+    match: [/^[\+]?[0-9][\d]{0,15}$/, 'Please enter a valid phone number']
   },
   mobile: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid mobile number']
+    match: [/^[\+]?[0-9][\d]{0,15}$/, 'Please enter a valid mobile number']
   },
   jobTitle: {
     type: String,
@@ -47,7 +47,7 @@ const contactSchema = new mongoose.Schema({
   company: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company',
-    required: [true, 'Company is required']
+    required: false
   },
   isPrimaryContact: {
     type: Boolean,

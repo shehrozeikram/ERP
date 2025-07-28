@@ -10,13 +10,12 @@ const companySchema = new mongoose.Schema({
   },
   website: {
     type: String,
-    trim: true,
-    match: [/^https?:\/\/.+/, 'Please enter a valid website URL']
+    trim: true
   },
   phone: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number']
+    match: [/^[\+]?[0-9][\d]{0,15}$/, 'Please enter a valid phone number']
   },
   email: {
     type: String,
@@ -49,8 +48,8 @@ const companySchema = new mongoose.Schema({
   },
   annualRevenue: {
     type: String,
-    enum: ['Less than $1M', '$1M - $10M', '$10M - $50M', '$50M - $100M', '$100M+'],
-    default: 'Less than $1M'
+    enum: ['Less than ₨100M', '₨100M - ₨1B', '₨1B - ₨5B', '₨5B - ₨10B', '₨10B+', 'Less than $1M', '$1M - $10M', '$10M - $50M', '$50M - $100M', '$100M+'],
+    default: 'Less than ₨100M'
   },
 
   // Address Information

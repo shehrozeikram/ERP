@@ -16,7 +16,7 @@ const router = express.Router();
 // @desc    Get all leads with filters and pagination
 // @access  Private (CRM and Admin)
 router.get('/leads', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -87,7 +87,7 @@ router.post('/leads', [
   body('company').optional().trim().isLength({ max: 100 }).withMessage('Company name must be less than 100 characters'),
   body('source').isIn(['Website', 'Social Media', 'Referral', 'Cold Call', 'Trade Show', 'Advertisement', 'Email Campaign', 'Other']).withMessage('Valid source is required'),
   body('priority').optional().isIn(['Low', 'Medium', 'High', 'Urgent']).withMessage('Valid priority is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -117,7 +117,7 @@ router.post('/leads', [
 // @desc    Get lead by ID
 // @access  Private (CRM and Admin)
 router.get('/leads/:id', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const lead = await Lead.findById(req.params.id)
       .populate('assignedTo', 'firstName lastName email')
@@ -146,7 +146,7 @@ router.put('/leads/:id', [
   body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
   body('status').optional().isIn(['New', 'Contacted', 'Qualified', 'Proposal Sent', 'Negotiation', 'Won', 'Lost', 'Unqualified']).withMessage('Valid status is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -202,7 +202,7 @@ router.delete('/leads/:id',
 // @access  Private (CRM and Admin)
 router.post('/leads/:id/notes', [
   body('content').trim().isLength({ min: 1, max: 1000 }).withMessage('Note content is required and must be less than 1000 characters')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -237,8 +237,12 @@ router.post('/leads/:id/notes', [
 // @desc    Get all companies with filters and pagination
 // @access  Private (CRM and Admin)
 router.get('/companies', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
+    console.log('=== GET COMPANIES REQUEST ===');
+    console.log('User:', req.user);
+    console.log('Query params:', req.query);
+    
     const { 
       page = 1, 
       limit = 10, 
@@ -272,6 +276,9 @@ router.get('/companies',
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
+    console.log('Query:', query);
+    console.log('Sort options:', sortOptions);
+    
     const companies = await Company.find(query)
       .populate('assignedTo', 'firstName lastName email')
       .populate('createdBy', 'firstName lastName email')
@@ -281,6 +288,10 @@ router.get('/companies',
       .exec();
 
     const total = await Company.countDocuments(query);
+    
+    console.log('Found companies:', companies.length);
+    console.log('Total companies in DB:', total);
+    console.log('Companies:', companies.map(c => ({ id: c._id, name: c.name })));
 
     res.json({
       success: true,
@@ -304,30 +315,64 @@ router.post('/companies', [
   body('name').trim().isLength({ min: 1, max: 100 }).withMessage('Company name is required and must be less than 100 characters'),
   body('industry').trim().isLength({ min: 1, max: 100 }).withMessage('Industry is required and must be less than 100 characters'),
   body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
-  body('website').optional().isURL().withMessage('Valid website URL is required'),
+  body('phone').optional().matches(/^[\+]?[0-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
+  body('website').optional().custom((value) => {
+    if (value && value.trim() !== '') {
+      // Allow simple text if not a full URL
+      if (!value.startsWith('http://') && !value.startsWith('https://')) {
+        return true; // Allow non-URL values
+      }
+      // If it starts with http/https, validate as URL
+      const urlRegex = /^https?:\/\/.+/;
+      if (!urlRegex.test(value)) {
+        throw new Error('Valid website URL is required');
+      }
+    }
+    return true;
+  }).withMessage('Valid website URL is required'),
   body('type').optional().isIn(['Customer', 'Prospect', 'Partner', 'Vendor', 'Competitor', 'Other']).withMessage('Valid type is required'),
   body('size').optional().isIn(['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+']).withMessage('Valid size is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
+  console.log('=== COMPANY CREATION REQUEST ===');
+  console.log('User:', req.user);
+  console.log('Request body:', req.body);
+  
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
     return res.status(400).json({
       success: false,
       errors: errors.array()
     });
   }
 
+  console.log('Creating company with data:', req.body);
+  
   const company = new Company({
     ...req.body,
     createdBy: req.user.id
   });
 
-  await company.save();
+  console.log('Company object before save:', company);
+  
+  try {
+    await company.save();
+    console.log('Company saved successfully:', company._id);
+  } catch (saveError) {
+    console.error('Error saving company to database:', saveError);
+    return res.status(500).json({
+      success: false,
+      message: 'Database error while saving company',
+      error: saveError.message
+    });
+  }
 
   const populatedCompany = await Company.findById(company._id)
     .populate('assignedTo', 'firstName lastName email')
     .populate('createdBy', 'firstName lastName email');
 
+  console.log('Company creation completed successfully');
+  
   res.status(201).json({
     success: true,
     data: populatedCompany
@@ -338,7 +383,7 @@ router.post('/companies', [
 // @desc    Get company by ID
 // @access  Private (CRM and Admin)
 router.get('/companies/:id', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const company = await Company.findById(req.params.id)
       .populate('assignedTo', 'firstName lastName email')
@@ -366,7 +411,7 @@ router.put('/companies/:id', [
   body('industry').optional().trim().isLength({ min: 1, max: 100 }).withMessage('Industry must be less than 100 characters'),
   body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('status').optional().isIn(['Active', 'Inactive', 'Lead', 'Prospect', 'Customer', 'Former Customer']).withMessage('Valid status is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -395,13 +440,43 @@ router.put('/companies/:id', [
   });
 }));
 
+// @route   DELETE /api/crm/companies/:id
+// @desc    Delete company
+// @access  Private (CRM and Admin)
+router.delete('/companies/:id', 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
+  asyncHandler(async (req, res) => {
+    console.log('=== DELETING COMPANY ===');
+    console.log('Company ID:', req.params.id);
+    
+    const company = await Company.findById(req.params.id);
+    
+    if (!company) {
+      console.log('Company not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Company not found'
+      });
+    }
+
+    console.log('Company found, deleting...');
+    await Company.findByIdAndDelete(req.params.id);
+    console.log('Company deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'Company deleted successfully'
+    });
+  })
+);
+
 // ==================== CONTACTS ROUTES ====================
 
 // @route   GET /api/crm/contacts
 // @desc    Get all contacts with filters and pagination
 // @access  Private (CRM and Admin)
 router.get('/contacts', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -469,25 +544,87 @@ router.post('/contacts', [
   body('firstName').trim().isLength({ min: 1, max: 50 }).withMessage('First name is required and must be less than 50 characters'),
   body('lastName').trim().isLength({ min: 1, max: 50 }).withMessage('Last name is required and must be less than 50 characters'),
   body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('company').isMongoId().withMessage('Valid company ID is required'),
-  body('phone').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Valid phone number is required'),
-  body('mobile').optional().matches(/^[\+]?[1-9][\d]{0,15}$/).withMessage('Valid mobile number is required'),
-  body('type').optional().isIn(['Customer', 'Prospect', 'Partner', 'Vendor', 'Other']).withMessage('Valid type is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+  body('company').optional().isString().withMessage('Company must be a string'),
+  body('phone').optional().custom((value) => {
+    if (value && value.trim() !== '') {
+      return /^[\+]?[0-9][\d]{0,15}$/.test(value);
+    }
+    return true;
+  }).withMessage('Valid phone number is required'),
+  body('mobile').optional().custom((value) => {
+    if (value && value.trim() !== '') {
+      return /^[\+]?[0-9][\d]{0,15}$/.test(value);
+    }
+    return true;
+  }).withMessage('Valid mobile number is required'),
+  body('type').optional().isIn(['Customer', 'Prospect', 'Partner', 'Vendor', 'Other']).withMessage('Valid type is required'),
+  body('status').optional().isIn(['Active', 'Inactive', 'Lead', 'Prospect']).withMessage('Valid status is required'),
+  body('preferredContactMethod').optional().isIn(['Email', 'Phone', 'Mobile', 'Mail']).withMessage('Valid preferred contact method is required'),
+  body('doNotContact').optional().custom((value) => {
+    if (value === undefined || value === null || value === '' || value === true || value === false) {
+      return true;
+    }
+    return false;
+  }).withMessage('Do not contact must be a boolean'),
+  body('marketingOptIn').optional().custom((value) => {
+    if (value === undefined || value === null || value === '' || value === true || value === false) {
+      return true;
+    }
+    return false;
+  }).withMessage('Marketing opt-in must be a boolean')
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
+  console.log('=== CREATING CONTACT ===');
+  console.log('Request body:', req.body);
+  
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
     return res.status(400).json({
       success: false,
       errors: errors.array()
     });
   }
 
+  // Handle company field - if it's a string, find or create the company
+  let companyId = null;
+  if (req.body.company && typeof req.body.company === 'string' && req.body.company.trim()) {
+    let company = await Company.findOne({ name: req.body.company.trim() });
+    if (!company) {
+      // Create a new company if it doesn't exist
+      company = new Company({
+        name: req.body.company.trim(),
+        industry: 'Other',
+        type: 'Customer',
+        status: 'Active',
+        createdBy: req.user.id
+      });
+      await company.save();
+    }
+    companyId = company._id;
+  }
+
+  // Clean up the request body - remove empty strings and convert booleans
+  const contactData = { ...req.body };
+  Object.keys(contactData).forEach(key => {
+    if (contactData[key] === '') {
+      delete contactData[key];
+    }
+    // Convert boolean fields
+    if (key === 'doNotContact' || key === 'marketingOptIn') {
+      contactData[key] = Boolean(contactData[key]);
+    }
+  });
+
+  console.log('Contact data to save:', { ...contactData, company: companyId, createdBy: req.user.id });
+  
   const contact = new Contact({
-    ...req.body,
+    ...contactData,
+    company: companyId,
     createdBy: req.user.id
   });
 
   await contact.save();
+  console.log('Contact saved successfully:', contact._id);
 
   const populatedContact = await Contact.findById(contact._id)
     .populate('company', 'name industry')
@@ -504,7 +641,7 @@ router.post('/contacts', [
 // @desc    Get contact by ID
 // @access  Private (CRM and Admin)
 router.get('/contacts/:id', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const contact = await Contact.findById(req.params.id)
       .populate('company', 'name industry')
@@ -532,19 +669,87 @@ router.put('/contacts/:id', [
   body('firstName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('First name must be less than 50 characters'),
   body('lastName').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Last name must be less than 50 characters'),
   body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('status').optional().isIn(['Active', 'Inactive', 'Lead', 'Prospect']).withMessage('Valid status is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+  body('phone').optional().custom((value) => {
+    if (value && value !== '') {
+      const phoneRegex = /^[\+]?[0-9][\d]{0,15}$/;
+      if (!phoneRegex.test(value)) {
+        throw new Error('Please enter a valid phone number');
+      }
+    }
+    return true;
+  }),
+  body('mobile').optional().custom((value) => {
+    if (value && value !== '') {
+      const phoneRegex = /^[\+]?[0-9][\d]{0,15}$/;
+      if (!phoneRegex.test(value)) {
+        throw new Error('Please enter a valid mobile number');
+      }
+    }
+    return true;
+  }),
+  body('company').optional().isString().withMessage('Company must be a string'),
+  body('status').optional().isIn(['Active', 'Inactive', 'Lead', 'Prospect']).withMessage('Valid status is required'),
+  body('type').optional().isIn(['Customer', 'Prospect', 'Partner', 'Vendor', 'Other']).withMessage('Valid type is required'),
+  body('doNotContact').optional().custom((value) => {
+    if (value !== undefined && value !== null && value !== '' && value !== true && value !== false) {
+      throw new Error('doNotContact must be a boolean');
+    }
+    return true;
+  }),
+  body('marketingOptIn').optional().custom((value) => {
+    if (value !== undefined && value !== null && value !== '' && value !== true && value !== false) {
+      throw new Error('marketingOptIn must be a boolean');
+    }
+    return true;
+  })
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
+  console.log('=== UPDATING CONTACT ===');
+  console.log('Request body:', req.body);
+  
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
     return res.status(400).json({
       success: false,
       errors: errors.array()
     });
   }
 
+  // Handle company field - if it's a string, find or create the company
+  let companyId = null;
+  if (req.body.company && typeof req.body.company === 'string' && req.body.company.trim()) {
+    let company = await Company.findOne({ name: req.body.company.trim() });
+    if (!company) {
+      // Create a new company if it doesn't exist
+      company = new Company({
+        name: req.body.company.trim(),
+        industry: 'Other',
+        type: 'Customer',
+        status: 'Active',
+        createdBy: req.user.id
+      });
+      await company.save();
+    }
+    companyId = company._id;
+  }
+
+  // Clean up the request body - remove empty strings and convert booleans
+  const contactData = { ...req.body };
+  Object.keys(contactData).forEach(key => {
+    if (contactData[key] === '') {
+      delete contactData[key];
+    }
+    // Convert boolean fields
+    if (key === 'doNotContact' || key === 'marketingOptIn') {
+      contactData[key] = Boolean(contactData[key]);
+    }
+  });
+
+  console.log('Contact data to update:', { ...contactData, company: companyId });
+
   const contact = await Contact.findByIdAndUpdate(
     req.params.id,
-    req.body,
+    { ...contactData, company: companyId },
     { new: true, runValidators: true }
   ).populate('company', 'name industry')
    .populate('assignedTo', 'firstName lastName email')
@@ -563,13 +768,34 @@ router.put('/contacts/:id', [
   });
 }));
 
+// @route   DELETE /api/crm/contacts/:id
+// @desc    Delete contact
+// @access  Private (CRM and Admin)
+router.delete('/contacts/:id', authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
+  const contact = await Contact.findById(req.params.id);
+  
+  if (!contact) {
+    return res.status(404).json({
+      success: false,
+      message: 'Contact not found'
+    });
+  }
+
+  await Contact.findByIdAndDelete(req.params.id);
+
+  res.json({
+    success: true,
+    message: 'Contact deleted successfully'
+  });
+}));
+
 // ==================== OPPORTUNITIES ROUTES ====================
 
 // @route   GET /api/crm/opportunities
 // @desc    Get all opportunities with filters and pagination
 // @access  Private (CRM and Admin)
 router.get('/opportunities', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -632,24 +858,91 @@ router.get('/opportunities',
 // @access  Private (CRM and Admin)
 router.post('/opportunities', [
   body('title').trim().isLength({ min: 1, max: 200 }).withMessage('Title is required and must be less than 200 characters'),
-  body('company').isMongoId().withMessage('Valid company ID is required'),
+  body('company').notEmpty().withMessage('Company is required'),
   body('stage').isIn(['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']).withMessage('Valid stage is required'),
   body('amount').isFloat({ min: 0 }).withMessage('Valid amount is required'),
-  body('expectedCloseDate').isISO8601().withMessage('Valid expected close date is required'),
+  body('expectedCloseDate').isDate().withMessage('Valid expected close date is required'),
   body('assignedTo').isMongoId().withMessage('Valid assigned user ID is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
+  console.log('=== CREATING OPPORTUNITY ===');
+  console.log('Request body:', req.body);
+  console.log('Contact field value:', req.body.contact);
+  console.log('Contact field type:', typeof req.body.contact);
+  
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
     return res.status(400).json({
       success: false,
       errors: errors.array()
     });
   }
 
-  const opportunity = new Opportunity({
-    ...req.body,
+  // Handle company - find by name or use as ID
+  let companyId = req.body.company;
+  if (req.body.company && !req.body.company.match(/^[0-9a-fA-F]{24}$/)) {
+    // It's a company name, find or create the company
+    let company = await Company.findOne({ name: { $regex: new RegExp(`^${req.body.company}$`, 'i') } });
+    if (!company) {
+      company = new Company({ 
+        name: req.body.company,
+        industry: 'Other', // Default industry
+        createdBy: req.user.id // Set the creator
+      });
+      await company.save();
+    }
+    companyId = company._id;
+  }
+
+  // Handle contact - find by name or use as ID
+  let contactId = req.body.contact;
+  if (req.body.contact && req.body.contact.trim() !== '') {
+    // Check if it's a valid ObjectId
+    if (req.body.contact.match(/^[0-9a-fA-F]{24}$/)) {
+      // It's a valid ObjectId, verify the contact exists
+      const contact = await Contact.findById(req.body.contact);
+      if (!contact) {
+        contactId = null; // Contact doesn't exist
+      }
+    } else {
+      // It's a contact name, find the contact
+      const contact = await Contact.findOne({ 
+        $or: [
+          { firstName: { $regex: new RegExp(`^${req.body.contact}$`, 'i') } },
+          { lastName: { $regex: new RegExp(`^${req.body.contact}$`, 'i') } },
+          { email: { $regex: new RegExp(`^${req.body.contact}$`, 'i') } }
+        ]
+      });
+      if (contact) {
+        contactId = contact._id;
+      } else {
+        contactId = null; // Don't set contact if not found
+      }
+    }
+  } else {
+    contactId = null; // Don't set contact if empty
+  }
+  
+  console.log('Contact ID after processing:', contactId);
+
+  // Remove contact from req.body to avoid conflicts
+  const { contact, ...reqBodyWithoutContact } = req.body;
+  
+  const opportunityData = {
+    ...reqBodyWithoutContact,
+    company: companyId,
     createdBy: req.user.id
-  });
+  };
+
+  // Only add contact if it's provided and valid
+  if (contactId && contactId !== null) {
+    opportunityData.contact = contactId;
+  }
+  
+  console.log('Final opportunity data:', opportunityData);
+  console.log('Contact field in final data:', opportunityData.contact);
+
+  const opportunity = new Opportunity(opportunityData);
 
   await opportunity.save();
 
@@ -658,6 +951,8 @@ router.post('/opportunities', [
     .populate('contact', 'firstName lastName email')
     .populate('assignedTo', 'firstName lastName email')
     .populate('createdBy', 'firstName lastName email');
+
+  console.log('Opportunity created successfully:', opportunity._id);
 
   res.status(201).json({
     success: true,
@@ -669,7 +964,7 @@ router.post('/opportunities', [
 // @desc    Get opportunity by ID
 // @access  Private (CRM and Admin)
 router.get('/opportunities/:id', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const opportunity = await Opportunity.findById(req.params.id)
       .populate('company', 'name industry')
@@ -698,19 +993,70 @@ router.put('/opportunities/:id', [
   body('title').optional().trim().isLength({ min: 1, max: 200 }).withMessage('Title must be less than 200 characters'),
   body('stage').optional().isIn(['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']).withMessage('Valid stage is required'),
   body('amount').optional().isFloat({ min: 0 }).withMessage('Valid amount is required'),
-  body('expectedCloseDate').optional().isISO8601().withMessage('Valid expected close date is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+  body('expectedCloseDate').optional().isDate().withMessage('Valid expected close date is required')
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
+  console.log('=== UPDATING OPPORTUNITY ===');
+  console.log('Request body:', req.body);
+  
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
     return res.status(400).json({
       success: false,
       errors: errors.array()
     });
   }
 
+  // Remove contact from req.body to avoid conflicts
+  const { contact, ...reqBodyWithoutContact } = req.body;
+  
+  // Handle company - find by name or use as ID
+  let updateData = { ...reqBodyWithoutContact };
+  if (req.body.company && !req.body.company.match(/^[0-9a-fA-F]{24}$/)) {
+    // It's a company name, find or create the company
+    let company = await Company.findOne({ name: { $regex: new RegExp(`^${req.body.company}$`, 'i') } });
+    if (!company) {
+      company = new Company({ 
+        name: req.body.company,
+        industry: 'Other', // Default industry
+        createdBy: req.user.id // Set the creator
+      });
+      await company.save();
+    }
+    updateData.company = company._id;
+  }
+
+  // Handle contact - find by name or use as ID
+  if (req.body.contact && req.body.contact.trim() !== '') {
+    // Check if it's a valid ObjectId
+    if (req.body.contact.match(/^[0-9a-fA-F]{24}$/)) {
+      // It's a valid ObjectId, verify the contact exists
+      const contact = await Contact.findById(req.body.contact);
+      if (!contact) {
+        updateData.contact = null; // Contact doesn't exist
+      }
+    } else {
+      // It's a contact name, find the contact
+      const contact = await Contact.findOne({ 
+        $or: [
+          { firstName: { $regex: new RegExp(`^${req.body.contact}$`, 'i') } },
+          { lastName: { $regex: new RegExp(`^${req.body.contact}$`, 'i') } },
+          { email: { $regex: new RegExp(`^${req.body.contact}$`, 'i') } }
+        ]
+      });
+      if (contact) {
+        updateData.contact = contact._id;
+      } else {
+        updateData.contact = null; // Remove contact if not found
+      }
+    }
+  } else {
+    updateData.contact = null; // Remove contact if empty
+  }
+
   const opportunity = await Opportunity.findByIdAndUpdate(
     req.params.id,
-    req.body,
+    updateData,
     { new: true, runValidators: true }
   ).populate('company', 'name industry')
    .populate('contact', 'firstName lastName email')
@@ -724,11 +1070,43 @@ router.put('/opportunities/:id', [
     });
   }
 
+  console.log('Opportunity updated successfully:', opportunity._id);
+
   res.json({
     success: true,
     data: opportunity
   });
 }));
+
+// @route   DELETE /api/crm/opportunities/:id
+// @desc    Delete opportunity
+// @access  Private (CRM and Admin)
+router.delete('/opportunities/:id', 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
+  asyncHandler(async (req, res) => {
+    console.log('=== DELETING OPPORTUNITY ===');
+    console.log('Opportunity ID:', req.params.id);
+    
+    const opportunity = await Opportunity.findById(req.params.id);
+    
+    if (!opportunity) {
+      console.log('Opportunity not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Opportunity not found'
+      });
+    }
+
+    console.log('Opportunity found, deleting...');
+    await Opportunity.findByIdAndDelete(req.params.id);
+    console.log('Opportunity deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'Opportunity deleted successfully'
+    });
+  })
+);
 
 // @route   POST /api/crm/opportunities/:id/activities
 // @desc    Add activity to opportunity
@@ -737,9 +1115,10 @@ router.post('/opportunities/:id/activities', [
   body('type').isIn(['Call', 'Email', 'Meeting', 'Proposal', 'Follow-up', 'Other']).withMessage('Valid activity type is required'),
   body('subject').trim().isLength({ min: 1, max: 200 }).withMessage('Subject is required and must be less than 200 characters'),
   body('description').optional().trim().isLength({ max: 1000 }).withMessage('Description must be less than 1000 characters'),
+  body('date').isDate().withMessage('Valid activity date is required'),
   body('duration').optional().isInt({ min: 0 }).withMessage('Duration must be a positive integer'),
   body('outcome').optional().trim().isLength({ max: 500 }).withMessage('Outcome must be less than 500 characters')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('admin', 'crm_manager', 'sales_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -779,7 +1158,7 @@ router.post('/opportunities/:id/activities', [
 // @desc    Get CRM dashboard statistics
 // @access  Private (CRM and Admin)
 router.get('/dashboard', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const [
       totalLeads,
@@ -812,9 +1191,9 @@ router.get('/dashboard',
           }
         }
       ]),
-      Opportunity.getPipelineSummary(),
+      Opportunity.getPipeline(),
       Opportunity.find()
-        .sort({ 'activities.date': -1 })
+        .sort({ createdAt: -1 })
         .limit(10)
         .populate('company', 'name')
         .populate('assignedTo', 'firstName lastName')
@@ -844,7 +1223,7 @@ router.get('/dashboard',
 // @desc    Get users for assignment dropdowns
 // @access  Private (CRM and Admin)
 router.get('/users', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('admin', 'crm_manager', 'sales_manager'), 
   asyncHandler(async (req, res) => {
     const users = await User.find({ isActive: true })
       .select('firstName lastName email role')

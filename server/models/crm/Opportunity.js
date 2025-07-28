@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 
 const opportunitySchema = new mongoose.Schema({
-  // Basic Information
   title: {
     type: String,
     required: [true, 'Opportunity title is required'],
@@ -10,10 +9,75 @@ const opportunitySchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    maxlength: [2000, 'Description cannot exceed 2000 characters']
+    trim: true,
+    maxlength: [1000, 'Description cannot exceed 1000 characters']
   },
-
-  // Company and Contact Information
+  stage: {
+    type: String,
+    required: [true, 'Stage is required'],
+    enum: {
+      values: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost'],
+      message: 'Please select a valid stage'
+    },
+    default: 'Prospecting'
+  },
+  probability: {
+    type: Number,
+    min: [0, 'Probability cannot be negative'],
+    max: [100, 'Probability cannot exceed 100%'],
+    default: 10
+  },
+  amount: {
+    type: Number,
+    required: [true, 'Amount is required'],
+    min: [0, 'Amount cannot be negative']
+  },
+  currency: {
+    type: String,
+    default: 'USD',
+    enum: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'INR', 'PKR']
+  },
+  expectedCloseDate: {
+    type: Date,
+    required: [true, 'Expected close date is required']
+  },
+  actualCloseDate: {
+    type: Date
+  },
+  closeReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Close reason cannot exceed 500 characters']
+  },
+  lossReason: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Loss reason cannot exceed 500 characters']
+  },
+  source: {
+    type: String,
+    enum: {
+      values: ['Website', 'Referral', 'Cold Call', 'Email Campaign', 'Social Media', 'Trade Show', 'Advertisement', 'Partner', 'Other'],
+      message: 'Please select a valid source'
+    },
+    default: 'Other'
+  },
+  priority: {
+    type: String,
+    enum: {
+      values: ['Low', 'Medium', 'High', 'Urgent'],
+      message: 'Please select a valid priority'
+    },
+    default: 'Medium'
+  },
+  type: {
+    type: String,
+    enum: {
+      values: ['New Business', 'Existing Business', 'Renewal', 'Upsell', 'Cross-sell'],
+      message: 'Please select a valid opportunity type'
+    },
+    default: 'New Business'
+  },
   company: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Company',
@@ -23,102 +87,111 @@ const opportunitySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Contact'
   },
-
-  // Opportunity Details
-  stage: {
-    type: String,
-    required: [true, 'Stage is required'],
-    enum: ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost'],
-    default: 'Prospecting'
-  },
-  probability: {
-    type: Number,
-    min: 0,
-    max: 100,
-    default: 10
-  },
-  expectedCloseDate: {
-    type: Date,
-    required: [true, 'Expected close date is required']
-  },
-  actualCloseDate: {
-    type: Date
-  },
-
-  // Financial Information
-  amount: {
-    type: Number,
-    required: [true, 'Amount is required'],
-    min: [0, 'Amount cannot be negative']
-  },
-  currency: {
-    type: String,
-    default: 'USD'
-  },
-  type: {
-    type: String,
-    enum: ['New Business', 'Existing Business', 'Renewal', 'Up-sell', 'Cross-sell'],
-    default: 'New Business'
-  },
-
-  // Lead Source
-  leadSource: {
-    type: String,
-    enum: ['Website', 'Referral', 'Cold Call', 'Trade Show', 'Advertisement', 'Email Campaign', 'Social Media', 'Other'],
-    default: 'Website'
-  },
-
-  // Assignment
   assignedTo: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Assigned user is required']
+    required: [true, 'Opportunity must be assigned to someone']
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: [true, 'Creator is required']
   },
-
-  // Activities and Notes
+  campaign: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Campaign'
+  },
+  competitors: [{
+    name: {
+      type: String,
+      trim: true,
+      required: true
+    },
+    strength: {
+      type: String,
+      enum: ['Weak', 'Medium', 'Strong'],
+      default: 'Medium'
+    },
+    notes: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Competitor notes cannot exceed 500 characters']
+    }
+  }],
+  products: [{
+    name: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: [1, 'Quantity must be at least 1']
+    },
+    unitPrice: {
+      type: Number,
+      required: true,
+      min: [0, 'Unit price cannot be negative']
+    },
+    discount: {
+      type: Number,
+      min: [0, 'Discount cannot be negative'],
+      max: [100, 'Discount cannot exceed 100%'],
+      default: 0
+    },
+    totalPrice: {
+      type: Number,
+      required: true,
+      min: [0, 'Total price cannot be negative']
+    }
+  }],
   activities: [{
     type: {
       type: String,
-      enum: ['Call', 'Email', 'Meeting', 'Proposal', 'Follow-up', 'Other'],
+      enum: ['Call', 'Email', 'Meeting', 'Proposal', 'Follow-up', 'Demo', 'Quote', 'Other'],
       required: true
     },
     subject: {
       type: String,
       required: true,
-      maxlength: [200, 'Subject cannot exceed 200 characters']
+      trim: true,
+      maxlength: [200, 'Activity subject cannot exceed 200 characters']
     },
     description: {
       type: String,
-      maxlength: [1000, 'Description cannot exceed 1000 characters']
+      trim: true,
+      maxlength: [1000, 'Activity description cannot exceed 1000 characters']
     },
     date: {
       type: Date,
-      default: Date.now
+      required: true
     },
     duration: {
-      type: Number, // in minutes
-      min: 0
+      type: Number,
+      min: [0, 'Duration cannot be negative'],
+      default: 0
     },
     outcome: {
       type: String,
-      maxlength: [500, 'Outcome cannot exceed 500 characters']
+      trim: true,
+      maxlength: [500, 'Activity outcome cannot exceed 500 characters']
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
     }
   }],
-
   notes: [{
     content: {
       type: String,
       required: true,
+      trim: true,
       maxlength: [1000, 'Note content cannot exceed 1000 characters']
     },
     createdBy: {
@@ -131,84 +204,96 @@ const opportunitySchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-
-  // Products/Services
-  products: [{
-    name: {
+  attachments: [{
+    filename: {
       type: String,
-      required: true,
-      maxlength: [100, 'Product name cannot exceed 100 characters']
+      required: true
     },
-    description: {
+    originalName: {
       type: String,
-      maxlength: [500, 'Product description cannot exceed 500 characters']
+      required: true
     },
-    quantity: {
-      type: Number,
-      default: 1,
-      min: [1, 'Quantity must be at least 1']
+    path: {
+      type: String,
+      required: true
     },
-    unitPrice: {
+    size: {
       type: Number,
-      required: true,
-      min: [0, 'Unit price cannot be negative']
+      required: true
     },
-    totalPrice: {
-      type: Number,
-      required: true,
-      min: [0, 'Total price cannot be negative']
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
     }
   }],
-
-  // Competition
-  competitors: [{
-    name: {
-      type: String,
-      required: true,
-      maxlength: [100, 'Competitor name cannot exceed 100 characters']
-    },
-    strengths: {
-      type: String,
-      maxlength: [500, 'Strengths cannot exceed 500 characters']
-    },
-    weaknesses: {
-      type: String,
-      maxlength: [500, 'Weaknesses cannot exceed 500 characters']
-    }
-  }],
-
-  // Tags
   tags: [{
     type: String,
-    trim: true,
-    maxlength: [50, 'Tag cannot exceed 50 characters']
+    trim: true
   }],
-
-  // Custom Fields
   customFields: {
     type: Map,
-    of: String
+    of: mongoose.Schema.Types.Mixed
   }
 }, {
-  timestamps: true
-});
-
-// Indexes for better performance
-opportunitySchema.index({ company: 1 });
-opportunitySchema.index({ assignedTo: 1 });
-opportunitySchema.index({ stage: 1 });
-opportunitySchema.index({ expectedCloseDate: 1 });
-opportunitySchema.index({ amount: -1 });
-opportunitySchema.index({ createdAt: -1 });
-
-// Virtual for total products value
-opportunitySchema.virtual('productsTotal').get(function() {
-  return this.products.reduce((total, product) => total + product.totalPrice, 0);
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 // Virtual for weighted amount
 opportunitySchema.virtual('weightedAmount').get(function() {
   return (this.amount * this.probability) / 100;
+});
+
+// Virtual for days until close
+opportunitySchema.virtual('daysUntilClose').get(function() {
+  if (this.expectedCloseDate) {
+    const now = new Date();
+    const diffTime = this.expectedCloseDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  }
+  return null;
+});
+
+// Virtual for total products value
+opportunitySchema.virtual('totalProductsValue').get(function() {
+  return this.products.reduce((total, product) => {
+    const discountedPrice = product.unitPrice * (1 - product.discount / 100);
+    return total + (discountedPrice * product.quantity);
+  }, 0);
+});
+
+// Virtual for isOverdue
+opportunitySchema.virtual('isOverdue').get(function() {
+  if (this.expectedCloseDate && this.stage !== 'Closed Won' && this.stage !== 'Closed Lost') {
+    return new Date() > this.expectedCloseDate;
+  }
+  return false;
+});
+
+// Indexes for better query performance
+opportunitySchema.index({ stage: 1, expectedCloseDate: 1 });
+opportunitySchema.index({ assignedTo: 1 });
+opportunitySchema.index({ company: 1 });
+opportunitySchema.index({ amount: -1 });
+opportunitySchema.index({ createdAt: -1 });
+opportunitySchema.index({ tags: 1 });
+
+// Pre-save middleware to calculate total price for products
+opportunitySchema.pre('save', function(next) {
+  if (this.products && this.products.length > 0) {
+    this.products.forEach(product => {
+      const discountedPrice = product.unitPrice * (1 - product.discount / 100);
+      product.totalPrice = discountedPrice * product.quantity;
+    });
+  }
+  next();
 });
 
 // Method to add activity
@@ -227,80 +312,72 @@ opportunitySchema.methods.addNote = function(content, userId) {
 };
 
 // Method to update stage
-opportunitySchema.methods.updateStage = function(newStage) {
+opportunitySchema.methods.updateStage = function(newStage, reason = '') {
   this.stage = newStage;
   
-  // Update probability based on stage
-  const stageProbabilities = {
-    'Prospecting': 10,
-    'Qualification': 25,
-    'Proposal': 50,
-    'Negotiation': 75,
-    'Closed Won': 100,
-    'Closed Lost': 0
-  };
-  
-  this.probability = stageProbabilities[newStage] || this.probability;
-  
-  // If closed, set actual close date
   if (newStage === 'Closed Won' || newStage === 'Closed Lost') {
     this.actualCloseDate = new Date();
+    if (newStage === 'Closed Lost') {
+      this.lossReason = reason;
+    } else {
+      this.closeReason = reason;
+    }
   }
   
   return this.save();
 };
 
-// Static method to get opportunities by stage
-opportunitySchema.statics.getOpportunitiesByStage = function(stage) {
-  return this.find({ stage })
-    .populate('company', 'name industry')
-    .populate('contact', 'firstName lastName email')
-    .populate('assignedTo', 'firstName lastName email');
+// Static method to get opportunity statistics
+opportunitySchema.statics.getStats = async function() {
+  const stats = await this.aggregate([
+    {
+      $group: {
+        _id: null,
+        totalOpportunities: { $sum: 1 },
+        totalValue: { $sum: '$amount' },
+        weightedValue: { $sum: { $multiply: ['$amount', { $divide: ['$probability', 100] }] } },
+        avgProbability: { $avg: '$probability' },
+        closedWon: {
+          $sum: { $cond: [{ $eq: ['$stage', 'Closed Won'] }, 1, 0] }
+        },
+        closedLost: {
+          $sum: { $cond: [{ $eq: ['$stage', 'Closed Lost'] }, 1, 0] }
+        },
+        openOpportunities: {
+          $sum: { $cond: [{ $nin: ['$stage', ['Closed Won', 'Closed Lost']] }, 1, 0] }
+        }
+      }
+    }
+  ]);
+  
+  return stats[0] || {
+    totalOpportunities: 0,
+    totalValue: 0,
+    weightedValue: 0,
+    avgProbability: 0,
+    closedWon: 0,
+    closedLost: 0,
+    openOpportunities: 0
+  };
 };
 
-// Static method to get opportunities by assigned user
-opportunitySchema.statics.getOpportunitiesByUser = function(userId) {
-  return this.find({ assignedTo: userId })
-    .populate('company', 'name industry')
-    .populate('contact', 'firstName lastName email')
-    .populate('assignedTo', 'firstName lastName email');
-};
-
-// Static method to get opportunities by company
-opportunitySchema.statics.getOpportunitiesByCompany = function(companyId) {
-  return this.find({ company: companyId })
-    .populate('company', 'name industry')
-    .populate('contact', 'firstName lastName email')
-    .populate('assignedTo', 'firstName lastName email');
-};
-
-// Static method to get pipeline summary
-opportunitySchema.statics.getPipelineSummary = function() {
-  return this.aggregate([
+// Static method to get pipeline by stage
+opportunitySchema.statics.getPipeline = async function() {
+  const pipeline = await this.aggregate([
     {
       $group: {
         _id: '$stage',
         count: { $sum: 1 },
-        totalAmount: { $sum: '$amount' },
-        weightedAmount: { $sum: { $multiply: ['$amount', { $divide: ['$probability', 100] }] } }
+        totalValue: { $sum: '$amount' },
+        avgProbability: { $avg: '$probability' }
       }
     },
     {
       $sort: { _id: 1 }
     }
   ]);
+  
+  return pipeline;
 };
-
-// Pre-save middleware to calculate product totals
-opportunitySchema.pre('save', function(next) {
-  // Calculate total amount from products if not set
-  if (this.products && this.products.length > 0) {
-    this.amount = this.products.reduce((total, product) => {
-      product.totalPrice = product.quantity * product.unitPrice;
-      return total + product.totalPrice;
-    }, 0);
-  }
-  next();
-});
 
 module.exports = mongoose.model('Opportunity', opportunitySchema); 

@@ -41,6 +41,11 @@ export const authService = {
     return api.get('/auth/users', { params });
   },
 
+  // Admin: Create user
+  createUser: async (userData) => {
+    return api.post('/auth/users', userData);
+  },
+
   // Admin: Get user by ID
   getUser: async (userId) => {
     return api.get(`/auth/users/${userId}`);

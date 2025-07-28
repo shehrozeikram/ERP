@@ -71,7 +71,14 @@ const crmService = {
 
   // Get all contacts with filters and pagination
   getContacts: async (params = {}) => {
-    return api.get('/crm/contacts', { params });
+    return api.get('/crm/contacts', { 
+      params,
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
   },
 
   // Get contact by ID
@@ -92,6 +99,33 @@ const crmService = {
   // Delete contact
   deleteContact: async (id) => {
     return api.delete(`/crm/contacts/${id}`);
+  },
+
+  // ==================== COMPANIES ====================
+
+  // Get all companies with filters and pagination
+  getCompanies: async (params = {}) => {
+    return api.get('/crm/companies', { params });
+  },
+
+  // Get company by ID
+  getCompany: async (id) => {
+    return api.get(`/crm/companies/${id}`);
+  },
+
+  // Create new company
+  createCompany: async (companyData) => {
+    return api.post('/crm/companies', companyData);
+  },
+
+  // Update company
+  updateCompany: async (id, companyData) => {
+    return api.put(`/crm/companies/${id}`, companyData);
+  },
+
+  // Delete company
+  deleteCompany: async (id) => {
+    return api.delete(`/crm/companies/${id}`);
   },
 
   // ==================== OPPORTUNITIES ====================
@@ -126,6 +160,95 @@ const crmService = {
     return api.post(`/crm/opportunities/${id}/activities`, activityData);
   },
 
+  // Add note to opportunity
+  addOpportunityNote: async (id, noteData) => {
+    return api.post(`/crm/opportunities/${id}/notes`, noteData);
+  },
+
+  // ==================== CAMPAIGNS ====================
+
+  // Get all campaigns with filters and pagination
+  getCampaigns: async (params = {}) => {
+    return api.get('/campaigns', { 
+      params,
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
+  },
+
+  // Get campaign by ID
+  getCampaign: async (id) => {
+    return api.get(`/campaigns/${id}`);
+  },
+
+  // Create new campaign
+  createCampaign: async (campaignData) => {
+    return api.post('/campaigns', campaignData);
+  },
+
+  // Update campaign
+  updateCampaign: async (id, campaignData) => {
+    return api.put(`/campaigns/${id}`, campaignData);
+  },
+
+  // Delete campaign
+  deleteCampaign: async (id) => {
+    return api.delete(`/campaigns/${id}`);
+  },
+
+  // Update campaign metrics
+  updateCampaignMetrics: async (id, metricsData) => {
+    return api.put(`/campaigns/${id}/metrics`, metricsData);
+  },
+
+  // Add note to campaign
+  addCampaignNote: async (id, noteData) => {
+    return api.post(`/campaigns/${id}/notes`, noteData);
+  },
+
+  // Get campaign statistics
+  getCampaignStats: async () => {
+    return api.get('/campaigns/stats');
+  },
+
+  // ==================== REPORTS ====================
+
+  // Get dashboard report
+  getDashboardReport: async (params = {}) => {
+    return api.get('/reports/dashboard', { params });
+  },
+
+  // Get sales pipeline report
+  getSalesPipelineReport: async (params = {}) => {
+    return api.get('/reports/sales-pipeline', { params });
+  },
+
+  // Get lead conversion report
+  getLeadConversionReport: async (params = {}) => {
+    return api.get('/reports/lead-conversion', { params });
+  },
+
+  // Get campaign performance report
+  getCampaignPerformanceReport: async (params = {}) => {
+    return api.get('/reports/campaign-performance', { params });
+  },
+
+  // Get user performance report
+  getUserPerformanceReport: async (params = {}) => {
+    return api.get('/reports/user-performance', { params });
+  },
+
+  // Export report
+  exportReport: async (type, format = 'json', params = {}) => {
+    return api.get(`/reports/export/${type}`, { 
+      params: { ...params, format },
+      responseType: format === 'csv' ? 'blob' : 'json'
+    });
+  },
+
   // ==================== USERS ====================
 
   // Get users for assignment dropdowns
@@ -136,10 +259,12 @@ const crmService = {
   // ==================== UTILITY FUNCTIONS ====================
 
   // Format currency
-  formatCurrency: (amount, currency = 'USD') => {
-    return new Intl.NumberFormat('en-US', {
+  formatCurrency: (amount, currency = 'PKR') => {
+    return new Intl.NumberFormat('en-PK', {
       style: 'currency',
-      currency: currency
+      currency: currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(amount);
   },
 

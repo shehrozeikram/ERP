@@ -332,6 +332,103 @@ router.post('/logout', authMiddleware, asyncHandler(async (req, res) => {
   });
 }));
 
+// @route   POST /api/auth/users
+// @desc    Create a new user (Admin only)
+// @access  Private (Admin)
+router.post('/users', [
+  authMiddleware,
+  authorize('admin'),
+  body('firstName')
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('First name must be between 2 and 50 characters'),
+  body('lastName')
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Last name must be between 2 and 50 characters'),
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please enter a valid email'),
+  body('password')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long'),
+  body('department')
+    .isIn(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'])
+    .withMessage('Invalid department'),
+  body('position')
+    .trim()
+    .notEmpty()
+    .withMessage('Position is required'),
+  body('employeeId')
+    .trim()
+    .notEmpty()
+    .withMessage('Employee ID is required'),
+  body('role')
+    .optional()
+    .isIn(['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'])
+    .withMessage('Invalid role')
+], asyncHandler(async (req, res) => {
+  // Check for validation errors
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const {
+    firstName,
+    lastName,
+    email,
+    password,
+    department,
+    position,
+    employeeId,
+    phone,
+    role = 'employee'
+  } = req.body;
+
+  // Check if user already exists
+  const existingUser = await User.findOne({
+    $or: [{ email }, { employeeId }]
+  });
+
+  if (existingUser) {
+    return res.status(400).json({
+      success: false,
+      message: existingUser.email === email 
+        ? 'Email already registered' 
+        : 'Employee ID already exists'
+    });
+  }
+
+  // Create new user
+  const user = new User({
+    firstName,
+    lastName,
+    email,
+    password,
+    department,
+    position,
+    employeeId,
+    phone,
+    role
+  });
+
+  await user.save();
+
+  res.status(201).json({
+    success: true,
+    message: 'User created successfully',
+    data: {
+      user: user.getProfile()
+    }
+  });
+}));
+
 // @route   GET /api/auth/users
 // @desc    Get all users (Admin only)
 // @access  Private (Admin)
