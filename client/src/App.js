@@ -42,6 +42,10 @@ import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
 import NotFound from './pages/NotFound/NotFound';
 import FBRTaxManagement from './pages/HR/FBRTaxManagement';
+import LoanManagement from './pages/HR/LoanManagement';
+import LoanForm from './pages/HR/LoanForm';
+import LoanDetail from './pages/HR/LoanDetail';
+import LoanStatistics from './pages/HR/LoanStatistics';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -198,6 +202,28 @@ function App() {
             <Route
               path="/hr/fbr-tax"
               element={<ProtectedRoute><FBRTaxManagement /></ProtectedRoute>}
+            />
+
+            {/* Loan Management Routes */}
+            <Route
+              path="/hr/loans"
+              element={<ProtectedRoute><LoanManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/loans/statistics"
+              element={<ProtectedRoute><LoanStatistics /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/loans/new"
+              element={<ProtectedRoute><LoanForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/loans/:id"
+              element={<ProtectedRoute><LoanDetail /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/loans/:id/edit"
+              element={<ProtectedRoute><LoanForm /></ProtectedRoute>}
             />
 
             {/* Finance Module */}

@@ -32,6 +32,7 @@ const locationRoutes = require('./routes/locations');
 const cityRoutes = require('./routes/cities');
 const provinceRoutes = require('./routes/provinces');
 const countryRoutes = require('./routes/countries');
+const loanRoutes = require('./routes/loans');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -113,6 +114,7 @@ app.use('/api/locations', authMiddleware, locationRoutes);
 app.use('/api/cities', authMiddleware, cityRoutes);
 app.use('/api/provinces', authMiddleware, provinceRoutes);
 app.use('/api/countries', authMiddleware, countryRoutes);
+app.use('/api/loans', authMiddleware, loanRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

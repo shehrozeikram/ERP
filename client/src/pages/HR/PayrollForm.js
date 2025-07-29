@@ -43,6 +43,7 @@ import * as Yup from 'yup';
 import { format } from 'date-fns';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
+import { loanService } from '../../services/loanService';
 
 const steps = ['Basic Information', 'Salary & Allowances', 'Deductions & Overtime', 'Review & Calculate'];
 
@@ -54,6 +55,7 @@ const PayrollForm = () => {
   const [error, setError] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [employeeLoans, setEmployeeLoans] = useState([]);
 
   // Add tax calculation display
   const [taxInfo, setTaxInfo] = useState(null);
@@ -161,12 +163,37 @@ const PayrollForm = () => {
         setLoading(true);
         setError(null);
 
+        let savedPayroll;
         if (id && id !== 'add') {
           console.log('Updating existing payroll:', id);
-          await api.put(`/payroll/${id}`, values);
+          savedPayroll = await api.put(`/payroll/${id}`, values);
         } else {
           console.log('Creating new payroll');
-          await api.post('/payroll', values);
+          savedPayroll = await api.post('/payroll', values);
+        }
+
+        // Process loan payment if there's a loan deduction
+        if (values.deductions.loan > 0 && employeeLoans.length > 0) {
+          const activeLoan = employeeLoans.find(loan => 
+            ['Active', 'Disbursed'].includes(loan.status) && loan.outstandingBalance > 0
+          );
+          
+          if (activeLoan) {
+            try {
+              await loanService.processPayment(activeLoan._id, {
+                amount: values.deductions.loan,
+                paymentMethod: 'Salary Deduction'
+              });
+              console.log('Loan payment processed successfully');
+              
+              // Refresh loan information to get updated outstanding balance
+              await fetchEmployeeLoans(values.employee);
+            } catch (loanError) {
+              console.error('Error processing loan payment:', loanError);
+              // Don't fail the payroll save if loan payment fails
+              setError('Payroll saved but loan payment failed: ' + (loanError.response?.data?.message || loanError.message));
+            }
+          }
         }
 
         console.log('Payroll saved successfully');
@@ -188,12 +215,54 @@ const PayrollForm = () => {
     }
   }, [id]);
 
+  // Update loan deduction when employee loans change
+  useEffect(() => {
+    if (employeeLoans.length > 0 && selectedEmployee) {
+      const activeLoan = employeeLoans.find(loan => 
+        ['Active', 'Disbursed'].includes(loan.status) && loan.outstandingBalance > 0
+      );
+      
+      if (activeLoan) {
+        // Recalculate loan deduction based on updated outstanding balance
+        if (activeLoan.salaryDeduction?.enabled) {
+          let loanDeduction = 0;
+          
+          if (activeLoan.salaryDeduction.deductionType === 'Fixed Amount') {
+            loanDeduction = parseFloat(activeLoan.salaryDeduction.fixedAmount) || 0;
+          } else if (activeLoan.salaryDeduction.deductionType === 'Percentage') {
+            const percentage = parseFloat(activeLoan.salaryDeduction.percentage) || 0;
+            loanDeduction = (formik.values.basicSalary * percentage) / 100;
+          }
+          
+          // Ensure deduction doesn't exceed outstanding balance
+          loanDeduction = Math.min(loanDeduction, activeLoan.outstandingBalance);
+          formik.setFieldValue('deductions.loan', loanDeduction);
+        }
+      } else {
+        // No active loan or loan is fully paid
+        formik.setFieldValue('deductions.loan', 0);
+      }
+    }
+  }, [employeeLoans, selectedEmployee]);
+
   const fetchEmployees = async () => {
     try {
       const response = await api.get('/hr/employees');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);
+    }
+  };
+
+  const fetchEmployeeLoans = async (employeeId) => {
+    try {
+      const loans = await loanService.getEmployeeLoans(employeeId);
+      setEmployeeLoans(loans);
+      return loans;
+    } catch (error) {
+      console.error('Error fetching employee loans:', error);
+      setEmployeeLoans([]);
+      return [];
     }
   };
 
@@ -268,7 +337,7 @@ const PayrollForm = () => {
     }
   };
 
-  const handleEmployeeChange = (employeeId) => {
+  const handleEmployeeChange = async (employeeId) => {
     const employee = employees.find(emp => emp._id === employeeId);
     setSelectedEmployee(employee);
     formik.setFieldValue('employee', employeeId);
@@ -298,6 +367,34 @@ const PayrollForm = () => {
         formik.setFieldValue('deductions.providentFund', employee.providentFund.amount || 0);
       } else {
         formik.setFieldValue('deductions.providentFund', 0);
+      }
+      
+      // Fetch and set loan information
+      const loans = await fetchEmployeeLoans(employeeId);
+      const activeLoan = loans.find(loan => 
+        ['Active', 'Disbursed'].includes(loan.status) && loan.outstandingBalance > 0
+      );
+      
+      if (activeLoan) {
+        // Set loan deduction based on salary deduction settings
+        if (activeLoan.salaryDeduction?.enabled) {
+          let loanDeduction = 0;
+          
+          if (activeLoan.salaryDeduction.deductionType === 'Fixed Amount') {
+            loanDeduction = parseFloat(activeLoan.salaryDeduction.fixedAmount) || 0;
+          } else if (activeLoan.salaryDeduction.deductionType === 'Percentage') {
+            const percentage = parseFloat(activeLoan.salaryDeduction.percentage) || 0;
+            loanDeduction = (basicSalary * percentage) / 100;
+          }
+          
+          // Ensure deduction doesn't exceed outstanding balance
+          loanDeduction = Math.min(loanDeduction, activeLoan.outstandingBalance);
+          formik.setFieldValue('deductions.loan', loanDeduction);
+        } else {
+          formik.setFieldValue('deductions.loan', 0);
+        }
+      } else {
+        formik.setFieldValue('deductions.loan', 0);
       }
       
       // Set currency
@@ -838,6 +935,21 @@ const PayrollForm = () => {
                         label="Loan"
                         value={formik.values.deductions.loan}
                         onChange={formik.handleChange}
+                        helperText={
+                          employeeLoans.length > 0 
+                            ? `Active Loan: ${employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.loanType || 'N/A'} | Outstanding: ${formatPKR(employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance || 0)}`
+                            : 'No active loans'
+                        }
+                        disabled={employeeLoans.length === 0}
+                        InputProps={{
+                          endAdornment: employeeLoans.length > 0 && (
+                            <Chip 
+                              size="small" 
+                              label={employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance > 0 ? 'Active' : 'Paid'} 
+                              color={employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance > 0 ? 'warning' : 'success'}
+                            />
+                          )
+                        }}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -1115,6 +1227,14 @@ const PayrollForm = () => {
                     {formik.values.deductions.providentFund > 0 && (
                       <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
                         Provident Fund Deduction: {formatCurrency(formik.values.deductions.providentFund)} (8% of basic salary)
+                      </Typography>
+                    )}
+                    {formik.values.deductions.loan > 0 && employeeLoans.length > 0 && (
+                      <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
+                        Loan Deduction: {formatCurrency(formik.values.deductions.loan)} (
+                          {employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.loanType || 'N/A'} - 
+                          Outstanding: {formatCurrency(employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance || 0)}
+                        )
                       </Typography>
                     )}
                   </Box>

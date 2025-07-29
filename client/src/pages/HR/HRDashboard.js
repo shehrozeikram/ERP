@@ -53,7 +53,11 @@ import {
   TrendingUp as TrendingUpIcon,
   AttachMoney as MoneyIcon,
   PersonAdd as PersonAddIcon,
-  Work as WorkIcon
+  Work as WorkIcon,
+  AccountBalance as LoanIcon,
+  Payment as PaymentIcon,
+  Schedule as AttendanceIcon,
+  Biometric as BiometricIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -596,6 +600,118 @@ const HRDashboard = () => {
                   </Typography>
                 </Box>
               </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Quick Navigation */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12}>
+          <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
+            Quick Navigation
+          </Typography>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card 
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+              },
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white'
+            }}
+            onClick={() => navigate('/hr/employees')}
+          >
+            <CardContent sx={{ textAlign: 'center', py: 3 }}>
+              <PeopleIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                Employee Management
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                Manage employees, view profiles, and handle employee data
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card 
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+              },
+              background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+              color: 'white'
+            }}
+            onClick={() => navigate('/hr/payroll')}
+          >
+            <CardContent sx={{ textAlign: 'center', py: 3 }}>
+              <PaymentIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                Payroll Management
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                Process payroll, manage salaries, and handle deductions
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card 
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+              },
+              background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+              color: 'white'
+            }}
+            onClick={() => navigate('/hr/loans')}
+          >
+            <CardContent sx={{ textAlign: 'center', py: 3 }}>
+              <LoanIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                Loan Management
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                Manage employee loans, applications, and repayments
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card 
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+              },
+              background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+              color: 'white'
+            }}
+            onClick={() => navigate('/hr/attendance')}
+          >
+            <CardContent sx={{ textAlign: 'center', py: 3 }}>
+              <AttendanceIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                Attendance Management
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                Track attendance, manage time, and handle leave requests
+              </Typography>
             </CardContent>
           </Card>
         </Grid>

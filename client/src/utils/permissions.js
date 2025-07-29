@@ -73,6 +73,7 @@ export const MODULES = {
       { name: 'Attendance', path: '/hr/attendance' },
       { name: 'Biometric Integration', path: '/hr/biometric' },
       { name: 'Payroll', path: '/hr/payroll' },
+      { name: 'Loan Management', path: '/hr/loans' },
       { name: 'FBR Tax Management', path: '/hr/fbr-tax' },
       { name: 'Reports', path: '/hr/reports' }
     ]
