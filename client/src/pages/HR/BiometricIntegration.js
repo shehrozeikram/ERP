@@ -57,6 +57,8 @@ const BiometricIntegration = () => {
   const [syncLoading, setSyncLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [supportedSystems, setSupportedSystems] = useState([]);
+  const [zktecoData, setZktecoData] = useState(null);
+  const [zktecoLoading, setZktecoLoading] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -285,6 +287,59 @@ const BiometricIntegration = () => {
     }
   };
 
+  // ZKTeco specific functions
+  const testZktecoConnection = async () => {
+    setZktecoLoading(true);
+    try {
+      const response = await api.get('/biometric/zkteco/test-connection');
+      setZktecoData(response.data);
+    } catch (error) {
+      console.error('ZKTeco connection test failed:', error);
+      setError('Failed to test ZKTeco connection');
+    } finally {
+      setZktecoLoading(false);
+    }
+  };
+
+  const getZktecoDeviceInfo = async () => {
+    setZktecoLoading(true);
+    try {
+      const response = await api.get('/biometric/zkteco/device-info');
+      setZktecoData(response.data);
+    } catch (error) {
+      console.error('Failed to get ZKTeco device info:', error);
+      setError('Failed to get device information');
+    } finally {
+      setZktecoLoading(false);
+    }
+  };
+
+  const getZktecoAttendance = async () => {
+    setZktecoLoading(true);
+    try {
+      const response = await api.get('/biometric/zkteco/attendance');
+      setZktecoData(response.data);
+    } catch (error) {
+      console.error('Failed to get ZKTeco attendance:', error);
+      setError('Failed to get attendance data');
+    } finally {
+      setZktecoLoading(false);
+    }
+  };
+
+  const syncZktecoAttendance = async () => {
+    setZktecoLoading(true);
+    try {
+      const response = await api.post('/biometric/zkteco/sync-attendance');
+      setZktecoData(response.data);
+    } catch (error) {
+      console.error('Failed to sync ZKTeco attendance:', error);
+      setError('Failed to sync attendance data');
+    } finally {
+      setZktecoLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -405,6 +460,86 @@ const BiometricIntegration = () => {
           </Grid>
         ))}
       </Grid>
+
+      {/* ZKTeco Device Section */}
+      <Box sx={{ mt: 4 }}>
+        <Typography variant="h5" gutterBottom>
+          ZKTeco Device (splaza.nayatel.net)
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          Direct connection to ZKTeco biometric device for real-time attendance data
+        </Typography>
+
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item>
+            <Button
+              variant="outlined"
+              startIcon={<TestIcon />}
+              onClick={testZktecoConnection}
+              disabled={zktecoLoading}
+            >
+              Test Connection
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
+              variant="outlined"
+              startIcon={<InfoIcon />}
+              onClick={getZktecoDeviceInfo}
+              disabled={zktecoLoading}
+            >
+              Device Info
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
+              variant="outlined"
+              startIcon={<SyncIcon />}
+              onClick={getZktecoAttendance}
+              disabled={zktecoLoading}
+            >
+              Get Attendance
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
+              variant="contained"
+              startIcon={<SyncIcon />}
+              onClick={syncZktecoAttendance}
+              disabled={zktecoLoading}
+            >
+              Sync to Database
+            </Button>
+          </Grid>
+        </Grid>
+
+        {zktecoLoading && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+            <CircularProgress size={20} />
+            <Typography>Processing ZKTeco request...</Typography>
+          </Box>
+        )}
+
+        {zktecoData && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                ZKTeco Response
+              </Typography>
+              <pre style={{ 
+                backgroundColor: '#f5f5f5', 
+                padding: '16px', 
+                borderRadius: '4px', 
+                overflow: 'auto',
+                maxHeight: '400px',
+                fontSize: '12px'
+              }}>
+                {JSON.stringify(zktecoData, null, 2)}
+              </pre>
+            </CardContent>
+          </Card>
+        )}
+      </Box>
 
       {/* Add/Edit Integration Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>

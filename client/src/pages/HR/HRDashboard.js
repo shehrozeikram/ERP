@@ -122,8 +122,13 @@ const HRDashboard = () => {
     ];
 
     employees.forEach(emp => {
-      const salary = emp.salary || 0;
-      const range = salaryRanges.find(r => salary >= r.min && salary < r.max);
+      const grossSalary = (emp.salary?.basic || 0) + 
+                         (emp.salary?.houseRent || 0) + 
+                         (emp.salary?.medical || 0) + 
+                         (emp.salary?.conveyance || 0) + 
+                         (emp.salary?.special || 0) + 
+                         (emp.salary?.other || 0);
+      const range = salaryRanges.find(r => grossSalary >= r.min && grossSalary < r.max);
       if (range) {
         range.count++;
         // Calculate years of service from hire date
@@ -148,7 +153,13 @@ const HRDashboard = () => {
         acc[gender] = { count: 0, totalSalary: 0, avgPerformance: 0 };
       }
       acc[gender].count++;
-      acc[gender].totalSalary += emp.salary || 0;
+      const grossSalary = (emp.salary?.basic || 0) + 
+                         (emp.salary?.houseRent || 0) + 
+                         (emp.salary?.medical || 0) + 
+                         (emp.salary?.conveyance || 0) + 
+                         (emp.salary?.special || 0) + 
+                         (emp.salary?.other || 0);
+      acc[gender].totalSalary += grossSalary;
       acc[gender].avgPerformance += emp.performance?.rating || 3.5;
       return acc;
     }, {});
@@ -388,16 +399,28 @@ const HRDashboard = () => {
                  hireDate.getFullYear() === now.getFullYear();
         });
         
-        const totalSalary = employees.reduce((sum, emp) => sum + (emp.salary || 0), 0);
-        const avgSalary = employees.length > 0 ? totalSalary / employees.length : 0;
+        const totalBasicSalary = employees.reduce((sum, emp) => sum + (emp.salary?.basic || 0), 0);
+        const totalGrossSalary = employees.reduce((sum, emp) => {
+          const gross = (emp.salary?.basic || 0) + 
+                       (emp.salary?.houseRent || 0) + 
+                       (emp.salary?.medical || 0) + 
+                       (emp.salary?.conveyance || 0) + 
+                       (emp.salary?.special || 0) + 
+                       (emp.salary?.other || 0);
+          return sum + gross;
+        }, 0);
+        const avgBasicSalary = employees.length > 0 ? totalBasicSalary / employees.length : 0;
+        const avgGrossSalary = employees.length > 0 ? totalGrossSalary / employees.length : 0;
         
         setStats({
           totalEmployees: employees.length,
           activeEmployees: activeEmployees.length,
           totalDepartments: departments.length,
           newThisMonth: newThisMonth.length,
-          avgSalary: avgSalary,
-          totalSalary: totalSalary
+          avgBasicSalary: avgBasicSalary,
+          avgGrossSalary: avgGrossSalary,
+          totalBasicSalary: totalBasicSalary,
+          totalGrossSalary: totalGrossSalary
         });
       }
       
@@ -569,7 +592,7 @@ const HRDashboard = () => {
                     Avg Salary
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {formatPKR(stats.avgSalary)}
+                    {formatPKR(stats.avgGrossSalary || stats.avgBasicSalary || 0)}
                   </Typography>
                 </Box>
               </Box>

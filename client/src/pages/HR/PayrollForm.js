@@ -21,7 +21,11 @@ import {
   Chip,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -51,6 +55,9 @@ const PayrollForm = () => {
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
+  // Add tax calculation display
+  const [taxInfo, setTaxInfo] = useState(null);
+
   const validationSchema = Yup.object({
     employee: Yup.string().required('Employee is required'),
     payPeriod: Yup.object({
@@ -79,6 +86,8 @@ const PayrollForm = () => {
       tax: Yup.number().min(0, 'Tax must be positive'),
       insurance: Yup.number().min(0, 'Insurance must be positive'),
       pension: Yup.number().min(0, 'Pension must be positive'),
+      eobi: Yup.number().min(0, 'EOBI must be positive'),
+      providentFund: Yup.number().min(0, 'Provident Fund must be positive'),
       loan: Yup.number().min(0, 'Loan must be positive'),
       other: Yup.number().min(0, 'Other deduction must be positive')
     }),
@@ -122,6 +131,8 @@ const PayrollForm = () => {
         tax: 0,
         insurance: 0,
         pension: 0,
+        eobi: 0,
+        providentFund: 0,
         loan: 0,
         other: 0
       },
@@ -192,29 +203,60 @@ const PayrollForm = () => {
       const response = await api.get(`/payroll/${id}`);
       const payroll = response.data.data;
       
+      // Create a date from month and year for the pay period
+      const startDate = new Date(payroll.year, payroll.month - 1, 1); // month is 0-indexed
+      const endDate = new Date(payroll.year, payroll.month, 0); // Last day of the month
+      
       formik.setValues({
         employee: payroll.employee._id,
         payPeriod: {
-          startDate: format(new Date(payroll.payPeriod.startDate), 'yyyy-MM-dd'),
-          endDate: format(new Date(payroll.payPeriod.endDate), 'yyyy-MM-dd'),
-          type: payroll.payPeriod.type
+          startDate: format(startDate, 'yyyy-MM-dd'),
+          endDate: format(endDate, 'yyyy-MM-dd'),
+          type: 'monthly'
         },
         basicSalary: payroll.basicSalary,
-        allowances: payroll.allowances || {},
-        overtime: payroll.overtime || {},
-        bonuses: payroll.bonuses || {},
-        deductions: payroll.deductions || {},
-        attendance: payroll.attendance || {},
-        leaveDeductions: payroll.leaveDeductions || {
+        allowances: {
+          housing: payroll.houseRentAllowance || 0,
+          transport: payroll.conveyanceAllowance || 0,
+          meal: payroll.specialAllowance || 0,
+          medical: payroll.medicalAllowance || 0,
+          other: payroll.otherAllowance || 0
+        },
+        overtime: {
+          hours: payroll.overtimeHours || 0,
+          rate: payroll.overtimeRate || 0,
+          amount: payroll.overtimeAmount || 0
+        },
+        bonuses: {
+          performance: payroll.performanceBonus || 0,
+          attendance: 0,
+          other: payroll.otherBonus || 0
+        },
+        deductions: {
+          tax: payroll.incomeTax || 0,
+          insurance: payroll.healthInsurance || 0,
+          pension: payroll.providentFund || 0,
+          eobi: payroll.eobi || 0,
+          loan: 0,
+          other: payroll.otherDeductions || 0
+        },
+        attendance: {
+          totalDays: payroll.totalWorkingDays || 22,
+          presentDays: payroll.presentDays || 22,
+          absentDays: payroll.absentDays || 0,
+          lateDays: 0,
+          halfDays: 0
+        },
+        leaveDeductions: {
           unpaidLeave: 0,
           sickLeave: 0,
           casualLeave: 0,
           annualLeave: 0,
-          otherLeave: 0,
-          totalLeaveDays: 0,
+          otherLeave: payroll.leaveDays || 0,
+          totalLeaveDays: payroll.leaveDays || 0,
           leaveDeductionAmount: 0
         },
-        notes: payroll.notes || ''
+        notes: payroll.remarks || ''
       });
       
       setSelectedEmployee(payroll.employee);
@@ -231,7 +273,35 @@ const PayrollForm = () => {
     setSelectedEmployee(employee);
     formik.setFieldValue('employee', employeeId);
     if (employee) {
-      formik.setFieldValue('basicSalary', employee.salary || 0);
+      // Auto-calculate salary components from gross salary
+      const grossSalary = employee.salary?.gross || 0;
+      const basicSalary = Math.round(grossSalary * 0.6); // 60% of gross
+      const houseRentAllowance = Math.round(grossSalary * 0.3); // 30% of gross
+      const medicalAllowance = Math.round(grossSalary * 0.1); // 10% of gross
+      
+      // Set calculated values
+      formik.setFieldValue('basicSalary', basicSalary);
+      formik.setFieldValue('allowances.housing', houseRentAllowance);
+      formik.setFieldValue('allowances.medical', medicalAllowance);
+      formik.setFieldValue('allowances.transport', 0); // Not used in new structure
+      formik.setFieldValue('allowances.other', 0); // Not used in new structure
+      
+      // Set EOBI if employee has it active
+      if (employee.eobi?.isActive) {
+        formik.setFieldValue('deductions.eobi', employee.eobi.amount || 0);
+      } else {
+        formik.setFieldValue('deductions.eobi', 0);
+      }
+      
+      // Set Provident Fund if employee has it active
+      if (employee.providentFund?.isActive) {
+        formik.setFieldValue('deductions.providentFund', employee.providentFund.amount || 0);
+      } else {
+        formik.setFieldValue('deductions.providentFund', 0);
+      }
+      
+      // Set currency
+      formik.setFieldValue('currency', employee.currency || 'PKR');
     }
   };
 
@@ -246,24 +316,40 @@ const PayrollForm = () => {
   const calculateTotals = () => {
     const values = formik.values;
     
-    // Calculate total allowances
+    // Ensure we have valid basic salary before calculating
+    if (!values.basicSalary || values.basicSalary <= 0) {
+      return {
+        totalAllowances: 0,
+        overtimeAmount: 0,
+        totalBonuses: 0,
+        totalDeductions: 0,
+        grossPay: 0,
+        netPay: 0,
+        leaveDeductionAmount: 0,
+        totalLeaveDays: 0,
+        dailyRate: 0,
+        autoCalculatedTax: 0
+      };
+    }
+    
+    // Calculate total allowances with safe defaults
     const totalAllowances = 
-      values.allowances.housing + 
-      values.allowances.transport + 
-      values.allowances.meal + 
-      values.allowances.medical + 
-      values.allowances.other;
+      (values.allowances?.housing || 0) + 
+      (values.allowances?.transport || 0) + 
+      (values.allowances?.meal || 0) + 
+      (values.allowances?.medical || 0) + 
+      (values.allowances?.other || 0);
 
-    // Calculate overtime amount
-    const overtimeAmount = values.overtime.hours * values.overtime.rate;
+    // Calculate overtime amount with safe defaults
+    const overtimeAmount = (values.overtime?.hours || 0) * (values.overtime?.rate || 0);
 
-    // Calculate total bonuses
+    // Calculate total bonuses with safe defaults
     const totalBonuses = 
-      values.bonuses.performance + 
-      values.bonuses.attendance + 
-      values.bonuses.other;
+      (values.bonuses?.performance || 0) + 
+      (values.bonuses?.attendance || 0) + 
+      (values.bonuses?.other || 0);
 
-    // Calculate leave deductions
+    // Calculate leave deductions with safe defaults
     const workingDaysPerMonth = 22; // Standard working days per month
     const dailyRate = values.basicSalary / workingDaysPerMonth;
     
@@ -281,35 +367,114 @@ const PayrollForm = () => {
                            leaveDeductions.casualLeave + leaveDeductions.annualLeave + 
                            leaveDeductions.otherLeave;
 
-    // Calculate total deductions
+    // Use tax info from state (calculated by useEffect)
+    const autoCalculatedTax = taxInfo ? (taxInfo.monthlyTax || 0) : 0;
+
+    // Calculate total deductions (including auto-calculated tax)
     const totalDeductions = 
-      values.deductions.tax + 
-      values.deductions.insurance + 
-      values.deductions.pension + 
-      values.deductions.loan + 
-      values.deductions.other + 
+      autoCalculatedTax + // Use auto-calculated tax
+      (values.deductions?.insurance || 0) + 
+      (values.deductions?.pension || 0) + 
+      (values.deductions?.eobi || 0) + 
+      (values.deductions?.providentFund || 0) + 
+      (values.deductions?.loan || 0) + 
+      (values.deductions?.other || 0) + 
       leaveDeductionAmount;
 
     // Calculate gross pay
     const grossPay = values.basicSalary + totalAllowances + overtimeAmount + totalBonuses;
 
-    // Calculate net pay
+    // Calculate net pay (after all deductions including tax)
     const netPay = grossPay - totalDeductions;
 
-    return {
-      totalAllowances,
-      overtimeAmount,
-      totalBonuses,
-      totalDeductions,
-      grossPay,
-      netPay,
-      leaveDeductionAmount,
-      totalLeaveDays,
-      dailyRate
+    const totals = {
+      totalAllowances: totalAllowances || 0,
+      overtimeAmount: overtimeAmount || 0,
+      totalBonuses: totalBonuses || 0,
+      totalDeductions: totalDeductions || 0,
+      grossPay: grossPay || 0,
+      netPay: netPay || 0,
+      leaveDeductionAmount: leaveDeductionAmount || 0,
+      totalLeaveDays: totalLeaveDays || 0,
+      dailyRate: dailyRate || 0,
+      autoCalculatedTax: autoCalculatedTax || 0
     };
+
+    // Debug logging
+    console.log('🔍 Payroll Totals Calculation:', {
+      basicSalary: values.basicSalary,
+      allowances: values.allowances,
+      taxInfo: taxInfo,
+      autoCalculatedTax,
+      totals
+    });
+
+    return totals;
   };
 
   const formatCurrency = formatPKR;
+
+  // Add tax calculation display
+  const calculateTaxInfo = async (basicSalary, allowances) => {
+    if (!basicSalary) return null;
+
+    const taxableIncome = basicSalary + 
+      (allowances?.housing || 0) + 
+      (allowances?.transport || 0) + 
+      (allowances?.meal || 0) + 
+      (allowances?.other || 0);
+    // Medical allowance is tax-exempt
+
+    const annualTaxableIncome = taxableIncome * 12;
+    
+    try {
+      // Use the new database-driven tax calculation
+      const response = await api.post('/hr/fbr-tax-slabs/calculate', {
+        annualIncome: annualTaxableIncome
+      });
+      
+      const result = response.data.data;
+      
+      return {
+        monthlyTax: result.monthlyTax,
+        annualTaxableIncome: Math.round(annualTaxableIncome),
+        taxSlab: result.taxInfo.slab,
+        taxRate: result.taxInfo.rate,
+        taxableIncome: Math.round(taxableIncome)
+      };
+    } catch (error) {
+      console.error('Error calculating tax:', error);
+      return null;
+    }
+  };
+
+  // Update tax info when salary changes
+  useEffect(() => {
+    const updateTaxInfo = async () => {
+      if (formik.values.basicSalary) {
+        const taxInfo = await calculateTaxInfo(
+          formik.values.basicSalary,
+          formik.values.allowances
+        );
+        setTaxInfo(taxInfo);
+        
+        // Auto-update income tax field
+        if (taxInfo) {
+          formik.setFieldValue('incomeTax', taxInfo.monthlyTax);
+        }
+      }
+    };
+
+    updateTaxInfo();
+  }, [formik.values.basicSalary, formik.values.allowances]);
+
+  // Helper function to safely render populated object properties
+  const safeRenderText = (value) => {
+    if (typeof value === 'object' && value !== null) {
+      return value.name || value.title || value.code || 'N/A';
+    }
+    return value || 'N/A';
+  };
 
   const renderStepContent = (step) => {
     const totals = calculateTotals();
@@ -406,12 +571,12 @@ const PayrollForm = () => {
                       </Grid>
                       <Grid item xs={12} sm={6}>
                         <Typography variant="body2" color="textSecondary">
-                          Department: {selectedEmployee.department}
+                          Department: {safeRenderText(selectedEmployee.department)}
                         </Typography>
                       </Grid>
                       <Grid item xs={12} sm={6}>
                         <Typography variant="body2" color="textSecondary">
-                          Position: {selectedEmployee.position}
+                          Position: {safeRenderText(selectedEmployee.position)}
                         </Typography>
                       </Grid>
                     </Grid>
@@ -439,6 +604,9 @@ const PayrollForm = () => {
                 onBlur={() => formik.setFieldTouched('basicSalary', true)}
                 error={formik.touched.basicSalary && Boolean(formik.errors.basicSalary)}
                 helperText={formik.touched.basicSalary && formik.errors.basicSalary}
+                InputProps={{
+                  startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                }}
               />
             </Grid>
             <Grid item xs={12}>
@@ -453,29 +621,12 @@ const PayrollForm = () => {
                         fullWidth
                         type="number"
                         name="allowances.housing"
-                        label="Housing Allowance"
+                        label="House Rent Allowance"
                         value={formik.values.allowances.housing}
                         onChange={formik.handleChange}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.transport"
-                        label="Transport Allowance"
-                        value={formik.values.allowances.transport}
-                        onChange={formik.handleChange}
-                      />
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.meal"
-                        label="Meal Allowance"
-                        value={formik.values.allowances.meal}
-                        onChange={formik.handleChange}
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -486,6 +637,22 @@ const PayrollForm = () => {
                         label="Medical Allowance"
                         value={formik.values.allowances.medical}
                         onChange={formik.handleChange}
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="allowances.transport"
+                        label="Conveyance Allowance"
+                        value={formik.values.allowances.transport}
+                        onChange={formik.handleChange}
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -493,9 +660,25 @@ const PayrollForm = () => {
                         fullWidth
                         type="number"
                         name="allowances.other"
-                        label="Other Allowance"
+                        label="Special Allowance"
                         value={formik.values.allowances.other}
                         onChange={formik.handleChange}
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="allowances.meal"
+                        label="Other Allowance"
+                        value={formik.values.allowances.meal}
+                        onChange={formik.handleChange}
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
                       />
                     </Grid>
                   </Grid>
@@ -623,6 +806,28 @@ const PayrollForm = () => {
                         label="Pension"
                         value={formik.values.deductions.pension}
                         onChange={formik.handleChange}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="deductions.eobi"
+                        label="EOBI"
+                        value={formik.values.deductions.eobi}
+                        onChange={formik.handleChange}
+                        helperText="Pakistan EOBI (Fixed: Rs 370)"
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="deductions.providentFund"
+                        label="Provident Fund"
+                        value={formik.values.deductions.providentFund}
+                        onChange={formik.handleChange}
+                        helperText="Provident Fund (8% of basic salary)"
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -822,9 +1027,11 @@ const PayrollForm = () => {
                         <Typography variant="subtitle1" color="error">
                           Deductions
                         </Typography>
-                        <Typography>Tax: {formatCurrency(formik.values.deductions.tax)}</Typography>
+                        <Typography>Tax: {formatCurrency(totals.autoCalculatedTax)}</Typography>
                         <Typography>Insurance: {formatCurrency(formik.values.deductions.insurance)}</Typography>
                         <Typography>Pension: {formatCurrency(formik.values.deductions.pension)}</Typography>
+                        <Typography>EOBI: {formatCurrency(formik.values.deductions.eobi)}</Typography>
+                        <Typography>Provident Fund: {formatCurrency(formik.values.deductions.providentFund)}</Typography>
                         <Typography>Loan: {formatCurrency(formik.values.deductions.loan)}</Typography>
                         <Typography>Other: {formatCurrency(formik.values.deductions.other)}</Typography>
                         <Typography color="warning.main">Leave Deduction: {formatCurrency(totals.leaveDeductionAmount)}</Typography>
@@ -894,6 +1101,22 @@ const PayrollForm = () => {
                     <Typography variant="h4" color="primary" gutterBottom>
                       Net Pay: {formatCurrency(totals.netPay)}
                     </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                      (Gross Pay: {formatCurrency(totals.grossPay)} - Total Deductions: {formatCurrency(totals.totalDeductions)})
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Including Tax: {formatCurrency(totals.autoCalculatedTax)} | Other Deductions: {formatCurrency(totals.totalDeductions - totals.autoCalculatedTax)}
+                    </Typography>
+                    {formik.values.deductions.eobi > 0 && (
+                      <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
+                        EOBI Deduction: {formatCurrency(formik.values.deductions.eobi)} (Pakistan EOBI - Fixed Amount)
+                      </Typography>
+                    )}
+                    {formik.values.deductions.providentFund > 0 && (
+                      <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
+                        Provident Fund Deduction: {formatCurrency(formik.values.deductions.providentFund)} (8% of basic salary)
+                      </Typography>
+                    )}
                   </Box>
                 </CardContent>
               </Card>
@@ -955,6 +1178,47 @@ const PayrollForm = () => {
           formik.handleSubmit(e);
         }}>
           {renderStepContent(activeStep)}
+
+          {/* Tax Calculation Information */}
+          {taxInfo && (
+            <Card sx={{ mb: 3, bgcolor: '#f8f9fa' }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ color: '#1976d2', display: 'flex', alignItems: 'center' }}>
+                  <CalculateIcon sx={{ mr: 1 }} />
+                  Pakistan FBR Tax Calculation (FY 2025-26)
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      <strong>Taxable Income (Monthly):</strong> Rs {taxInfo.taxableIncome.toLocaleString()}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      <strong>Taxable Income (Annual):</strong> Rs {taxInfo.annualTaxableIncome.toLocaleString()}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      <strong>Tax Slab:</strong> {taxInfo.taxSlab}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      <strong>Tax Rate:</strong> {taxInfo.taxRate}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      <strong>Monthly Tax:</strong> Rs {taxInfo.monthlyTax.toLocaleString()}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      <strong>Annual Tax:</strong> Rs {(taxInfo.monthlyTax * 12).toLocaleString()}
+                    </Typography>
+                  </Grid>
+                </Grid>
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  <Typography variant="body2">
+                    <strong>Note:</strong> Tax is calculated on Basic Salary + All Allowances (except Medical Allowance which is tax-exempt)
+                  </Typography>
+                </Alert>
+              </CardContent>
+            </Card>
+          )}
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
             <Button

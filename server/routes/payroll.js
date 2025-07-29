@@ -5,6 +5,8 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
+const { calculateMonthlyTax, calculateTaxableIncome } = require('../utils/taxCalculator');
+const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 
 const router = express.Router();
 
@@ -28,13 +30,18 @@ router.get('/',
     
     if (status) matchStage.status = status;
     if (employeeId) matchStage.employee = employeeId;
-    if (payPeriodType) matchStage['payPeriod.type'] = payPeriodType;
     
     if (startDate && endDate) {
-      matchStage['payPeriod.startDate'] = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+      
+      // Match by month and year instead of payPeriod
+      matchStage.$or = [
+        {
+          year: { $gte: startDateObj.getFullYear(), $lte: endDateObj.getFullYear() },
+          month: { $gte: startDateObj.getMonth() + 1, $lte: endDateObj.getMonth() + 1 }
+        }
+      ];
     }
 
     const payrolls = await Payroll.find(matchStage)
@@ -160,62 +167,104 @@ router.post('/', [
   }
 
   const payrollData = {
-    ...req.body,
-    createdBy: req.user.id,
-    payPeriod: {
-      startDate: new Date(req.body.payPeriod.startDate),
-      endDate: new Date(req.body.payPeriod.endDate),
-      type: req.body.payPeriod.type
-    },
+    employee: req.body.employee,
+    month: new Date(req.body.payPeriod.startDate).getMonth() + 1, // Extract month from start date
+    year: new Date(req.body.payPeriod.startDate).getFullYear(), // Extract year from start date
     basicSalary: parseFloat(req.body.basicSalary) || 0,
+    houseRentAllowance: parseFloat(req.body.allowances?.housing) || 0,
+    medicalAllowance: parseFloat(req.body.allowances?.medical) || 0,
+    conveyanceAllowance: parseFloat(req.body.allowances?.transport) || 0,
+    specialAllowance: parseFloat(req.body.allowances?.meal) || 0,
+    otherAllowance: parseFloat(req.body.allowances?.other) || 0,
+    overtimeHours: parseFloat(req.body.overtime?.hours) || 0,
+    overtimeRate: parseFloat(req.body.overtime?.rate) || 0,
+    overtimeAmount: parseFloat(req.body.overtime?.amount) || 0,
+    performanceBonus: parseFloat(req.body.bonuses?.performance) || 0,
+    otherBonus: parseFloat(req.body.bonuses?.other) || 0,
+    providentFund: parseFloat(req.body.deductions?.pension) || 0,
+    incomeTax: parseFloat(req.body.deductions?.tax) || 0,
+    healthInsurance: parseFloat(req.body.deductions?.insurance) || 0,
+    otherDeductions: parseFloat(req.body.deductions?.other) || 0,
+    eobi: parseFloat(req.body.deductions?.eobi) || 0,
+    totalWorkingDays: parseInt(req.body.attendance?.totalDays) || 22,
+    presentDays: parseInt(req.body.attendance?.presentDays) || 22,
+    absentDays: parseInt(req.body.attendance?.absentDays) || 0,
+    leaveDays: parseInt(req.body.leaveDeductions?.totalLeaveDays) || 0,
     currency: req.body.currency || 'PKR',
-    allowances: {
-      housing: parseFloat(req.body.allowances?.housing) || 0,
-      transport: parseFloat(req.body.allowances?.transport) || 0,
-      meal: parseFloat(req.body.allowances?.meal) || 0,
-      medical: parseFloat(req.body.allowances?.medical) || 0,
-      other: parseFloat(req.body.allowances?.other) || 0
-    },
-    overtime: {
-      hours: parseFloat(req.body.overtime?.hours) || 0,
-      rate: parseFloat(req.body.overtime?.rate) || 0,
-      amount: 0
-    },
-    bonuses: {
-      performance: parseFloat(req.body.bonuses?.performance) || 0,
-      attendance: parseFloat(req.body.bonuses?.attendance) || 0,
-      other: parseFloat(req.body.bonuses?.other) || 0
-    },
-    deductions: {
-      tax: parseFloat(req.body.deductions?.tax) || 0,
-      insurance: parseFloat(req.body.deductions?.insurance) || 0,
-      pension: parseFloat(req.body.deductions?.pension) || 0,
-      loan: parseFloat(req.body.deductions?.loan) || 0,
-      other: parseFloat(req.body.deductions?.other) || 0
-    },
-    attendance: {
-      totalDays: parseInt(req.body.attendance?.totalDays) || 0,
-      presentDays: parseInt(req.body.attendance?.presentDays) || 0,
-      absentDays: parseInt(req.body.attendance?.absentDays) || 0,
-      lateDays: parseInt(req.body.attendance?.lateDays) || 0,
-      halfDays: parseInt(req.body.attendance?.halfDays) || 0
-    },
-    leaveDeductions: {
-      unpaidLeave: parseInt(req.body.leaveDeductions?.unpaidLeave) || 0,
-      sickLeave: parseInt(req.body.leaveDeductions?.sickLeave) || 0,
-      casualLeave: parseInt(req.body.leaveDeductions?.casualLeave) || 0,
-      annualLeave: parseInt(req.body.leaveDeductions?.annualLeave) || 0,
-      otherLeave: parseInt(req.body.leaveDeductions?.otherLeave) || 0,
-      totalLeaveDays: 0,
-      leaveDeductionAmount: 0
-    },
-    calculations: {
-      grossPay: 0,
-      totalAllowances: 0,
-      totalDeductions: 0,
-      netPay: 0
-    }
+    remarks: req.body.notes || '',
+    createdBy: req.user.id
   };
+
+  // Calculate gross salary
+  payrollData.grossSalary = payrollData.basicSalary + 
+    payrollData.houseRentAllowance + 
+    payrollData.medicalAllowance + 
+    payrollData.conveyanceAllowance + 
+    payrollData.specialAllowance + 
+    payrollData.otherAllowance + 
+    payrollData.overtimeAmount + 
+    payrollData.performanceBonus + 
+    payrollData.otherBonus;
+
+  // Auto-calculate tax if not provided
+  if (!payrollData.incomeTax) {
+    const taxableIncome = calculateTaxableIncome({
+      basic: payrollData.basicSalary,
+      allowances: {
+        housing: payrollData.houseRentAllowance,
+        transport: payrollData.conveyanceAllowance,
+        meal: payrollData.specialAllowance,
+        other: payrollData.otherAllowance,
+        medical: payrollData.medicalAllowance
+      }
+    });
+    
+    try {
+      // Use the new database-driven tax calculation
+      const annualTaxableIncome = taxableIncome * 12;
+      const taxAmount = await FBRTaxSlab.calculateTax(annualTaxableIncome);
+      payrollData.incomeTax = Math.round(taxAmount / 12);
+    } catch (error) {
+      console.error('Error calculating tax:', error);
+      // Fallback to old calculation
+      payrollData.incomeTax = calculateMonthlyTax(taxableIncome);
+    }
+  }
+
+  // Calculate total deductions
+  payrollData.totalDeductions = (payrollData.providentFund || 0) + 
+    (payrollData.incomeTax || 0) + 
+    (payrollData.healthInsurance || 0) + 
+    (payrollData.eobi || 0) + 
+    (payrollData.otherDeductions || 0);
+
+  // Calculate net salary
+  payrollData.netSalary = (payrollData.grossSalary || 0) - (payrollData.totalDeductions || 0);
+
+  // Ensure all numeric fields are properly converted
+  payrollData.basicSalary = parseFloat(payrollData.basicSalary) || 0;
+  payrollData.houseRentAllowance = parseFloat(payrollData.houseRentAllowance) || 0;
+  payrollData.medicalAllowance = parseFloat(payrollData.medicalAllowance) || 0;
+  payrollData.conveyanceAllowance = parseFloat(payrollData.conveyanceAllowance) || 0;
+  payrollData.specialAllowance = parseFloat(payrollData.specialAllowance) || 0;
+  payrollData.otherAllowance = parseFloat(payrollData.otherAllowance) || 0;
+  payrollData.overtimeHours = parseFloat(payrollData.overtimeHours) || 0;
+  payrollData.overtimeRate = parseFloat(payrollData.overtimeRate) || 0;
+  payrollData.overtimeAmount = parseFloat(payrollData.overtimeAmount) || 0;
+  payrollData.performanceBonus = parseFloat(payrollData.performanceBonus) || 0;
+  payrollData.otherBonus = parseFloat(payrollData.otherBonus) || 0;
+  payrollData.providentFund = parseFloat(payrollData.providentFund) || 0;
+  payrollData.incomeTax = parseFloat(payrollData.incomeTax) || 0;
+  payrollData.healthInsurance = parseFloat(payrollData.healthInsurance) || 0;
+  payrollData.otherDeductions = parseFloat(payrollData.otherDeductions) || 0;
+  payrollData.eobi = parseFloat(payrollData.eobi) || 0;
+  payrollData.totalWorkingDays = parseInt(payrollData.totalWorkingDays) || 22;
+  payrollData.presentDays = parseInt(payrollData.presentDays) || 22;
+  payrollData.absentDays = parseInt(payrollData.absentDays) || 0;
+  payrollData.leaveDays = parseInt(payrollData.leaveDays) || 0;
+  payrollData.grossSalary = parseFloat(payrollData.grossSalary) || 0;
+  payrollData.totalDeductions = parseFloat(payrollData.totalDeductions) || 0;
+  payrollData.netSalary = parseFloat(payrollData.netSalary) || 0;
 
   const payroll = new Payroll(payrollData);
   await payroll.save();
@@ -275,19 +324,64 @@ router.put('/:id', [
 
   const updateData = { ...req.body };
   
-  // Convert dates if provided
-  if (req.body.payPeriod) {
-    updateData.payPeriod = {
-      startDate: req.body.payPeriod.startDate ? new Date(req.body.payPeriod.startDate) : payroll.payPeriod.startDate,
-      endDate: req.body.payPeriod.endDate ? new Date(req.body.payPeriod.endDate) : payroll.payPeriod.endDate,
-      type: req.body.payPeriod.type || payroll.payPeriod.type
-    };
+  // Convert dates if provided - extract month and year from payPeriod if provided
+  if (req.body.payPeriod && req.body.payPeriod.startDate) {
+    const startDate = new Date(req.body.payPeriod.startDate);
+    updateData.month = startDate.getMonth() + 1;
+    updateData.year = startDate.getFullYear();
   }
 
   // Convert numeric fields
   if (req.body.basicSalary) {
     updateData.basicSalary = parseFloat(req.body.basicSalary);
   }
+
+  // Map allowance fields if provided
+  if (req.body.allowances) {
+    updateData.houseRentAllowance = parseFloat(req.body.allowances.housing) || 0;
+    updateData.medicalAllowance = parseFloat(req.body.allowances.medical) || 0;
+    updateData.conveyanceAllowance = parseFloat(req.body.allowances.transport) || 0;
+    updateData.specialAllowance = parseFloat(req.body.allowances.meal) || 0;
+    updateData.otherAllowance = parseFloat(req.body.allowances.other) || 0;
+  }
+
+  // Map deduction fields if provided
+  if (req.body.deductions) {
+    updateData.providentFund = parseFloat(req.body.deductions.providentFund) || 0;
+    updateData.incomeTax = parseFloat(req.body.deductions.tax) || 0;
+    updateData.healthInsurance = parseFloat(req.body.deductions.insurance) || 0;
+    updateData.eobi = parseFloat(req.body.deductions.eobi) || 0;
+    updateData.otherDeductions = parseFloat(req.body.deductions.other) || 0;
+  }
+
+  // Get EOBI from employee if not provided
+  if (!updateData.eobi && employee.eobi?.isActive) {
+    updateData.eobi = employee.eobi.amount || 0;
+  }
+
+  // Get Provident Fund from employee if not provided
+  if (!updateData.providentFund && employee.providentFund?.isActive) {
+    updateData.providentFund = employee.providentFund.amount || 0;
+  }
+
+  // Recalculate totals
+  updateData.grossSalary = (updateData.basicSalary || payroll.basicSalary) + 
+    (updateData.houseRentAllowance || payroll.houseRentAllowance) + 
+    (updateData.medicalAllowance || payroll.medicalAllowance) + 
+    (updateData.conveyanceAllowance || payroll.conveyanceAllowance) + 
+    (updateData.specialAllowance || payroll.specialAllowance) + 
+    (updateData.otherAllowance || payroll.otherAllowance) + 
+    (updateData.overtimeAmount || payroll.overtimeAmount) + 
+    (updateData.performanceBonus || payroll.performanceBonus) + 
+    (updateData.otherBonus || payroll.otherBonus);
+
+  updateData.totalDeductions = (updateData.providentFund || payroll.providentFund) + 
+    (updateData.incomeTax || payroll.incomeTax) + 
+    (updateData.healthInsurance || payroll.healthInsurance) + 
+    (updateData.eobi || payroll.eobi) + 
+    (updateData.otherDeductions || payroll.otherDeductions);
+
+  updateData.netSalary = updateData.grossSalary - updateData.totalDeductions;
 
   const updatedPayroll = await Payroll.findByIdAndUpdate(
     req.params.id,
@@ -325,7 +419,7 @@ router.patch('/:id/approve',
       });
     }
 
-    if (payroll.status !== 'draft') {
+    if (payroll.status !== 'Draft') {
       return res.status(400).json({
         success: false,
         message: 'Only draft payrolls can be approved'
@@ -378,7 +472,7 @@ router.patch('/:id/mark-paid', [
     });
   }
 
-  if (payroll.status !== 'approved') {
+  if (payroll.status !== 'Approved') {
     return res.status(400).json({
       success: false,
       message: 'Only approved payrolls can be marked as paid'
@@ -398,6 +492,49 @@ router.patch('/:id/mark-paid', [
     data: updatedPayroll
   });
 }));
+
+// @route   PATCH /api/payroll/:id/mark-unpaid
+// @desc    Mark payroll as unpaid (revert to draft)
+// @access  Private (HR and Admin)
+router.patch('/:id/mark-unpaid',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payroll ID format'
+      });
+    }
+
+    const payroll = await Payroll.findById(req.params.id);
+    if (!payroll) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payroll not found'
+      });
+    }
+
+    if (payroll.status !== 'Paid') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only paid payrolls can be marked as unpaid'
+      });
+    }
+
+    await payroll.markAsUnpaid();
+
+    const updatedPayroll = await Payroll.findById(payroll._id)
+      .populate('employee', 'firstName lastName employeeId department position')
+      .populate('createdBy', 'firstName lastName')
+      .populate('approvedBy', 'firstName lastName');
+
+    res.json({
+      success: true,
+      message: 'Payroll marked as unpaid successfully',
+      data: updatedPayroll
+    });
+  })
+);
 
 // @route   DELETE /api/payroll/:id
 // @desc    Delete payroll
@@ -420,7 +557,7 @@ router.delete('/:id',
       });
     }
 
-    if (payroll.status === 'paid') {
+    if (payroll.status === 'Paid') {
       return res.status(400).json({
         success: false,
         message: 'Cannot delete a paid payroll'

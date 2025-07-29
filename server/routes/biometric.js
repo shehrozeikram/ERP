@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const BiometricIntegration = require('../models/hr/BiometricIntegration');
 const biometricService = require('../services/biometricService');
+const zktecoService = require('../services/zktecoService');
 const { authMiddleware } = require('../middleware/auth');
 const errorHandler = require('../middleware/errorHandler');
 
@@ -354,6 +355,107 @@ router.get('/systems/supported', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     errorHandler(error, req, res);
+  }
+});
+
+// ===== ZKTeco Specific Routes =====
+
+// Test ZKTeco device connection
+router.get('/zkteco/test-connection', authMiddleware, async (req, res) => {
+  try {
+    const result = await zktecoService.testConnection('splaza.nayatel.net', [4370, 5200, 5000]);
+    res.json({
+      success: true,
+      message: 'ZKTeco connection test completed',
+      data: result
+    });
+  } catch (error) {
+    console.error('ZKTeco connection test error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Get ZKTeco device information
+router.get('/zkteco/device-info', authMiddleware, async (req, res) => {
+  try {
+    await zktecoService.connect('splaza.nayatel.net', 4370);
+    const deviceInfo = await zktecoService.getDeviceInfo();
+    await zktecoService.disconnect();
+    
+    res.json({
+      success: true,
+      data: deviceInfo
+    });
+  } catch (error) {
+    console.error('ZKTeco device info error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Get attendance data from ZKTeco device
+router.get('/zkteco/attendance', authMiddleware, async (req, res) => {
+  try {
+    await zktecoService.connect('splaza.nayatel.net', 4370);
+    const attendance = await zktecoService.getAttendanceData();
+    await zktecoService.disconnect();
+    
+    res.json({
+      success: true,
+      data: attendance
+    });
+  } catch (error) {
+    console.error('ZKTeco attendance fetch error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Sync attendance data from ZKTeco to database
+router.post('/zkteco/sync-attendance', authMiddleware, async (req, res) => {
+  try {
+    await zktecoService.connect('splaza.nayatel.net', 4370);
+    const syncResult = await zktecoService.syncAttendanceToDatabase();
+    await zktecoService.disconnect();
+    
+    res.json({
+      success: true,
+      message: 'ZKTeco attendance data synced successfully',
+      data: syncResult
+    });
+  } catch (error) {
+    console.error('ZKTeco sync error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Get users from ZKTeco device
+router.get('/zkteco/users', authMiddleware, async (req, res) => {
+  try {
+    await zktecoService.connect('splaza.nayatel.net', 4370);
+    const users = await zktecoService.getUsers();
+    await zktecoService.disconnect();
+    
+    res.json({
+      success: true,
+      data: users
+    });
+  } catch (error) {
+    console.error('ZKTeco users fetch error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
   }
 });
 

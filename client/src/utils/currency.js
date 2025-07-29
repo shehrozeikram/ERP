@@ -1,6 +1,6 @@
 // Utility function for formatting Pakistani Rupees (PKR)
 export const formatPKR = (amount) => {
-  if (amount === null || amount === undefined) {
+  if (amount === null || amount === undefined || isNaN(amount)) {
     return '₨0';
   }
   

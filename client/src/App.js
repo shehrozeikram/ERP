@@ -20,6 +20,7 @@ import EmployeeReports from './pages/HR/EmployeeReports';
 import Departments from './pages/HR/Departments';
 import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
+import PayrollDetail from './pages/HR/PayrollDetail';
 import AttendanceList from './pages/HR/AttendanceList';
 import AttendanceForm from './pages/HR/AttendanceForm';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
@@ -40,6 +41,7 @@ import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
 import NotFound from './pages/NotFound/NotFound';
+import FBRTaxManagement from './pages/HR/FBRTaxManagement';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -163,6 +165,10 @@ function App() {
               path="/hr/payroll/:id/edit"
               element={<ProtectedRoute><PayrollForm /></ProtectedRoute>}
             />
+            <Route
+              path="/hr/payroll/view/:id"
+              element={<ProtectedRoute><PayrollDetail /></ProtectedRoute>}
+            />
 
             {/* Attendance Routes */}
             <Route
@@ -186,6 +192,12 @@ function App() {
             <Route
               path="/hr/biometric"
               element={<ProtectedRoute><BiometricIntegration /></ProtectedRoute>}
+            />
+
+            {/* FBR Tax Management Routes */}
+            <Route
+              path="/hr/fbr-tax"
+              element={<ProtectedRoute><FBRTaxManagement /></ProtectedRoute>}
             />
 
             {/* Finance Module */}
@@ -234,7 +246,7 @@ function App() {
             <Route 
               path="/crm/contacts" 
               element={<ProtectedRoute><Contacts /></ProtectedRoute>} 
-            />https://sso.teachable.com/secure/146684/checkout/4759447/the-ultimate-react-native-course?coupon_code=SITE
+            />
             <Route 
               path="/crm/contacts/new" 
               element={<ProtectedRoute><Contacts /></ProtectedRoute>} 

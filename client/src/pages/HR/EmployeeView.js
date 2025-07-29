@@ -22,7 +22,8 @@ import {
   LocationOn as LocationIcon,
   Assignment as AssignmentIcon,
   Phone as EmergencyIcon,
-  AttachMoney as SalaryIcon
+  AttachMoney as SalaryIcon,
+  Update as UpdateIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -34,6 +35,7 @@ const EmployeeView = () => {
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [updatingPayrolls, setUpdatingPayrolls] = useState(false);
 
   const fetchEmployee = async () => {
     if (!id) return;
@@ -90,6 +92,27 @@ const EmployeeView = () => {
     return 'Unknown';
   };
 
+  const handleUpdatePayrolls = async () => {
+    try {
+      setUpdatingPayrolls(true);
+      const response = await api.post(`/hr/employees/${id}/update-payrolls`);
+      setSnackbar({
+        open: true,
+        message: response.data.message,
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error updating payrolls:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Failed to update payrolls',
+        severity: 'error'
+      });
+    } finally {
+      setUpdatingPayrolls(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -121,13 +144,23 @@ const EmployeeView = () => {
           </Button>
           <Typography variant="h4">Employee Details</Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<EditIcon />}
-          onClick={() => navigate(`/hr/employees/${id}/edit`)}
-        >
-          Edit Employee
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<UpdateIcon />}
+            onClick={handleUpdatePayrolls}
+            disabled={updatingPayrolls}
+          >
+            {updatingPayrolls ? 'Updating...' : 'Update Payrolls'}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<EditIcon />}
+            onClick={() => navigate(`/hr/employees/${id}/edit`)}
+          >
+            Edit Employee
+          </Button>
+        </Box>
       </Box>
 
       {/* Employee Header Card */}
@@ -398,11 +431,30 @@ const EmployeeView = () => {
                 <SalaryIcon />
                 Salary Information
               </Typography>
-              <Typography variant="h4" color="primary" gutterBottom>
-                {formatPKR(employee.salary || 0)}
-              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" color="primary" gutterBottom>
+                    Gross Salary: {formatPKR(employee.salary?.gross || 0)}
+                  </Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="body2" color="textSecondary">
+                    Basic (60%): {formatPKR(employee.salary?.basic || Math.round((employee.salary?.gross || 0) * 0.6))}
+                  </Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="body2" color="textSecondary">
+                    House Rent (30%): {formatPKR(employee.salary?.houseRent || Math.round((employee.salary?.gross || 0) * 0.3))}
+                  </Typography>
+                </Grid>
+                <Grid item xs={4}>
+                  <Typography variant="body2" color="textSecondary">
+                    Medical (10%): {formatPKR(employee.salary?.medical || Math.round((employee.salary?.gross || 0) * 0.1))}
+                  </Typography>
+                </Grid>
+              </Grid>
               <Typography variant="body2" color="textSecondary">
-                Annual compensation
+                Monthly compensation
               </Typography>
             </CardContent>
           </Card>

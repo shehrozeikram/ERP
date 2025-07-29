@@ -113,12 +113,23 @@ const EmployeeForm = () => {
     placementDesignation: Yup.string(),
     oldDesignation: Yup.string(),
     placementLocation: Yup.string(),
-    salary: Yup.number().positive('Salary must be positive').required('Salary is required'),
+    salary: Yup.object({
+      gross: Yup.number().nullable().optional().min(0, 'Gross salary must be positive')
+    }),
+    eobi: Yup.object({
+      isActive: Yup.boolean(),
+      amount: Yup.number().min(0, 'EOBI amount must be positive'),
+      percentage: Yup.number().min(0, 'EOBI percentage must be positive')
+    }),
+    providentFund: Yup.object({
+      isActive: Yup.boolean(),
+      amount: Yup.number().min(0, 'Provident Fund amount must be positive'),
+      percentage: Yup.number().min(0, 'Provident Fund percentage must be positive')
+    }),
     address: Yup.object({
       street: Yup.string().required('Street address is required'),
       city: Yup.string().required('City is required'),
       state: Yup.string().required('State is required'),
-                  city: Yup.string().required('City is required'),
       country: Yup.string().required('Country is required')
     })
   });
@@ -361,6 +372,19 @@ const EmployeeForm = () => {
         placementDesignation: employeeData.placementDesignation?._id || employeeData.placementDesignation || '',
         oldDesignation: employeeData.oldDesignation?._id || employeeData.oldDesignation || undefined,
         placementLocation: employeeData.placementLocation?._id || employeeData.placementLocation || '',
+        salary: {
+          gross: employeeData.salary?.gross || 0
+        },
+        eobi: {
+          isActive: employeeData.eobi?.isActive || false,
+          amount: employeeData.eobi?.amount || 0,
+          percentage: employeeData.eobi?.percentage || 0.06 // Assuming 6% is the default
+        },
+        providentFund: {
+          isActive: employeeData.providentFund?.isActive || false,
+          amount: employeeData.providentFund?.amount || 0,
+          percentage: employeeData.providentFund?.percentage || 0.08 // Assuming 8% is the default
+        },
         address: {
           ...employeeData.address,
           city: employeeData.address?.city?._id || employeeData.address?.city || '',
@@ -486,7 +510,9 @@ const EmployeeForm = () => {
       appointmentDate: '',
       probationPeriodMonths: 3,
       hireDate: '',
-      salary: '',
+      salary: {
+        gross: ''
+      },
       // Placement fields
       placementCompany: '',
       placementProject: '',
@@ -500,39 +526,84 @@ const EmployeeForm = () => {
         street: '',
         city: '',
         state: '',
-                  city: '',
         country: ''
       },
       emergencyContact: {
         name: '',
         relationship: '',
         phone: ''
+      },
+      eobi: {
+        isActive: false,
+        amount: 0
+      },
+      providentFund: {
+        isActive: false,
+        amount: 0
       }
     },
     validationSchema,
     onSubmit: async (values) => {
       try {
+        console.log('🚀 Starting employee save...');
+        console.log('📝 Form values:', values);
+        console.log('🔍 Checking form validation...');
+        
+        // Check for validation errors
+        const errors = await formik.validateForm();
+        console.log('🔍 Validation errors found:', errors);
+        
+        if (Object.keys(errors).length > 0) {
+          console.error('❌ Validation errors:', errors);
+          setSnackbar({
+            open: true,
+            message: `Validation errors: ${Object.keys(errors).join(', ')}`,
+            severity: 'error'
+          });
+          return;
+        }
+        
+        console.log('✅ Form validation passed!');
+        
         setLoading(true);
         
         // Clean up values before submission
         const cleanedValues = { ...values };
+        console.log('🧹 Cleaned values:', cleanedValues);
         
         // Handle empty oldDesignation
         if (cleanedValues.oldDesignation === '' || cleanedValues.oldDesignation === undefined) {
           delete cleanedValues.oldDesignation;
         }
         
+        // Ensure salary.gross is a number
+        console.log('🎯 Original salary value:', cleanedValues.salary);
+        if (cleanedValues.salary?.gross !== undefined && cleanedValues.salary?.gross !== null && cleanedValues.salary?.gross !== '') {
+          cleanedValues.salary.gross = parseFloat(cleanedValues.salary.gross);
+          console.log('🎯 Converted salary.gross to:', cleanedValues.salary.gross);
+        } else {
+          console.log('🎯 Salary.gross is empty, removing salary object');
+          delete cleanedValues.salary;
+        }
+        
         if (id && id !== 'add') {
+          console.log('🔄 Updating existing employee...');
+          console.log('🎯 Salary before sending:', cleanedValues.salary);
+          console.log('🎯 Salary.gross before sending:', cleanedValues.salary?.gross);
+          console.log('🎯 Salary.gross type:', typeof cleanedValues.salary?.gross);
           // Update existing employee
-          await api.put(`/hr/employees/${id}`, cleanedValues);
+          const response = await api.put(`/hr/employees/${id}`, cleanedValues);
+          console.log('✅ Update response:', response);
           setSnackbar({
             open: true,
             message: 'Employee updated successfully',
             severity: 'success'
           });
         } else {
+          console.log('🆕 Creating new employee...');
           // Create new employee
-          await api.post('/hr/employees', cleanedValues);
+          const response = await api.post('/hr/employees', cleanedValues);
+          console.log('✅ Create response:', response);
           setSnackbar({
             open: true,
             message: 'Employee created successfully',
@@ -544,7 +615,9 @@ const EmployeeForm = () => {
           navigate('/hr/employees');
         }, 1500);
       } catch (error) {
-        console.error('Error saving employee:', error);
+        console.error('❌ Error saving employee:', error);
+        console.error('❌ Error response:', error.response);
+        console.error('❌ Error data:', error.response?.data);
         setSnackbar({
           open: true,
           message: error.response?.data?.message || 'Error saving employee',
@@ -1007,14 +1080,114 @@ const EmployeeForm = () => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
-                name="salary"
-                label="Salary"
+                name="salary.gross"
+                label="Gross Salary"
                 type="number"
-                value={formik.values.salary}
+                value={formik.values.salary?.gross || ''}
                 onChange={formik.handleChange}
-                error={formik.touched.salary && Boolean(formik.errors.salary)}
-                helperText={formik.touched.salary && formik.errors.salary}
+                error={formik.touched.salary?.gross && Boolean(formik.errors.salary?.gross)}
+                helperText={formik.touched.salary?.gross && formik.errors.salary?.gross}
+                InputProps={{
+                  startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                }}
               />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.eobi?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('eobi.isActive', e.target.checked)}
+                      name="eobi.isActive"
+                    />
+                  }
+                  label="EOBI Active"
+                />
+                <FormHelperText>
+                  Employees' Old-Age Benefits Institution (6% of basic salary)
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.eobi?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="eobi.amount"
+                  label="EOBI Amount"
+                  type="number"
+                  value={formik.values.eobi?.amount || 370}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    readOnly: true,
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                  helperText="Fixed amount: Rs 370 (1% of minimum wage)"
+                />
+              </Grid>
+            )}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.providentFund?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('providentFund.isActive', e.target.checked)}
+                      name="providentFund.isActive"
+                    />
+                  }
+                  label="Provident Fund Active"
+                />
+                <FormHelperText>
+                  Provident Fund (8% of basic salary)
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.providentFund?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="providentFund.amount"
+                  label="Provident Fund Amount"
+                  type="number"
+                  value={formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6 * 0.08)}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    readOnly: true,
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                  helperText="Auto-calculated: 8% of basic salary"
+                />
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
+                <Typography variant="h6" gutterBottom>
+                  Auto-Calculated Salary Breakdown
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Basic Salary (60%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6))}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      House Rent (30%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.3))}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total: {formatPKR(formik.values.salary?.gross || 0)}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Card>
             </Grid>
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
@@ -1387,11 +1560,50 @@ const EmployeeForm = () => {
                     Salary Information
                   </Typography>
                   <Typography variant="body1">
-                    <strong>Base Salary:</strong> {formatPKR(formik.values.salary || 0)}
+                    <strong>Gross Salary:</strong> {formatPKR(formik.values.salary?.gross || 0)}
+                  </Typography>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="body2" color="textSecondary">
+                    <strong>Auto-Calculated Breakdown:</strong>
+                  </Typography>
+                  <Typography variant="body2">
+                    Basic Salary (60%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6))}
+                  </Typography>
+                  <Typography variant="body2">
+                    House Rent (30%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.3))}
+                  </Typography>
+                  <Typography variant="body2">
+                    Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
+                  </Typography>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="h6" color="primary">
+                    <strong>Total:</strong> {formatPKR(formik.values.salary?.gross || 0)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Annual compensation
+                    Monthly compensation
                   </Typography>
+                  {formik.values.eobi?.isActive && (
+                    <>
+                      <Divider sx={{ my: 1 }} />
+                      <Typography variant="body2" color="error">
+                        <strong>EOBI Deduction:</strong> {formatPKR(formik.values.eobi?.amount || 370)}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        Fixed amount: Rs 370 (1% of minimum wage)
+                      </Typography>
+                    </>
+                  )}
+                  {formik.values.providentFund?.isActive && (
+                    <>
+                      <Divider sx={{ my: 1 }} />
+                      <Typography variant="body2" color="error">
+                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6 * 0.08))}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        Auto-calculated: 8% of basic salary
+                      </Typography>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </Grid>

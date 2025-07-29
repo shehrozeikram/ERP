@@ -288,7 +288,7 @@ const EmployeeReports = () => {
                     Total Salary
                   </Typography>
                   <Typography variant="h4" color="success.main">
-                    {formatPKR(reportData.reportInfo.totalSalary)}
+                    {formatPKR(reportData.reportInfo.totalGrossSalary || reportData.reportInfo.totalBasicSalary || 0)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={3}>
@@ -296,7 +296,7 @@ const EmployeeReports = () => {
                     Average Salary
                   </Typography>
                   <Typography variant="h4" color="info.main">
-                    {formatPKR(reportData.reportInfo.averageSalary)}
+                    {formatPKR(reportData.reportInfo.averageGrossSalary || reportData.reportInfo.averageBasicSalary || 0)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} sm={3}>
@@ -381,7 +381,21 @@ const EmployeeReports = () => {
                           />
                         </TableCell>
                         <TableCell>{employee.position}</TableCell>
-                        <TableCell>{formatPKR(employee.salary)}</TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            Basic: {formatPKR(employee.salary?.basic || 0)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Gross: {formatPKR(
+                              (employee.salary?.basic || 0) +
+                              (employee.salary?.houseRent || 0) +
+                              (employee.salary?.medical || 0) +
+                              (employee.salary?.conveyance || 0) +
+                              (employee.salary?.special || 0) +
+                              (employee.salary?.other || 0)
+                            )}
+                          </Typography>
+                        </TableCell>
                         <TableCell>
                           <Chip 
                             label={employee.status} 

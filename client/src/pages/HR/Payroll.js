@@ -43,7 +43,8 @@ import {
   TrendingUp as TrendingUpIcon,
   AccountBalance as AccountBalanceIcon,
   Receipt as ReceiptIcon,
-  People as PeopleIcon
+  People as PeopleIcon,
+  Undo as UndoIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -63,8 +64,7 @@ const Payroll = () => {
     status: '',
     employeeId: '',
     startDate: '',
-    endDate: '',
-    payPeriodType: ''
+    endDate: ''
   });
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [employees, setEmployees] = useState([]);
@@ -132,10 +132,8 @@ const Payroll = () => {
       status: '',
       employeeId: '',
       startDate: '',
-      endDate: '',
-      payPeriodType: ''
+      endDate: ''
     });
-    setPage(0);
   };
 
   const getStatusColor = (status) => {
@@ -179,6 +177,17 @@ const Payroll = () => {
     } catch (error) {
       console.error('Error marking payroll as paid:', error);
       setError('Failed to mark payroll as paid');
+    }
+  };
+
+  const handleMarkAsUnpaid = async (payrollId) => {
+    try {
+      await api.patch(`/payroll/${payrollId}/mark-unpaid`);
+      fetchPayrolls();
+      fetchStats();
+    } catch (error) {
+      console.error('Error marking payroll as unpaid:', error);
+      setError('Failed to mark payroll as unpaid');
     }
   };
 
@@ -258,7 +267,7 @@ const Payroll = () => {
                     Total Gross Pay
                   </Typography>
                   <Typography variant="h4">
-                    {formatCurrency(stats.totalGrossPay)}
+                    {formatCurrency(stats.totalGrossSalary)}
                   </Typography>
                 </Box>
               </Box>
@@ -275,7 +284,7 @@ const Payroll = () => {
                     Total Net Pay
                   </Typography>
                   <Typography variant="h4">
-                    {formatCurrency(stats.totalNetPay)}
+                    {formatCurrency(stats.totalNetSalary)}
                   </Typography>
                 </Box>
               </Box>
@@ -292,7 +301,7 @@ const Payroll = () => {
                     Avg Net Pay
                   </Typography>
                   <Typography variant="h4">
-                    {formatCurrency(stats.averageNetPay)}
+                    {formatCurrency(stats.averageNetSalary)}
                   </Typography>
                 </Box>
               </Box>
@@ -316,13 +325,13 @@ const Payroll = () => {
               <TableRow>
                 <TableCell>Employee</TableCell>
                 <TableCell>Pay Period</TableCell>
-                                 <TableCell>Basic Salary</TableCell>
-                 <TableCell>Gross Pay</TableCell>
-                 <TableCell>Leave Deduction</TableCell>
-                 <TableCell>Net Pay</TableCell>
-                 <TableCell>Status</TableCell>
-                 <TableCell>Created</TableCell>
-                 <TableCell align="center">Actions</TableCell>
+                <TableCell>Basic Salary</TableCell>
+                <TableCell>Gross Pay</TableCell>
+                <TableCell>Leave Deduction</TableCell>
+                <TableCell>Net Pay</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Created</TableCell>
+                <TableCell align="center">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -341,17 +350,17 @@ const Payroll = () => {
                   <TableCell>
                     <Box>
                       <Typography variant="body2">
-                        {format(new Date(payroll.payPeriod.startDate), 'MMM dd')} - {format(new Date(payroll.payPeriod.endDate), 'MMM dd, yyyy')}
+                        {payroll.month && payroll.year ? `${payroll.month}/${payroll.year}` : 'N/A'}
                       </Typography>
                       <Typography variant="caption" color="textSecondary">
-                        {payroll.payPeriod.type}
+                        Monthly
                       </Typography>
                     </Box>
                   </TableCell>
-                                     <TableCell>{formatCurrency(payroll.basicSalary)}</TableCell>
-                   <TableCell>{formatCurrency(payroll.calculations.grossPay)}</TableCell>
-                   <TableCell>{formatCurrency(payroll.leaveDeductions?.leaveDeductionAmount || 0)}</TableCell>
-                   <TableCell>{formatCurrency(payroll.calculations.netPay)}</TableCell>
+                  <TableCell>{formatCurrency(payroll.basicSalary)}</TableCell>
+                  <TableCell>{formatCurrency(payroll.grossSalary)}</TableCell>
+                  <TableCell>{formatCurrency(payroll.leaveDays ? (payroll.leaveDays * (payroll.basicSalary / 22)) : 0)}</TableCell>
+                  <TableCell>{formatCurrency(payroll.netSalary)}</TableCell>
                   <TableCell>
                     <Chip
                       label={getStatusLabel(payroll.status)}
@@ -367,7 +376,7 @@ const Payroll = () => {
                       <Tooltip title="View Details">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/hr/payroll/${payroll._id}`)}
+                          onClick={() => navigate(`/hr/payroll/view/${payroll._id}`)}
                         >
                           <ViewIcon />
                         </IconButton>
@@ -381,7 +390,7 @@ const Payroll = () => {
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      {payroll.status === 'draft' && (
+                      {payroll.status === 'Draft' && (
                         <Tooltip title="Approve">
                           <IconButton
                             size="small"
@@ -392,7 +401,7 @@ const Payroll = () => {
                           </IconButton>
                         </Tooltip>
                       )}
-                      {payroll.status === 'approved' && (
+                      {payroll.status === 'Approved' && (
                         <Tooltip title="Mark as Paid">
                           <IconButton
                             size="small"
@@ -403,12 +412,23 @@ const Payroll = () => {
                           </IconButton>
                         </Tooltip>
                       )}
+                      {payroll.status === 'Paid' && (
+                        <Tooltip title="Mark as Unpaid">
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => handleMarkAsUnpaid(payroll._id)}
+                          >
+                            <UndoIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip title="Delete">
                         <IconButton
                           size="small"
                           color="error"
                           onClick={() => handleDelete(payroll._id)}
-                          disabled={payroll.status === 'paid'}
+                          disabled={payroll.status === 'Paid'}
                         >
                           <DeleteIcon />
                         </IconButton>
@@ -445,10 +465,10 @@ const Payroll = () => {
                   label="Status"
                 >
                   <MenuItem value="">All</MenuItem>
-                  <MenuItem value="draft">Draft</MenuItem>
-                  <MenuItem value="approved">Approved</MenuItem>
-                  <MenuItem value="paid">Paid</MenuItem>
-                  <MenuItem value="cancelled">Cancelled</MenuItem>
+                  <MenuItem value="Draft">Draft</MenuItem>
+                  <MenuItem value="Approved">Approved</MenuItem>
+                  <MenuItem value="Paid">Paid</MenuItem>
+                  <MenuItem value="Cancelled">Cancelled</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -488,21 +508,6 @@ const Payroll = () => {
                 onChange={(e) => handleFilterChange('endDate', e.target.value)}
                 InputLabelProps={{ shrink: true }}
               />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Pay Period Type</InputLabel>
-                <Select
-                  value={filters.payPeriodType}
-                  onChange={(e) => handleFilterChange('payPeriodType', e.target.value)}
-                  label="Pay Period Type"
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="weekly">Weekly</MenuItem>
-                  <MenuItem value="bi-weekly">Bi-weekly</MenuItem>
-                  <MenuItem value="monthly">Monthly</MenuItem>
-                </Select>
-              </FormControl>
             </Grid>
           </Grid>
         </DialogContent>

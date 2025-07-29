@@ -11,6 +11,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const { calculateMonthlyTax, calculateTaxableIncome, getTaxSlabInfo } = require('../utils/taxCalculator');
+const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 
 const router = express.Router();
 
@@ -206,38 +208,91 @@ router.post('/employees', [
   body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').isNumeric().withMessage('Probation period must be a number'),
   body('hireDate').notEmpty().withMessage('Hire date is required'),
-  body('salary').isNumeric().withMessage('Valid salary is required')
+  body('salary.gross').isNumeric().withMessage('Valid gross salary is required')
 ], asyncHandler(async (req, res) => {
+  console.log('📥 POST /hr/employees - Request received');
+  console.log('📋 Request body:', req.body);
+  
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('❌ Validation errors:', errors.array());
     return res.status(400).json({
       success: false,
       message: 'Validation failed',
       errors: errors.array()
     });
   }
+  
+  console.log('✅ Request validation passed');
 
-  // Clean up the request body
-  const employeeData = {
-    ...req.body,
-    salary: parseFloat(req.body.salary),
-    dateOfBirth: new Date(req.body.dateOfBirth),
-    hireDate: new Date(req.body.hireDate)
-  };
+  try {
+    // Clean up the request body
+    const employeeData = {
+      ...req.body,
+      salary: {
+        gross: parseFloat(req.body.salary?.gross || 0)
+      },
+      dateOfBirth: new Date(req.body.dateOfBirth),
+      hireDate: new Date(req.body.hireDate),
+      appointmentDate: new Date(req.body.appointmentDate)
+    };
 
-  // Handle empty oldDesignation field
-  if (employeeData.oldDesignation === '') {
-    delete employeeData.oldDesignation;
+    // Handle empty oldDesignation field
+    if (employeeData.oldDesignation === '') {
+      delete employeeData.oldDesignation;
+    }
+
+    const employee = new Employee(employeeData);
+    await employee.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Employee created successfully',
+      data: employee
+    });
+  } catch (error) {
+  console.error('❌ Error creating employee:', error);
+  
+  // Handle duplicate key errors
+  if (error.code === 11000) {
+    const field = Object.keys(error.keyPattern)[0];
+    const value = error.keyValue[field];
+    
+    if (field === 'email') {
+      return res.status(400).json({
+        success: false,
+        message: `An employee with email "${value}" already exists. Please use a different email address.`
+      });
+    } else if (field === 'idCard') {
+      return res.status(400).json({
+        success: false,
+        message: `An employee with ID Card "${value}" already exists. Please use a different ID Card number.`
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: `A record with this ${field} already exists.`
+      });
+    }
   }
-
-  const employee = new Employee(employeeData);
-  await employee.save();
-
-  res.status(201).json({
-    success: true,
-    message: 'Employee created successfully',
-    data: employee
+  
+  // Handle validation errors
+  if (error.name === 'ValidationError') {
+    const errors = Object.values(error.errors).map(err => err.message);
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors
+    });
+  }
+  
+  // Generic error
+  res.status(500).json({
+    success: false,
+    message: 'Error creating employee',
+    error: error.message
   });
+  }
 }));
 
 // @route   GET /api/hr/employees/report
@@ -303,17 +358,24 @@ router.get('/employees/report',
 
       // Get summary statistics
       const totalEmployees = employees.length;
-      const totalSalary = employees.reduce((sum, emp) => sum + (emp.salary || 0), 0);
-      const avgSalary = totalEmployees > 0 ? totalSalary / totalEmployees : 0;
+          const totalBasicSalary = employees.reduce((sum, emp) => {
+      const basic = emp.salary?.basic || Math.round((emp.salary?.gross || 0) * 0.6);
+      return sum + basic;
+    }, 0);
+    const totalGrossSalary = employees.reduce((sum, emp) => sum + (emp.salary?.gross || 0), 0);
+    const avgBasicSalary = totalEmployees > 0 ? totalBasicSalary / totalEmployees : 0;
+    const avgGrossSalary = totalEmployees > 0 ? totalGrossSalary / totalEmployees : 0;
 
       // Group by department
       const departmentStats = employees.reduce((acc, emp) => {
         const deptName = emp.department?.name || 'Unassigned';
         if (!acc[deptName]) {
-          acc[deptName] = { count: 0, totalSalary: 0 };
+          acc[deptName] = { count: 0, totalBasicSalary: 0, totalGrossSalary: 0 };
         }
         acc[deptName].count++;
-        acc[deptName].totalSalary += emp.salary || 0;
+                const basic = emp.salary?.basic || Math.round((emp.salary?.gross || 0) * 0.6);
+        acc[deptName].totalBasicSalary += basic;
+        acc[deptName].totalGrossSalary += emp.salary?.gross || 0;
         return acc;
       }, {});
 
@@ -324,8 +386,10 @@ router.get('/employees/report',
           startDate: startDate,
           endDate: endDate,
           totalEmployees,
-          totalSalary: totalSalary.toFixed(2),
-          averageSalary: avgSalary.toFixed(2)
+          totalBasicSalary: totalBasicSalary.toFixed(2),
+          totalGrossSalary: totalGrossSalary.toFixed(2),
+          averageBasicSalary: avgBasicSalary.toFixed(2),
+          averageGrossSalary: avgGrossSalary.toFixed(2)
         },
         departmentStats,
         employees: employees.map(emp => ({
@@ -611,9 +675,53 @@ router.get('/employees/:id',
 // @route   PUT /api/hr/employees/:id
 // @desc    Update employee
 // @access  Private (HR and Admin)
-router.put('/employees/:id', 
-  authorize('admin', 'hr_manager'), 
-  asyncHandler(async (req, res) => {
+router.put('/employees/:id', [
+  authorize('admin', 'hr_manager'),
+  body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
+  body('lastName').optional().trim().notEmpty().withMessage('Last name cannot be empty'),
+  body('email').optional().isEmail().withMessage('Valid email is required'),
+  body('phone').optional().trim().notEmpty().withMessage('Phone cannot be empty'),
+  body('dateOfBirth').optional().notEmpty().withMessage('Date of birth is required'),
+  body('gender').optional().isIn(['male', 'female', 'other']).withMessage('Valid gender is required'),
+  body('idCard').optional().trim().notEmpty().withMessage('ID Card number is required'),
+  body('nationality').optional().trim().notEmpty().withMessage('Nationality is required'),
+  body('religion').optional().isIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Buddhism', 'Judaism', 'Other', 'None']).withMessage('Valid religion is required'),
+  body('maritalStatus').optional().isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
+  body('department').optional().notEmpty().withMessage('Department is required'),
+  body('position').optional().notEmpty().withMessage('Position is required'),
+  body('qualification').optional().notEmpty().withMessage('Qualification is required'),
+  body('bankName').optional().notEmpty().withMessage('Bank name is required'),
+  body('spouseName').optional().custom((value, { req }) => {
+    if (req.body.maritalStatus === 'Married' && !value) {
+      throw new Error('Spouse name is required when marital status is Married');
+    }
+    return true;
+  }),
+  body('appointmentDate').optional().notEmpty().withMessage('Appointment date is required'),
+  body('probationPeriodMonths').optional().isNumeric().withMessage('Probation period must be a number'),
+  body('hireDate').optional().notEmpty().withMessage('Hire date is required'),
+  // body('salary.gross').optional().custom((value) => {
+  //   // Allow empty, null, undefined values
+  //   if (value === undefined || value === null || value === '') {
+  //     return true;
+  //   }
+  //   // If value exists, validate it's a positive number
+  //   const numValue = parseFloat(value);
+  //   if (isNaN(numValue) || numValue < 0) {
+  //     throw new Error('Gross salary must be a valid positive number');
+  //   }
+  //   return true;
+  // })
+], asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
     // Check if the ID is a valid ObjectId
     if (!req.params.id) {
       return res.status(400).json({
@@ -631,12 +739,40 @@ router.put('/employees/:id',
     }
 
     // Clean up the request body
-    const employeeData = {
-      ...req.body,
-      salary: req.body.salary ? parseFloat(req.body.salary) : undefined,
-      dateOfBirth: req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : undefined,
-      hireDate: req.body.hireDate ? new Date(req.body.hireDate) : undefined
-    };
+    const employeeData = { ...req.body };
+    
+    // Handle salary field
+    if (req.body.salary && req.body.salary.gross !== undefined && req.body.salary.gross !== null && req.body.salary.gross !== '') {
+      employeeData.salary = {
+        gross: parseFloat(req.body.salary.gross)
+      };
+    } else {
+      // Don't include salary in update if it's empty
+      delete employeeData.salary;
+    }
+    
+    // Clean up empty placement fields (convert empty strings to undefined)
+    const placementFields = [
+      'placementCompany', 'placementProject', 'placementDepartment', 
+      'placementSection', 'placementDesignation', 'placementLocation'
+    ];
+    
+    placementFields.forEach(field => {
+      if (employeeData[field] === '' || employeeData[field] === null) {
+        delete employeeData[field];
+      }
+    });
+    
+    // Handle date fields
+    if (req.body.dateOfBirth) {
+      employeeData.dateOfBirth = new Date(req.body.dateOfBirth);
+    }
+    if (req.body.hireDate) {
+      employeeData.hireDate = new Date(req.body.hireDate);
+    }
+    if (req.body.appointmentDate) {
+      employeeData.appointmentDate = new Date(req.body.appointmentDate);
+    }
 
     const employee = await Employee.findByIdAndUpdate(
       req.params.id,
@@ -700,6 +836,36 @@ router.delete('/employees/:id',
     });
   })
 );
+
+// @route   POST /api/hr/employees/:id/update-payrolls
+// @desc    Update all payrolls for an employee with current salary structure
+// @access  Private (HR and Admin)
+router.post('/employees/:id/update-payrolls', [
+  authorize('admin', 'hr_manager')
+], asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid employee ID format'
+    });
+  }
+
+  try {
+    const result = await Employee.updateEmployeePayrolls(req.params.id);
+    
+    res.json({
+      success: true,
+      message: `Successfully updated ${result.updatedPayrolls} payrolls for ${result.employeeName}`,
+      data: result
+    });
+  } catch (error) {
+    console.error('Error updating employee payrolls:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update employee payrolls'
+    });
+  }
+}));
 
 // @route   GET /api/hr/departments
 // @desc    Get all departments
@@ -888,5 +1054,236 @@ router.get('/statistics',
     });
   })
 );
+
+// Get tax calculation information
+router.get('/tax-calculation', asyncHandler(async (req, res) => {
+  const { basicSalary, allowances } = req.query;
+  
+  if (!basicSalary) {
+    return res.status(400).json({
+      success: false,
+      message: 'Basic salary is required'
+    });
+  }
+
+  const taxableIncome = calculateTaxableIncome({
+    basic: parseFloat(basicSalary),
+    allowances: allowances ? JSON.parse(allowances) : {}
+  });
+
+  const monthlyTax = calculateMonthlyTax(taxableIncome);
+  const annualTaxableIncome = taxableIncome * 12;
+  const taxInfo = getTaxSlabInfo(annualTaxableIncome);
+
+  res.json({
+    success: true,
+    data: {
+      taxableIncome: Math.round(taxableIncome),
+      annualTaxableIncome: Math.round(annualTaxableIncome),
+      monthlyTax: Math.round(monthlyTax),
+      annualTax: Math.round(monthlyTax * 12),
+      taxSlab: taxInfo.slab,
+      taxRate: taxInfo.rate,
+      description: taxInfo.description
+    }
+  });
+}));
+
+// FBR Tax Management Routes
+
+// Get all FBR tax slabs
+router.get('/fbr-tax-slabs', asyncHandler(async (req, res) => {
+  const taxSlabs = await FBRTaxSlab.find()
+    .populate('createdBy', 'firstName lastName')
+    .populate('updatedBy', 'firstName lastName')
+    .sort({ fiscalYear: -1 });
+
+  res.json({
+    success: true,
+    data: taxSlabs
+  });
+}));
+
+// Get active FBR tax slabs
+router.get('/fbr-tax-slabs/active', asyncHandler(async (req, res) => {
+  const activeSlabs = await FBRTaxSlab.getActiveSlabs();
+  
+  if (!activeSlabs) {
+    return res.status(404).json({
+      success: false,
+      message: 'No active tax slabs found'
+    });
+  }
+
+  res.json({
+    success: true,
+    data: activeSlabs
+  });
+}));
+
+// Create new FBR tax slabs
+router.post('/fbr-tax-slabs', [
+  body('fiscalYear').notEmpty().withMessage('Fiscal year is required'),
+  body('slabs').isArray({ min: 1 }).withMessage('At least one tax slab is required'),
+  body('slabs.*.minAmount').isNumeric().withMessage('Minimum amount must be numeric'),
+  body('slabs.*.maxAmount').isNumeric().withMessage('Maximum amount must be numeric'),
+  body('slabs.*.rate').isNumeric().withMessage('Tax rate must be numeric'),
+  body('slabs.*.fixedTax').optional().isNumeric().withMessage('Fixed tax must be numeric')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  // Check if fiscal year already exists
+  const existingSlabs = await FBRTaxSlab.findOne({ fiscalYear: req.body.fiscalYear });
+  if (existingSlabs) {
+    return res.status(400).json({
+      success: false,
+      message: 'Tax slabs for this fiscal year already exist'
+    });
+  }
+
+  // If this is set as active, deactivate others
+  if (req.body.isActive) {
+    await FBRTaxSlab.updateMany({}, { isActive: false });
+  }
+
+  const taxSlabs = new FBRTaxSlab({
+    ...req.body,
+    createdBy: req.user.id
+  });
+
+  await taxSlabs.save();
+
+  const populatedSlabs = await FBRTaxSlab.findById(taxSlabs._id)
+    .populate('createdBy', 'firstName lastName');
+
+  res.status(201).json({
+    success: true,
+    message: 'FBR tax slabs created successfully',
+    data: populatedSlabs
+  });
+}));
+
+// Update FBR tax slabs
+router.put('/fbr-tax-slabs/:id', [
+  body('fiscalYear').optional().notEmpty().withMessage('Fiscal year is required'),
+  body('slabs').optional().isArray({ min: 1 }).withMessage('At least one tax slab is required'),
+  body('slabs.*.minAmount').optional().isNumeric().withMessage('Minimum amount must be numeric'),
+  body('slabs.*.maxAmount').optional().isNumeric().withMessage('Maximum amount must be numeric'),
+  body('slabs.*.rate').optional().isNumeric().withMessage('Tax rate must be numeric'),
+  body('slabs.*.fixedTax').optional().isNumeric().withMessage('Fixed tax must be numeric')
+], asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid tax slab ID format'
+    });
+  }
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const taxSlabs = await FBRTaxSlab.findById(req.params.id);
+  if (!taxSlabs) {
+    return res.status(404).json({
+      success: false,
+      message: 'Tax slabs not found'
+    });
+  }
+
+  // If this is set as active, deactivate others
+  if (req.body.isActive) {
+    await FBRTaxSlab.updateMany({ _id: { $ne: req.params.id } }, { isActive: false });
+  }
+
+  const updatedSlabs = await FBRTaxSlab.findByIdAndUpdate(
+    req.params.id,
+    {
+      ...req.body,
+      updatedBy: req.user.id
+    },
+    { new: true, runValidators: true }
+  ).populate('createdBy', 'firstName lastName')
+   .populate('updatedBy', 'firstName lastName');
+
+  res.json({
+    success: true,
+    message: 'FBR tax slabs updated successfully',
+    data: updatedSlabs
+  });
+}));
+
+// Delete FBR tax slabs
+router.delete('/fbr-tax-slabs/:id', asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid tax slab ID format'
+    });
+  }
+
+  const taxSlabs = await FBRTaxSlab.findById(req.params.id);
+  if (!taxSlabs) {
+    return res.status(404).json({
+      success: false,
+      message: 'Tax slabs not found'
+    });
+  }
+
+  // Don't allow deletion of active slabs
+  if (taxSlabs.isActive) {
+    return res.status(400).json({
+      success: false,
+      message: 'Cannot delete active tax slabs'
+    });
+  }
+
+  await FBRTaxSlab.findByIdAndDelete(req.params.id);
+
+  res.json({
+    success: true,
+    message: 'FBR tax slabs deleted successfully'
+  });
+}));
+
+// Calculate tax using active slabs
+router.post('/fbr-tax-slabs/calculate', [
+  body('annualIncome').isNumeric().withMessage('Annual income must be numeric')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const annualIncome = parseFloat(req.body.annualIncome);
+  const taxAmount = await FBRTaxSlab.calculateTax(annualIncome);
+  const taxInfo = await FBRTaxSlab.getTaxSlabInfo(annualIncome);
+
+  res.json({
+    success: true,
+    data: {
+      annualIncome,
+      taxAmount: Math.round(taxAmount),
+      monthlyTax: Math.round(taxAmount / 12),
+      taxInfo
+    }
+  });
+}));
 
 module.exports = router; 
