@@ -30,6 +30,16 @@ export const createApplication = async (applicationData) => {
   }
 };
 
+// Update application
+export const updateApplication = async (id, applicationData) => {
+  try {
+    const response = await api.put(`/applications/${id}`, applicationData);
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Update application status
 export const updateApplicationStatus = async (id, status) => {
   try {
@@ -288,6 +298,7 @@ export default {
   getApplications,
   getApplicationById,
   createApplication,
+  updateApplication,
   updateApplicationStatus,
   scheduleInterview,
   updateInterview,

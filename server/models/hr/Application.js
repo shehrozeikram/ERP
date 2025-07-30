@@ -5,7 +5,7 @@ const applicationSchema = new mongoose.Schema({
   // Application Details
   applicationId: {
     type: String,
-    required: true,
+    required: false,
     unique: true,
     trim: true
   },

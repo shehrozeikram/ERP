@@ -41,11 +41,42 @@ import { Formik, Form, Field } from 'formik';
 import * as Yup from 'yup';
 import jobPostingService from '../../services/jobPostingService';
 
-// Validation schema
-const validationSchema = Yup.object({
+// Step-specific validation schemas
+const stepValidationSchemas = [
+  // Step 1: Basic Information
+  Yup.object({
+    title: Yup.string().required('Job title is required'),
+    department: Yup.string().required('Department is required'),
+    location: Yup.string().required('Location is required'),
+    position: Yup.string().required('Position is required'),
+    numberOfPositions: Yup.number().min(1, 'Number of positions must be at least 1')
+  }),
+  
+  // Step 2: Job Details
+  Yup.object({
+    employmentType: Yup.string().required('Employment type is required'),
+    experienceLevel: Yup.string().required('Experience level is required'),
+    educationLevel: Yup.string().required('Education level is required')
+  }),
+  
+  // Step 3: Compensation & Benefits
+  Yup.object({
+    minSalary: Yup.number().min(0, 'Minimum salary must be positive'),
+    maxSalary: Yup.number().min(0, 'Maximum salary must be positive')
+  }),
+  
+  // Step 4: Application Details
+  Yup.object({
+    applicationDeadline: Yup.date().min(new Date(), 'Deadline must be in the future')
+  })
+];
+
+// Complete validation schema for final submission
+const completeValidationSchema = Yup.object({
   title: Yup.string().required('Job title is required'),
   department: Yup.string().required('Department is required'),
   location: Yup.string().required('Location is required'),
+  position: Yup.string().required('Position is required'),
   employmentType: Yup.string().required('Employment type is required'),
   experienceLevel: Yup.string().required('Experience level is required'),
   educationLevel: Yup.string().required('Education level is required'),
@@ -66,31 +97,50 @@ const JobPostingForm = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [departments, setDepartments] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [activeStep, setActiveStep] = useState(0);
+  const [editData, setEditData] = useState(null);
 
   // Steps for the form
   const steps = ['Basic Information', 'Job Details', 'Compensation & Benefits', 'Application Details'];
 
-  // Load departments and locations
+  // Load departments, locations, and positions
   const loadDropdownData = async () => {
     try {
-      // In a real app, you'd fetch these from your API
-      setDepartments([
-        { _id: 'dept1', name: 'Information Technology' },
-        { _id: 'dept2', name: 'Human Resources' },
-        { _id: 'dept3', name: 'Marketing' },
-        { _id: 'dept4', name: 'Finance' },
-        { _id: 'dept5', name: 'Operations' }
-      ]);
-      
-      setLocations([
-        { _id: 'loc1', name: 'Karachi' },
-        { _id: 'loc2', name: 'Lahore' },
-        { _id: 'loc3', name: 'Islamabad' },
-        { _id: 'loc4', name: 'Rawalpindi' },
-        { _id: 'loc5', name: 'Faisalabad' }
-      ]);
+      // Fetch departments from API
+      const departmentsResponse = await fetch('/api/hr/departments', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (departmentsResponse.ok) {
+        const departmentsData = await departmentsResponse.json();
+        setDepartments(departmentsData.data || []);
+      }
+
+      // Fetch locations from API
+      const locationsResponse = await fetch('/api/locations', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (locationsResponse.ok) {
+        const locationsData = await locationsResponse.json();
+        setLocations(locationsData.data || []);
+      }
+
+      // Fetch all positions from API
+      const positionsResponse = await fetch('/api/hr/positions', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (positionsResponse.ok) {
+        const positionsData = await positionsResponse.json();
+        setPositions(positionsData.data || []);
+      }
     } catch (error) {
+      console.error('Error loading dropdown data:', error);
       setSnackbar({
         open: true,
         message: 'Error loading dropdown data',
@@ -106,9 +156,33 @@ const JobPostingForm = () => {
     setInitialLoading(true);
     try {
       const response = await jobPostingService.getJobPostingById(id);
-      // Handle the response data
+      
+      // Format the data for the form
+      const formattedData = {
+        title: response.data.title || '',
+        department: response.data.department?._id || response.data.department || '',
+        position: response.data.position?._id || response.data.position || '',
+        location: response.data.location?._id || response.data.location || '',
+        description: response.data.description || '',
+        requirements: response.data.requirements || '',
+        responsibilities: response.data.responsibilities || '',
+        qualifications: response.data.qualifications || '',
+        employmentType: response.data.employmentType || '',
+        experienceLevel: response.data.experienceLevel || '',
+        educationLevel: response.data.educationLevel || '',
+        minSalary: response.data.salaryRange?.min || '',
+        maxSalary: response.data.salaryRange?.max || '',
+        currency: response.data.salaryRange?.currency || 'PKR',
+        benefits: response.data.benefits?.join(', ') || '',
+        applicationDeadline: response.data.applicationDeadline ? new Date(response.data.applicationDeadline).toISOString().split('T')[0] : '',
+        numberOfPositions: response.data.positionsAvailable || 1,
+        isRemote: response.data.isRemote || false
+      };
+      
+      setEditData(formattedData);
       setInitialLoading(false);
     } catch (error) {
+      console.error('Error loading job posting:', error);
       setSnackbar({
         open: true,
         message: 'Error loading job posting',
@@ -130,15 +204,40 @@ const JobPostingForm = () => {
   const handleSubmit = async (values, { setSubmitting }) => {
     setLoading(true);
     try {
+      // Format data for API
+      const jobPostingData = {
+        title: values.title,
+        department: values.department,
+        position: values.position,
+        location: values.location,
+        description: values.description || 'Job description',
+        requirements: values.requirements || 'Requirements will be specified',
+        responsibilities: values.responsibilities || 'Responsibilities will be specified',
+        qualifications: values.qualifications || 'Qualifications will be specified',
+        employmentType: values.employmentType,
+        experienceLevel: values.experienceLevel,
+        educationLevel: values.educationLevel,
+        salaryRange: {
+          min: parseInt(values.minSalary) || 0,
+          max: parseInt(values.maxSalary) || 0,
+          currency: values.currency || 'PKR'
+        },
+        benefits: values.benefits ? values.benefits.split(',').map(b => b.trim()).filter(b => b) : [],
+        applicationDeadline: values.applicationDeadline,
+        positionsAvailable: parseInt(values.numberOfPositions) || 1
+      };
+
+
+
       if (isEditing) {
-        await jobPostingService.updateJobPosting(id, values);
+        await jobPostingService.updateJobPosting(id, jobPostingData);
         setSnackbar({
           open: true,
           message: 'Job posting updated successfully',
           severity: 'success'
         });
       } else {
-        await jobPostingService.createJobPosting(values);
+        await jobPostingService.createJobPosting(jobPostingData);
         setSnackbar({
           open: true,
           message: 'Job posting created successfully',
@@ -151,6 +250,7 @@ const JobPostingForm = () => {
         navigate('/hr/talent-acquisition/job-postings');
       }, 1500);
     } catch (error) {
+      console.error('Error submitting job posting:', error);
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error saving job posting',
@@ -162,13 +262,88 @@ const JobPostingForm = () => {
     }
   };
 
-  // Handle step navigation
-  const handleNext = () => {
-    setActiveStep((prevStep) => prevStep + 1);
+  // Handle step navigation with validation
+  const handleNext = async (values, { setFieldError, setTouched }) => {
+    try {
+      // Validate current step
+      await stepValidationSchemas[activeStep].validate(values, { abortEarly: false });
+      setActiveStep((prevStep) => prevStep + 1);
+    } catch (validationErrors) {
+      // Set errors for current step fields
+      validationErrors.inner.forEach((error) => {
+        setFieldError(error.path, error.message);
+        setTouched({ [error.path]: true });
+      });
+    }
   };
 
   const handleBack = () => {
     setActiveStep((prevStep) => prevStep - 1);
+  };
+
+  // Handle department change to load positions for that department
+  const handleDepartmentChange = async (departmentId, setFieldValue) => {
+    if (!departmentId) return;
+    
+    try {
+      const response = await fetch(`/api/hr/positions/${departmentId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (response.ok) {
+        const positionsData = await response.json();
+        setPositions(positionsData.data || []);
+        // Clear position selection when department changes
+        setFieldValue('position', '');
+      }
+    } catch (error) {
+      console.error('Error loading positions for department:', error);
+    }
+  };
+
+  // Check if current step is valid
+  const isCurrentStepValid = (values, errors) => {
+    if (activeStep === 0) {
+      // Step 1: Basic Information
+      const hasTitle = values.title && values.title.trim() !== '';
+      const hasDepartment = values.department && values.department.trim() !== '';
+      const hasLocation = values.location && values.location.trim() !== '';
+      const hasPosition = values.position && values.position.trim() !== '';
+      const hasNumberOfPositions = values.numberOfPositions && values.numberOfPositions > 0;
+      
+
+      return hasTitle && hasDepartment && hasLocation && hasPosition && hasNumberOfPositions;
+    }
+    
+    if (activeStep === 1) {
+      // Step 2: Job Details
+      const hasEmploymentType = values.employmentType && values.employmentType.trim() !== '';
+      const hasExperienceLevel = values.experienceLevel && values.experienceLevel.trim() !== '';
+      const hasEducationLevel = values.educationLevel && values.educationLevel.trim() !== '';
+      
+
+      return hasEmploymentType && hasExperienceLevel && hasEducationLevel;
+    }
+    
+    if (activeStep === 2) {
+      // Step 3: Compensation & Benefits
+      const hasMinSalary = values.minSalary && values.minSalary > 0;
+      const hasMaxSalary = values.maxSalary && values.maxSalary > 0;
+      
+
+      return hasMinSalary && hasMaxSalary;
+    }
+    
+    if (activeStep === 3) {
+      // Step 4: Application Details
+      const hasDeadline = values.applicationDeadline && values.applicationDeadline.trim() !== '';
+      
+
+      return hasDeadline;
+    }
+    
+    return false;
   };
 
   // Initial values
@@ -176,6 +351,7 @@ const JobPostingForm = () => {
     title: '',
     department: '',
     location: '',
+    position: '',
     employmentType: '',
     experienceLevel: '',
     educationLevel: '',
@@ -236,11 +412,12 @@ const JobPostingForm = () => {
 
       {/* Form */}
       <Formik
-        initialValues={initialValues}
-        validationSchema={validationSchema}
+        initialValues={editData || initialValues}
+        validationSchema={completeValidationSchema}
         onSubmit={handleSubmit}
+        enableReinitialize={true}
       >
-        {({ values, errors, touched, handleChange, handleBlur, isValid, dirty }) => (
+        {({ values, errors, touched, handleChange, handleBlur, isValid, dirty, setFieldError, setTouched, setFieldValue }) => (
           <Form>
             <Card>
               <CardContent>
@@ -286,7 +463,10 @@ const JobPostingForm = () => {
                           <Select
                             name="department"
                             value={values.department}
-                            onChange={handleChange}
+                            onChange={(e) => {
+                              handleChange(e);
+                              handleDepartmentChange(e.target.value, setFieldValue);
+                            }}
                             onBlur={handleBlur}
                             label="Department"
                           >
@@ -320,6 +500,28 @@ const JobPostingForm = () => {
                           </Select>
                           {touched.location && errors.location && (
                             <FormHelperText>{errors.location}</FormHelperText>
+                          )}
+                        </FormControl>
+                      </Grid>
+                      
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth error={touched.position && Boolean(errors.position)}>
+                          <InputLabel>Position</InputLabel>
+                          <Select
+                            name="position"
+                            value={values.position}
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            label="Position"
+                          >
+                            {positions.map((pos) => (
+                              <MenuItem key={pos._id} value={pos._id}>
+                                {pos.title}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                          {touched.position && errors.position && (
+                            <FormHelperText>{errors.position}</FormHelperText>
                           )}
                         </FormControl>
                       </Grid>
@@ -586,7 +788,7 @@ const JobPostingForm = () => {
                       <Button
                         type="submit"
                         variant="contained"
-                        disabled={loading || !isValid || !dirty}
+                        disabled={loading || !isValid}
                         startIcon={loading ? <CircularProgress size={20} /> : <Save />}
                       >
                         {loading ? 'Saving...' : (isEditing ? 'Update Job Posting' : 'Create Job Posting')}
@@ -594,14 +796,16 @@ const JobPostingForm = () => {
                     ) : (
                       <Button
                         variant="contained"
-                        onClick={handleNext}
-                        disabled={!isValid}
+                        onClick={() => handleNext(values, { setFieldError, setTouched })}
+                        disabled={!isCurrentStepValid(values, errors)}
                       >
                         Next
                       </Button>
                     )}
                   </Box>
                 </Box>
+                
+
               </CardContent>
             </Card>
           </Form>

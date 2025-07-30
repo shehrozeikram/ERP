@@ -204,6 +204,49 @@ router.put('/:id/status',
   })
 );
 
+// @route   PUT /api/applications/:id
+// @desc    Update application
+// @access  Private (HR and Admin)
+router.put('/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const {
+      jobPosting,
+      candidate,
+      coverLetter,
+      expectedSalary,
+      availability,
+      status
+    } = req.body;
+
+    const application = await Application.findById(req.params.id);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    // Update fields if provided
+    if (jobPosting) application.jobPosting = jobPosting;
+    if (candidate) application.candidate = candidate;
+    if (coverLetter !== undefined) application.coverLetter = coverLetter;
+    if (expectedSalary !== undefined) application.expectedSalary = expectedSalary;
+    if (availability) application.availability = availability;
+    if (status) application.status = status;
+    
+    application.updatedBy = req.user._id;
+    await application.save();
+
+    res.json({
+      success: true,
+      message: 'Application updated successfully',
+      data: application
+    });
+  })
+);
+
 // @route   POST /api/applications/:id/interviews
 // @desc    Schedule interview for application
 // @access  Private (HR and Admin)

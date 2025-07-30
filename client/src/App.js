@@ -57,7 +57,10 @@ import TalentAcquisition from './pages/HR/TalentAcquisition';
 import JobPostings from './pages/HR/JobPostings';
 import JobPostingForm from './pages/HR/JobPostingForm';
 import Candidates from './pages/HR/Candidates';
+import CandidateForm from './pages/HR/CandidateForm';
+import ApplicationForm from './pages/HR/ApplicationForm';
 import Applications from './pages/HR/Applications';
+import TalentAcquisitionReports from './pages/HR/TalentAcquisitionReports';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -305,15 +308,15 @@ function App() {
             />
             <Route 
               path="/hr/talent-acquisition/candidates/new" 
-              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+              element={<ProtectedRoute><CandidateForm /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/talent-acquisition/candidates/:id" 
-              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+              element={<ProtectedRoute><CandidateForm /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/talent-acquisition/candidates/:id/edit" 
-              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+              element={<ProtectedRoute><CandidateForm /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/talent-acquisition/applications" 
@@ -321,15 +324,19 @@ function App() {
             />
             <Route 
               path="/hr/talent-acquisition/applications/new" 
-              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
+              element={<ProtectedRoute><ApplicationForm /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/talent-acquisition/applications/:id" 
-              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
+              element={<ProtectedRoute><ApplicationForm /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/talent-acquisition/applications/:id/edit" 
-              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
+              element={<ProtectedRoute><ApplicationForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/reports" 
+              element={<ProtectedRoute><TalentAcquisitionReports /></ProtectedRoute>} 
             />
 
             {/* Finance Module */}

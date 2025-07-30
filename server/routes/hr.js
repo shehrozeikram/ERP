@@ -763,6 +763,20 @@ router.get('/departments', asyncHandler(async (req, res) => {
     });
 }));
 
+// @route   GET /api/hr/positions
+// @desc    Get all positions
+// @access  Private (HR and Admin)
+router.get('/positions', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const positions = await Position.findActive();
+    res.json({
+      success: true,
+      data: positions
+    });
+  })
+);
+
 // @route   GET /api/hr/positions/:departmentId
 // @desc    Get positions by department
 // @access  Private (HR and Admin)
