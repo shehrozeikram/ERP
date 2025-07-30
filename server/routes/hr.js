@@ -10,7 +10,7 @@ const Bank = require('../models/hr/Bank');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const PDFDocument = require('pdfkit');
+
 const { calculateMonthlyTax, calculateTaxableIncome, getTaxSlabInfo } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 
@@ -169,13 +169,20 @@ router.get('/employees',
       .populate('manager', 'firstName lastName employeeId')
       .limit(limit * 1)
       .skip((page - 1) * limit)
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean(); // Convert to plain objects to include virtual fields
+
+    // Add virtual fields manually since lean() doesn't include them
+    const employeesWithVirtuals = employees.map(employee => ({
+      ...employee,
+      fullName: `${employee.firstName || ''} ${employee.lastName || ''}`.trim()
+    }));
 
     const total = await Employee.countDocuments(query);
 
     res.json({
       success: true,
-      data: employees
+      data: employeesWithVirtuals
     });
   })
 );
@@ -476,131 +483,6 @@ router.get('/employees/report',
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="employee-report-${startDate}-to-${endDate}.csv"`);
         res.send(csvContent);
-      } else if (format === 'pdf') {
-        // Generate PDF
-        const doc = new PDFDocument({ margin: 30 });
-        
-        // Set response headers for PDF
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="employee-report-${startDate}-to-${endDate}.pdf"`);
-        
-        // Pipe PDF to response
-        doc.pipe(res);
-        
-        // Add title
-        doc.fontSize(20).font('Helvetica-Bold').text('Employee Report', { align: 'center' });
-        doc.moveDown(0.5);
-        
-        // Add subtitle with date range
-        doc.fontSize(12).font('Helvetica').text(`Date Range: ${startDate} to ${endDate}`, { align: 'center' });
-        doc.fontSize(10).font('Helvetica').text(`Generated on: ${new Date().toLocaleDateString()}`, { align: 'center' });
-        doc.moveDown(1);
-        
-        // Add report summary
-        doc.fontSize(14).font('Helvetica-Bold').text('Report Summary');
-        doc.fontSize(10).font('Helvetica');
-        doc.text(`Total Employees: ${totalEmployees}`);
-        doc.text(`Total Salary: PKR ${totalSalary.toFixed(2)}`);
-        doc.text(`Average Salary: PKR ${avgSalary.toFixed(2)}`);
-        doc.moveDown(1);
-        
-        // Add department statistics
-        doc.fontSize(14).font('Helvetica-Bold').text('Department Statistics');
-        doc.fontSize(10).font('Helvetica');
-        Object.entries(departmentStats).forEach(([dept, stats]) => {
-          doc.text(`${dept}: ${stats.count} employees, PKR ${stats.totalSalary.toFixed(2)}`);
-        });
-        doc.moveDown(1);
-        
-        // Add employee table
-        doc.fontSize(14).font('Helvetica-Bold').text('Employee Details');
-        doc.moveDown(0.5);
-        
-        // Process employees in pages
-        const employeesPerPage = 15;
-        const totalPages = Math.ceil(reportData.employees.length / employeesPerPage);
-        
-        for (let page = 0; page < totalPages; page++) {
-          if (page > 0) {
-            doc.addPage();
-          }
-          
-          const startIndex = page * employeesPerPage;
-          const endIndex = Math.min(startIndex + employeesPerPage, reportData.employees.length);
-          const pageEmployees = reportData.employees.slice(startIndex, endIndex);
-          
-          // Add page header
-          if (page > 0) {
-            doc.fontSize(12).font('Helvetica-Bold').text(`Employee Details (Page ${page + 1} of ${totalPages})`, { align: 'center' });
-            doc.moveDown(1);
-          }
-          
-          // Table headers with proper column widths
-          const tableTop = doc.y;
-          const tableLeft = 30;
-          const colWidths = [50, 80, 120, 80, 70, 80, 70, 60];
-          const headers = ['ID', 'Name', 'Email', 'Phone', 'Dept', 'Position', 'Salary', 'Status'];
-          
-          // Draw headers
-          doc.fontSize(9).font('Helvetica-Bold');
-          headers.forEach((header, i) => {
-            doc.text(header, tableLeft + colWidths.slice(0, i).reduce((a, b) => a + b, 0), tableTop);
-          });
-          
-          // Draw header line
-          doc.moveTo(tableLeft, tableTop + 12).lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), tableTop + 12).stroke();
-          
-          // Add employee rows
-          let currentY = tableTop + 18;
-          doc.fontSize(8).font('Helvetica');
-          
-          pageEmployees.forEach((emp, index) => {
-            // Check if we need a new page
-            if (currentY > 750) {
-              doc.addPage();
-              currentY = 50;
-              
-              // Redraw headers on new page
-              doc.fontSize(9).font('Helvetica-Bold');
-              headers.forEach((header, i) => {
-                doc.text(header, tableLeft + colWidths.slice(0, i).reduce((a, b) => a + b, 0), currentY);
-              });
-              doc.moveTo(tableLeft, currentY + 12).lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), currentY + 12).stroke();
-              currentY += 18;
-              doc.fontSize(8).font('Helvetica');
-            }
-            
-            const rowData = [
-              emp.employeeId,
-              `${emp.firstName} ${emp.lastName}`,
-              emp.email,
-              emp.phone,
-              emp.department,
-              emp.position,
-              `PKR ${emp.salary}`,
-              emp.status
-            ];
-            
-            // Draw each cell with proper positioning
-            rowData.forEach((cell, i) => {
-              const x = tableLeft + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
-              const width = colWidths[i];
-              
-              // Truncate text if too long
-              let displayText = cell || '';
-              if (displayText.length > width / 6) { // Approximate character width
-                displayText = displayText.substring(0, Math.floor(width / 6) - 3) + '...';
-              }
-              
-              doc.text(displayText, x, currentY, { width: width });
-            });
-            
-            currentY += 12;
-          });
-        }
-        
-        // Finalize PDF
-        doc.end();
       } else {
         // Return JSON
         res.json({

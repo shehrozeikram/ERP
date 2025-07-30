@@ -16,7 +16,7 @@ import HRDashboard from './pages/HR/HRDashboard';
 import EmployeeList from './pages/HR/EmployeeList';
 import EmployeeForm from './pages/HR/EmployeeForm';
 import EmployeeView from './pages/HR/EmployeeView';
-import EmployeeReports from './pages/HR/EmployeeReports';
+import HRReports from './pages/HR/HRReports';
 import Departments from './pages/HR/Departments';
 import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
@@ -46,6 +46,18 @@ import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
 import LoanStatistics from './pages/HR/LoanStatistics';
+import FinalSettlementManagement from './pages/HR/FinalSettlementManagement';
+import FinalSettlementForm from './pages/HR/FinalSettlementForm';
+import FinalSettlementStatistics from './pages/HR/FinalSettlementStatistics';
+import FinalSettlementDetail from './pages/HR/FinalSettlementDetail';
+import PayslipManagement from './pages/HR/PayslipManagement';
+import PayslipForm from './pages/HR/PayslipForm';
+import PayslipDetail from './pages/HR/PayslipDetail';
+import TalentAcquisition from './pages/HR/TalentAcquisition';
+import JobPostings from './pages/HR/JobPostings';
+import JobPostingForm from './pages/HR/JobPostingForm';
+import Candidates from './pages/HR/Candidates';
+import Applications from './pages/HR/Applications';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -138,8 +150,8 @@ function App() {
               element={<ProtectedRoute><EmployeeForm /></ProtectedRoute>} 
             />
             <Route
-              path="/hr/reports"
-              element={<ProtectedRoute><EmployeeReports /></ProtectedRoute>}
+                      path="/hr/reports"
+        element={<ProtectedRoute><HRReports /></ProtectedRoute>}
             />
             <Route 
               path="/hr/employees/:id" 
@@ -224,6 +236,100 @@ function App() {
             <Route
               path="/hr/loans/:id/edit"
               element={<ProtectedRoute><LoanForm /></ProtectedRoute>}
+            />
+
+            {/* Final Settlement Routes */}
+            <Route
+              path="/hr/settlements"
+              element={<ProtectedRoute><FinalSettlementManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/settlements/new"
+              element={<ProtectedRoute><FinalSettlementForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/settlements/:id"
+              element={<ProtectedRoute><FinalSettlementDetail /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/settlements/:id/edit"
+              element={<ProtectedRoute><FinalSettlementForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/settlements/statistics"
+              element={<ProtectedRoute><FinalSettlementStatistics /></ProtectedRoute>}
+            />
+
+            {/* Payslip Management Routes */}
+            <Route
+              path="/hr/payslips"
+              element={<ProtectedRoute><PayslipManagement /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/payslips/new"
+              element={<ProtectedRoute><PayslipForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/payslips/:id/edit"
+              element={<ProtectedRoute><PayslipForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/payslips/:id"
+              element={<ProtectedRoute><PayslipDetail /></ProtectedRoute>}
+            />
+
+            {/* Talent Acquisition Routes */}
+            <Route 
+              path="/hr/talent-acquisition" 
+              element={<ProtectedRoute><TalentAcquisition /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/job-postings" 
+              element={<ProtectedRoute><JobPostings /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/job-postings/new" 
+              element={<ProtectedRoute><JobPostingForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/job-postings/:id" 
+              element={<ProtectedRoute><JobPostingForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/job-postings/:id/edit" 
+              element={<ProtectedRoute><JobPostingForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/candidates" 
+              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/candidates/new" 
+              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/candidates/:id" 
+              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/candidates/:id/edit" 
+              element={<ProtectedRoute><Candidates /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/applications" 
+              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/applications/new" 
+              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/applications/:id" 
+              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/talent-acquisition/applications/:id/edit" 
+              element={<ProtectedRoute><Applications /></ProtectedRoute>} 
             />
 
             {/* Finance Module */}

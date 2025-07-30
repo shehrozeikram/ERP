@@ -74,6 +74,9 @@ export const MODULES = {
       { name: 'Biometric Integration', path: '/hr/biometric' },
       { name: 'Payroll', path: '/hr/payroll' },
       { name: 'Loan Management', path: '/hr/loans' },
+      { name: 'Final Settlement', path: '/hr/settlements' },
+      { name: 'Payslip Management', path: '/hr/payslips' },
+      { name: 'Talent Acquisition', path: '/hr/talent-acquisition' },
       { name: 'FBR Tax Management', path: '/hr/fbr-tax' },
       { name: 'Reports', path: '/hr/reports' }
     ]

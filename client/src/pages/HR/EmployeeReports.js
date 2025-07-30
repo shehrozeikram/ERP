@@ -46,7 +46,7 @@ import {
   Visibility,
   Description,
   TableChart,
-  PictureAsPdf
+
 } from '@mui/icons-material';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/api';
@@ -82,7 +82,7 @@ const EmployeeReports = () => {
           endDate,
           format
         },
-        responseType: format === 'csv' || format === 'pdf' ? 'blob' : 'json'
+        responseType: format === 'csv' ? 'blob' : 'json'
       });
 
       if (format === 'csv') {
@@ -99,22 +99,6 @@ const EmployeeReports = () => {
         setSnackbar({
           open: true,
           message: 'CSV report downloaded successfully!',
-          severity: 'success'
-        });
-      } else if (format === 'pdf') {
-        // Handle PDF download
-        const url = window.URL.createObjectURL(new Blob([response.data]));
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `employee-report-${startDate}-to-${endDate}.pdf`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
-
-        setSnackbar({
-          open: true,
-          message: 'PDF report downloaded successfully!',
           severity: 'success'
         });
       } else if (format === 'json' && isDownload) {
@@ -465,20 +449,7 @@ const EmployeeReports = () => {
                     label=""
                   />
                 </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <PictureAsPdf color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="PDF Format"
-                    secondary="Portable Document Format. Best for printing and sharing."
-                  />
-                  <FormControlLabel
-                    value="pdf"
-                    control={<Radio />}
-                    label=""
-                  />
-                </ListItem>
+
               </List>
             </RadioGroup>
           </FormControl>

@@ -238,6 +238,14 @@ const LoanManagement = () => {
               value={filters.status}
               label="Status"
               onChange={(e) => handleFilterChange('status', e.target.value)}
+              sx={{
+                '& .MuiSelect-select': {
+                  paddingRight: '32px', // Ensure space for dropdown icon
+                },
+                '& .MuiSelect-icon': {
+                  right: '8px', // Position icon properly
+                }
+              }}
             >
               <MenuItem value="">All</MenuItem>
               <MenuItem value="Pending">Pending</MenuItem>
@@ -257,6 +265,14 @@ const LoanManagement = () => {
               value={filters.loanType}
               label="Loan Type"
               onChange={(e) => handleFilterChange('loanType', e.target.value)}
+              sx={{
+                '& .MuiSelect-select': {
+                  paddingRight: '32px', // Ensure space for dropdown icon
+                },
+                '& .MuiSelect-icon': {
+                  right: '8px', // Position icon properly
+                }
+              }}
             >
               <MenuItem value="">All</MenuItem>
               {loanService.getLoanTypeOptions().map(option => (

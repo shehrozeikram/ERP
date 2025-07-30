@@ -239,6 +239,14 @@ const EmployeeList = () => {
                 value={departmentFilter}
                 onChange={(e) => setDepartmentFilter(e.target.value)}
                 label="Department"
+                sx={{
+                  '& .MuiSelect-select': {
+                    paddingRight: '32px', // Ensure space for dropdown icon
+                  },
+                  '& .MuiSelect-icon': {
+                    right: '8px', // Position icon properly
+                  }
+                }}
               >
                 <MenuItem value="">All Departments</MenuItem>
                 {departments.map((dept) => (
@@ -256,6 +264,14 @@ const EmployeeList = () => {
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 label="Status"
+                sx={{
+                  '& .MuiSelect-select': {
+                    paddingRight: '32px', // Ensure space for dropdown icon
+                  },
+                  '& .MuiSelect-icon': {
+                    right: '8px', // Position icon properly
+                  }
+                }}
               >
                 <MenuItem value="">All Status</MenuItem>
                 <MenuItem value="active">Active</MenuItem>

@@ -57,7 +57,9 @@ import {
   AccountBalance as LoanIcon,
   Payment as PaymentIcon,
   Schedule as AttendanceIcon,
-  Biometric as BiometricIcon
+  Biometric as BiometricIcon,
+  ExitToApp as SettlementIcon,
+  Receipt
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -685,6 +687,58 @@ const HRDashboard = () => {
               </Typography>
               <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
                 Manage employee loans, applications, and repayments
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card 
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+              },
+              background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+              color: 'white'
+            }}
+            onClick={() => navigate('/hr/settlements')}
+          >
+            <CardContent sx={{ textAlign: 'center', py: 3 }}>
+              <SettlementIcon sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                Final Settlement
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                Process employee exits, settlements, and final payments
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card 
+            sx={{ 
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 8px 25px rgba(0,0,0,0.15)'
+              },
+              background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+              color: 'white'
+            }}
+            onClick={() => navigate('/hr/payslips')}
+          >
+            <CardContent sx={{ textAlign: 'center', py: 3 }}>
+              <Receipt sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
+                Payslip Management
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
+                Generate payslips, manage salary details, and track payments
               </Typography>
             </CardContent>
           </Card>

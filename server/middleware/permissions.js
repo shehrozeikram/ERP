@@ -18,7 +18,18 @@ const checkPermission = (permission) => {
         loan_disbursement: ['admin', 'hr_manager', 'finance_manager'],
         loan_management: ['admin', 'hr_manager'],
         loan_view: ['admin', 'hr_manager', 'finance_manager', 'employee'],
-        loan_create: ['admin', 'hr_manager', 'employee']
+        loan_create: ['admin', 'hr_manager', 'employee'],
+        settlement_approval: ['admin', 'hr_manager', 'general_manager'],
+        settlement_processing: ['admin', 'hr_manager', 'finance_manager'],
+        settlement_management: ['admin', 'hr_manager'],
+        settlement_view: ['admin', 'hr_manager', 'finance_manager', 'employee'],
+        settlement_create: ['admin', 'hr_manager'],
+        
+        // Talent Acquisition
+        talent_acquisition: ['admin', 'hr_manager'],
+        job_postings: ['admin', 'hr_manager'],
+        candidates: ['admin', 'hr_manager'],
+        applications: ['admin', 'hr_manager']
       };
 
       const allowedRoles = permissionMappings[permission];

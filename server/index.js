@@ -33,6 +33,12 @@ const cityRoutes = require('./routes/cities');
 const provinceRoutes = require('./routes/provinces');
 const countryRoutes = require('./routes/countries');
 const loanRoutes = require('./routes/loans');
+const finalSettlementRoutes = require('./routes/finalSettlements');
+const hrReportsRoutes = require('./routes/hrReports');
+const payslipRoutes = require('./routes/payslips');
+const jobPostingRoutes = require('./routes/jobPostings');
+const candidateRoutes = require('./routes/candidates');
+const applicationRoutes = require('./routes/applications');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -115,6 +121,12 @@ app.use('/api/cities', authMiddleware, cityRoutes);
 app.use('/api/provinces', authMiddleware, provinceRoutes);
 app.use('/api/countries', authMiddleware, countryRoutes);
 app.use('/api/loans', authMiddleware, loanRoutes);
+app.use('/api/final-settlements', authMiddleware, finalSettlementRoutes);
+app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
+app.use('/api/payslips', authMiddleware, payslipRoutes);
+app.use('/api/job-postings', authMiddleware, jobPostingRoutes);
+app.use('/api/candidates', authMiddleware, candidateRoutes);
+app.use('/api/applications', authMiddleware, applicationRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
