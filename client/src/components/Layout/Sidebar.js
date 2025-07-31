@@ -191,14 +191,42 @@ const Sidebar = () => {
               <Collapse in={openSubmenu[item.text] || isSubmenuActive(item.subItems)} timeout="auto" unmountOnExit>
                 <List component="div" disablePadding>
                   {item.subItems.map((subItem) => (
-                    <ListItemButton
-                      key={subItem.path}
-                      sx={{ pl: 4 }}
-                      onClick={() => handleNavigation(subItem.path)}
-                      selected={isActive(subItem.path)}
-                    >
-                      <ListItemText primary={subItem.text} />
-                    </ListItemButton>
+                    <Box key={subItem.path}>
+                      <ListItemButton
+                        sx={{ pl: 4 }}
+                        onClick={() => {
+                          if (subItem.subItems) {
+                            handleSubmenuToggle(subItem.text);
+                          } else {
+                            handleNavigation(subItem.path);
+                          }
+                        }}
+                        selected={isActive(subItem.path)}
+                      >
+                        <ListItemText primary={subItem.text} />
+                        {subItem.subItems && (
+                          isSubmenuActive(subItem.subItems) ? <ExpandLess /> : <ExpandMore />
+                        )}
+                      </ListItemButton>
+
+                      {/* Sub-submenu */}
+                      {subItem.subItems && (
+                        <Collapse in={openSubmenu[subItem.text] || isSubmenuActive(subItem.subItems)} timeout="auto" unmountOnExit>
+                          <List component="div" disablePadding>
+                            {subItem.subItems.map((subSubItem) => (
+                              <ListItemButton
+                                key={subSubItem.path}
+                                sx={{ pl: 6 }}
+                                onClick={() => handleNavigation(subSubItem.path)}
+                                selected={isActive(subSubItem.path)}
+                              >
+                                <ListItemText primary={subSubItem.text} />
+                              </ListItemButton>
+                            ))}
+                          </List>
+                        </Collapse>
+                      )}
+                    </Box>
                   ))}
                 </List>
               </Collapse>

@@ -57,11 +57,14 @@ import {
   Error
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import candidateService from '../../services/candidateService';
+import candidateApprovalService from '../../services/candidateApprovalService';
 
 const Candidates = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+  const { user } = useAuth();
   
   // State
   const [candidates, setCandidates] = useState([]);
@@ -74,6 +77,10 @@ const Candidates = () => {
     availability: ''
   });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, candidate: null });
+  const [approvalDialog, setApprovalDialog] = useState({ open: false, candidate: null });
+  const [approvalData, setApprovalData] = useState({
+    approverEmails: ['', '', '', '', '']
+  });
 
   // Load candidates
   const loadCandidates = async () => {
@@ -118,11 +125,27 @@ const Candidates = () => {
   const handleStatusChange = async (candidate, newStatus) => {
     try {
       await candidateService.updateCandidateStatus(candidate._id, newStatus);
-      setSnackbar({
-        open: true,
-        message: 'Candidate status updated successfully',
-        severity: 'success'
-      });
+      
+      // If status is changed to "passed", show approval configuration dialog
+      if (newStatus === 'passed') {
+        setApprovalDialog({ open: true, candidate });
+        setApprovalData({
+          approverEmails: [
+            'assistant.hr@company.com',
+            'manager.hr@company.com', 
+            'hod.hr@company.com',
+            'vp@company.com',
+            'ceo@company.com'
+          ]
+        });
+      } else {
+        setSnackbar({
+          open: true,
+          message: 'Candidate status updated successfully',
+          severity: 'success'
+        });
+      }
+      
       loadCandidates();
     } catch (error) {
       setSnackbar({
@@ -155,12 +178,52 @@ const Candidates = () => {
     }
   };
 
+  // Handle create approval workflow
+  const handleCreateApproval = async () => {
+    if (!approvalDialog.candidate) return;
+
+    try {
+      // Create approval workflow
+      const approvalRequestData = {
+        candidateId: approvalDialog.candidate._id,
+        jobPostingId: approvalDialog.candidate.jobPosting || '688a0e15e1a3b69572795558',
+        applicationId: approvalDialog.candidate.application || '688b459a5961257b92c0202f',
+        approverEmails: approvalData.approverEmails,
+        createdBy: user._id
+      };
+      
+      console.log('Creating approval workflow with data:', approvalRequestData);
+      
+      await candidateApprovalService.createApproval(approvalRequestData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Approval workflow created successfully! The first approver will receive an email notification.',
+        severity: 'success'
+      });
+      
+      setApprovalDialog({ open: false, candidate: null });
+      loadCandidates();
+    } catch (error) {
+      console.error('Error creating approval workflow:', error);
+      setSnackbar({
+        open: true,
+        message: error.message || error.response?.data?.message || 'Error creating approval workflow',
+        severity: 'error'
+      });
+    }
+  };
+
   // Get status color
   const getStatusColor = (status) => {
     const colors = {
       active: 'info',
       shortlisted: 'warning',
       interviewed: 'primary',
+      passed: 'success',
+      approval_pending: 'warning',
+      approval_in_progress: 'info',
+      approved: 'success',
       offered: 'success',
       hired: 'success',
       rejected: 'error',
@@ -305,6 +368,10 @@ const Candidates = () => {
                   <MenuItem value="active">Active</MenuItem>
                   <MenuItem value="shortlisted">Shortlisted</MenuItem>
                   <MenuItem value="interviewed">Interviewed</MenuItem>
+                  <MenuItem value="passed">Passed Interview</MenuItem>
+                  <MenuItem value="approval_pending">Approval Pending</MenuItem>
+                  <MenuItem value="approval_in_progress">Approval In Progress</MenuItem>
+                  <MenuItem value="approved">Approved</MenuItem>
                   <MenuItem value="offered">Offered</MenuItem>
                   <MenuItem value="hired">Hired</MenuItem>
                   <MenuItem value="rejected">Rejected</MenuItem>
@@ -493,6 +560,29 @@ const Candidates = () => {
                           </IconButton>
                         </Tooltip>
                         
+                        <Tooltip title="Change Status">
+                          <FormControl size="small" sx={{ minWidth: 120 }}>
+                            <Select
+                              value={candidate.status}
+                              onChange={(e) => handleStatusChange(candidate, e.target.value)}
+                              displayEmpty
+                              sx={{ fontSize: '0.75rem' }}
+                            >
+                              <MenuItem value="active">Active</MenuItem>
+                              <MenuItem value="shortlisted">Shortlisted</MenuItem>
+                              <MenuItem value="interviewed">Interviewed</MenuItem>
+                              <MenuItem value="passed">Passed Interview</MenuItem>
+                              <MenuItem value="approval_pending">Approval Pending</MenuItem>
+                              <MenuItem value="approval_in_progress">Approval In Progress</MenuItem>
+                              <MenuItem value="approved">Approved</MenuItem>
+                              <MenuItem value="offered">Offered</MenuItem>
+                              <MenuItem value="hired">Hired</MenuItem>
+                              <MenuItem value="rejected">Rejected</MenuItem>
+                              <MenuItem value="withdrawn">Withdrawn</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Tooltip>
+                        
                         <Tooltip title="Delete">
                           <IconButton
                             size="small"
@@ -540,6 +630,59 @@ const Candidates = () => {
           </Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Approval Configuration Dialog */}
+      <Dialog
+        open={approvalDialog.open}
+        onClose={() => setApprovalDialog({ open: false, candidate: null })}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Create Approval Workflow</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Candidate "{approvalDialog.candidate?.firstName} {approvalDialog.candidate?.lastName}" has passed the interview. 
+            Please configure the approval workflow by entering the approver emails.
+          </DialogContentText>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Approver Emails (5 levels required)
+              </Typography>
+            </Grid>
+            {approvalData.approverEmails.map((email, index) => (
+              <Grid item xs={12} md={6} key={index}>
+                <TextField
+                  fullWidth
+                  label={`Level ${index + 1} - ${['Assistant Manager HR', 'Manager HR', 'HOD HR', 'Vice President', 'CEO'][index]}`}
+                  value={email}
+                  onChange={(e) => {
+                    const newEmails = [...approvalData.approverEmails];
+                    newEmails[index] = e.target.value;
+                    setApprovalData({ ...approvalData, approverEmails: newEmails });
+                  }}
+                  placeholder="approver@company.com"
+                  required
+                />
+              </Grid>
+            ))}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApprovalDialog({ open: false, candidate: null })}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleCreateApproval} 
+            variant="contained" 
+            color="primary"
+            disabled={approvalData.approverEmails.some(email => !email.trim())}
+          >
+            Create Approval Workflow
           </Button>
         </DialogActions>
       </Dialog>

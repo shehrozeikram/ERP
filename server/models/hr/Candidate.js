@@ -217,7 +217,7 @@ const candidateSchema = new mongoose.Schema({
   // Application Status
   status: {
     type: String,
-    enum: ['active', 'shortlisted', 'interviewed', 'offered', 'hired', 'rejected', 'withdrawn'],
+    enum: ['active', 'shortlisted', 'interviewed', 'passed', 'approval_pending', 'approval_in_progress', 'approved', 'offered', 'hired', 'rejected', 'withdrawn'],
     default: 'active'
   },
   
@@ -340,6 +340,10 @@ candidateSchema.virtual('statusLabel').get(function() {
     active: 'Active',
     shortlisted: 'Shortlisted',
     interviewed: 'Interviewed',
+    passed: 'Passed Interview',
+    approval_pending: 'Approval Pending',
+    approval_in_progress: 'Approval In Progress',
+    approved: 'Approved',
     offered: 'Offered',
     hired: 'Hired',
     rejected: 'Rejected',

@@ -84,6 +84,7 @@ export const MODULES = {
           { name: 'Job Postings', path: '/hr/talent-acquisition/job-postings' },
           { name: 'Candidates', path: '/hr/talent-acquisition/candidates' },
           { name: 'Applications', path: '/hr/talent-acquisition/applications' },
+          { name: 'Candidate Approvals', path: '/hr/candidate-approvals' },
           { name: 'Reports & Analytics', path: '/hr/talent-acquisition/reports' }
         ]
       },
@@ -229,7 +230,11 @@ export const getModuleMenuItems = (userRole) => {
       path: module.path,
       subItems: module.subItems ? module.subItems.map(subItem => ({
         text: subItem.name,
-        path: subItem.path
+        path: subItem.path,
+        subItems: subItem.subItems ? subItem.subItems.map(subSubItem => ({
+          text: subSubItem.name,
+          path: subSubItem.path
+        })) : undefined
       })) : undefined,
       description: module.description
     };

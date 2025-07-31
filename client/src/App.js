@@ -60,6 +60,8 @@ import Candidates from './pages/HR/Candidates';
 import CandidateForm from './pages/HR/CandidateForm';
 import ApplicationForm from './pages/HR/ApplicationForm';
 import Applications from './pages/HR/Applications';
+import CandidateApprovals from './pages/HR/CandidateApprovals';
+import ApprovalDetail from './pages/HR/ApprovalDetail';
 import TalentAcquisitionReports from './pages/HR/TalentAcquisitionReports';
 import LearningManagement from './pages/HR/LearningManagement';
 import Courses from './pages/HR/Courses';
@@ -76,6 +78,7 @@ import OrganizationalChart from './pages/HR/OrganizationalChart';
 import JobAnalysis from './pages/HR/JobAnalysis';
 import SuccessionPlanning from './pages/HR/SuccessionPlanning';
 import JobApplication from './pages/Public/JobApplication';
+import PublicApproval from './pages/Public/PublicApproval';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -135,6 +138,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/apply/:affiliateCode" element={<JobApplication />} />
+        <Route path="/public-approval/:id" element={<PublicApproval />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -353,6 +357,21 @@ function App() {
             <Route 
               path="/hr/talent-acquisition/reports" 
               element={<ProtectedRoute><TalentAcquisitionReports /></ProtectedRoute>} 
+            />
+
+            {/* Candidate Approval Routes */}
+            <Route 
+              path="/hr/candidate-approvals" 
+              element={<ProtectedRoute><CandidateApprovals /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/approvals/:id" 
+              element={<ProtectedRoute><ApprovalDetail /></ProtectedRoute>} 
+            />
+            {/* Public Approval Route for Email Links */}
+            <Route 
+              path="/approvals/:id" 
+              element={<ApprovalDetail />} 
             />
 
             {/* Learning & Development Module */}
