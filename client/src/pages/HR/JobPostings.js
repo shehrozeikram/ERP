@@ -48,7 +48,10 @@ import {
   Business,
   Schedule,
   CheckCircle,
-  Warning
+  Warning,
+  LinkedIn,
+  Link,
+  ContentCopy
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import jobPostingService from '../../services/jobPostingService';
@@ -68,6 +71,7 @@ const JobPostings = () => {
     experienceLevel: ''
   });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, jobPosting: null });
+  const [linkDialog, setLinkDialog] = useState({ open: false, jobPosting: null });
 
   // Load job postings
   const loadJobPostings = async () => {
@@ -136,6 +140,24 @@ const JobPostings = () => {
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error updating status',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Handle copy link
+  const handleCopyLink = async (link) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setSnackbar({
+        open: true,
+        message: 'Link copied to clipboard!',
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: 'Failed to copy link',
         severity: 'error'
       });
     }
@@ -327,6 +349,8 @@ const JobPostings = () => {
                   <TableCell><strong>Department</strong></TableCell>
                   <TableCell><strong>Location</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
+                  <TableCell><strong>LinkedIn</strong></TableCell>
+                  <TableCell><strong>Application Link</strong></TableCell>
                   <TableCell><strong>Applications</strong></TableCell>
                   <TableCell><strong>Deadline</strong></TableCell>
                   <TableCell><strong>Actions</strong></TableCell>
@@ -363,6 +387,52 @@ const JobPostings = () => {
                           color={getStatusColor(jobPosting.status)}
                           size="small"
                         />
+                      </TableCell>
+                      <TableCell>
+                        {jobPosting.linkedInPostId ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <LinkedIn color="primary" fontSize="small" />
+                            <Tooltip title="View LinkedIn Post">
+                              <IconButton
+                                size="small"
+                                onClick={() => window.open(jobPosting.linkedInPostUrl, '_blank')}
+                              >
+                                <Visibility fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Not posted
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {jobPosting.status === 'published' ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Link fontSize="small" color="primary" />
+                            <Tooltip title="Copy Application Link">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleCopyLink(jobPosting.applicationLink)}
+                              >
+                                <ContentCopy fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="View Application Link">
+                              <IconButton
+                                size="small"
+                                onClick={() => setLinkDialog({ open: true, jobPosting })}
+                              >
+                                <Visibility fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Not available
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">
@@ -407,17 +477,19 @@ const JobPostings = () => {
                                   <Publish fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title="Delete">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => setDeleteDialog({ open: true, jobPosting })}
-                                >
-                                  <Delete fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
                             </>
                           )}
+                          
+                          {/* Delete button for all statuses */}
+                          <Tooltip title="Delete">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteDialog({ open: true, jobPosting })}
+                            >
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           
                           {jobPosting.status === 'published' && (
                             <>
@@ -471,7 +543,21 @@ const JobPostings = () => {
         <DialogTitle>Delete Job Posting</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to delete "{deleteDialog.jobPosting?.title}"? This action cannot be undone.
+            {deleteDialog.jobPosting?.status === 'published' ? (
+              <>
+                <strong>Warning:</strong> This job posting is currently published and may have received applications.
+                <br /><br />
+                Are you sure you want to delete "{deleteDialog.jobPosting?.title}"? This action cannot be undone and will remove all associated data.
+              </>
+            ) : deleteDialog.jobPosting?.status === 'closed' ? (
+              <>
+                <strong>Note:</strong> This job posting is currently closed.
+                <br /><br />
+                Are you sure you want to delete "{deleteDialog.jobPosting?.title}"? This action cannot be undone.
+              </>
+            ) : (
+              `Are you sure you want to delete "${deleteDialog.jobPosting?.title}"? This action cannot be undone.`
+            )}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -480,6 +566,86 @@ const JobPostings = () => {
           </Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Application Link Dialog */}
+      <Dialog
+        open={linkDialog.open}
+        onClose={() => setLinkDialog({ open: false, jobPosting: null })}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Application Link</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              {linkDialog.jobPosting?.title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Share this link with candidates to apply for this position
+            </Typography>
+          </Box>
+          
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Application Link:
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TextField
+                fullWidth
+                value={linkDialog.jobPosting?.applicationLink || ''}
+                InputProps={{ readOnly: true }}
+                size="small"
+              />
+              <Tooltip title="Copy Link">
+                <IconButton
+                  onClick={() => handleCopyLink(linkDialog.jobPosting?.applicationLink)}
+                  color="primary"
+                >
+                  <ContentCopy />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              LinkedIn Post:
+            </Typography>
+            {linkDialog.jobPosting?.linkedInPostUrl ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <LinkedIn color="primary" />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => window.open(linkDialog.jobPosting.linkedInPostUrl, '_blank')}
+                >
+                  View LinkedIn Post
+                </Button>
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Not posted to LinkedIn
+              </Typography>
+            )}
+          </Box>
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>Instructions for candidates:</strong><br />
+              1. Click the application link above<br />
+              2. Fill out the application form<br />
+              3. Upload their CV and required documents<br />
+              4. Submit the application<br />
+              5. Applications will be automatically evaluated and shortlisted candidates will be contacted
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLinkDialog({ open: false, jobPosting: null })}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

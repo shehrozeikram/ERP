@@ -110,6 +110,26 @@ export const deleteApplication = async (id) => {
   }
 };
 
+// Bulk evaluate applications
+export const bulkEvaluateApplications = async () => {
+  try {
+    const response = await api.post('/applications/bulk-evaluate');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Send bulk shortlist emails
+export const sendBulkShortlistEmails = async () => {
+  try {
+    const response = await api.post('/applications/send-shortlist-emails');
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Get application statistics
 export const getApplicationStats = async () => {
   try {

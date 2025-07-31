@@ -139,6 +139,28 @@ const jobPostingSchema = new mongoose.Schema({
     default: 0
   },
   
+  // LinkedIn Integration
+  linkedInPostId: {
+    type: String,
+    trim: true
+  },
+  linkedInPostedAt: Date,
+  linkedInPostUrl: {
+    type: String,
+    trim: true
+  },
+  
+  // Affiliate Link System
+  affiliateCode: {
+    type: String,
+    unique: true,
+    trim: true
+  },
+  applicationLink: {
+    type: String,
+    trim: true
+  },
+  
   // Timestamps
   createdAt: {
     type: Date,
@@ -242,6 +264,18 @@ jobPostingSchema.pre('save', function(next) {
     const year = new Date().getFullYear();
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     this.jobCode = `JOB${year}${random}`;
+  }
+  
+  // Auto-generate affiliate code if not provided
+  if (!this.affiliateCode) {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
+    this.affiliateCode = `AFF${timestamp}${random}`.toUpperCase();
+  }
+  
+  // Generate application link if not provided
+  if (!this.applicationLink) {
+    this.applicationLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/apply/${this.affiliateCode}`;
   }
   
   next();

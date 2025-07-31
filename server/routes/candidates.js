@@ -64,6 +64,29 @@ router.get('/',
 
     const candidates = await Candidate.paginate(filter, options);
 
+    // Transform candidates to include email delivery status
+    const transformedCandidates = candidates.docs.map(candidate => {
+      const candidateObj = candidate.toObject();
+      
+      // Get latest email notification for shortlist
+      const latestShortlistEmail = candidate.emailNotifications
+        ?.filter(notification => notification.type === 'shortlist')
+        ?.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))[0];
+      
+      // Add email delivery status
+      candidateObj.emailDeliveryStatus = latestShortlistEmail ? {
+        status: latestShortlistEmail.deliveryStatus,
+        sentAt: latestShortlistEmail.sentAt,
+        deliveredAt: latestShortlistEmail.deliveredAt,
+        messageId: latestShortlistEmail.messageId,
+        jobPosting: latestShortlistEmail.jobPosting
+      } : null;
+      
+      return candidateObj;
+    });
+
+    candidates.docs = transformedCandidates;
+
     res.json({
       success: true,
       data: candidates
@@ -86,9 +109,26 @@ router.get('/:id',
       });
     }
 
+    // Transform candidate to include email delivery status
+    const candidateObj = candidate.toObject();
+    
+    // Get latest email notification for shortlist
+    const latestShortlistEmail = candidate.emailNotifications
+      ?.filter(notification => notification.type === 'shortlist')
+      ?.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))[0];
+    
+    // Add email delivery status
+    candidateObj.emailDeliveryStatus = latestShortlistEmail ? {
+      status: latestShortlistEmail.deliveryStatus,
+      sentAt: latestShortlistEmail.sentAt,
+      deliveredAt: latestShortlistEmail.deliveredAt,
+      messageId: latestShortlistEmail.messageId,
+      jobPosting: latestShortlistEmail.jobPosting
+    } : null;
+
     res.json({
       success: true,
-      data: candidate
+      data: candidateObj
     });
   })
 );

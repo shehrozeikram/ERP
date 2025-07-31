@@ -138,17 +138,7 @@ const TalentAcquisition = () => {
                 Create Application
               </Button>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Button
-                variant="outlined"
-                startIcon={<Assessment />}
-                fullWidth
-                onClick={() => navigate('/hr/talent-acquisition/reports')}
-                sx={{ mb: 1 }}
-              >
-                View Reports
-              </Button>
-            </Grid>
+            {/* Reports are now accessible through the sidebar menu under Talent Acquisition */}
           </Grid>
         </CardContent>
       </Card>

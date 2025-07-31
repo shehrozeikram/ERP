@@ -19,7 +19,14 @@ const applicationSchema = new mongoose.Schema({
   candidate: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Candidate',
-    required: true
+    required: false // Optional for public applications
+  },
+  
+  // Affiliate Code
+  affiliateCode: {
+    type: String,
+    required: true,
+    trim: true
   },
   
   // Application Status
@@ -42,6 +49,93 @@ const applicationSchema = new mongoose.Schema({
     type: String,
     enum: ['immediate', '2_weeks', '1_month', '2_months', '3_months', 'negotiable'],
     default: 'negotiable'
+  },
+  
+  // Public Application Data
+  personalInfo: {
+    firstName: String,
+    lastName: String,
+    email: String,
+    phone: String,
+    dateOfBirth: Date,
+    gender: String,
+    address: String,
+    city: String,
+    country: String
+  },
+  
+  professionalInfo: {
+    currentPosition: String,
+    currentCompany: String,
+    yearsOfExperience: String,
+    expectedSalary: String,
+    noticePeriod: String,
+    availability: String,
+    availableFrom: Date
+  },
+  
+  education: {
+    highestEducation: String,
+    institution: String,
+    graduationYear: String,
+    gpa: String
+  },
+  
+  skills: {
+    technicalSkills: String,
+    certifications: String,
+    languages: String
+  },
+  
+  socialLinks: {
+    linkedin: String,
+    github: String,
+    portfolio: String
+  },
+  
+  additionalInfo: {
+    howDidYouHear: String,
+    whyJoinUs: String,
+    questions: String
+  },
+  
+  // Evaluation System
+  evaluation: {
+    requirementsMatch: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    experienceMatch: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    skillsMatch: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    overallScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    isShortlisted: {
+      type: Boolean,
+      default: false
+    },
+    shortlistReason: String,
+    evaluationNotes: String,
+    evaluatedAt: Date,
+    evaluatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
   },
   
   // Documents
@@ -296,6 +390,9 @@ const applicationSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Create compound index to prevent duplicate applications from same email for same job
+applicationSchema.index({ jobPosting: 1, 'personalInfo.email': 1 }, { unique: true });
 
 // Virtual for status label
 applicationSchema.virtual('statusLabel').get(function() {

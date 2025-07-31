@@ -51,7 +51,10 @@ import {
   Email,
   Phone,
   Work,
-  School
+  School,
+  MarkEmailRead,
+  MarkEmailUnread,
+  Error
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import candidateService from '../../services/candidateService';
@@ -178,6 +181,56 @@ const Candidates = () => {
     if (years < 8) return 'Mid Level';
     if (years < 12) return 'Senior';
     return 'Lead/Manager';
+  };
+
+  // Get email delivery status display
+  const getEmailDeliveryStatus = (emailDeliveryStatus) => {
+    if (!emailDeliveryStatus) {
+      return {
+        icon: <MarkEmailUnread fontSize="small" />,
+        label: 'No Email Sent',
+        color: 'default',
+        tooltip: 'No shortlist notification email has been sent'
+      };
+    }
+
+    switch (emailDeliveryStatus.status) {
+      case 'delivered':
+        return {
+          icon: <MarkEmailRead fontSize="small" />,
+          label: 'Email Delivered',
+          color: 'success',
+          tooltip: `Email delivered on ${new Date(emailDeliveryStatus.deliveredAt).toLocaleDateString()}`
+        };
+      case 'sent':
+        return {
+          icon: <Email fontSize="small" />,
+          label: 'Email Sent',
+          color: 'info',
+          tooltip: `Email sent on ${new Date(emailDeliveryStatus.sentAt).toLocaleDateString()}`
+        };
+      case 'failed':
+        return {
+          icon: <Error fontSize="small" />,
+          label: 'Email Failed',
+          color: 'error',
+          tooltip: `Email failed to send on ${new Date(emailDeliveryStatus.sentAt).toLocaleDateString()}`
+        };
+      case 'pending':
+        return {
+          icon: <Schedule fontSize="small" />,
+          label: 'Email Pending',
+          color: 'warning',
+          tooltip: `Email pending since ${new Date(emailDeliveryStatus.sentAt).toLocaleDateString()}`
+        };
+      default:
+        return {
+          icon: <MarkEmailUnread fontSize="small" />,
+          label: 'Unknown Status',
+          color: 'default',
+          tooltip: 'Email delivery status unknown'
+        };
+    }
   };
 
   if (loading) {
@@ -328,6 +381,7 @@ const Candidates = () => {
                   <TableCell><strong>Current Position</strong></TableCell>
                   <TableCell><strong>Experience</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
+                  <TableCell><strong>Email Status</strong></TableCell>
                   <TableCell><strong>Source</strong></TableCell>
                   <TableCell><strong>Availability</strong></TableCell>
                   <TableCell><strong>Actions</strong></TableCell>
@@ -389,6 +443,22 @@ const Candidates = () => {
                         color={getStatusColor(candidate.status)}
                         size="small"
                       />
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const emailStatus = getEmailDeliveryStatus(candidate.emailDeliveryStatus);
+                        return (
+                          <Tooltip title={emailStatus.tooltip}>
+                            <Chip
+                              icon={emailStatus.icon}
+                              label={emailStatus.label}
+                              color={emailStatus.color}
+                              size="small"
+                              variant={emailStatus.color === 'default' ? 'outlined' : 'filled'}
+                            />
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">

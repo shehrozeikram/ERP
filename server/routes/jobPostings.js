@@ -2,9 +2,11 @@ const express = require('express');
 const { authorize } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const JobPosting = require('../models/hr/JobPosting');
+const Application = require('../models/hr/Application');
 const Department = require('../models/hr/Department');
 const Position = require('../models/hr/Position');
 const Location = require('../models/hr/Location');
+const LinkedInService = require('../services/linkedInService');
 
 const router = express.Router();
 
@@ -89,6 +91,8 @@ router.get('/:id',
     });
   })
 );
+
+
 
 // @route   POST /api/job-postings
 // @desc    Create new job posting
@@ -220,7 +224,10 @@ router.put('/:id',
 router.put('/:id/publish', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const jobPosting = await JobPosting.findById(req.params.id);
+    const jobPosting = await JobPosting.findById(req.params.id)
+      .populate('department', 'name')
+      .populate('position', 'title')
+      .populate('location', 'name');
 
     if (!jobPosting) {
       return res.status(404).json({
@@ -236,16 +243,42 @@ router.put('/:id/publish',
       });
     }
 
+    // Update job posting status
     jobPosting.status = 'published';
     jobPosting.publishedAt = new Date();
     jobPosting.approvedBy = req.user._id;
     jobPosting.approvedAt = new Date();
+
+    // Post to LinkedIn
+    let linkedInResult = null;
+    try {
+      linkedInResult = await LinkedInService.postJob(jobPosting);
+      
+      if (linkedInResult.success) {
+        jobPosting.linkedInPostId = linkedInResult.postId;
+        jobPosting.linkedInPostedAt = new Date();
+        jobPosting.linkedInPostUrl = linkedInResult.postUrl;
+      }
+    } catch (error) {
+      console.error('LinkedIn posting failed:', error);
+      linkedInResult = { success: false, message: 'LinkedIn posting failed' };
+    }
+
     await jobPosting.save();
+
+    // Prepare response message
+    let message = 'Job posting published successfully';
+    if (linkedInResult.success) {
+      message += ' and posted to LinkedIn';
+    } else {
+      message += ` (LinkedIn posting failed: ${linkedInResult.message})`;
+    }
 
     res.json({
       success: true,
-      message: 'Job posting published successfully',
-      data: jobPosting
+      message: message,
+      data: jobPosting,
+      linkedIn: linkedInResult
     });
   })
 );
@@ -333,12 +366,13 @@ router.delete('/:id',
       });
     }
 
-    // Only allow deletion if job posting is in draft status
-    if (jobPosting.status !== 'draft') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete job posting that is not in draft status'
-      });
+    // Check if job posting has applications and delete them
+    const applicationCount = await Application.countDocuments({ jobPosting: req.params.id });
+    if (applicationCount > 0) {
+      console.log(`Warning: Deleting job posting with ${applicationCount} applications`);
+      // Delete all related applications
+      await Application.deleteMany({ jobPosting: req.params.id });
+      console.log(`Deleted ${applicationCount} related applications`);
     }
 
     await JobPosting.findByIdAndDelete(req.params.id);

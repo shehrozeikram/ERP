@@ -4,6 +4,8 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const Application = require('../models/hr/Application');
 const JobPosting = require('../models/hr/JobPosting');
 const Candidate = require('../models/hr/Candidate');
+const ApplicationEvaluationService = require('../services/applicationEvaluationService');
+const EmailService = require('../services/emailService');
 
 const router = express.Router();
 
@@ -48,9 +50,84 @@ router.get('/',
 
     const applications = await Application.paginate(filter, options);
 
+    // Transform the data to include candidate info from personalInfo for public applications
+    const transformedDocs = applications.docs.map(application => {
+      const transformed = application.toObject();
+      
+          // If no candidate record exists, use personalInfo data
+    if (!transformed.candidate && transformed.personalInfo) {
+      transformed.candidate = {
+        firstName: transformed.personalInfo.firstName,
+        lastName: transformed.personalInfo.lastName,
+        email: transformed.personalInfo.email,
+        phone: transformed.personalInfo.phone,
+        fullName: `${transformed.personalInfo.firstName} ${transformed.personalInfo.lastName}`
+      };
+    }
+    
+    // Handle expected salary from professionalInfo for public applications
+    if (!transformed.expectedSalary && transformed.professionalInfo?.expectedSalary) {
+      transformed.expectedSalary = transformed.professionalInfo.expectedSalary;
+    }
+    
+          // Handle availability from professionalInfo for public applications
+      if (transformed.professionalInfo?.availability) {
+        transformed.availability = transformed.professionalInfo.availability;
+      }
+      
+      // Add status labels
+      const statusLabels = {
+        applied: 'Applied',
+        screening: 'Screening',
+        shortlisted: 'Shortlisted',
+        interview_scheduled: 'Interview Scheduled',
+        interviewed: 'Interviewed',
+        technical_test: 'Technical Test',
+        reference_check: 'Reference Check',
+        offer_sent: 'Offer Sent',
+        offer_accepted: 'Offer Accepted',
+        offer_declined: 'Offer Declined',
+        hired: 'Hired',
+        rejected: 'Rejected',
+        withdrawn: 'Withdrawn'
+      };
+      
+      transformed.statusLabel = statusLabels[transformed.status] || transformed.status;
+      
+      // Add availability labels
+      const availabilityLabels = {
+        immediate: 'Immediate',
+        '2_weeks': '2 Weeks',
+        '1_month': '1 Month',
+        '2_months': '2 Months',
+        '3_months': '3 Months',
+        negotiable: 'Negotiable'
+      };
+      
+      transformed.availabilityLabel = availabilityLabels[transformed.availability] || transformed.availability;
+      
+      // Add evaluation summary
+      if (transformed.evaluation) {
+        transformed.evaluationSummary = {
+          isShortlisted: transformed.evaluation.isShortlisted,
+          overallScore: transformed.evaluation.overallScore,
+          requirementsMatch: transformed.evaluation.requirementsMatch,
+          experienceMatch: transformed.evaluation.experienceMatch,
+          skillsMatch: transformed.evaluation.skillsMatch,
+          shortlistReason: transformed.evaluation.shortlistReason,
+          evaluatedAt: transformed.evaluation.evaluatedAt
+        };
+      }
+      
+      return transformed;
+    });
+
     res.json({
       success: true,
-      data: applications
+      data: {
+        ...applications,
+        docs: transformedDocs
+      }
     });
   })
 );
@@ -78,10 +155,199 @@ router.get('/:id',
       });
     }
 
+    // Transform the data to include candidate info from personalInfo for public applications
+    const transformed = application.toObject();
+    
+    // If no candidate record exists, use personalInfo data
+    if (!transformed.candidate && transformed.personalInfo) {
+      transformed.candidate = {
+        firstName: transformed.personalInfo.firstName,
+        lastName: transformed.personalInfo.lastName,
+        email: transformed.personalInfo.email,
+        phone: transformed.personalInfo.phone,
+        fullName: `${transformed.personalInfo.firstName} ${transformed.personalInfo.lastName}`
+      };
+    }
+    
+    // Handle expected salary from professionalInfo for public applications
+    if (!transformed.expectedSalary && transformed.professionalInfo?.expectedSalary) {
+      transformed.expectedSalary = transformed.professionalInfo.expectedSalary;
+    }
+    
+    // Handle availability from professionalInfo for public applications
+    if (transformed.professionalInfo?.availability) {
+      transformed.availability = transformed.professionalInfo.availability;
+    }
+    
+    // Add status labels
+    const statusLabels = {
+      applied: 'Applied',
+      screening: 'Screening',
+      shortlisted: 'Shortlisted',
+      interview_scheduled: 'Interview Scheduled',
+      interviewed: 'Interviewed',
+      technical_test: 'Technical Test',
+      reference_check: 'Reference Check',
+      offer_sent: 'Offer Sent',
+      offer_accepted: 'Offer Accepted',
+      offer_declined: 'Offer Declined',
+      hired: 'Hired',
+      rejected: 'Rejected',
+      withdrawn: 'Withdrawn'
+    };
+    
+    transformed.statusLabel = statusLabels[transformed.status] || transformed.status;
+    
+    // Add availability labels
+    const availabilityLabels = {
+      immediate: 'Immediate',
+      '2_weeks': '2 Weeks',
+      '1_month': '1 Month',
+      '2_months': '2 Months',
+      '3_months': '3 Months',
+      negotiable: 'Negotiable'
+    };
+    
+    transformed.availabilityLabel = availabilityLabels[transformed.availability] || transformed.availability;
+    
+    // Add evaluation summary
+    if (transformed.evaluation) {
+      transformed.evaluationSummary = {
+        isShortlisted: transformed.evaluation.isShortlisted,
+        overallScore: transformed.evaluation.overallScore,
+        requirementsMatch: transformed.evaluation.requirementsMatch,
+        experienceMatch: transformed.evaluation.experienceMatch,
+        skillsMatch: transformed.evaluation.skillsMatch,
+        shortlistReason: transformed.evaluation.shortlistReason,
+        evaluatedAt: transformed.evaluation.evaluatedAt
+      };
+    }
+
     res.json({
       success: true,
-      data: application
+      data: transformed
     });
+  })
+);
+
+// @route   POST /api/applications/bulk-evaluate
+// @desc    Bulk evaluate all pending applications
+// @access  Private (HR and Admin)
+router.post('/bulk-evaluate', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    try {
+      // Find all applications that haven't been evaluated yet
+      const pendingApplications = await Application.find({
+        $or: [
+          { 'evaluation.evaluatedAt': { $exists: false } },
+          { 'evaluation.evaluatedAt': null }
+        ]
+      }).populate('jobPosting');
+
+      if (pendingApplications.length === 0) {
+        return res.json({
+          success: true,
+          message: 'No pending applications to evaluate',
+          data: {
+            total: 0,
+            evaluated: 0,
+            shortlisted: 0
+          }
+        });
+      }
+
+      let evaluatedCount = 0;
+      let shortlistedCount = 0;
+
+      // Evaluate each pending application
+      for (const application of pendingApplications) {
+        try {
+          const result = await ApplicationEvaluationService.evaluateApplication(application._id);
+          if (result.success) {
+            evaluatedCount++;
+            if (result.evaluation.isShortlisted) {
+              shortlistedCount++;
+            }
+          }
+        } catch (error) {
+          console.error(`Error evaluating application ${application._id}:`, error.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Bulk evaluation completed. ${evaluatedCount} applications evaluated, ${shortlistedCount} shortlisted.`,
+        data: {
+          total: pendingApplications.length,
+          evaluated: evaluatedCount,
+          shortlisted: shortlistedCount
+        }
+      });
+
+    } catch (error) {
+      console.error('Bulk evaluation error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error during bulk evaluation',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   POST /api/applications/send-shortlist-emails
+// @desc    Send emails to all shortlisted candidates
+// @access  Private (HR and Admin)
+router.post('/send-shortlist-emails', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    try {
+      // Find all shortlisted applications
+      const shortlistedApplications = await Application.find({
+        'evaluation.isShortlisted': true
+      })
+        .populate('jobPosting')
+        .populate('candidate');
+
+      if (shortlistedApplications.length === 0) {
+        return res.json({
+          success: true,
+          message: 'No shortlisted applications found',
+          data: {
+            total: 0,
+            sent: 0,
+            failed: 0
+          }
+        });
+      }
+
+      console.log(`📧 Sending emails to ${shortlistedApplications.length} shortlisted candidates...`);
+
+      const emailResults = await EmailService.sendBulkShortlistNotifications(shortlistedApplications);
+      
+      const successful = emailResults.filter(result => result.success);
+      const failed = emailResults.filter(result => !result.success);
+
+      res.json({
+        success: true,
+        message: `Email notifications sent. ${successful.length} successful, ${failed.length} failed.`,
+        data: {
+          total: shortlistedApplications.length,
+          sent: successful.length,
+          failed: failed.length,
+          results: emailResults
+        }
+      });
+
+    } catch (error) {
+      console.error('Bulk email error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error sending bulk emails',
+        error: error.message
+      });
+    }
   })
 );
 

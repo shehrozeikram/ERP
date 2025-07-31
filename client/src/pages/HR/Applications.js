@@ -51,7 +51,11 @@ import {
   Person,
   Work,
   CalendarToday,
-  AccessTime
+  AccessTime,
+  Star,
+  StarBorder,
+  AutoAwesome,
+  Email
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import applicationService from '../../services/applicationService';
@@ -83,7 +87,40 @@ const Applications = () => {
       if (filters.candidate) params.candidate = filters.candidate;
 
       const response = await applicationService.getApplications(params);
-      setApplications(response.data.docs || []);
+      const apps = response.data.docs || [];
+      
+      // Check for duplicate emails per job posting
+      const duplicateEmails = [];
+      const emailJobMap = new Map();
+      
+      apps.forEach(app => {
+        const email = app.candidate?.email || app.personalInfo?.email;
+        const jobId = app.jobPosting?._id;
+        
+        if (email && jobId) {
+          const key = `${email}-${jobId}`;
+          if (emailJobMap.has(key)) {
+            duplicateEmails.push({
+              email,
+              jobTitle: app.jobPosting?.title,
+              applicationIds: [emailJobMap.get(key), app._id]
+            });
+          } else {
+            emailJobMap.set(key, app._id);
+          }
+        }
+      });
+      
+      if (duplicateEmails.length > 0) {
+        console.warn('Duplicate applications found:', duplicateEmails);
+        setSnackbar({
+          open: true,
+          message: `Found ${duplicateEmails.length} duplicate applications. Please review.`,
+          severity: 'warning'
+        });
+      }
+      
+      setApplications(apps);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -149,6 +186,47 @@ const Applications = () => {
         message: error.response?.data?.message || 'Error deleting application',
         severity: 'error'
       });
+    }
+  };
+
+  const handleBulkEvaluation = async () => {
+    try {
+      setLoading(true);
+      const response = await applicationService.bulkEvaluateApplications();
+      setSnackbar({
+        open: true,
+        message: response.message || 'Bulk evaluation completed successfully',
+        severity: 'success'
+      });
+      loadApplications();
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error during bulk evaluation',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkEmail = async () => {
+    try {
+      setLoading(true);
+      const response = await applicationService.sendBulkShortlistEmails();
+      setSnackbar({
+        open: true,
+        message: response.message || 'Bulk emails sent successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error sending bulk emails',
+        severity: 'error'
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -218,7 +296,7 @@ const Applications = () => {
       <Card sx={{ mb: 3, bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <Button
                 variant="contained"
                 startIcon={<Add />}
@@ -226,6 +304,29 @@ const Applications = () => {
                 onClick={() => navigate('/hr/talent-acquisition/applications/new')}
               >
                 Create Application
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <Button
+                variant="outlined"
+                startIcon={<AutoAwesome />}
+                fullWidth
+                onClick={handleBulkEvaluation}
+                disabled={loading}
+              >
+                Evaluate All
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <Button
+                variant="outlined"
+                startIcon={<Email />}
+                fullWidth
+                onClick={handleBulkEmail}
+                disabled={loading}
+                color="success"
+              >
+                Send Emails
               </Button>
             </Grid>
             <Grid item xs={12} md={3}>
@@ -315,6 +416,7 @@ const Applications = () => {
                   <TableCell><strong>Candidate</strong></TableCell>
                   <TableCell><strong>Job Position</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
+                  <TableCell><strong>Shortlist Status</strong></TableCell>
                   <TableCell><strong>Applied Date</strong></TableCell>
                   <TableCell><strong>Expected Salary</strong></TableCell>
                   <TableCell><strong>Availability</strong></TableCell>
@@ -366,6 +468,46 @@ const Applications = () => {
                       />
                     </TableCell>
                     <TableCell>
+                      {application.evaluation ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {application.evaluation.isShortlisted ? (
+                            <>
+                              <Star sx={{ color: 'gold', fontSize: 20 }} />
+                              <Chip
+                                label="Shortlisted"
+                                color="success"
+                                size="small"
+                                icon={<AutoAwesome fontSize="small" />}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <StarBorder sx={{ color: 'text.secondary', fontSize: 20 }} />
+                              <Chip
+                                label="Not Shortlisted"
+                                color="default"
+                                size="small"
+                                variant="outlined"
+                              />
+                            </>
+                          )}
+                          <Typography variant="caption" color="text.secondary">
+                            {application.evaluation.overallScore}/100
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Warning sx={{ color: 'warning.main', fontSize: 20 }} />
+                          <Chip
+                            label="Pending Evaluation"
+                            color="warning"
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Box>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <Box>
                         <Typography variant="body2">
                           {formatDate(application.createdAt)}
@@ -379,13 +521,18 @@ const Applications = () => {
                       <Typography variant="body2">
                         {application.expectedSalary ? 
                           applicationService.formatExpectedSalary(application.expectedSalary) : 
+                          application.professionalInfo?.expectedSalary ?
+                          applicationService.formatExpectedSalary(application.professionalInfo.expectedSalary) :
                           'Not specified'
                         }
                       </Typography>
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={application.availabilityLabel || application.availability}
+                        label={application.availabilityLabel || 
+                               application.availability || 
+                               application.professionalInfo?.availability || 
+                               'Not specified'}
                         color="info"
                         size="small"
                         variant="outlined"

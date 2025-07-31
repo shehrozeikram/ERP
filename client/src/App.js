@@ -61,6 +61,21 @@ import CandidateForm from './pages/HR/CandidateForm';
 import ApplicationForm from './pages/HR/ApplicationForm';
 import Applications from './pages/HR/Applications';
 import TalentAcquisitionReports from './pages/HR/TalentAcquisitionReports';
+import LearningManagement from './pages/HR/LearningManagement';
+import Courses from './pages/HR/Courses';
+import CourseForm from './pages/HR/CourseForm';
+import Enrollments from './pages/HR/Enrollments';
+import EnrollmentForm from './pages/HR/EnrollmentForm';
+import EnrollmentDetail from './pages/HR/EnrollmentDetail';
+import LearningReports from './pages/HR/LearningReports';
+import TrainingPrograms from './pages/HR/TrainingPrograms';
+import TrainingProgramForm from './pages/HR/TrainingProgramForm';
+import TrainingProgramDetail from './pages/HR/TrainingProgramDetail';
+import OrganizationalDevelopment from './pages/HR/OrganizationalDevelopment';
+import OrganizationalChart from './pages/HR/OrganizationalChart';
+import JobAnalysis from './pages/HR/JobAnalysis';
+import SuccessionPlanning from './pages/HR/SuccessionPlanning';
+import JobApplication from './pages/Public/JobApplication';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -114,11 +129,12 @@ function App() {
     );
   }
 
-  // If user is not authenticated, show only login page
+  // If user is not authenticated, show login page and public routes
   if (!user) {
     return (
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+        <Route path="/apply/:affiliateCode" element={<JobApplication />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -338,6 +354,90 @@ function App() {
               path="/hr/talent-acquisition/reports" 
               element={<ProtectedRoute><TalentAcquisitionReports /></ProtectedRoute>} 
             />
+
+            {/* Learning & Development Module */}
+            <Route 
+              path="/hr/learning" 
+              element={<ProtectedRoute><LearningManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/courses" 
+              element={<ProtectedRoute><Courses /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/courses/new" 
+              element={<ProtectedRoute><CourseForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/courses/:id" 
+              element={<ProtectedRoute><CourseForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/courses/:id/edit" 
+              element={<ProtectedRoute><CourseForm /></ProtectedRoute>} 
+            />
+
+            {/* Enrollment Routes */}
+            <Route 
+              path="/hr/learning/enrollments" 
+              element={<ProtectedRoute><Enrollments /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/enrollments/new" 
+              element={<ProtectedRoute><EnrollmentForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/enrollments/:id" 
+              element={<ProtectedRoute><EnrollmentDetail /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/enrollments/:id/edit" 
+              element={<ProtectedRoute><EnrollmentForm /></ProtectedRoute>} 
+            />
+
+            {/* Learning Reports */}
+            <Route 
+              path="/hr/learning/reports" 
+              element={<ProtectedRoute><LearningReports /></ProtectedRoute>} 
+            />
+
+            {/* Training Programs Routes */}
+            <Route 
+              path="/hr/learning/programs" 
+              element={<ProtectedRoute><TrainingPrograms /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/programs/new" 
+              element={<ProtectedRoute><TrainingProgramForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/programs/:id" 
+              element={<ProtectedRoute><TrainingProgramDetail /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/learning/programs/:id/edit" 
+              element={<ProtectedRoute><TrainingProgramForm /></ProtectedRoute>} 
+            />
+
+            {/* Organizational Development Routes */}
+            <Route 
+              path="/hr/organizational-development" 
+              element={<ProtectedRoute><OrganizationalDevelopment /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/organizational-development/org-chart" 
+              element={<ProtectedRoute><OrganizationalChart /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/organizational-development/job-analysis" 
+              element={<ProtectedRoute><JobAnalysis /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/organizational-development/succession" 
+              element={<ProtectedRoute><SuccessionPlanning /></ProtectedRoute>} 
+            />
+
+            {/* Public Application Route - Handled in unauthenticated section */}
 
             {/* Finance Module */}
             <Route 

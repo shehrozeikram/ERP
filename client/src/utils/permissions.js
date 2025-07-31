@@ -76,7 +76,41 @@ export const MODULES = {
       { name: 'Loan Management', path: '/hr/loans' },
       { name: 'Final Settlement', path: '/hr/settlements' },
       { name: 'Payslip Management', path: '/hr/payslips' },
-      { name: 'Talent Acquisition', path: '/hr/talent-acquisition' },
+      { 
+        name: 'Talent Acquisition', 
+        path: '/hr/talent-acquisition',
+        subItems: [
+          { name: 'Talent Dashboard', path: '/hr/talent-acquisition' },
+          { name: 'Job Postings', path: '/hr/talent-acquisition/job-postings' },
+          { name: 'Candidates', path: '/hr/talent-acquisition/candidates' },
+          { name: 'Applications', path: '/hr/talent-acquisition/applications' },
+          { name: 'Reports & Analytics', path: '/hr/talent-acquisition/reports' }
+        ]
+      },
+      { 
+        name: 'Learning & Development', 
+        path: '/hr/learning',
+        subItems: [
+          { name: 'Learning Dashboard', path: '/hr/learning' },
+          { name: 'Courses', path: '/hr/learning/courses' },
+          { name: 'Enrollments', path: '/hr/learning/enrollments' },
+          { name: 'Training Programs', path: '/hr/learning/programs' },
+          { name: 'Reports & Analytics', path: '/hr/learning/reports' }
+        ]
+      },
+      { 
+        name: 'Organizational Development', 
+        path: '/hr/organizational-development',
+        subItems: [
+          { name: 'OD Dashboard', path: '/hr/organizational-development' },
+          { name: 'Organizational Chart', path: '/hr/organizational-development/org-chart' },
+          { name: 'Job Analysis', path: '/hr/organizational-development/job-analysis' },
+          { name: 'Succession Planning', path: '/hr/organizational-development/succession' },
+          { name: 'Performance Management', path: '/hr/organizational-development/performance' },
+          { name: 'Change Management', path: '/hr/organizational-development/change' },
+          { name: 'Reports & Analytics', path: '/hr/organizational-development/reports' }
+        ]
+      },
       { name: 'FBR Tax Management', path: '/hr/fbr-tax' },
       { name: 'Reports', path: '/hr/reports' }
     ]

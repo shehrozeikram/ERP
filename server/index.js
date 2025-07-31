@@ -37,8 +37,13 @@ const finalSettlementRoutes = require('./routes/finalSettlements');
 const hrReportsRoutes = require('./routes/hrReports');
 const payslipRoutes = require('./routes/payslips');
 const jobPostingRoutes = require('./routes/jobPostings');
+const publicJobPostingRoutes = require('./routes/publicJobPostings');
 const candidateRoutes = require('./routes/candidates');
 const applicationRoutes = require('./routes/applications');
+const publicApplicationRoutes = require('./routes/publicApplications');
+const courseRoutes = require('./routes/courses');
+const enrollmentRoutes = require('./routes/enrollments');
+const trainingProgramRoutes = require('./routes/trainingPrograms');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -124,9 +129,17 @@ app.use('/api/loans', authMiddleware, loanRoutes);
 app.use('/api/final-settlements', authMiddleware, finalSettlementRoutes);
 app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
 app.use('/api/payslips', authMiddleware, payslipRoutes);
+// Public routes (no authentication required)
+app.use('/api/job-postings/apply', publicJobPostingRoutes);
+app.use('/api/applications/public', publicApplicationRoutes);
+
+// Protected routes (authentication required)
 app.use('/api/job-postings', authMiddleware, jobPostingRoutes);
 app.use('/api/candidates', authMiddleware, candidateRoutes);
 app.use('/api/applications', authMiddleware, applicationRoutes);
+app.use('/api/courses', authMiddleware, courseRoutes);
+app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
+app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

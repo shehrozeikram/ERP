@@ -221,6 +221,37 @@ const candidateSchema = new mongoose.Schema({
     default: 'active'
   },
   
+  // Email Delivery Tracking
+  emailNotifications: [{
+    type: {
+      type: String,
+      enum: ['shortlist', 'interview', 'offer', 'rejection', 'other'],
+      required: true
+    },
+    jobPosting: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'JobPosting',
+      required: true
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now
+    },
+    deliveredAt: Date,
+    deliveryStatus: {
+      type: String,
+      enum: ['pending', 'sent', 'delivered', 'failed', 'bounced'],
+      default: 'pending'
+    },
+    messageId: String,
+    errorMessage: String,
+    emailContent: {
+      subject: String,
+      htmlContent: String,
+      textContent: String
+    }
+  }],
+  
   // Source Information
   source: {
     type: String,
