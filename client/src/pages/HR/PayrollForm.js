@@ -344,27 +344,26 @@ const PayrollForm = () => {
     if (employee) {
       // Auto-calculate salary components from gross salary
       const grossSalary = employee.salary?.gross || 0;
-      const basicSalary = Math.round(grossSalary * 0.6); // 60% of gross
-      const houseRentAllowance = Math.round(grossSalary * 0.3); // 30% of gross
+      const basicSalary = Math.round(grossSalary * 0.6666); // 66.66% of gross
       const medicalAllowance = Math.round(grossSalary * 0.1); // 10% of gross
+      const houseRentAllowance = Math.round(grossSalary * 0.2334); // 23.34% of gross (remaining)
       
       // Set calculated values
       formik.setFieldValue('basicSalary', basicSalary);
       formik.setFieldValue('allowances.housing', houseRentAllowance);
       formik.setFieldValue('allowances.medical', medicalAllowance);
-      formik.setFieldValue('allowances.transport', 0); // Not used in new structure
+      // Don't reset conveyance allowance - let user enter their own value
+      // formik.setFieldValue('allowances.transport', 0); // Removed - user should enter their own value
       formik.setFieldValue('allowances.other', 0); // Not used in new structure
       
       // Set EOBI if employee has it active
-      if (employee.eobi?.isActive) {
-        formik.setFieldValue('deductions.eobi', employee.eobi.amount || 0);
-      } else {
-        formik.setFieldValue('deductions.eobi', 0);
-      }
+              // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
+        formik.setFieldValue('deductions.eobi', 370);
       
-      // Set Provident Fund if employee has it active
+      // Set Provident Fund if employee has it active (8.834% of basic salary)
       if (employee.providentFund?.isActive) {
-        formik.setFieldValue('deductions.providentFund', employee.providentFund.amount || 0);
+        const providentFundAmount = Math.round((basicSalary * 8.834) / 100);
+        formik.setFieldValue('deductions.providentFund', providentFundAmount);
       } else {
         formik.setFieldValue('deductions.providentFund', 0);
       }
@@ -515,12 +514,18 @@ const PayrollForm = () => {
   const calculateTaxInfo = async (basicSalary, allowances) => {
     if (!basicSalary) return null;
 
+    // Calculate taxable income based on new salary structure:
+    // - 66.66% Basic Salary (taxable)
+    // - 10% Medical Allowance (tax-exempt)
+    // - 23.34% House Rent Allowance (taxable)
+    // - Other Allowances (conveyance, meal, transport, etc.) are taxable
     const taxableIncome = basicSalary + 
       (allowances?.housing || 0) + 
       (allowances?.transport || 0) + 
       (allowances?.meal || 0) + 
       (allowances?.other || 0);
-    // Medical allowance is tax-exempt
+    // Only medical allowance is tax-exempt according to FBR 2025-2026
+    // All other allowances are taxable
 
     const annualTaxableIncome = taxableIncome * 12;
     
@@ -747,9 +752,14 @@ const PayrollForm = () => {
                         label="Conveyance Allowance"
                         value={formik.values.allowances.transport}
                         onChange={formik.handleChange}
+                        inputProps={{
+                          step: "1",
+                          min: "0"
+                        }}
                         InputProps={{
                           startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                         }}
+                        helperText="Enter exact amount (no rounding)"
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -911,9 +921,13 @@ const PayrollForm = () => {
                         type="number"
                         name="deductions.eobi"
                         label="EOBI"
-                        value={formik.values.deductions.eobi}
+                        value={370}
                         onChange={formik.handleChange}
-                        helperText="Pakistan EOBI (Fixed: Rs 370)"
+                        InputProps={{
+                          readOnly: true,
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                        helperText="Pakistan EOBI (Fixed: Rs 370 for All Employees)"
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -924,7 +938,7 @@ const PayrollForm = () => {
                         label="Provident Fund"
                         value={formik.values.deductions.providentFund}
                         onChange={formik.handleChange}
-                        helperText="Provident Fund (8% of basic salary)"
+                        helperText="Provident Fund (8.834% of basic salary)"
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -1209,35 +1223,142 @@ const PayrollForm = () => {
                     </Grid>
                   </Grid>
                   <Divider sx={{ my: 2 }} />
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h4" color="primary" gutterBottom>
-                      Net Pay: {formatCurrency(totals.netPay)}
-                    </Typography>
-                    <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-                      (Gross Pay: {formatCurrency(totals.grossPay)} - Total Deductions: {formatCurrency(totals.totalDeductions)})
-                    </Typography>
-                    <Typography variant="body2" color="textSecondary">
-                      Including Tax: {formatCurrency(totals.autoCalculatedTax)} | Other Deductions: {formatCurrency(totals.totalDeductions - totals.autoCalculatedTax)}
-                    </Typography>
-                    {formik.values.deductions.eobi > 0 && (
-                      <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
-                        EOBI Deduction: {formatCurrency(formik.values.deductions.eobi)} (Pakistan EOBI - Fixed Amount)
+                  
+                  {/* Beautiful Net Salary Display */}
+                  <Grid container spacing={3} sx={{ mb: 3 }}>
+                    {/* Net Salary WITH Deductions */}
+                    <Grid item xs={12} md={6}>
+                      <Card sx={{ 
+                        bgcolor: 'primary.main', 
+                        color: 'white',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          right: 0,
+                          width: '100px',
+                          height: '100px',
+                          background: 'rgba(255,255,255,0.1)',
+                          borderRadius: '50%',
+                          transform: 'translate(30px, -30px)'
+                        }
+                      }}>
+                        <CardContent sx={{ textAlign: 'center', py: 4 }}>
+                          <Typography variant="h6" sx={{ mb: 2, opacity: 0.9 }}>
+                            💰 Net Salary (With Deductions)
+                          </Typography>
+                          <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
+                            {formatCurrency(totals.netPay)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                            Take-Home Amount
+                          </Typography>
+                          <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Gross:</strong> {formatCurrency(totals.grossPay)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Tax:</strong> {formatCurrency(totals.autoCalculatedTax)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>EOBI:</strong> {formatCurrency(370)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>PF:</strong> {formatCurrency(formik.values.deductions.providentFund || 0)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Other:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'warning.light' }}>
+                              <strong>Total Deductions:</strong> {formatCurrency(totals.totalDeductions)}
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+
+                    {/* Net Salary WITHOUT Deductions */}
+                    <Grid item xs={12} md={6}>
+                      <Card sx={{ 
+                        bgcolor: 'success.main', 
+                        color: 'white',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          right: 0,
+                          width: '100px',
+                          height: '100px',
+                          background: 'rgba(255,255,255,0.1)',
+                          borderRadius: '50%',
+                          transform: 'translate(30px, -30px)'
+                        }
+                      }}>
+                        <CardContent sx={{ textAlign: 'center', py: 4 }}>
+                          <Typography variant="h6" sx={{ mb: 2, opacity: 0.9 }}>
+                            🎯 Net Salary (Without PF & EOBI)
+                          </Typography>
+                          <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
+                            {formatCurrency(totals.grossPay - totals.autoCalculatedTax - (formik.values.deductions.other || 0) - (formik.values.deductions.loan || 0))}
+                          </Typography>
+                          <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                            Excluding PF & EOBI Deductions
+                          </Typography>
+                          <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Gross:</strong> {formatCurrency(totals.grossPay)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Tax:</strong> {formatCurrency(totals.autoCalculatedTax)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Other Deductions:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'warning.light' }}>
+                              <strong>PF + EOBI Saved:</strong> {formatCurrency((formik.values.deductions.providentFund || 0) + 370)}
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  </Grid>
+
+                  {/* Detailed Breakdown */}
+                  <Card sx={{ bgcolor: '#f8f9fa', mb: 2 }}>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', display: 'flex', alignItems: 'center' }}>
+                        📊 Detailed Salary Breakdown
                       </Typography>
-                    )}
-                    {formik.values.deductions.providentFund > 0 && (
-                      <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
-                        Provident Fund Deduction: {formatCurrency(formik.values.deductions.providentFund)} (8% of basic salary)
-                      </Typography>
-                    )}
-                    {formik.values.deductions.loan > 0 && employeeLoans.length > 0 && (
-                      <Typography variant="body2" color="warning.main" sx={{ mt: 1 }}>
-                        Loan Deduction: {formatCurrency(formik.values.deductions.loan)} (
-                          {employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.loanType || 'N/A'} - 
-                          Outstanding: {formatCurrency(employeeLoans.find(l => ['Active', 'Disbursed'].includes(l.status))?.outstandingBalance || 0)}
-                        )
-                      </Typography>
-                    )}
-                  </Box>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Gross Salary:</strong> {formatCurrency(totals.grossPay)}
+                          </Typography>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Income Tax:</strong> {formatCurrency(totals.autoCalculatedTax)}
+                          </Typography>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>EOBI (Fixed):</strong> {formatCurrency(370)} (Pakistan EOBI - Fixed Amount for All Employees)
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Provident Fund:</strong> {formatCurrency(formik.values.deductions.providentFund || 0)} (8.834% of basic salary)
+                          </Typography>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Other Deductions:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
+                          </Typography>
+                          <Typography variant="body2" color="textSecondary">
+                            <strong>Total Deductions:</strong> {formatCurrency(totals.totalDeductions)}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
                 </CardContent>
               </Card>
             </Grid>

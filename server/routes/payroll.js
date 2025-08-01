@@ -173,7 +173,7 @@ router.post('/', [
     basicSalary: parseFloat(req.body.basicSalary) || 0,
     houseRentAllowance: parseFloat(req.body.allowances?.housing) || 0,
     medicalAllowance: parseFloat(req.body.allowances?.medical) || 0,
-    conveyanceAllowance: parseFloat(req.body.allowances?.transport) || 0,
+    conveyanceAllowance: parseFloat(req.body.allowances?.transport) || 0, // Keep exact value, no rounding
     specialAllowance: parseFloat(req.body.allowances?.meal) || 0,
     otherAllowance: parseFloat(req.body.allowances?.other) || 0,
     overtimeHours: parseFloat(req.body.overtime?.hours) || 0,
@@ -205,6 +205,11 @@ router.post('/', [
     payrollData.overtimeAmount + 
     payrollData.performanceBonus + 
     payrollData.otherBonus;
+
+  // Auto-calculate Provident Fund (8.834% of basic salary) if not provided
+  if (!payrollData.providentFund && payrollData.basicSalary > 0) {
+    payrollData.providentFund = Math.round((payrollData.basicSalary * 8.834) / 100);
+  }
 
   // Auto-calculate tax if not provided
   if (!payrollData.incomeTax) {
@@ -245,7 +250,7 @@ router.post('/', [
   payrollData.basicSalary = parseFloat(payrollData.basicSalary) || 0;
   payrollData.houseRentAllowance = parseFloat(payrollData.houseRentAllowance) || 0;
   payrollData.medicalAllowance = parseFloat(payrollData.medicalAllowance) || 0;
-  payrollData.conveyanceAllowance = parseFloat(payrollData.conveyanceAllowance) || 0;
+  payrollData.conveyanceAllowance = parseFloat(payrollData.conveyanceAllowance) || 0; // Keep exact value, no rounding
   payrollData.specialAllowance = parseFloat(payrollData.specialAllowance) || 0;
   payrollData.otherAllowance = parseFloat(payrollData.otherAllowance) || 0;
   payrollData.overtimeHours = parseFloat(payrollData.overtimeHours) || 0;
@@ -257,7 +262,8 @@ router.post('/', [
   payrollData.incomeTax = parseFloat(payrollData.incomeTax) || 0;
   payrollData.healthInsurance = parseFloat(payrollData.healthInsurance) || 0;
   payrollData.otherDeductions = parseFloat(payrollData.otherDeductions) || 0;
-  payrollData.eobi = parseFloat(payrollData.eobi) || 0;
+  // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
+  payrollData.eobi = 370;
   payrollData.totalWorkingDays = parseInt(payrollData.totalWorkingDays) || 22;
   payrollData.presentDays = parseInt(payrollData.presentDays) || 22;
   payrollData.absentDays = parseInt(payrollData.absentDays) || 0;
@@ -354,14 +360,13 @@ router.put('/:id', [
     updateData.otherDeductions = parseFloat(req.body.deductions.other) || 0;
   }
 
-  // Get EOBI from employee if not provided
-  if (!updateData.eobi && employee.eobi?.isActive) {
-    updateData.eobi = employee.eobi.amount || 0;
-  }
+  // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
+  updateData.eobi = 370;
 
-  // Get Provident Fund from employee if not provided
-  if (!updateData.providentFund && employee.providentFund?.isActive) {
-    updateData.providentFund = employee.providentFund.amount || 0;
+  // Auto-calculate Provident Fund (8.834% of basic salary) if not provided
+  if (!updateData.providentFund && (updateData.basicSalary || payroll.basicSalary) > 0) {
+    const basicSalary = updateData.basicSalary || payroll.basicSalary;
+    updateData.providentFund = Math.round((basicSalary * 8.834) / 100);
   }
 
   // Recalculate totals
@@ -650,5 +655,251 @@ router.post('/bulk-generate', [
     }
   });
 }));
+
+// @route   GET /api/payroll/:id/download
+// @desc    Download payroll as PDF
+// @access  Private (HR and Admin)
+router.get('/:id/download', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const payroll = await Payroll.findById(req.params.id)
+      .populate('employee', 'employeeId firstName lastName email phone department position')
+      .populate('createdBy', 'firstName lastName')
+      .populate('approvedBy', 'firstName lastName');
+
+    if (!payroll) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payroll not found'
+      });
+    }
+
+    // Create PDF document
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 50
+    });
+
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="payroll-${payroll.employee?.employeeId}-${payroll.month}-${payroll.year}.pdf"`);
+
+    // Pipe PDF to response
+    doc.pipe(res);
+
+    // Helper function to format currency
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('en-PK', {
+        style: 'currency',
+        currency: 'PKR',
+        minimumFractionDigits: 0
+      }).format(amount || 0);
+    };
+
+    // Helper function to format date
+    const formatDate = (date) => {
+      return new Date(date).toLocaleDateString('en-PK', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    };
+
+    // Helper function to convert number to words
+    const numberToWords = (num) => {
+      const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+      const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+      const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      
+      if (num === 0) return 'Zero';
+      if (num < 10) return ones[num];
+      if (num < 20) return teens[num - 10];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + ones[num % 10] : '');
+      if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' ' + numberToWords(num % 100) : '');
+      if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + numberToWords(num % 1000) : '');
+      if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 !== 0 ? ' ' + numberToWords(num % 100000) : '');
+      return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 !== 0 ? ' ' + numberToWords(num % 10000000) : '');
+    };
+
+    // Header
+    doc.fontSize(20)
+       .font('Helvetica-Bold')
+       .text('PAYROLL STATEMENT', { align: 'center' })
+       .moveDown(0.5);
+
+    doc.fontSize(12)
+       .font('Helvetica')
+       .text(`Period: ${payroll.month}/${payroll.year}`, { align: 'center' })
+       .moveDown(2);
+
+    // Employee Information
+    const employeeY = doc.y;
+    doc.fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Employee Information:', 50, employeeY)
+       .moveDown(0.5);
+
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text('Employee ID:', 50, employeeY + 30)
+       .text('Name:', 50, employeeY + 50)
+       .text('Department:', 50, employeeY + 70)
+       .text('Position:', 50, employeeY + 90)
+       .text('Pay Period:', 50, employeeY + 110)
+       .text('Generated Date:', 50, employeeY + 130);
+
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .text(payroll.employee?.employeeId || 'N/A', 200, employeeY + 30)
+       .text(`${payroll.employee?.firstName || ''} ${payroll.employee?.lastName || ''}`, 200, employeeY + 50)
+       .text(payroll.employee?.department || 'N/A', 200, employeeY + 70)
+       .text(payroll.employee?.position || 'N/A', 200, employeeY + 90)
+       .text(`${payroll.month}/${payroll.year}`, 200, employeeY + 110)
+       .text(formatDate(payroll.createdAt), 200, employeeY + 130);
+
+    doc.moveDown(3);
+
+    // Earnings and Deductions Table
+    doc.fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Earnings and Deductions', { align: 'center' })
+       .moveDown(0.5);
+
+    // Table headers
+    const tableY = doc.y;
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .text('Earnings', 50, tableY)
+       .text('Amount', 200, tableY)
+       .text('Deductions', 350, tableY)
+       .text('Amount', 500, tableY);
+
+    // Draw table lines
+    doc.moveTo(50, tableY - 5)
+       .lineTo(550, tableY - 5)
+       .stroke();
+
+    doc.moveTo(50, tableY + 15)
+       .lineTo(550, tableY + 15)
+       .stroke();
+
+    // Earnings rows
+    let currentTableY = tableY + 25;
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text('Basic Salary', 50, currentTableY)
+       .text(formatCurrency(payroll.basicSalary), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('House Rent Allowance', 50, currentTableY)
+       .text(formatCurrency(payroll.houseRentAllowance), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Medical Allowance', 50, currentTableY)
+       .text(formatCurrency(payroll.medicalAllowance), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Conveyance Allowance', 50, currentTableY)
+       .text(formatCurrency(payroll.conveyanceAllowance), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Special Allowance', 50, currentTableY)
+       .text(formatCurrency(payroll.specialAllowance), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Other Allowance', 50, currentTableY)
+       .text(formatCurrency(payroll.otherAllowance), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Overtime Amount', 50, currentTableY)
+       .text(formatCurrency(payroll.overtimeAmount), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Performance Bonus', 50, currentTableY)
+       .text(formatCurrency(payroll.performanceBonus), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Other Bonus', 50, currentTableY)
+       .text(formatCurrency(payroll.otherBonus), 200, currentTableY);
+
+    // Deductions rows
+    currentTableY = tableY + 25;
+    doc.text('Provident Fund', 350, currentTableY)
+       .text(formatCurrency(payroll.providentFund), 500, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Income Tax', 350, currentTableY)
+       .text(formatCurrency(payroll.incomeTax), 500, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Health Insurance', 350, currentTableY)
+       .text(formatCurrency(payroll.healthInsurance), 500, currentTableY);
+
+    currentTableY += 20;
+    doc.text('EOBI', 350, currentTableY)
+       .text(formatCurrency(payroll.eobi), 500, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Other Deductions', 350, currentTableY)
+       .text(formatCurrency(payroll.otherDeductions), 500, currentTableY);
+
+    // Summary rows
+    currentTableY += 30;
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .text('Gross Salary', 50, currentTableY)
+       .text(formatCurrency(payroll.grossSalary), 200, currentTableY);
+
+    currentTableY += 20;
+    doc.text('Total Deductions', 350, currentTableY)
+       .text(formatCurrency(payroll.totalDeductions), 500, currentTableY);
+
+    currentTableY += 20;
+    doc.fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Net Salary', 50, currentTableY)
+       .text(formatCurrency(payroll.netSalary), 200, currentTableY);
+
+    // Amount in words
+    currentTableY += 25;
+    doc.fontSize(10)
+       .font('Helvetica')
+       .text(`[${numberToWords(Math.round(payroll.netSalary))} Only]`, 50, currentTableY);
+
+    doc.moveDown(3);
+
+    // Notes
+    if (payroll.remarks) {
+      doc.fontSize(10)
+         .font('Helvetica')
+         .fillColor('#000')
+         .text('Notes:', { underline: true })
+         .moveDown(0.5)
+         .text(payroll.remarks);
+    }
+
+    // Footer with signatures and system info
+    const footerY = doc.page.height - 100;
+    
+    // Signature labels
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .text('Prepared By', 50, footerY)
+       .text('Received By', 200, footerY)
+       .text('Approved By', 350, footerY);
+
+    // System information
+    doc.fontSize(8)
+       .font('Helvetica')
+       .fillColor('#666')
+       .text('Human Capital Management System', 50, footerY + 30)
+       .text(`Generated by: ${payroll.createdBy?.firstName || 'SYSTEM'}`, 50, footerY + 45)
+       .text(formatDate(new Date()), 50, footerY + 60);
+
+    // Finalize PDF
+    doc.end();
+  })
+);
 
 module.exports = router; 

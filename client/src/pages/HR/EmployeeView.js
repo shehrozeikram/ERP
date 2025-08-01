@@ -310,7 +310,7 @@ const EmployeeView = () => {
         </Grid>
 
         {/* Placement Information */}
-        {(employee.placementCompany || employee.placementProject || employee.placementDepartment) && (
+        {(employee.placementCompany || employee.placementProject || employee.placementSection || employee.placementLocation) && (
           <Grid item xs={12} md={6}>
             <Card>
               <CardContent>
@@ -331,22 +331,10 @@ const EmployeeView = () => {
                       <Typography variant="body1">{safeRenderText(employee.placementProject)}</Typography>
                     </Grid>
                   )}
-                  {employee.placementDepartment && (
-                    <Grid item xs={6}>
-                      <Typography variant="body2" color="textSecondary">Department</Typography>
-                      <Typography variant="body1">{safeRenderText(employee.placementDepartment)}</Typography>
-                    </Grid>
-                  )}
                   {employee.placementSection && (
                     <Grid item xs={6}>
                       <Typography variant="body2" color="textSecondary">Section</Typography>
                       <Typography variant="body1">{safeRenderText(employee.placementSection)}</Typography>
-                    </Grid>
-                  )}
-                  {employee.placementDesignation && (
-                    <Grid item xs={6}>
-                      <Typography variant="body2" color="textSecondary">Designation</Typography>
-                      <Typography variant="body1">{safeRenderText(employee.placementDesignation)}</Typography>
                     </Grid>
                   )}
                   {employee.oldDesignation && (
@@ -439,7 +427,7 @@ const EmployeeView = () => {
                 </Grid>
                 <Grid item xs={4}>
                   <Typography variant="body2" color="textSecondary">
-                    Basic (60%): {formatPKR(employee.salary?.basic || Math.round((employee.salary?.gross || 0) * 0.6))}
+                    Basic (66.66%): {formatPKR(employee.salary?.basic || Math.round((employee.salary?.gross || 0) * 0.6666))}
                   </Typography>
                 </Grid>
                 <Grid item xs={4}>

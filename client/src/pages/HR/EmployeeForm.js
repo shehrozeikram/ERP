@@ -46,7 +46,7 @@ import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 
-const steps = ['Personal Information', 'Employment Details', 'Placement', 'Contact & Address', 'Salary & Benefits'];
+const steps = ['Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
 
 const EmployeeForm = () => {
   const { id } = useParams();
@@ -108,9 +108,7 @@ const EmployeeForm = () => {
     // Placement fields
     placementCompany: Yup.string(),
     placementProject: Yup.string(),
-    placementDepartment: Yup.string(),
     placementSection: Yup.string(),
-    placementDesignation: Yup.string(),
     oldDesignation: Yup.string(),
     placementLocation: Yup.string(),
     salary: Yup.object({
@@ -367,9 +365,7 @@ const EmployeeForm = () => {
         bankName: employeeData.bankName?._id || employeeData.bankName || '',
         placementCompany: employeeData.placementCompany?._id || employeeData.placementCompany || '',
         placementProject: employeeData.placementProject?._id || employeeData.placementProject || '',
-        placementDepartment: employeeData.placementDepartment?._id || employeeData.placementDepartment || '',
         placementSection: employeeData.placementSection?._id || employeeData.placementSection || '',
-        placementDesignation: employeeData.placementDesignation?._id || employeeData.placementDesignation || '',
         oldDesignation: employeeData.oldDesignation?._id || employeeData.oldDesignation || undefined,
         placementLocation: employeeData.placementLocation?._id || employeeData.placementLocation || '',
         salary: {
@@ -383,7 +379,7 @@ const EmployeeForm = () => {
         providentFund: {
           isActive: employeeData.providentFund?.isActive || false,
           amount: employeeData.providentFund?.amount || 0,
-          percentage: employeeData.providentFund?.percentage || 0.08 // Assuming 8% is the default
+          percentage: employeeData.providentFund?.percentage || 0.08834 // 8.834% is the default
         },
         address: {
           ...employeeData.address,
@@ -516,9 +512,7 @@ const EmployeeForm = () => {
       // Placement fields
       placementCompany: '',
       placementProject: '',
-      placementDepartment: '',
       placementSection: '',
-      placementDesignation: '',
       oldDesignation: undefined,
       placementLocation: '',
       isActive: true,
@@ -1139,7 +1133,7 @@ const EmployeeForm = () => {
                   label="Provident Fund Active"
                 />
                 <FormHelperText>
-                  Provident Fund (8% of basic salary)
+                                      Provident Fund (8.834% of basic salary)
                 </FormHelperText>
               </FormControl>
             </Grid>
@@ -1156,7 +1150,7 @@ const EmployeeForm = () => {
                     readOnly: true,
                     startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                   }}
-                  helperText="Auto-calculated: 8% of basic salary"
+                                      helperText="Auto-calculated: 8.834% of basic salary"
                 />
               </Grid>
             )}
@@ -1168,12 +1162,12 @@ const EmployeeForm = () => {
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={3}>
                     <Typography variant="body2" color="text.secondary">
-                      Basic Salary (60%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6))}
+                      Basic Salary (66.66%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6666))}
                     </Typography>
                   </Grid>
                   <Grid item xs={12} md={3}>
                     <Typography variant="body2" color="text.secondary">
-                      House Rent (30%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.3))}
+                      House Rent (23.34%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.2334))}
                     </Typography>
                   </Grid>
                   <Grid item xs={12} md={3}>
@@ -1217,6 +1211,103 @@ const EmployeeForm = () => {
                 error={formik.touched.foreignBankAccount && Boolean(formik.errors.foreignBankAccount)}
                 helperText={formik.touched.foreignBankAccount && formik.errors.foreignBankAccount}
               />
+            </Grid>
+
+            {/* Placement Information */}
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom sx={{ mt: 3, mb: 2 }}>
+                Placement Information
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Company</InputLabel>
+                <Select
+                  name="placementCompany"
+                  value={safeFormValue(formik.values.placementCompany)}
+                  onChange={formik.handleChange}
+                  error={formik.touched.placementCompany && Boolean(formik.errors.placementCompany)}
+                  label="Company"
+                >
+                  {companies.map((company) => (
+                    <MenuItem key={company._id} value={company._id}>
+                      {safeRenderText(company.name)} ({safeRenderText(company.type)})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Project</InputLabel>
+                <Select
+                  name="placementProject"
+                  value={safeFormValue(formik.values.placementProject)}
+                  onChange={formik.handleChange}
+                  error={formik.touched.placementProject && Boolean(formik.errors.placementProject)}
+                  label="Project"
+                >
+                  {projects.map((project) => (
+                    <MenuItem key={project._id} value={project._id}>
+                      {safeRenderText(project.name)} - {safeRenderText(project.company?.name)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Section</InputLabel>
+                <Select
+                  name="placementSection"
+                  value={safeFormValue(formik.values.placementSection)}
+                  onChange={formik.handleChange}
+                  error={formik.touched.placementSection && Boolean(formik.errors.placementSection)}
+                  label="Section"
+                >
+                  {sections.map((section) => (
+                    <MenuItem key={section._id} value={section._id}>
+                      {safeRenderText(section.name)} - {safeRenderText(section.department?.name)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Old Designation (Optional)</InputLabel>
+                <Select
+                  name="oldDesignation"
+                  value={safeFormValue(formik.values.oldDesignation)}
+                  onChange={formik.handleChange}
+                  error={formik.touched.oldDesignation && Boolean(formik.errors.oldDesignation)}
+                  label="Old Designation (Optional)"
+                >
+                  {designations.map((designation) => (
+                    <MenuItem key={designation._id} value={designation._id}>
+                      {safeRenderText(designation.title)} - {safeRenderText(designation.level)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Location</InputLabel>
+                <Select
+                  name="placementLocation"
+                  value={safeFormValue(formik.values.placementLocation)}
+                  onChange={formik.handleChange}
+                  error={formik.touched.placementLocation && Boolean(formik.errors.placementLocation)}
+                  label="Location"
+                >
+                  {locations.map((location) => (
+                    <MenuItem key={location._id} value={location._id}>
+                      {safeRenderText(location.name)} ({safeRenderText(location.type)})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
 
             <Grid item xs={12} md={6}>
@@ -1288,143 +1379,6 @@ const EmployeeForm = () => {
         );
 
       case 2:
-        return (
-          <Grid container spacing={3}>
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Placement Information
-              </Typography>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Company</InputLabel>
-                <Select
-                  name="placementCompany"
-                  value={safeFormValue(formik.values.placementCompany)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementCompany && Boolean(formik.errors.placementCompany)}
-                  label="Company"
-                >
-                  {companies.map((company) => (
-                    <MenuItem key={company._id} value={company._id}>
-                      {safeRenderText(company.name)} ({safeRenderText(company.type)})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Project</InputLabel>
-                <Select
-                  name="placementProject"
-                  value={safeFormValue(formik.values.placementProject)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementProject && Boolean(formik.errors.placementProject)}
-                  label="Project"
-                >
-                  {projects.map((project) => (
-                    <MenuItem key={project._id} value={project._id}>
-                      {safeRenderText(project.name)} - {safeRenderText(project.company?.name)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Department</InputLabel>
-                <Select
-                  name="placementDepartment"
-                  value={safeFormValue(formik.values.placementDepartment)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementDepartment && Boolean(formik.errors.placementDepartment)}
-                  label="Department"
-                >
-                  {departments.map((dept) => (
-                    <MenuItem key={dept._id} value={dept._id}>
-                      {safeRenderText(dept.name)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Section</InputLabel>
-                <Select
-                  name="placementSection"
-                  value={safeFormValue(formik.values.placementSection)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementSection && Boolean(formik.errors.placementSection)}
-                  label="Section"
-                >
-                  {sections.map((section) => (
-                    <MenuItem key={section._id} value={section._id}>
-                      {safeRenderText(section.name)} - {safeRenderText(section.department?.name)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Designation</InputLabel>
-                <Select
-                  name="placementDesignation"
-                  value={safeFormValue(formik.values.placementDesignation)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementDesignation && Boolean(formik.errors.placementDesignation)}
-                  label="Designation"
-                >
-                  {designations.map((designation) => (
-                    <MenuItem key={designation._id} value={designation._id}>
-                      {safeRenderText(designation.title)} - {safeRenderText(designation.level)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Old Designation (Optional)</InputLabel>
-                <Select
-                  name="oldDesignation"
-                  value={safeFormValue(formik.values.oldDesignation)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.oldDesignation && Boolean(formik.errors.oldDesignation)}
-                  label="Old Designation (Optional)"
-                >
-                  {designations.map((designation) => (
-                    <MenuItem key={designation._id} value={designation._id}>
-                      {safeRenderText(designation.title)} - {safeRenderText(designation.level)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Location</InputLabel>
-                <Select
-                  name="placementLocation"
-                  value={safeFormValue(formik.values.placementLocation)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementLocation && Boolean(formik.errors.placementLocation)}
-                  label="Location"
-                >
-                  {locations.map((location) => (
-                    <MenuItem key={location._id} value={location._id}>
-                      {safeRenderText(location.name)} ({safeRenderText(location.type)})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        );
-
-      case 3:
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
@@ -1544,7 +1498,7 @@ const EmployeeForm = () => {
           </Grid>
         );
 
-      case 4:
+      case 3:
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
@@ -1567,10 +1521,10 @@ const EmployeeForm = () => {
                     <strong>Auto-Calculated Breakdown:</strong>
                   </Typography>
                   <Typography variant="body2">
-                    Basic Salary (60%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6))}
+                    Basic Salary (66.66%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6666))}
                   </Typography>
                   <Typography variant="body2">
-                    House Rent (30%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.3))}
+                    House Rent (23.34%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.2334))}
                   </Typography>
                   <Typography variant="body2">
                     Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
@@ -1597,10 +1551,10 @@ const EmployeeForm = () => {
                     <>
                       <Divider sx={{ my: 1 }} />
                       <Typography variant="body2" color="error">
-                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6 * 0.08))}
+                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6666 * 0.08834))}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
-                        Auto-calculated: 8% of basic salary
+                        Auto-calculated: 8.834% of basic salary
                       </Typography>
                     </>
                   )}

@@ -89,6 +89,30 @@ export const markPayslipAsPaid = async (id, paymentData) => {
   }
 };
 
+// Download payslip as PDF
+export const downloadPayslipPDF = async (id) => {
+  try {
+    const response = await api.get(`/payslips/${id}/download`, {
+      responseType: 'blob'
+    });
+    
+    // Create blob URL and trigger download
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `payslip-${id}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    
+    return { success: true };
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Bulk generate payslips
 export const bulkGeneratePayslips = async (bulkData) => {
   try {
@@ -202,6 +226,7 @@ export default {
   generatePayslip,
   approvePayslip,
   markPayslipAsPaid,
+  downloadPayslipPDF,
   bulkGeneratePayslips,
   getPayslipStats,
   getEmployeePayslips,

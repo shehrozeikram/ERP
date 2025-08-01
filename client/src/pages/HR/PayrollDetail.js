@@ -25,7 +25,8 @@ import {
   CheckCircle as ApproveIcon,
   Payment as PaymentIcon,
   Cancel as CancelIcon,
-  Download as DownloadIcon
+  Download as DownloadIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -98,6 +99,37 @@ const PayrollDetail = () => {
     }
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      setActionLoading(true);
+      const response = await api.get(`/payroll/${id}/download`, {
+        responseType: 'blob'
+      });
+      
+      // Create blob URL and trigger download
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `payroll-${payroll.employee?.employeeId}-${payroll.month}-${payroll.year}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      setError(null); // Clear any previous errors
+    } catch (error) {
+      console.error('Error downloading payroll PDF:', error);
+      setError('Failed to download payroll PDF');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'Draft': return 'default';
@@ -153,9 +185,42 @@ const PayrollDetail = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3 }} className="print-container">
+      {/* Print styles */}
+      <style>
+        {`
+          @media print {
+            .no-print {
+              display: none !important;
+            }
+            .print-break {
+              page-break-before: always;
+            }
+            body {
+              margin: 0;
+              padding: 20px;
+            }
+            .print-container {
+              max-width: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+          }
+        `}
+      </style>
+      {/* Print Header - Only visible when printing */}
+      <Box sx={{ display: 'none', '@media print': { display: 'block' }, mb: 3 }}>
+        <Typography variant="h4" component="h1" sx={{ textAlign: 'center', mb: 1 }}>
+          PAYROLL STATEMENT
+        </Typography>
+        <Typography variant="h6" sx={{ textAlign: 'center', color: 'text.secondary' }}>
+          Period: {payroll.month}/{payroll.year}
+        </Typography>
+        <Divider sx={{ mt: 2 }} />
+      </Box>
+
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }} className="no-print">
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Button
             variant="outlined"
@@ -168,12 +233,28 @@ const PayrollDetail = () => {
             Payroll Details
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1 }} className="no-print">
           <Chip
             label={getStatusLabel(payroll.status)}
             color={getStatusColor(payroll.status)}
             size="large"
           />
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrint}
+            disabled={actionLoading}
+          >
+            Print
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadPDF}
+            disabled={actionLoading}
+          >
+            Download PDF
+          </Button>
           {payroll.status === 'Draft' && (
             <Button
               variant="outlined"

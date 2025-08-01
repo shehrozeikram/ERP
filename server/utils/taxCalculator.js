@@ -33,7 +33,11 @@ async function calculateMonthlyTax(monthlySalary) {
 }
 
 /**
- * Calculate taxable income (basic salary + all allowances except medical)
+ * Calculate taxable income based on new salary structure:
+ * - 66.66% Basic Salary (taxable)
+ * - 10% Medical Allowance (tax-exempt)
+ * - 23.34% House Rent Allowance (taxable)
+ * - Other Allowances (conveyance, meal, transport, etc.) are taxable
  * @param {Object} salary - Salary object with basic, allowances, etc.
  * @returns {number} Monthly taxable income
  */
@@ -42,16 +46,18 @@ function calculateTaxableIncome(salary) {
 
   let taxableIncome = 0;
 
-  // Add basic salary
+  // Add basic salary (66.66% of gross - taxable)
   if (salary.basic) {
     taxableIncome += salary.basic;
   }
 
-  // Add all allowances except medical
+  // Add house rent allowance (23.34% of gross - taxable)
+  if (salary.allowances && salary.allowances.housing) {
+    taxableIncome += salary.allowances.housing;
+  }
+
+  // Add other allowances (all taxable except medical)
   if (salary.allowances) {
-    if (salary.allowances.housing) {
-      taxableIncome += salary.allowances.housing;
-    }
     if (salary.allowances.transport) {
       taxableIncome += salary.allowances.transport;
     }
@@ -61,8 +67,10 @@ function calculateTaxableIncome(salary) {
     if (salary.allowances.other) {
       taxableIncome += salary.allowances.other;
     }
-    // Medical allowance is tax-exempt, so we don't add it
   }
+
+  // Medical allowance (10% of gross) is tax-exempt, so we don't add it
+  // According to FBR 2025-2026: Only medical allowance is tax-exempt
 
   return taxableIncome;
 }

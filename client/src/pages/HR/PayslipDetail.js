@@ -134,16 +134,7 @@ const PayslipDetail = () => {
   // Handle download PDF
   const handleDownloadPDF = async () => {
     try {
-      const response = await payslipService.getPayslipById(id);
-      const payslipData = response.data;
-      
-      // Create a temporary link to download the PDF
-      const link = document.createElement('a');
-      link.href = `/api/payslips/${id}/download`;
-      link.download = `payslip-${payslipData.payslipNumber}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      await payslipService.downloadPayslipPDF(id);
       
       setSnackbar({
         open: true,

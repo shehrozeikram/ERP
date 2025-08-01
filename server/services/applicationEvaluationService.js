@@ -52,7 +52,7 @@ class ApplicationEvaluationService {
       evaluation.overallScore = isNaN(evaluation.overallScore) ? 0 : Math.max(0, Math.min(100, evaluation.overallScore));
 
       // Determine if shortlisted
-      evaluation.isShortlisted = evaluation.overallScore >= 70;
+      evaluation.isShortlisted = evaluation.overallScore >= 50;
       
       if (evaluation.isShortlisted) {
         evaluation.shortlistReason = 'Meets minimum requirements and has strong match with job criteria';

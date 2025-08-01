@@ -222,6 +222,14 @@ payrollSchema.virtual('totalEarnings').get(function() {
 
 // Pre-save middleware to calculate totals
 payrollSchema.pre('save', function(next) {
+  // Auto-calculate Provident Fund (8.834% of basic salary) if not provided
+  if (!this.providentFund && this.basicSalary > 0) {
+    this.providentFund = Math.round((this.basicSalary * 8.834) / 100);
+  }
+  
+  // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
+  this.eobi = 370;
+  
   // Calculate total deductions
   this.totalDeductions = (this.providentFund || 0) + 
                         (this.incomeTax || 0) + 
@@ -310,7 +318,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     overtimeAmount: overtimeAmount,
     performanceBonus: attendanceData.performanceBonus || 0,
     otherBonus: attendanceData.otherBonus || 0,
-    providentFund: attendanceData.providentFund || 0,
+    providentFund: attendanceData.providentFund || Math.round((basicSalary * 8.834) / 100),
     incomeTax: attendanceData.incomeTax || 0,
     healthInsurance: attendanceData.healthInsurance || 0,
     otherDeductions: attendanceData.otherDeductions || 0,

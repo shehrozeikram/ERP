@@ -265,7 +265,7 @@ const employeeSchema = new mongoose.Schema({
     },
     percentage: {
       type: Number,
-      default: 8, // 8% of basic salary for employees
+      default: 8.834, // 8.834% of basic salary for employees
       min: [0, 'Provident Fund percentage cannot be negative']
     }
   },
@@ -470,7 +470,7 @@ employeeSchema.virtual('attendancePercentage').get(function() {
 // Auto-calculate salary components based on gross salary
 employeeSchema.virtual('calculatedBasic').get(function() {
   if (!this.salary?.gross) return 0;
-  return Math.round(this.salary.gross * 0.6); // 60% of gross
+      return Math.round(this.salary.gross * 0.6666); // 66.66% of gross
 });
 
 employeeSchema.virtual('calculatedHouseRent').get(function() {
@@ -548,8 +548,8 @@ employeeSchema.pre('save', async function(next) {
 
   // Auto-calculate salary components if gross salary is provided
   if (this.salary?.gross && this.isModified('salary.gross')) {
-    this.salary.basic = Math.round(this.salary.gross * 0.6); // 60% of gross
-    this.salary.houseRent = Math.round(this.salary.gross * 0.3); // 30% of gross
+    this.salary.basic = Math.round(this.salary.gross * 0.6666); // 66.66% of gross
+          this.salary.houseRent = Math.round(this.salary.gross * 0.2334); // 23.34% of gross
     this.salary.medical = Math.round(this.salary.gross * 0.1); // 10% of gross
     
     // Calculate EOBI amount if EOBI is active
@@ -564,11 +564,11 @@ employeeSchema.pre('save', async function(next) {
     
     // Calculate Provident Fund amount if PF is active
     if (this.providentFund?.isActive) {
-      // Pakistan Provident Fund: 8% of basic salary
+      // Pakistan Provident Fund: 8.834% of basic salary
       const basicSalary = this.salary.basic;
-      const pfPercentage = this.providentFund.percentage || 8;
+              const pfPercentage = this.providentFund.percentage || 8.834;
       
-      // Calculate PF amount (8% of basic salary)
+              // Calculate PF amount (8.834% of basic salary)
       const pfAmount = Math.round((basicSalary * pfPercentage) / 100);
       
       this.providentFund.amount = pfAmount;
