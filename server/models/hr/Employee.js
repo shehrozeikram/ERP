@@ -106,16 +106,7 @@ const employeeSchema = new mongoose.Schema({
     },
     email: String
   },
-  department: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Department',
-    required: [true, 'Department is required']
-  },
-  position: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Position',
-    required: [true, 'Position is required']
-  },
+
   qualification: {
     type: String,
     required: [true, 'Qualification is required'],
@@ -160,6 +151,11 @@ const employeeSchema = new mongoose.Schema({
   placementCompany: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'PlacementCompany',
+    required: false
+  },
+  placementSector: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Sector',
     required: false
   },
   placementProject: {
@@ -212,7 +208,76 @@ const employeeSchema = new mongoose.Schema({
     enum: ['Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'],
     default: 'Active'
   },
-  // Simplified Salary Structure
+  // Flexible Allowance Structure (House Rent removed as it's part of distributed salary)
+  allowances: {
+    conveyance: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Conveyance allowance cannot be negative']
+      }
+    },
+    food: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Food allowance cannot be negative']
+      }
+    },
+    vehicleFuel: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Vehicle & fuel allowance cannot be negative']
+      }
+    },
+    medical: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Medical allowance cannot be negative']
+      }
+    },
+    special: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Special allowance cannot be negative']
+      }
+    },
+    other: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Other allowance cannot be negative']
+      }
+    }
+  },
+  // Basic Salary Structure (for backward compatibility)
   salary: {
     gross: {
       type: Number,
@@ -223,16 +288,6 @@ const employeeSchema = new mongoose.Schema({
       type: Number,
       default: 0,
       min: [0, 'Basic salary cannot be negative']
-    },
-    houseRent: {
-      type: Number,
-      default: 0,
-      min: [0, 'House rent allowance cannot be negative']
-    },
-    medical: {
-      type: Number,
-      default: 0,
-      min: [0, 'Medical allowance cannot be negative']
     }
   },
   // EOBI (Employees' Old-Age Benefits Institution) - Pakistan
@@ -265,7 +320,7 @@ const employeeSchema = new mongoose.Schema({
     },
     percentage: {
       type: Number,
-      default: 8.834, // 8.834% of basic salary for employees
+      default: 8.34, // 8.34% of basic salary for employees
       min: [0, 'Provident Fund percentage cannot be negative']
     }
   },
@@ -310,6 +365,63 @@ const employeeSchema = new mongoose.Schema({
     retirementPlan: {
       type: Boolean,
       default: false
+    }
+  },
+  // Loan Information
+  loans: {
+    vehicleLoan: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Vehicle loan amount cannot be negative']
+      },
+      monthlyInstallment: {
+        type: Number,
+        default: 0,
+        min: [0, 'Monthly installment cannot be negative']
+      },
+      outstandingBalance: {
+        type: Number,
+        default: 0,
+        min: [0, 'Outstanding balance cannot be negative']
+      },
+      startDate: {
+        type: Date
+      },
+      endDate: {
+        type: Date
+      }
+    },
+    companyLoan: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Company loan amount cannot be negative']
+      },
+      monthlyInstallment: {
+        type: Number,
+        default: 0,
+        min: [0, 'Monthly installment cannot be negative']
+      },
+      outstandingBalance: {
+        type: Number,
+        default: 0,
+        min: [0, 'Outstanding balance cannot be negative']
+      },
+      startDate: {
+        type: Date
+      },
+      endDate: {
+        type: Date
+      }
     }
   },
   documents: [{
@@ -413,6 +525,10 @@ const employeeSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
   terminationDate: Date,
   terminationReason: String,
   notes: String
@@ -427,6 +543,8 @@ employeeSchema.index({ department: 1 });
 employeeSchema.index({ position: 1 });
 employeeSchema.index({ employmentStatus: 1 });
 employeeSchema.index({ hireDate: 1 });
+employeeSchema.index({ isDeleted: 1 });
+employeeSchema.index({ isActive: 1 });
 
 // Virtual for full name
 employeeSchema.virtual('fullName').get(function() {
@@ -564,11 +682,11 @@ employeeSchema.pre('save', async function(next) {
     
     // Calculate Provident Fund amount if PF is active
     if (this.providentFund?.isActive) {
-      // Pakistan Provident Fund: 8.834% of basic salary
+      // Pakistan Provident Fund: 8.34% of basic salary
       const basicSalary = this.salary.basic;
-              const pfPercentage = this.providentFund.percentage || 8.834;
+              const pfPercentage = this.providentFund.percentage || 8.34;
       
-              // Calculate PF amount (8.834% of basic salary)
+              // Calculate PF amount (8.34% of basic salary)
       const pfAmount = Math.round((basicSalary * pfPercentage) / 100);
       
       this.providentFund.amount = pfAmount;
@@ -660,11 +778,12 @@ employeeSchema.pre('save', async function(next) {
     }
   }
 
-  // Calculate end of probation date if appointment date or probation period changes
+  // Calculate end of probation date and confirmation date if appointment date or probation period changes
   if (this.appointmentDate && this.probationPeriodMonths) {
     const endDate = new Date(this.appointmentDate);
     endDate.setMonth(endDate.getMonth() + this.probationPeriodMonths);
     this.endOfProbationDate = endDate;
+    this.confirmationDate = new Date(endDate); // Confirmation date is the same as end of probation date
   }
   
   // Update corresponding user document
@@ -729,9 +848,9 @@ employeeSchema.statics.getStatistics = async function() {
 
 // Static method to update all payrolls for an employee
 employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
-  const employee = await this.findById(employeeId);
+  const employee = await this.findOne({ _id: employeeId, isDeleted: false });
   if (!employee) {
-    throw new Error('Employee not found');
+    throw new Error('Employee not found or has been deleted');
   }
 
   const Payroll = this.model('Payroll');

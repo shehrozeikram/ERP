@@ -1,0 +1,15 @@
+# This is a sample Excel template for employee import
+# The actual file should be an .xlsx file with the following headers:
+
+Employee ID,First Name,Last Name,Email,Phone,Date of Birth,Date of Joining,Gender,Nationality,CNIC,Address,City,Province,Postal Code,Emergency Contact,Emergency Contact Name,Emergency Contact Relation,Basic Salary,Gross Salary,Medical Allowance,House Rent Allowance,Transport Allowance,Meal Allowance,Other Allowance,Employment Type,Status,Work Location,Shift,Working Days,Department,Position,Designation,Bank Name,Account Number,Account Title,Blood Group,Marital Status,Religion,Education,Experience
+
+# Sample data row:
+EMP001,John,Doe,john.doe@company.com,+92-300-1234567,1990-05-15,2023-01-15,Male,Pakistani,35202-1234567-1,123 Main Street,Karachi,Sindh,75000,+92-300-9876543,Jane Doe,Wife,50000,70000,7000,16340,5000,3000,1000,Permanent,Active,Main Office,Day,5,IT,Software Engineer,Senior,ABC Bank,1234567890,John Doe,A+,Married,Islam,Bachelor's in Computer Science,5
+
+# Notes:
+# - First row should contain headers
+# - Dates should be in YYYY-MM-DD format
+# - Salary amounts should be numbers
+# - Phone numbers should include country code
+# - CNIC should be in Pakistani format (35202-1234567-1)
+# - All fields are optional except Employee ID 

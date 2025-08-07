@@ -56,7 +56,7 @@ Updated the payroll system to implement fixed EOBI amount (370 PKR) for all empl
 - **Gross Salary**: Total earnings before deductions
 - **Income Tax**: Calculated tax amount
 - **EOBI**: Fixed 370 PKR deduction
-- **Provident Fund**: 8.834% of basic salary
+- **Provident Fund**: 8.34% of basic salary
 - **Other Deductions**: Additional deductions if any
 
 #### Detailed Breakdown Section:

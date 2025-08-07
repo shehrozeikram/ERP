@@ -144,7 +144,7 @@ const Sidebar = () => {
           </Box>
         </Box>
         <Typography variant="caption" color="text.secondary" noWrap>
-          {user?.department || 'Department'}
+          {typeof user?.department === 'object' ? user?.department?.name : user?.department || 'Department'}
         </Typography>
       </Box>
 

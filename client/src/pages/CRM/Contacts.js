@@ -43,6 +43,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import crmService from '../../services/crmService';
 import api from '../../services/api';
+import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
 
 const Contacts = () => {
   const navigate = useNavigate();
@@ -480,18 +481,11 @@ const Contacts = () => {
   // Loading skeleton
   if (loading && contacts.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Contacts
-        </Typography>
-        <Grid container spacing={3}>
-          {[1, 2, 3, 4, 5, 6].map((item) => (
-            <Grid item xs={12} sm={6} md={4} key={item}>
-              <Skeleton variant="rectangular" height={200} />
-            </Grid>
-          ))}
-        </Grid>
-      </Box>
+      <PageLoading 
+        message="Loading contacts..." 
+        showSkeleton={true}
+        skeletonType="cards"
+      />
     );
   }
 

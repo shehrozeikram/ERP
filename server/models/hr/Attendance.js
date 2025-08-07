@@ -81,17 +81,7 @@ const attendanceSchema = new mongoose.Schema({
     type: String,
     maxlength: [500, 'Notes cannot exceed 500 characters']
   },
-  approvedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Employee'
-  },
-  approvedAt: {
-    type: Date
-  },
-  isApproved: {
-    type: Boolean,
-    default: false
-  },
+  // Removed approval fields - attendance is automatically approved based on biometric data
   isActive: {
     type: Boolean,
     default: true

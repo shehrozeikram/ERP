@@ -24,31 +24,74 @@ const payrollSchema = new mongoose.Schema({
     required: [true, 'Basic salary is required'],
     min: [0, 'Basic salary cannot be negative']
   },
-  // Allowances
-  houseRentAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'House rent allowance cannot be negative']
-  },
-  medicalAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Medical allowance cannot be negative']
-  },
-  conveyanceAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Conveyance allowance cannot be negative']
-  },
-  specialAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Special allowance cannot be negative']
-  },
-  otherAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Other allowance cannot be negative']
+  // Flexible Allowances (House Rent removed as it's part of distributed salary)
+  allowances: {
+    conveyance: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Conveyance allowance cannot be negative']
+      }
+    },
+    food: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Food allowance cannot be negative']
+      }
+    },
+    vehicleFuel: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Vehicle & fuel allowance cannot be negative']
+      }
+    },
+    medical: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Medical allowance cannot be negative']
+      }
+    },
+    special: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Special allowance cannot be negative']
+      }
+    },
+    other: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Other allowance cannot be negative']
+      }
+    }
   },
   // Overtime
   overtimeHours: {
@@ -66,7 +109,7 @@ const payrollSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Overtime amount cannot be negative']
   },
-  // Bonuses
+  // Bonuses and Arrears
   performanceBonus: {
     type: Number,
     default: 0,
@@ -76,6 +119,11 @@ const payrollSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Other bonus cannot be negative']
+  },
+  arrears: {
+    type: Number,
+    default: 0,
+    min: [0, 'Arrears cannot be negative']
   },
   // Deductions
   providentFund: {
@@ -92,6 +140,16 @@ const payrollSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Health insurance cannot be negative']
+  },
+  vehicleLoanDeduction: {
+    type: Number,
+    default: 0,
+    min: [0, 'Vehicle loan deduction cannot be negative']
+  },
+  companyLoanDeduction: {
+    type: Number,
+    default: 0,
+    min: [0, 'Company loan deduction cannot be negative']
   },
   otherDeductions: {
     type: Number,
@@ -201,13 +259,30 @@ payrollSchema.virtual('attendancePercentage').get(function() {
 
 // Virtual for total allowances
 payrollSchema.virtual('totalAllowances').get(function() {
-  return (
-    this.houseRentAllowance +
-    this.medicalAllowance +
-    this.conveyanceAllowance +
-    this.specialAllowance +
-    this.otherAllowance
-  );
+  let total = 0;
+  
+  if (this.allowances) {
+    if (this.allowances.conveyance?.isActive) {
+      total += this.allowances.conveyance.amount || 0;
+    }
+    if (this.allowances.food?.isActive) {
+      total += this.allowances.food.amount || 0;
+    }
+    if (this.allowances.vehicleFuel?.isActive) {
+      total += this.allowances.vehicleFuel.amount || 0;
+    }
+    if (this.allowances.medical?.isActive) {
+      total += this.allowances.medical.amount || 0;
+    }
+    if (this.allowances.special?.isActive) {
+      total += this.allowances.special.amount || 0;
+    }
+    if (this.allowances.other?.isActive) {
+      total += this.allowances.other.amount || 0;
+    }
+  }
+  
+  return total;
 });
 
 // Virtual for total bonuses
@@ -222,9 +297,9 @@ payrollSchema.virtual('totalEarnings').get(function() {
 
 // Pre-save middleware to calculate totals
 payrollSchema.pre('save', function(next) {
-  // Auto-calculate Provident Fund (8.834% of basic salary) if not provided
+  // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
   if (!this.providentFund && this.basicSalary > 0) {
-    this.providentFund = Math.round((this.basicSalary * 8.834) / 100);
+    this.providentFund = Math.round((this.basicSalary * 8.34) / 100);
   }
   
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
@@ -234,6 +309,8 @@ payrollSchema.pre('save', function(next) {
   this.totalDeductions = (this.providentFund || 0) + 
                         (this.incomeTax || 0) + 
                         (this.healthInsurance || 0) + 
+                        (this.vehicleLoanDeduction || 0) +
+                        (this.companyLoanDeduction || 0) +
                         (this.eobi || 0) + 
                         (this.otherDeductions || 0);
   
@@ -245,11 +322,11 @@ payrollSchema.pre('save', function(next) {
     const taxableIncome = calculateTaxableIncome({
       basic: this.basicSalary,
       allowances: {
-        housing: this.houseRentAllowance,
-        transport: this.conveyanceAllowance,
-        meal: this.specialAllowance,
-        other: this.otherAllowance,
-        medical: this.medicalAllowance
+        transport: this.allowances?.conveyance?.isActive ? this.allowances.conveyance.amount : 0,
+        meal: this.allowances?.food?.isActive ? this.allowances.food.amount : 0,
+        vehicleFuel: this.allowances?.vehicleFuel?.isActive ? this.allowances.vehicleFuel.amount : 0,
+        other: this.allowances?.other?.isActive ? this.allowances.other.amount : 0,
+        medical: this.allowances?.medical?.isActive ? this.allowances.medical.amount : 0
       }
     });
     
@@ -287,20 +364,51 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
 
   // Get employee salary structure
   const basicSalary = employee.salary.basic || 0;
-  const houseRentAllowance = employee.salary.houseRent || 0;
-  const medicalAllowance = employee.salary.medical || 0;
-  const conveyanceAllowance = employee.salary.conveyance || 0;
-  const specialAllowance = employee.salary.special || 0;
-  const otherAllowance = employee.salary.other || 0;
+  
+  // Get employee allowances (only active ones)
+  const employeeAllowances = employee.allowances || {};
+  const payrollAllowances = {
+    conveyance: {
+      isActive: employeeAllowances.conveyance?.isActive || false,
+      amount: employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0
+    },
+    food: {
+      isActive: employeeAllowances.food?.isActive || false,
+      amount: employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0
+    },
+    vehicleFuel: {
+      isActive: employeeAllowances.vehicleFuel?.isActive || false,
+      amount: employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0
+    },
+    medical: {
+      isActive: employeeAllowances.medical?.isActive || false,
+      amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
+    },
+    special: {
+      isActive: employeeAllowances.special?.isActive || false,
+      amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
+    },
+    other: {
+      isActive: employeeAllowances.other?.isActive || false,
+      amount: employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0
+    }
+  };
 
-  // Calculate gross salary
-  const grossSalary = basicSalary + houseRentAllowance + medicalAllowance + 
-                     conveyanceAllowance + specialAllowance + otherAllowance;
+  // Calculate gross salary (basic + all active allowances)
+  const totalAllowances = Object.values(payrollAllowances).reduce((sum, allowance) => {
+    return sum + (allowance.isActive ? allowance.amount : 0);
+  }, 0);
+  
+  const grossSalary = basicSalary + totalAllowances;
 
   // Calculate overtime (if any)
   const overtimeHours = attendanceData.overtimeHours || 0;
   const overtimeRate = (basicSalary / 176); // Assuming 176 working hours per month
   const overtimeAmount = overtimeHours * overtimeRate;
+
+  // Get loan deductions
+  const vehicleLoanDeduction = employee.loans?.vehicleLoan?.monthlyInstallment || 0;
+  const companyLoanDeduction = employee.loans?.companyLoan?.monthlyInstallment || 0;
 
   // Create payroll object
   const payrollData = {
@@ -308,19 +416,18 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     month: month,
     year: year,
     basicSalary: basicSalary,
-    houseRentAllowance: houseRentAllowance,
-    medicalAllowance: medicalAllowance,
-    conveyanceAllowance: conveyanceAllowance,
-    specialAllowance: specialAllowance,
-    otherAllowance: otherAllowance,
+    allowances: payrollAllowances,
     overtimeHours: overtimeHours,
     overtimeRate: overtimeRate,
     overtimeAmount: overtimeAmount,
     performanceBonus: attendanceData.performanceBonus || 0,
     otherBonus: attendanceData.otherBonus || 0,
-    providentFund: attendanceData.providentFund || Math.round((basicSalary * 8.834) / 100),
+    arrears: attendanceData.arrears || 0,
+    providentFund: attendanceData.providentFund || Math.round((basicSalary * 8.34) / 100),
     incomeTax: attendanceData.incomeTax || 0,
     healthInsurance: attendanceData.healthInsurance || 0,
+    vehicleLoanDeduction: vehicleLoanDeduction,
+    companyLoanDeduction: companyLoanDeduction,
     otherDeductions: attendanceData.otherDeductions || 0,
     totalWorkingDays: totalWorkingDays,
     presentDays: presentDays,

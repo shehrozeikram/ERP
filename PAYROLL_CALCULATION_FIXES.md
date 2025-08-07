@@ -88,7 +88,7 @@ this.eobi = 370;
 **Deductions:**
 - **Income Tax**: 38,333 PKR
 - **EOBI**: 370 PKR (Fixed)
-- **Provident Fund**: 14,722 PKR (8.834% of basic salary)
+- **Provident Fund**: 14,722 PKR (8.34% of basic salary)
 - **Total Deductions**: 53,425 PKR
 
 **Net Salary Results:**

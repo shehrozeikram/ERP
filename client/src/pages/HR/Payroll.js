@@ -50,6 +50,7 @@ import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
+import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 
 const Payroll = () => {
   const navigate = useNavigate();
@@ -106,7 +107,7 @@ const Payroll = () => {
 
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/hr/employees');
+      const response = await api.get('/hr/employees?limit=1000');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -206,9 +207,11 @@ const Payroll = () => {
 
   if (loading && payrolls.length === 0) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
-        <CircularProgress />
-      </Box>
+      <PageLoading 
+        message="Loading payrolls..." 
+        showSkeleton={true}
+        skeletonType="table"
+      />
     );
   }
 

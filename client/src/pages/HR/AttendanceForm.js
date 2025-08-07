@@ -31,7 +31,7 @@ import { TimePicker } from '@mui/x-date-pickers/TimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useNavigate, useParams } from 'react-router-dom';
-import api from '../../services/authService';
+import api from '../../services/api';
 
 const AttendanceForm = () => {
   const { id } = useParams();
@@ -104,11 +104,12 @@ const AttendanceForm = () => {
 
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/hr/employees');
+      const response = await api.get('/hr/employees?limit=1000');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);
-      setError('Failed to load employees');
+      console.error('Error response:', error.response?.data);
+      setError(`Failed to load employees: ${error.response?.data?.message || error.message}`);
     }
   };
 
@@ -286,19 +287,12 @@ const AttendanceForm = () => {
         }
       };
 
-      console.log('Sending attendance data:', attendanceData);
-
       if (id) {
-        console.log('Updating attendance with ID:', id);
         const response = await api.put(`/attendance/${id}`, attendanceData);
-        console.log('Update response:', response.data);
       } else {
-        console.log('Creating new attendance record');
         const response = await api.post('/attendance', attendanceData);
-        console.log('Create response:', response.data);
       }
 
-      console.log('Attendance saved successfully, navigating to list...');
       navigate('/hr/attendance');
     } catch (error) {
       console.error('Error saving attendance:', error);
@@ -344,7 +338,7 @@ const AttendanceForm = () => {
                 >
                   {employees.map((emp) => (
                     <MenuItem key={emp._id} value={emp._id}>
-                      {emp.firstName} {emp.lastName} ({emp.employeeId}) - {emp.department}
+                      {emp.firstName} {emp.lastName} ({emp.employeeId}) - {typeof emp.department === 'object' ? emp.department?.name : emp.department || 'N/A'}
                     </MenuItem>
                   ))}
                 </Select>

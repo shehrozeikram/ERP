@@ -33,44 +33,69 @@ async function calculateMonthlyTax(monthlySalary) {
 }
 
 /**
- * Calculate taxable income based on new salary structure:
- * - 66.66% Basic Salary (taxable)
- * - 10% Medical Allowance (tax-exempt)
- * - 23.34% House Rent Allowance (taxable)
- * - Other Allowances (conveyance, meal, transport, etc.) are taxable
+ * Calculate taxable income based on Pakistan FBR 2025-2026 rules:
+ * - Calculate total gross amount (basic + all allowances)
+ * - Deduct 10% of total gross as medical allowance (tax-exempt)
+ * - Calculate tax on remaining amount
  * @param {Object} salary - Salary object with basic, allowances, etc.
  * @returns {number} Monthly taxable income
  */
 function calculateTaxableIncome(salary) {
   if (!salary) return 0;
 
-  let taxableIncome = 0;
+  // Calculate total gross amount (basic + all allowances)
+  let totalGrossAmount = 0;
 
-  // Add basic salary (66.66% of gross - taxable)
+  // Add basic salary
   if (salary.basic) {
-    taxableIncome += salary.basic;
+    totalGrossAmount += salary.basic;
   }
 
-  // Add house rent allowance (23.34% of gross - taxable)
-  if (salary.allowances && salary.allowances.housing) {
-    taxableIncome += salary.allowances.housing;
-  }
-
-  // Add other allowances (all taxable except medical)
+  // Add all allowances
   if (salary.allowances) {
-    if (salary.allowances.transport) {
-      taxableIncome += salary.allowances.transport;
+    // Handle both old structure (direct amounts) and new structure (with isActive)
+    if (typeof salary.allowances.transport === 'number') {
+      totalGrossAmount += salary.allowances.transport;
+    } else if (salary.allowances.transport?.isActive) {
+      totalGrossAmount += salary.allowances.transport.amount || 0;
     }
-    if (salary.allowances.meal) {
-      taxableIncome += salary.allowances.meal;
+    
+    if (typeof salary.allowances.meal === 'number') {
+      totalGrossAmount += salary.allowances.meal;
+    } else if (salary.allowances.meal?.isActive) {
+      totalGrossAmount += salary.allowances.meal.amount || 0;
     }
-    if (salary.allowances.other) {
-      taxableIncome += salary.allowances.other;
+    
+    if (typeof salary.allowances.food === 'number') {
+      totalGrossAmount += salary.allowances.food;
+    } else if (salary.allowances.food?.isActive) {
+      totalGrossAmount += salary.allowances.food.amount || 0;
+    }
+    
+    if (typeof salary.allowances.vehicleFuel === 'number') {
+      totalGrossAmount += salary.allowances.vehicleFuel;
+    } else if (salary.allowances.vehicleFuel?.isActive) {
+      totalGrossAmount += salary.allowances.vehicleFuel.amount || 0;
+    }
+    
+    if (typeof salary.allowances.other === 'number') {
+      totalGrossAmount += salary.allowances.other;
+    } else if (salary.allowances.other?.isActive) {
+      totalGrossAmount += salary.allowances.other.amount || 0;
+    }
+    
+    if (typeof salary.allowances.medical === 'number') {
+      totalGrossAmount += salary.allowances.medical;
+    } else if (salary.allowances.medical?.isActive) {
+      totalGrossAmount += salary.allowances.medical.amount || 0;
     }
   }
 
-  // Medical allowance (10% of gross) is tax-exempt, so we don't add it
-  // According to FBR 2025-2026: Only medical allowance is tax-exempt
+  // Calculate medical allowance as 10% of total gross amount
+  const medicalAllowance = totalGrossAmount * 0.10; // 10% of total gross (tax-exempt)
+
+  // Calculate taxable income by deducting medical allowance
+  const taxableIncome = totalGrossAmount - medicalAllowance;
 
   return taxableIncome;
 }

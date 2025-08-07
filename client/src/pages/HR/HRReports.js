@@ -57,6 +57,7 @@ import {
   useTheme,
   alpha
 } from '@mui/material';
+import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
 import {
   DateRange,
   Download,
@@ -539,6 +540,17 @@ const HRReports = () => {
   const getSelectedReportInfo = () => {
     return reportTypes.find(report => report.id === selectedReport);
   };
+
+  // Show loading state for initial data loading
+  if (loading && departments.length === 0 && designations.length === 0 && employees.length === 0) {
+    return (
+      <PageLoading 
+        message="Loading HR reports..." 
+        showSkeleton={true}
+        skeletonType="cards"
+      />
+    );
+  }
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>

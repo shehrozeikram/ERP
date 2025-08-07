@@ -28,7 +28,9 @@ import {
   Fab,
   Card,
   CardContent,
-  Grid
+  Grid,
+  Switch,
+  FormControlLabel
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,25 +41,30 @@ import {
   FilterList as FilterIcon,
   Refresh as RefreshIcon,
   Download as DownloadIcon,
-  CalendarToday as CalendarIcon,
-  Person as PersonIcon,
-  Work as WorkIcon
+  CalendarToday,
+  Person,
+  Work,
+  Sync as SyncIcon,
+  Fingerprint as BiometricIcon,
+  Cancel as AbsentIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useNavigate } from 'react-router-dom';
-import api from '../../services/authService';
+import api from '../../services/api';
+import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 
 const AttendanceList = () => {
   const [attendance, setAttendance] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [biometricIntegrations, setBiometricIntegrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState([]);
   const [filters, setFilters] = useState({
     employee: '',
     department: '',
@@ -66,16 +73,35 @@ const AttendanceList = () => {
     endDate: '',
     isApproved: ''
   });
+  const [statistics, setStatistics] = useState({
+    totalRecords: 0,
+    presentToday: 0,
+    lateToday: 0,
+    absentToday: 0,
+    biometricRecords: 0
+  });
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedAttendance, setSelectedAttendance] = useState(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [selectedIntegration, setSelectedIntegration] = useState('');
+  const [syncDateRange, setSyncDateRange] = useState({
+    startDate: new Date(new Date().setDate(new Date().getDate() - 1)),
+    endDate: new Date()
+  });
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchAttendance();
+    fetchStatistics();
+  }, [page, rowsPerPage, filters]);
+
+  useEffect(() => {
     fetchEmployees();
     fetchDepartments();
-  }, [page, rowsPerPage, filters]);
+    fetchBiometricIntegrations();
+  }, []);
 
   const fetchAttendance = async () => {
     try {
@@ -85,6 +111,7 @@ const AttendanceList = () => {
       const params = new URLSearchParams({
         page: page + 1,
         limit: rowsPerPage,
+        latestOnly: 'true', // Show only latest records per employee
         ...filters
       });
 
@@ -95,25 +122,53 @@ const AttendanceList = () => {
         }
       });
 
-      console.log('Fetching attendance with params:', params.toString());
-      const response = await api.get(`/attendance?${params}`);
-      console.log('Attendance response:', response.data);
-      setAttendance(response.data.data || []);
-      setTotalRecords(response.data.pagination?.totalRecords || 0);
+      const response = await api.get(`/attendance?${params.toString()}`);
+
+      if (response.data.success) {
+        setAttendance(response.data.data);
+        setTotalRecords(response.data.pagination?.total || 0);
+      } else {
+        setError('Failed to fetch attendance data');
+      }
     } catch (error) {
       console.error('Error fetching attendance:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
-      setError(`Failed to load attendance records: ${error.response?.data?.message || error.message}`);
+      setError('Failed to fetch attendance data');
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchStatistics = async () => {
+    try {
+      const params = new URLSearchParams({
+        ...filters
+      });
+
+      // Remove empty filters
+      Object.keys(params).forEach(key => {
+        if (!params.get(key) || params.get(key) === '' || params.get(key) === 'null') {
+          params.delete(key);
+        }
+      });
+
+      const response = await api.get(`/attendance/statistics?${params}`);
+      
+      if (response.data.success) {
+        setStatistics(response.data.data);
+      } else {
+        console.error('Statistics failed:', response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching statistics:', error);
+    }
+  };
+
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/hr/employees');
-      setEmployees(response.data.data || []);
+      const response = await api.get('/hr/employees?limit=1000');
+      if (response.data.success) {
+        setEmployees(response.data.data);
+      }
     } catch (error) {
       console.error('Error fetching employees:', error);
     }
@@ -122,9 +177,22 @@ const AttendanceList = () => {
   const fetchDepartments = async () => {
     try {
       const response = await api.get('/hr/departments');
-      setDepartments(response.data.data || []);
+      if (response.data.success) {
+        setDepartments(response.data.data);
+      }
     } catch (error) {
       console.error('Error fetching departments:', error);
+    }
+  };
+
+  const fetchBiometricIntegrations = async () => {
+    try {
+      const response = await api.get('/biometric');
+      if (response.data.success) {
+        setBiometricIntegrations(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching biometric integrations:', error);
     }
   };
 
@@ -169,13 +237,59 @@ const AttendanceList = () => {
     }
   };
 
-  const handleApprove = async (attendanceId) => {
+  // Approval functionality removed - attendance is automatically approved based on biometric data
+
+  const handleSyncBiometric = async () => {
+    if (!selectedIntegration) {
+      setError('Please select a biometric integration');
+      return;
+    }
+
     try {
-      await api.post(`/attendance/approve/${attendanceId}`);
-      fetchAttendance();
+      setSyncLoading(true);
+      const response = await api.post('/attendance/sync-biometric', {
+        integrationId: selectedIntegration,
+        startDate: syncDateRange.startDate,
+        endDate: syncDateRange.endDate
+      });
+
+      if (response.data.success) {
+        setSyncDialogOpen(false);
+        fetchAttendance();
+        // Show success message
+        setError(null);
+      } else {
+        setError('Failed to sync biometric attendance');
+      }
     } catch (error) {
-      console.error('Error approving attendance:', error);
-      setError('Failed to approve attendance record');
+      console.error('Error syncing biometric attendance:', error);
+      setError('Failed to sync biometric attendance');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleSyncZKTeco = async () => {
+    try {
+      setSyncLoading(true);
+      const response = await api.post('/attendance/sync-zkteco', {
+        startDate: syncDateRange.startDate,
+        endDate: syncDateRange.endDate
+      });
+
+      if (response.data.success) {
+        setSyncDialogOpen(false);
+        fetchAttendance();
+        // Show success message
+        setError(null);
+      } else {
+        setError('Failed to sync ZKTeco attendance');
+      }
+    } catch (error) {
+      console.error('Error syncing ZKTeco attendance:', error);
+      setError('Failed to sync ZKTeco attendance');
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -191,8 +305,6 @@ const AttendanceList = () => {
       case 'Sick Leave':
       case 'Personal Leave':
         return 'info';
-      case 'Half Day':
-        return 'secondary';
       default:
         return 'default';
     }
@@ -215,39 +327,77 @@ const AttendanceList = () => {
     });
   };
 
-  if (loading && attendance.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <CircularProgress />
-      </Box>
-    );
+  const calculateWorkHours = (checkInTime, checkOutTime) => {
+    if (!checkInTime || !checkOutTime) return 0;
+    
+    const checkIn = new Date(checkInTime);
+    const checkOut = new Date(checkOutTime);
+    const diffMs = checkOut - checkIn;
+    const diffHours = diffMs / (1000 * 60 * 60);
+    return Math.round(diffHours * 100) / 100;
+  };
+
+  const getWorkHoursDisplay = (record) => {
+    if (record.workHours !== undefined && record.workHours !== null) {
+      return `${record.workHours} hrs`;
+    }
+    
+    // Calculate from check-in/check-out times if workHours not set
+    const calculatedHours = calculateWorkHours(record.checkIn?.time, record.checkOut?.time);
+    return calculatedHours > 0 ? `${calculatedHours} hrs` : 'N/A';
+  };
+
+  const getStatusDisplay = (record) => {
+    if (record.status) {
+      return record.status;
+    }
+
+    // Calculate status based on check-in time if not already set
+    if (record.checkIn?.time) {
+      const checkInTime = new Date(record.checkIn.time);
+      const checkInHour = checkInTime.getHours();
+      const checkInMinute = checkInTime.getMinutes();
+      const totalMinutes = checkInHour * 60 + checkInMinute;
+
+      // Consider late if check-in is after 9:30 AM (570 minutes)
+      if (totalMinutes > 570) {
+        return 'Late';
+      } else {
+        return 'Present';
+      }
+    }
+
+    return 'Unknown';
+  };
+
+  if (loading) {
+    return <PageLoading skeletonType="table" />;
   }
 
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Attendance Management
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box>
+          <Typography variant="h4" component="h1">
+            Attendance Management
+          </Typography>
+          <Typography variant="subtitle1" color="textSecondary">
+            Latest attendance records per employee
+          </Typography>
+        </Box>
+        <Box>
           <Button
             variant="outlined"
-            startIcon={<FilterIcon />}
-            onClick={() => setFilterDialogOpen(true)}
+            startIcon={<SyncIcon />}
+            onClick={() => setSyncDialogOpen(true)}
+            sx={{ mr: 1 }}
           >
-            Filters
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={fetchAttendance}
-          >
-            Refresh
+            Sync Biometric
           </Button>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => navigate('/hr/attendance/add')}
+            onClick={() => navigate('/attendance/create')}
           >
             Add Attendance
           </Button>
@@ -260,70 +410,87 @@ const AttendanceList = () => {
         </Alert>
       )}
 
-      {/* Quick Stats */}
+      {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <CalendarIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <CalendarToday sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
                     Total Records
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {totalRecords}
+                    {statistics.totalRecords}
                   </Typography>
                 </Box>
               </Box>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Card sx={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <PersonIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <Person sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
                     Present Today
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {attendance.filter(a => a.status === 'Present').length}
+                    {statistics.presentToday}
                   </Typography>
                 </Box>
               </Box>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Card sx={{ background: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <WorkIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <Work sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
-                    Pending Approval
+                    Late Today
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {attendance.filter(a => !a.isApproved).length}
+                    {statistics.lateToday}
                   </Typography>
                 </Box>
               </Box>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2.4}>
+          <Card sx={{ background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)', color: 'white' }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <AbsentIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <Box>
+                  <Typography color="white" gutterBottom>
+                    Absent Today
+                  </Typography>
+                  <Typography variant="h4" sx={{ color: 'white' }}>
+                    {statistics.absentToday}
+                  </Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2.4}>
           <Card sx={{ background: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <ApproveIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <SyncIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
-                    Approved
+                    Biometric Records
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {attendance.filter(a => a.isApproved).length}
+                    {statistics.biometricRecords}
                   </Typography>
                 </Box>
               </Box>
@@ -332,102 +499,200 @@ const AttendanceList = () => {
         </Grid>
       </Grid>
 
-      <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-        <TableContainer>
-          <Table stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell>Employee</TableCell>
-                <TableCell>Date</TableCell>
-                <TableCell>Check In</TableCell>
-                <TableCell>Check Out</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Work Hours</TableCell>
-                <TableCell>Overtime</TableCell>
-                <TableCell>Approved</TableCell>
-                <TableCell>Actions</TableCell>
+      {/* Filters */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                fullWidth
+                label="Search Employee"
+                value={filters.employee || ''}
+                onChange={(e) => handleFilterChange('employee', e.target.value)}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={filters.department || ''}
+                  onChange={(e) => handleFilterChange('department', e.target.value)}
+                  label="Department"
+                >
+                  <MenuItem value="">All Departments</MenuItem>
+                  {departments.map((dept) => (
+                    <MenuItem key={dept._id} value={dept._id}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={filters.status || ''}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  label="Status"
+                >
+                  <MenuItem value="">All Status</MenuItem>
+                  <MenuItem value="Present">Present</MenuItem>
+                  <MenuItem value="Absent">Absent</MenuItem>
+                  <MenuItem value="Late">Late</MenuItem>
+                  <MenuItem value="Leave">Leave</MenuItem>
+                  <MenuItem value="Sick Leave">Sick Leave</MenuItem>
+                  <MenuItem value="Personal Leave">Personal Leave</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            {/* Approval filter removed - attendance is automatically approved based on biometric data */}
+            <Grid item xs={12} sm={6} md={2}>
+              <Button
+                variant="outlined"
+                onClick={clearFilters}
+                size="small"
+                fullWidth
+              >
+                Clear Filters
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Attendance Table */}
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Employee</TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell>Check In</TableCell>
+              <TableCell>Check Out</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Work Hours</TableCell>
+              <TableCell>Method</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {attendance.map((record) => (
+              <TableRow key={record._id} hover>
+                <TableCell>
+                  <Box>
+                    <Typography variant="body2" fontWeight="bold">
+                      {record.employee?.firstName} {record.employee?.lastName}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      {record.employee?.employeeId}
+                    </Typography>
+                    {record.employee?.department && (
+                      <Typography variant="caption" color="textSecondary" display="block">
+                        {typeof record.employee.department === 'string' 
+                          ? record.employee.department 
+                          : record.employee.department?.name || 'N/A'
+                        }
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2">
+                    {formatDate(record.date)}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography variant="body2">
+                      {formatTime(record.checkIn?.time)}
+                    </Typography>
+                    {record.checkIn?.location && (
+                      <Typography variant="caption" color="textSecondary">
+                        {record.checkIn.location}
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography variant="body2">
+                      {formatTime(record.checkOut?.time)}
+                    </Typography>
+                    {record.checkOut?.location && (
+                      <Typography variant="caption" color="textSecondary">
+                        {record.checkOut.location}
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    label={getStatusDisplay(record)}
+                    color={getStatusColor(getStatusDisplay(record))}
+                    size="small"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography variant="body2" fontWeight="medium">
+                      {getWorkHoursDisplay(record)}
+                    </Typography>
+                    {record.overtimeHours > 0 && (
+                      <Typography variant="caption" color="warning.main">
+                        +{record.overtimeHours} OT
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography variant="body2">
+                      {record.checkIn?.method || record.checkOut?.method || 'Manual'}
+                    </Typography>
+                    {record.checkIn?.deviceId && (
+                      <Typography variant="caption" color="textSecondary">
+                        {record.checkIn.deviceId}
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Tooltip title="View Details">
+                      <IconButton
+                        size="small"
+                        onClick={() => navigate(`/hr/attendance/employee/${record.employee._id}/detail`)}
+                      >
+                        <ViewIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Edit">
+                      <IconButton
+                        size="small"
+                        onClick={() => navigate(`/hr/attendance/${record._id}/edit`)}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete">
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setSelectedAttendance(record);
+                          setDeleteDialogOpen(true);
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
               </TableRow>
-            </TableHead>
-            <TableBody>
-              {attendance.map((record) => (
-                <TableRow key={record._id} hover>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="subtitle2">
-                        {record.employee?.firstName} {record.employee?.lastName}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {record.employee?.employeeId} • {record.employee?.department}
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>{formatDate(record.date)}</TableCell>
-                  <TableCell>{formatTime(record.checkIn?.time)}</TableCell>
-                  <TableCell>{formatTime(record.checkOut?.time)}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={record.status}
-                      color={getStatusColor(record.status)}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>{record.workHours || 0} hrs</TableCell>
-                  <TableCell>{record.overtimeHours || 0} hrs</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={record.isApproved ? 'Approved' : 'Pending'}
-                      color={record.isApproved ? 'success' : 'warning'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Tooltip title="View Details">
-                        <IconButton
-                          size="small"
-                          onClick={() => navigate(`/hr/attendance/${record._id}`)}
-                        >
-                          <ViewIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          onClick={() => navigate(`/hr/attendance/edit/${record._id}`)}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                      </Tooltip>
-                      {!record.isApproved && (
-                        <Tooltip title="Approve">
-                          <IconButton
-                            size="small"
-                            color="success"
-                            onClick={() => handleApprove(record._id)}
-                          >
-                            <ApproveIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => {
-                            setSelectedAttendance(record);
-                            setDeleteDialogOpen(true);
-                          }}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            ))}
+          </TableBody>
+        </Table>
         <TablePagination
           rowsPerPageOptions={[5, 10, 25, 50]}
           component="div"
@@ -437,95 +702,70 @@ const AttendanceList = () => {
           onPageChange={handlePageChange}
           onRowsPerPageChange={handleRowsPerPageChange}
         />
-      </Paper>
+      </TableContainer>
 
-      {/* Filter Dialog */}
-      <Dialog open={filterDialogOpen} onClose={() => setFilterDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Filter Attendance Records</DialogTitle>
+      {/* Sync Dialog */}
+      <Dialog open={syncDialogOpen} onClose={() => setSyncDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Sync Biometric Attendance</DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-            <FormControl fullWidth>
-              <InputLabel>Employee</InputLabel>
-              <Select
-                value={filters.employee}
-                onChange={(e) => handleFilterChange('employee', e.target.value)}
-                label="Employee"
-              >
-                <MenuItem value="">All Employees</MenuItem>
-                {employees.map((emp) => (
-                  <MenuItem key={emp._id} value={emp._id}>
-                    {emp.firstName} {emp.lastName} ({emp.employeeId})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl fullWidth>
-              <InputLabel>Department</InputLabel>
-              <Select
-                value={filters.department}
-                onChange={(e) => handleFilterChange('department', e.target.value)}
-                label="Department"
-              >
-                <MenuItem value="">All Departments</MenuItem>
-                {departments.map((dept) => (
-                  <MenuItem key={dept._id} value={dept.name}>
-                    {dept.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <FormControl fullWidth>
-              <InputLabel>Status</InputLabel>
-              <Select
-                value={filters.status}
-                onChange={(e) => handleFilterChange('status', e.target.value)}
-                label="Status"
-              >
-                <MenuItem value="">All Status</MenuItem>
-                <MenuItem value="Present">Present</MenuItem>
-                <MenuItem value="Absent">Absent</MenuItem>
-                <MenuItem value="Late">Late</MenuItem>
-                <MenuItem value="Leave">Leave</MenuItem>
-                <MenuItem value="Sick Leave">Sick Leave</MenuItem>
-                <MenuItem value="Personal Leave">Personal Leave</MenuItem>
-                <MenuItem value="Half Day">Half Day</MenuItem>
-              </Select>
-            </FormControl>
-
-            <FormControl fullWidth>
-              <InputLabel>Approval Status</InputLabel>
-              <Select
-                value={filters.isApproved}
-                onChange={(e) => handleFilterChange('isApproved', e.target.value)}
-                label="Approval Status"
-              >
-                <MenuItem value="">All</MenuItem>
-                <MenuItem value="true">Approved</MenuItem>
-                <MenuItem value="false">Pending</MenuItem>
-              </Select>
-            </FormControl>
-
-            <LocalizationProvider dateAdapter={AdapterDateFns}>
-              <DatePicker
-                label="Start Date"
-                value={filters.startDate}
-                onChange={(date) => handleFilterChange('startDate', date)}
-                renderInput={(params) => <TextField {...params} fullWidth />}
-              />
-              <DatePicker
-                label="End Date"
-                value={filters.endDate}
-                onChange={(date) => handleFilterChange('endDate', date)}
-                renderInput={(params) => <TextField {...params} fullWidth />}
-              />
-            </LocalizationProvider>
-          </Box>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Biometric Integration</InputLabel>
+                <Select
+                  value={selectedIntegration}
+                  onChange={(e) => setSelectedIntegration(e.target.value)}
+                  label="Biometric Integration"
+                >
+                  <MenuItem value="">Select Integration</MenuItem>
+                  {biometricIntegrations.map((integration) => (
+                    <MenuItem key={integration._id} value={integration._id}>
+                      {integration.systemName} - {integration.integrationType}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6}>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="Start Date"
+                  value={syncDateRange.startDate}
+                  onChange={(newValue) => setSyncDateRange(prev => ({ ...prev, startDate: newValue }))}
+                  renderInput={(params) => <TextField {...params} fullWidth />}
+                />
+              </LocalizationProvider>
+            </Grid>
+            <Grid item xs={6}>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="End Date"
+                  value={syncDateRange.endDate}
+                  onChange={(newValue) => setSyncDateRange(prev => ({ ...prev, endDate: newValue }))}
+                  renderInput={(params) => <TextField {...params} fullWidth />}
+                />
+              </LocalizationProvider>
+            </Grid>
+          </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={clearFilters}>Clear Filters</Button>
-          <Button onClick={() => setFilterDialogOpen(false)}>Close</Button>
+          <Button onClick={() => setSyncDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleSyncZKTeco}
+            variant="contained"
+            disabled={syncLoading}
+            startIcon={syncLoading ? <CircularProgress size={20} /> : <SyncIcon />}
+          >
+            Sync ZKTeco
+          </Button>
+          <Button
+            onClick={handleSyncBiometric}
+            variant="contained"
+            disabled={syncLoading || !selectedIntegration}
+            startIcon={syncLoading ? <CircularProgress size={20} /> : <BiometricIcon />}
+          >
+            Sync Biometric
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -534,11 +774,7 @@ const AttendanceList = () => {
         <DialogTitle>Delete Attendance Record</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete the attendance record for{' '}
-            <strong>
-              {selectedAttendance?.employee?.firstName} {selectedAttendance?.employee?.lastName}
-            </strong>{' '}
-            on {selectedAttendance && formatDate(selectedAttendance.date)}?
+            Are you sure you want to delete this attendance record? This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -548,16 +784,6 @@ const AttendanceList = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Floating Action Button */}
-      <Fab
-        color="primary"
-        aria-label="add"
-        sx={{ position: 'fixed', bottom: 16, right: 16 }}
-        onClick={() => navigate('/hr/attendance/add')}
-      >
-        <AddIcon />
-      </Fab>
     </Box>
   );
 };

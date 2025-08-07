@@ -68,7 +68,7 @@ const DepartmentManagement = () => {
   // Fetch employees for manager selection
   const fetchEmployees = async () => {
     try {
-      const response = await api.get('/hr/employees');
+      const response = await api.get('/hr/employees?limit=1000');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);

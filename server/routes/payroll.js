@@ -206,9 +206,9 @@ router.post('/', [
     payrollData.performanceBonus + 
     payrollData.otherBonus;
 
-  // Auto-calculate Provident Fund (8.834% of basic salary) if not provided
+  // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
   if (!payrollData.providentFund && payrollData.basicSalary > 0) {
-    payrollData.providentFund = Math.round((payrollData.basicSalary * 8.834) / 100);
+    payrollData.providentFund = Math.round((payrollData.basicSalary * 8.34) / 100);
   }
 
   // Auto-calculate tax if not provided
@@ -363,10 +363,10 @@ router.put('/:id', [
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
   updateData.eobi = 370;
 
-  // Auto-calculate Provident Fund (8.834% of basic salary) if not provided
+  // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
   if (!updateData.providentFund && (updateData.basicSalary || payroll.basicSalary) > 0) {
     const basicSalary = updateData.basicSalary || payroll.basicSalary;
-    updateData.providentFund = Math.round((basicSalary * 8.834) / 100);
+    updateData.providentFund = Math.round((basicSalary * 8.34) / 100);
   }
 
   // Recalculate totals

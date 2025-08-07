@@ -22,7 +22,7 @@ The generated PDF includes:
 - **Header**: Payroll statement title and period
 - **Employee Information**: ID, name, department, position, pay period
 - **Earnings Table**: All salary components and allowances
-- **Deductions Table**: All deductions including Provident Fund (8.834%)
+- **Deductions Table**: All deductions including Provident Fund (8.34%)
 - **Summary**: Gross salary, total deductions, net salary
 - **Amount in Words**: Net salary written in words
 - **Notes**: Any additional remarks

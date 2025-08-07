@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const BiometricIntegration = require('../models/hr/BiometricIntegration');
 const biometricService = require('../services/biometricService');
+const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
 const { authMiddleware } = require('../middleware/auth');
 const errorHandler = require('../middleware/errorHandler');
@@ -109,7 +110,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Delete biometric integration (soft delete)
+// Delete biometric integration
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const integration = await BiometricIntegration.findById(req.params.id);
@@ -146,23 +147,18 @@ router.post('/:id/test', authMiddleware, async (req, res) => {
       });
     }
 
-    let result;
-    switch (integration.integrationType) {
-      case 'API':
-        result = await biometricService.testAPIConnection(integration);
-        break;
-      case 'Database':
-        result = await biometricService.testDatabaseConnection(integration);
-        break;
-      case 'FileImport':
-        result = await biometricService.testFileAccess(integration);
-        break;
-      default:
-        result = { success: false, message: 'Unknown integration type' };
+    if (!integration.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Biometric integration is not active'
+      });
     }
+
+    const result = await integration.testConnection();
 
     res.json({
       success: true,
+      message: 'Connection test completed',
       data: result
     });
   } catch (error) {
@@ -194,34 +190,14 @@ router.post('/:id/sync', authMiddleware, async (req, res) => {
     const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 1));
     const end = endDate ? new Date(endDate) : new Date();
 
-    // Fetch data from biometric system
-    let rawData;
-    switch (integration.integrationType) {
-      case 'API':
-        rawData = await biometricService.fetchFromAPI(integration, start, end);
-        break;
-      case 'Database':
-        rawData = await biometricService.fetchFromDatabase(integration, start, end);
-        break;
-      case 'FileImport':
-        rawData = await biometricService.importFromFile(integration);
-        break;
-      default:
-        return res.status(400).json({
-          success: false,
-          message: 'Unsupported integration type'
-        });
-    }
-
-    // Process and save attendance data
-    const result = await biometricService.processAttendanceData(integration, rawData);
+    // Use the attendance service to sync biometric attendance
+    const result = await attendanceService.syncBiometricAttendance(integration._id, start, end);
 
     res.json({
       success: true,
       message: 'Attendance sync completed successfully',
       data: {
         syncPeriod: { start, end },
-        biometricRecords: rawData.length,
         ...result
       }
     });
@@ -230,7 +206,7 @@ router.post('/:id/sync', authMiddleware, async (req, res) => {
   }
 });
 
-// Start auto-sync
+// Start automatic sync for biometric integration
 router.post('/:id/auto-sync/start', authMiddleware, async (req, res) => {
   try {
     const integration = await BiometricIntegration.findById(req.params.id);
@@ -242,23 +218,32 @@ router.post('/:id/auto-sync/start', authMiddleware, async (req, res) => {
       });
     }
 
+    if (!integration.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Biometric integration is not active'
+      });
+    }
+
+    // Enable auto-sync
     integration.syncConfig.autoSync = true;
     integration.updatedBy = req.user.id;
     await integration.save();
 
-    // Start auto-sync
-    await biometricService.startAutoSync(integration._id);
+    // Start auto-sync using attendance service
+    const result = await attendanceService.startAutoSync(integration._id);
 
     res.json({
       success: true,
-      message: 'Auto-sync started successfully'
+      message: 'Auto-sync started successfully',
+      data: result
     });
   } catch (error) {
     errorHandler(error, req, res);
   }
 });
 
-// Stop auto-sync
+// Stop automatic sync for biometric integration
 router.post('/:id/auto-sync/stop', authMiddleware, async (req, res) => {
   try {
     const integration = await BiometricIntegration.findById(req.params.id);
@@ -270,43 +255,18 @@ router.post('/:id/auto-sync/stop', authMiddleware, async (req, res) => {
       });
     }
 
+    // Disable auto-sync
     integration.syncConfig.autoSync = false;
     integration.updatedBy = req.user.id;
     await integration.save();
 
-    // Stop auto-sync
-    await biometricService.stopAutoSync(integration._id);
+    // Stop auto-sync using attendance service
+    const result = await attendanceService.stopAutoSync(integration._id);
 
     res.json({
       success: true,
-      message: 'Auto-sync stopped successfully'
-    });
-  } catch (error) {
-    errorHandler(error, req, res);
-  }
-});
-
-// Get sync status and history
-router.get('/:id/sync-status', authMiddleware, async (req, res) => {
-  try {
-    const integration = await BiometricIntegration.findById(req.params.id);
-
-    if (!integration) {
-      return res.status(404).json({
-        success: false,
-        message: 'Biometric integration not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        syncStatus: integration.syncConfig.syncStatus,
-        lastSyncAt: integration.syncConfig.lastSyncAt,
-        autoSync: integration.syncConfig.autoSync,
-        syncInterval: integration.syncConfig.syncInterval,
-        errorLog: integration.errorLog.slice(-10) // Last 10 errors
-      }
+      message: 'Auto-sync stopped successfully',
+      data: result
     });
   } catch (error) {
     errorHandler(error, req, res);
@@ -316,81 +276,61 @@ router.get('/:id/sync-status', authMiddleware, async (req, res) => {
 // Get supported biometric systems
 router.get('/systems/supported', authMiddleware, async (req, res) => {
   try {
-    const systems = [
+    const supportedSystems = [
       {
         name: 'ZKTeco',
-        description: 'ZKTeco biometric devices and software',
+        description: 'ZKTeco biometric devices',
         integrationTypes: ['API', 'Database', 'FileImport'],
-        features: ['Fingerprint', 'Face Recognition', 'Card', 'Password']
+        features: ['Attendance', 'Users', 'Real-time sync']
       },
       {
         name: 'Hikvision',
-        description: 'Hikvision access control and time attendance',
-        integrationTypes: ['API', 'Database', 'FileImport'],
-        features: ['Face Recognition', 'Card', 'Fingerprint']
+        description: 'Hikvision access control systems',
+        integrationTypes: ['API', 'Database'],
+        features: ['Attendance', 'Users', 'Video integration']
       },
       {
         name: 'Suprema',
-        description: 'Suprema biometric solutions',
-        integrationTypes: ['API', 'Database', 'FileImport'],
-        features: ['Fingerprint', 'Face Recognition', 'Card']
+        description: 'Suprema biometric devices',
+        integrationTypes: ['API', 'Database'],
+        features: ['Attendance', 'Users', 'Fingerprint']
       },
       {
         name: 'Morpho',
         description: 'Morpho biometric devices',
-        integrationTypes: ['API', 'Database', 'FileImport'],
-        features: ['Fingerprint', 'Face Recognition', 'Iris']
+        integrationTypes: ['API', 'Database'],
+        features: ['Attendance', 'Users', 'Face recognition']
       },
       {
         name: 'Custom',
-        description: 'Custom biometric system integration',
+        description: 'Custom biometric system',
         integrationTypes: ['API', 'Database', 'FileImport', 'Webhook'],
-        features: ['Custom']
+        features: ['Custom integration']
       }
     ];
 
     res.json({
       success: true,
-      data: systems
+      data: supportedSystems
     });
   } catch (error) {
     errorHandler(error, req, res);
   }
 });
 
-// ===== ZKTeco Specific Routes =====
-
-// Test ZKTeco device connection
-router.get('/zkteco/test-connection', authMiddleware, async (req, res) => {
-  try {
-    const result = await zktecoService.testConnection('splaza.nayatel.net', [4370, 5200, 5000]);
-    res.json({
-      success: true,
-      message: 'ZKTeco connection test completed',
-      data: result
-    });
-  } catch (error) {
-    console.error('ZKTeco connection test error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-});
-
 // Get ZKTeco device information
-router.get('/zkteco/device-info', authMiddleware, async (req, res) => {
+router.get('/zkteco/info', authMiddleware, async (req, res) => {
   try {
     await zktecoService.connect('splaza.nayatel.net', 4370);
-    const deviceInfo = await zktecoService.getDeviceInfo();
+    const info = await zktecoService.getDeviceInfo();
     await zktecoService.disconnect();
     
     res.json({
       success: true,
-      data: deviceInfo
+      data: info
     });
   } catch (error) {
-    console.error('ZKTeco device info error:', error);
+    console.error('ZKTeco info fetch error:', error);
     res.status(500).json({ 
       success: false,
       error: error.message 
@@ -421,14 +361,17 @@ router.get('/zkteco/attendance', authMiddleware, async (req, res) => {
 // Sync attendance data from ZKTeco to database
 router.post('/zkteco/sync-attendance', authMiddleware, async (req, res) => {
   try {
-    await zktecoService.connect('splaza.nayatel.net', 4370);
-    const syncResult = await zktecoService.syncAttendanceToDatabase();
-    await zktecoService.disconnect();
+    const { startDate, endDate } = req.body;
+    
+    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 1));
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const result = await attendanceService.syncZKTecoAttendance(start, end);
     
     res.json({
       success: true,
       message: 'ZKTeco attendance data synced successfully',
-      data: syncResult
+      data: result
     });
   } catch (error) {
     console.error('ZKTeco sync error:', error);
@@ -452,6 +395,25 @@ router.get('/zkteco/users', authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error('ZKTeco users fetch error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// Test ZKTeco connection
+router.post('/zkteco/test-connection', authMiddleware, async (req, res) => {
+  try {
+    const result = await zktecoService.testConnection('splaza.nayatel.net', [4370, 5200, 5000]);
+    
+    res.json({
+      success: true,
+      message: 'ZKTeco connection test completed',
+      data: result
+    });
+  } catch (error) {
+    console.error('ZKTeco connection test error:', error);
     res.status(500).json({ 
       success: false,
       error: error.message 

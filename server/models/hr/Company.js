@@ -18,8 +18,8 @@ const companySchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['Client', 'Partner', 'Subsidiary', 'Parent', 'Other'],
-    default: 'Client'
+    enum: ['Private Limited', 'Public Limited', 'Partnership', 'Sole Proprietorship', 'Government', 'NGO', 'Other'],
+    default: 'Private Limited'
   },
   industry: {
     type: String,
@@ -42,7 +42,12 @@ const companySchema = new mongoose.Schema({
   establishedDate: {
     type: Date
   },
-  notes: String
+  notes: String,
+  description: {
+    type: String,
+    trim: true,
+    maxlength: [500, 'Description cannot exceed 500 characters']
+  }
 }, {
   timestamps: true
 });

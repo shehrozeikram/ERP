@@ -12,7 +12,13 @@ import {
   Alert,
   Snackbar,
   Divider,
-  Paper
+  Paper,
+  Switch,
+  FormControlLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -36,6 +42,8 @@ const EmployeeView = () => {
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [updatingPayrolls, setUpdatingPayrolls] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [statusDialog, setStatusDialog] = useState({ open: false, newStatus: null });
 
   const fetchEmployee = async () => {
     if (!id) return;
@@ -113,6 +121,41 @@ const EmployeeView = () => {
     }
   };
 
+  const handleToggleStatus = () => {
+    const newStatus = !employee.isActive;
+    setStatusDialog({ open: true, newStatus });
+  };
+
+  const handleConfirmStatusChange = async () => {
+    try {
+      setUpdatingStatus(true);
+      const response = await api.put(`/hr/employees/${id}`, {
+        isActive: statusDialog.newStatus
+      });
+      
+      setEmployee(response.data.data);
+      setSnackbar({
+        open: true,
+        message: `Employee ${statusDialog.newStatus ? 'activated' : 'deactivated'} successfully`,
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error updating employee status:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Failed to update employee status',
+        severity: 'error'
+      });
+    } finally {
+      setUpdatingStatus(false);
+      setStatusDialog({ open: false, newStatus: null });
+    }
+  };
+
+  const handleCancelStatusChange = () => {
+    setStatusDialog({ open: false, newStatus: null });
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -144,7 +187,26 @@ const EmployeeView = () => {
           </Button>
           <Typography variant="h4">Employee Details</Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderRadius: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider' }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={employee?.isActive || false}
+                  onChange={handleToggleStatus}
+                  disabled={updatingStatus}
+                  color="primary"
+                  size="medium"
+                />
+              }
+              label={
+                <Typography variant="body2" fontWeight="medium" color={employee?.isActive ? 'success.main' : 'error.main'}>
+                  {updatingStatus ? 'Updating...' : (employee?.isActive ? 'Active' : 'Inactive')}
+                </Typography>
+              }
+              sx={{ margin: 0 }}
+            />
+          </Box>
           <Button
             variant="outlined"
             startIcon={<UpdateIcon />}
@@ -462,6 +524,43 @@ const EmployeeView = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Status Change Confirmation Dialog */}
+      <Dialog
+        open={statusDialog.open}
+        onClose={handleCancelStatusChange}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Confirm Status Change
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to {statusDialog.newStatus ? 'activate' : 'deactivate'} {' '}
+            <strong>{employee?.firstName} {employee?.lastName}</strong>?
+          </Typography>
+          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+            {statusDialog.newStatus 
+              ? 'This will make the employee active and they will be able to access the system.'
+              : 'This will deactivate the employee and they will no longer be able to access the system.'
+            }
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelStatusChange} disabled={updatingStatus}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleConfirmStatusChange} 
+            variant="contained" 
+            color={statusDialog.newStatus ? 'success' : 'error'}
+            disabled={updatingStatus}
+          >
+            {updatingStatus ? 'Updating...' : (statusDialog.newStatus ? 'Activate' : 'Deactivate')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

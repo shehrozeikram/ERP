@@ -97,7 +97,7 @@ const LoanForm = () => {
   const fetchEmployees = async () => {
     try {
       setEmployeesLoading(true);
-      const response = await api.get('/hr/employees');
+      const response = await api.get('/hr/employees?limit=1000');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Failed to fetch employees:', error);

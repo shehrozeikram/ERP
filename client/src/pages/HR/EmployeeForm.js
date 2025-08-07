@@ -53,9 +53,10 @@ const EmployeeForm = () => {
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [departments, setDepartments] = useState([]);
-  const [positions, setPositions] = useState([]);
+
   const [banks, setBanks] = useState([]);
   const [companies, setCompanies] = useState([]);
+  const [sectors, setSectors] = useState([]);
   const [projects, setProjects] = useState([]);
   const [sections, setSections] = useState([]);
   const [designations, setDesignations] = useState([]);
@@ -69,10 +70,57 @@ const EmployeeForm = () => {
   const [imageFile, setImageFile] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [employee, setEmployee] = useState(null);
-  const [showAddPositionDialog, setShowAddPositionDialog] = useState(false);
-  const [newPositionData, setNewPositionData] = useState({
+
+  const [showAddCompanyDialog, setShowAddCompanyDialog] = useState(false);
+  const [showAddSectorDialog, setShowAddSectorDialog] = useState(false);
+  const [showAddProjectDialog, setShowAddProjectDialog] = useState(false);
+  const [showAddDepartmentDialog, setShowAddDepartmentDialog] = useState(false);
+  const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
+  const [showAddDesignationDialog, setShowAddDesignationDialog] = useState(false);
+  const [showAddLocationDialog, setShowAddLocationDialog] = useState(false);
+
+
+  // New data states for placement dialogs
+  const [newCompanyData, setNewCompanyData] = useState({
+    name: '',
+    code: '',
+    type: 'Private Limited',
+    description: ''
+  });
+
+  const [newSectorData, setNewSectorData] = useState({
+    name: '',
+    code: '',
+    description: ''
+  });
+
+  const [newProjectData, setNewProjectData] = useState({
+    name: '',
+    code: '',
+    description: ''
+  });
+
+  const [newDepartmentData, setNewDepartmentData] = useState({
+    name: '',
+    code: '',
+    description: ''
+  });
+
+  const [newSectionData, setNewSectionData] = useState({
+    name: '',
+    code: '',
+    description: ''
+  });
+
+  const [newDesignationData, setNewDesignationData] = useState({
     title: '',
     level: 'Entry',
+    description: ''
+  });
+
+  const [newLocationData, setNewLocationData] = useState({
+    name: '',
+    type: 'Office',
     description: ''
   });
 
@@ -89,8 +137,6 @@ const EmployeeForm = () => {
     religion: Yup.string().required('Religion is required'),
     maritalStatus: Yup.string().required('Marital status is required'),
     employeeId: Yup.string(),
-    department: Yup.string().required('Department is required'),
-    position: Yup.string().required('Position is required'),
     qualification: Yup.string().required('Qualification is required'),
     bankName: Yup.string().required('Bank name is required'),
     foreignBankAccount: Yup.string(),
@@ -112,7 +158,34 @@ const EmployeeForm = () => {
     oldDesignation: Yup.string(),
     placementLocation: Yup.string(),
     salary: Yup.object({
-      gross: Yup.number().nullable().optional().min(0, 'Gross salary must be positive')
+      gross: Yup.number().nullable().optional().min(0, 'Gross salary must be positive'),
+      basic: Yup.number().min(0, 'Basic salary must be positive')
+    }),
+    allowances: Yup.object({
+      conveyance: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Conveyance allowance must be positive')
+      }),
+      food: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Food allowance must be positive')
+      }),
+      vehicleFuel: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Vehicle & fuel allowance must be positive')
+      }),
+      medical: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Medical allowance must be positive')
+      }),
+      special: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Special allowance must be positive')
+      }),
+      other: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Other allowance must be positive')
+      })
     }),
     eobi: Yup.object({
       isActive: Yup.boolean(),
@@ -123,6 +196,20 @@ const EmployeeForm = () => {
       isActive: Yup.boolean(),
       amount: Yup.number().min(0, 'Provident Fund amount must be positive'),
       percentage: Yup.number().min(0, 'Provident Fund percentage must be positive')
+    }),
+    loans: Yup.object({
+      vehicleLoan: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Vehicle loan amount must be positive'),
+        monthlyInstallment: Yup.number().min(0, 'Monthly installment must be positive'),
+        outstandingBalance: Yup.number().min(0, 'Outstanding balance must be positive')
+      }),
+      companyLoan: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'Company loan amount must be positive'),
+        monthlyInstallment: Yup.number().min(0, 'Monthly installment must be positive'),
+        outstandingBalance: Yup.number().min(0, 'Outstanding balance must be positive')
+      })
     }),
     address: Yup.object({
       street: Yup.string().required('Street address is required'),
@@ -142,20 +229,7 @@ const EmployeeForm = () => {
     }
   };
 
-  // Fetch positions by department
-  const fetchPositionsByDepartment = async (departmentId) => {
-    if (!departmentId) {
-      setPositions([]);
-      return;
-    }
-    try {
-      const response = await api.get(`/hr/positions/${departmentId}`);
-      setPositions(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching positions:', error);
-      setPositions([]);
-    }
-  };
+
 
   // Fetch banks
   const fetchBanks = async () => {
@@ -170,10 +244,21 @@ const EmployeeForm = () => {
   // Fetch companies
   const fetchCompanies = async () => {
     try {
-      const response = await api.get('/companies');
+      const response = await api.get('/hr/companies');
       setCompanies(response.data.data || []);
     } catch (error) {
       console.error('Error fetching companies:', error);
+    }
+  };
+
+  // Fetch sectors
+  const fetchSectors = async (companyId = null) => {
+    try {
+      const url = companyId ? `/hr/sectors?company=${companyId}` : '/hr/sectors';
+      const response = await api.get(url);
+      setSectors(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching sectors:', error);
     }
   };
 
@@ -194,6 +279,26 @@ const EmployeeForm = () => {
       setSections(response.data.data || []);
     } catch (error) {
       console.error('Error fetching sections:', error);
+    }
+  };
+
+  // Fetch sections by department
+  const fetchSectionsByDepartment = async (departmentId) => {
+    try {
+      const response = await api.get(`/sections?department=${departmentId}`);
+      setSections(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching sections by department:', error);
+    }
+  };
+
+  // Fetch designations by section
+  const fetchDesignationsBySection = async (sectionId) => {
+    try {
+      const response = await api.get(`/designations?section=${sectionId}`);
+      setDesignations(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching designations by section:', error);
     }
   };
 
@@ -360,16 +465,44 @@ const EmployeeForm = () => {
       // Extract IDs from populated objects
       const formData = {
         ...employeeData,
-        department: employeeData.department?._id || employeeData.department || '',
-        position: employeeData.position?._id || employeeData.position || '',
         bankName: employeeData.bankName?._id || employeeData.bankName || '',
         placementCompany: employeeData.placementCompany?._id || employeeData.placementCompany || '',
+        placementSector: employeeData.placementSector?._id || employeeData.placementSector || '',
         placementProject: employeeData.placementProject?._id || employeeData.placementProject || '',
+        placementDepartment: employeeData.placementDepartment?._id || employeeData.placementDepartment || '',
         placementSection: employeeData.placementSection?._id || employeeData.placementSection || '',
+        placementDesignation: employeeData.placementDesignation?._id || employeeData.placementDesignation || '',
         oldDesignation: employeeData.oldDesignation?._id || employeeData.oldDesignation || undefined,
         placementLocation: employeeData.placementLocation?._id || employeeData.placementLocation || '',
         salary: {
-          gross: employeeData.salary?.gross || 0
+          gross: employeeData.salary?.gross || 0,
+          basic: employeeData.salary?.basic || 0
+        },
+        allowances: {
+          conveyance: {
+            isActive: employeeData.allowances?.conveyance?.isActive || false,
+            amount: employeeData.allowances?.conveyance?.amount || 0
+          },
+          food: {
+            isActive: employeeData.allowances?.food?.isActive || false,
+            amount: employeeData.allowances?.food?.amount || 0
+          },
+          vehicleFuel: {
+            isActive: employeeData.allowances?.vehicleFuel?.isActive || false,
+            amount: employeeData.allowances?.vehicleFuel?.amount || 0
+          },
+          medical: {
+            isActive: employeeData.allowances?.medical?.isActive || false,
+            amount: employeeData.allowances?.medical?.amount || 0
+          },
+          special: {
+            isActive: employeeData.allowances?.special?.isActive || false,
+            amount: employeeData.allowances?.special?.amount || 0
+          },
+          other: {
+            isActive: employeeData.allowances?.other?.isActive || false,
+            amount: employeeData.allowances?.other?.amount || 0
+          }
         },
         eobi: {
           isActive: employeeData.eobi?.isActive || false,
@@ -379,7 +512,21 @@ const EmployeeForm = () => {
         providentFund: {
           isActive: employeeData.providentFund?.isActive || false,
           amount: employeeData.providentFund?.amount || 0,
-          percentage: employeeData.providentFund?.percentage || 0.08834 // 8.834% is the default
+          percentage: employeeData.providentFund?.percentage || 0.0834 // 8.34% is the default
+        },
+        loans: {
+          vehicleLoan: {
+            isActive: employeeData.loans?.vehicleLoan?.isActive || false,
+            amount: employeeData.loans?.vehicleLoan?.amount || 0,
+            monthlyInstallment: employeeData.loans?.vehicleLoan?.monthlyInstallment || 0,
+            outstandingBalance: employeeData.loans?.vehicleLoan?.outstandingBalance || 0
+          },
+          companyLoan: {
+            isActive: employeeData.loans?.companyLoan?.isActive || false,
+            amount: employeeData.loans?.companyLoan?.amount || 0,
+            monthlyInstallment: employeeData.loans?.companyLoan?.monthlyInstallment || 0,
+            outstandingBalance: employeeData.loans?.companyLoan?.outstandingBalance || 0
+          }
         },
         address: {
           ...employeeData.address,
@@ -398,8 +545,8 @@ const EmployeeForm = () => {
       formik.setValues(formData);
       
       // Fetch dependent data if needed
-      if (formData.department) {
-        fetchPositionsByDepartment(formData.department);
+      if (formData.placementCompany) {
+        fetchSectors(formData.placementCompany);
       }
       if (formData.address.country) {
         fetchProvinces(formData.address.country);
@@ -407,6 +554,11 @@ const EmployeeForm = () => {
       if (formData.address.state) {
         fetchCities(formData.address.state);
       }
+      
+      // When editing an employee, load all sections and designations to ensure current values are available
+      // This handles cases where the employee's section/designation might not match the current department filter
+      await fetchSections(); // Load all sections
+      await fetchDesignations(); // Load all designations
     } catch (error) {
       console.error('Error fetching employee:', error);
       console.error('Error name:', error.name);
@@ -463,6 +615,7 @@ const EmployeeForm = () => {
     fetchDepartments();
     fetchBanks();
     fetchCompanies();
+    fetchSectors();
     fetchProjects();
     fetchSections();
     fetchDesignations();
@@ -497,8 +650,6 @@ const EmployeeForm = () => {
       religion: 'Islam',
       maritalStatus: 'Single',
       employeeId: nextEmployeeId,
-      department: '',
-      position: '',
       qualification: '',
       bankName: '',
       foreignBankAccount: '',
@@ -511,10 +662,13 @@ const EmployeeForm = () => {
       },
       // Placement fields
       placementCompany: '',
+      placementSector: '',
       placementProject: '',
+      placementDepartment: '',
       placementSection: '',
-      oldDesignation: undefined,
+      placementDesignation: '',
       placementLocation: '',
+      oldDesignation: undefined,
       isActive: true,
       address: {
         street: '',
@@ -635,70 +789,344 @@ const EmployeeForm = () => {
     setActiveStep(step);
   };
 
-  // Handle department change
-  const handleDepartmentChange = (departmentId) => {
-    formik.setFieldValue('department', departmentId);
-    formik.setFieldValue('position', ''); // Reset position when department changes
-    fetchPositionsByDepartment(departmentId);
+
+
+
+  // Handler functions for new placement items
+  const handleNewCompanyChange = (field, value) => {
+    setNewCompanyData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
-  // Handle add new position
-  const handleAddNewPosition = () => {
-    setNewPositionData({
-      title: '',
-      level: 'Entry',
-      description: ''
-    });
-    setShowAddPositionDialog(true);
+  const handleNewSectorChange = (field, value) => {
+    setNewSectorData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
-  const handleSaveNewPosition = async () => {
+  const handleNewProjectChange = (field, value) => {
+    setNewProjectData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleNewDepartmentChange = (field, value) => {
+    setNewDepartmentData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleNewSectionChange = (field, value) => {
+    setNewSectionData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleNewDesignationChange = (field, value) => {
+    setNewDesignationData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleNewLocationChange = (field, value) => {
+    setNewLocationData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Save functions for new placement items
+  const handleSaveNewCompany = async () => {
     try {
-      if (!formik.values.department) {
+      if (!newCompanyData.name || !newCompanyData.code) {
         setSnackbar({
           open: true,
-          message: 'Please select a department first',
+          message: 'Please fill in all required fields',
           severity: 'error'
         });
         return;
       }
 
-      const positionData = {
-        ...newPositionData,
-        department: formik.values.department
-      };
-
-      const response = await api.post('/positions', positionData);
+      const response = await api.post('/hr/companies', newCompanyData);
       
       setSnackbar({
         open: true,
-        message: 'Position added successfully',
+        message: 'Company added successfully',
         severity: 'success'
       });
 
-      setShowAddPositionDialog(false);
+      setShowAddCompanyDialog(false);
+      setNewCompanyData({ name: '', code: '', type: 'Private Limited', description: '' });
       
-      // Refresh positions for the current department
-      await fetchPositionsByDepartment(formik.values.department);
+      // Refresh companies
+      await fetchCompanies();
       
-      // Set the newly created position as selected
-      formik.setFieldValue('position', response.data.data._id);
+      // Set the newly created company as selected
+      formik.setFieldValue('placementCompany', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding position:', error);
+      console.error('Error adding company:', error);
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Error adding position',
+        message: error.response?.data?.message || 'Error adding company',
         severity: 'error'
       });
     }
   };
 
-  const handleNewPositionChange = (field, value) => {
-    setNewPositionData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+  const handleSaveNewSector = async () => {
+    try {
+      if (!newSectorData.name || !newSectorData.code) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const sectorData = {
+        ...newSectorData,
+        company: formik.values.placementCompany
+      };
+
+      const response = await api.post('/hr/sectors', sectorData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Sector added successfully',
+        severity: 'success'
+      });
+
+      setShowAddSectorDialog(false);
+      setNewSectorData({ name: '', code: '', description: '' });
+      
+      // Refresh sectors
+      await fetchSectors(formik.values.placementCompany);
+      
+      // Set the newly created sector as selected
+      formik.setFieldValue('placementSector', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding sector:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding sector',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleSaveNewProject = async () => {
+    try {
+      if (!newProjectData.name || !newProjectData.code) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const projectData = {
+        ...newProjectData,
+        company: formik.values.placementCompany
+      };
+
+      const response = await api.post('/hr/projects', projectData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Project added successfully',
+        severity: 'success'
+      });
+
+      setShowAddProjectDialog(false);
+      setNewProjectData({ name: '', code: '', description: '' });
+      
+      // Refresh projects
+      await fetchProjects();
+      
+      // Set the newly created project as selected
+      formik.setFieldValue('placementProject', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding project:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding project',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleSaveNewDepartment = async () => {
+    try {
+      if (!newDepartmentData.name || !newDepartmentData.code) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const response = await api.post('/hr/departments', newDepartmentData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Department added successfully',
+        severity: 'success'
+      });
+
+      setShowAddDepartmentDialog(false);
+      setNewDepartmentData({ name: '', code: '', description: '' });
+      
+      // Refresh departments
+      await fetchDepartments();
+      
+      // Set the newly created department as selected
+      formik.setFieldValue('placementDepartment', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding department:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding department',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleSaveNewSection = async () => {
+    try {
+      if (!newSectionData.name || !newSectionData.code) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const sectionData = {
+        ...newSectionData,
+        department: formik.values.placementDepartment
+      };
+
+      const response = await api.post('/hr/sections', sectionData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Section added successfully',
+        severity: 'success'
+      });
+
+      setShowAddSectionDialog(false);
+      setNewSectionData({ name: '', code: '', description: '' });
+      
+      // Refresh sections
+      await fetchSectionsByDepartment(formik.values.placementDepartment);
+      
+      // Set the newly created section as selected
+      formik.setFieldValue('placementSection', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding section:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding section',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleSaveNewDesignation = async () => {
+    try {
+      if (!newDesignationData.title) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const designationData = {
+        ...newDesignationData,
+        section: formik.values.placementSection
+      };
+
+      const response = await api.post('/hr/designations', designationData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Designation added successfully',
+        severity: 'success'
+      });
+
+      setShowAddDesignationDialog(false);
+      setNewDesignationData({ title: '', level: 'Entry', description: '' });
+      
+      // Refresh designations
+      await fetchDesignationsBySection(formik.values.placementSection);
+      
+      // Set the newly created designation as selected
+      formik.setFieldValue('placementDesignation', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding designation:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding designation',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleSaveNewLocation = async () => {
+    try {
+      if (!newLocationData.name) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const response = await api.post('/hr/locations', newLocationData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Location added successfully',
+        severity: 'success'
+      });
+
+      setShowAddLocationDialog(false);
+      setNewLocationData({ name: '', type: 'Office', description: '' });
+      
+      // Refresh locations
+      await fetchLocations();
+      
+      // Set the newly created location as selected
+      formik.setFieldValue('placementLocation', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding location:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding location',
+        severity: 'error'
+      });
+    }
   };
 
   // Calculate end of probation date
@@ -975,61 +1403,7 @@ const EmployeeForm = () => {
                 helperText="Employee ID will be auto-generated"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Department</InputLabel>
-                <Select
-                  name="department"
-                  value={safeFormValue(formik.values.department)}
-                  onChange={(e) => handleDepartmentChange(e.target.value)}
-                  error={formik.touched.department && Boolean(formik.errors.department)}
-                  label="Department"
-                >
-                  {departments.map((dept) => (
-                    <MenuItem key={dept._id} value={dept._id}>
-                      {safeRenderText(dept.name)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Position</InputLabel>
-                <Select
-                  name="position"
-                  value={safeFormValue(formik.values.position)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.position && Boolean(formik.errors.position)}
-                  label="Position"
-                  disabled={!safeFormValue(formik.values.department)}
-                >
-                  {positions.map((pos) => (
-                    <MenuItem key={pos._id} value={pos._id}>
-                      {safeRenderText(pos.title)} - {safeRenderText(pos.level)}
-                    </MenuItem>
-                  ))}
-                  {safeFormValue(formik.values.department) && (
-                    <MenuItem 
-                      value="add_new" 
-                      onClick={handleAddNewPosition}
-                      sx={{ 
-                        borderTop: '1px solid #e0e0e0',
-                        backgroundColor: '#f5f5f5',
-                        '&:hover': {
-                          backgroundColor: '#e3f2fd'
-                        }
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <AddIcon fontSize="small" />
-                        Add New Position
-                      </Box>
-                    </MenuItem>
-                  )}
-                </Select>
-              </FormControl>
-            </Grid>
+
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <InputLabel>Qualification</InputLabel>
@@ -1086,6 +1460,200 @@ const EmployeeForm = () => {
                 }}
               />
             </Grid>
+            {/* Flexible Allowances Section */}
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1 }}>
+                Allowances Management
+              </Typography>
+            </Grid>
+            
+            {/* Conveyance Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.conveyance?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.conveyance.isActive', e.target.checked)}
+                      name="allowances.conveyance.isActive"
+                    />
+                  }
+                  label="Conveyance Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.conveyance?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.conveyance.amount"
+                  label="Conveyance Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.conveyance?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+
+            
+            {/* Food Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.food?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.food.isActive', e.target.checked)}
+                      name="allowances.food.isActive"
+                    />
+                  }
+                  label="Food Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.food?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.food.amount"
+                  label="Food Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.food?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Vehicle & Fuel Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.vehicleFuel?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.vehicleFuel.isActive', e.target.checked)}
+                      name="allowances.vehicleFuel.isActive"
+                    />
+                  }
+                  label="Vehicle & Fuel Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.vehicleFuel?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.vehicleFuel.amount"
+                  label="Vehicle & Fuel Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.vehicleFuel?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Medical Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.medical?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.medical.isActive', e.target.checked)}
+                      name="allowances.medical.isActive"
+                    />
+                  }
+                  label="Medical Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.medical?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.medical.amount"
+                  label="Medical Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.medical?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Special Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.special?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.special.isActive', e.target.checked)}
+                      name="allowances.special.isActive"
+                    />
+                  }
+                  label="Special Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.special?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.special.amount"
+                  label="Special Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.special?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Other Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.other?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.other.isActive', e.target.checked)}
+                      name="allowances.other.isActive"
+                    />
+                  }
+                  label="Other Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.other?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.other.amount"
+                  label="Other Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.other?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <FormControlLabel
@@ -1133,7 +1701,7 @@ const EmployeeForm = () => {
                   label="Provident Fund Active"
                 />
                 <FormHelperText>
-                                      Provident Fund (8.834% of basic salary)
+                                      Provident Fund (8.34% of basic salary)
                 </FormHelperText>
               </FormControl>
             </Grid>
@@ -1150,10 +1718,135 @@ const EmployeeForm = () => {
                     readOnly: true,
                     startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
                   }}
-                                      helperText="Auto-calculated: 8.834% of basic salary"
+                                      helperText="Auto-calculated: 8.34% of basic salary"
                 />
               </Grid>
             )}
+            
+            {/* Vehicle Loan Section */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.loans?.vehicleLoan?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('loans.vehicleLoan.isActive', e.target.checked)}
+                      name="loans.vehicleLoan.isActive"
+                    />
+                  }
+                  label="Vehicle Loan Active"
+                />
+                <FormHelperText>
+                  Vehicle loan with monthly installment deduction
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.loans?.vehicleLoan?.isActive && (
+              <>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="loans.vehicleLoan.amount"
+                    label="Vehicle Loan Amount"
+                    type="number"
+                    value={formik.values.loans?.vehicleLoan?.amount || ''}
+                    onChange={formik.handleChange}
+                    InputProps={{
+                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="loans.vehicleLoan.monthlyInstallment"
+                    label="Monthly Installment"
+                    type="number"
+                    value={formik.values.loans?.vehicleLoan?.monthlyInstallment || ''}
+                    onChange={formik.handleChange}
+                    InputProps={{
+                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="loans.vehicleLoan.outstandingBalance"
+                    label="Outstanding Balance"
+                    type="number"
+                    value={formik.values.loans?.vehicleLoan?.outstandingBalance || ''}
+                    onChange={formik.handleChange}
+                    InputProps={{
+                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                    }}
+                  />
+                </Grid>
+              </>
+            )}
+            
+            {/* Company Loan Section */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.loans?.companyLoan?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('loans.companyLoan.isActive', e.target.checked)}
+                      name="loans.companyLoan.isActive"
+                    />
+                  }
+                  label="Company Loan Active"
+                />
+                <FormHelperText>
+                  Company loan with monthly installment deduction
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.loans?.companyLoan?.isActive && (
+              <>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="loans.companyLoan.amount"
+                    label="Company Loan Amount"
+                    type="number"
+                    value={formik.values.loans?.companyLoan?.amount || ''}
+                    onChange={formik.handleChange}
+                    InputProps={{
+                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="loans.companyLoan.monthlyInstallment"
+                    label="Monthly Installment"
+                    type="number"
+                    value={formik.values.loans?.companyLoan?.monthlyInstallment || ''}
+                    onChange={formik.handleChange}
+                    InputProps={{
+                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    name="loans.companyLoan.outstandingBalance"
+                    label="Outstanding Balance"
+                    type="number"
+                    value={formik.values.loans?.companyLoan?.outstandingBalance || ''}
+                    onChange={formik.handleChange}
+                    InputProps={{
+                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                    }}
+                  />
+                </Grid>
+              </>
+            )}
+            
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
                 <Typography variant="h6" gutterBottom>
@@ -1178,6 +1871,59 @@ const EmployeeForm = () => {
                   <Grid item xs={12} md={3}>
                     <Typography variant="body2" color="text.secondary">
                       Total: {formatPKR(formik.values.salary?.gross || 0)}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Card>
+            </Grid>
+            
+            {/* Current Placement Summary */}
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ p: 2, backgroundColor: '#e3f2fd' }}>
+                <Typography variant="h6" gutterBottom>
+                  Current Placement Summary
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Company:</strong> {safeRenderText(companies.find(c => c._id === formik.values.placementCompany)?.name) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Department:</strong> {safeRenderText(departments.find(d => d._id === formik.values.placementDepartment)?.name) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Designation:</strong> {safeRenderText(designations.find(d => d._id === formik.values.placementDesignation)?.title) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Location:</strong> {safeRenderText(locations.find(l => l._id === formik.values.placementLocation)?.name) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+                <Grid container spacing={2} sx={{ mt: 1 }}>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Sector:</strong> {safeRenderText(sectors.find(s => s._id === formik.values.placementSector)?.name) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Project:</strong> {safeRenderText(projects.find(p => p._id === formik.values.placementProject)?.name) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Section:</strong> {safeRenderText(sections.find(s => s._id === formik.values.placementSection)?.name) || 'Not Selected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Status:</strong> {formik.values.placementCompany && formik.values.placementDepartment && formik.values.placementDesignation ? 'Complete' : 'Incomplete'}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -1219,13 +1965,29 @@ const EmployeeForm = () => {
                 Placement Information
               </Typography>
             </Grid>
+            
+            {/* Company */}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <InputLabel>Company</InputLabel>
                 <Select
                   name="placementCompany"
                   value={safeFormValue(formik.values.placementCompany)}
-                  onChange={formik.handleChange}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddCompanyDialog(true);
+                      return;
+                    }
+                    formik.setFieldValue('placementCompany', e.target.value);
+                    formik.setFieldValue('placementSector', '');
+                    formik.setFieldValue('placementProject', '');
+                    formik.setFieldValue('placementDepartment', '');
+                    formik.setFieldValue('placementSection', '');
+                    formik.setFieldValue('placementDesignation', '');
+                    if (e.target.value) {
+                      fetchSectors(e.target.value);
+                    }
+                  }}
                   error={formik.touched.placementCompany && Boolean(formik.errors.placementCompany)}
                   label="Company"
                 >
@@ -1234,45 +1996,313 @@ const EmployeeForm = () => {
                       {safeRenderText(company.name)} ({safeRenderText(company.type)})
                     </MenuItem>
                   ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New Company
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
+
+            {/* Sector */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Sector</InputLabel>
+                <Select
+                  name="placementSector"
+                  value={safeFormValue(formik.values.placementSector)}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddSectorDialog(true);
+                      return;
+                    }
+                    formik.setFieldValue('placementSector', e.target.value);
+                    formik.setFieldValue('placementProject', '');
+                    formik.setFieldValue('placementDepartment', '');
+                    formik.setFieldValue('placementSection', '');
+                    formik.setFieldValue('placementDesignation', '');
+                  }}
+                  error={formik.touched.placementSector && Boolean(formik.errors.placementSector)}
+                  label="Sector"
+                  disabled={!safeFormValue(formik.values.placementCompany)}
+                >
+                  {sectors.map((sector) => (
+                    <MenuItem key={sector._id} value={sector._id}>
+                      {safeRenderText(sector.name)} ({safeRenderText(sector.code)})
+                    </MenuItem>
+                  ))}
+                  {safeFormValue(formik.values.placementCompany) && (
+                                      <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon fontSize="small" />
+                        Add New Sector
+                      </Box>
+                    </MenuItem>
+                  )}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Project */}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <InputLabel>Project</InputLabel>
                 <Select
                   name="placementProject"
                   value={safeFormValue(formik.values.placementProject)}
-                  onChange={formik.handleChange}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddProjectDialog(true);
+                      return;
+                    }
+                    formik.setFieldValue('placementProject', e.target.value);
+                    formik.setFieldValue('placementDepartment', '');
+                    formik.setFieldValue('placementSection', '');
+                    formik.setFieldValue('placementDesignation', '');
+                  }}
                   error={formik.touched.placementProject && Boolean(formik.errors.placementProject)}
                   label="Project"
+                  disabled={!safeFormValue(formik.values.placementCompany)}
                 >
                   {projects.map((project) => (
                     <MenuItem key={project._id} value={project._id}>
                       {safeRenderText(project.name)} - {safeRenderText(project.company?.name)}
                     </MenuItem>
                   ))}
+                  {safeFormValue(formik.values.placementCompany) && (
+                                      <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon fontSize="small" />
+                        Add New Project
+                      </Box>
+                    </MenuItem>
+                  )}
                 </Select>
               </FormControl>
             </Grid>
+
+            {/* Department */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  name="placementDepartment"
+                  value={safeFormValue(formik.values.placementDepartment)}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddDepartmentDialog(true);
+                      return;
+                    }
+                    formik.setFieldValue('placementDepartment', e.target.value);
+                    
+                    // Only clear section and designation if we're creating a new employee (no ID) or if the department actually changed
+                    if (!id || id === 'add') {
+                      formik.setFieldValue('placementSection', '');
+                      formik.setFieldValue('placementDesignation', '');
+                    }
+                    
+                    if (e.target.value) {
+                      fetchSectionsByDepartment(e.target.value);
+                    }
+                  }}
+                  error={formik.touched.placementDepartment && Boolean(formik.errors.placementDepartment)}
+                  label="Department"
+                  disabled={!safeFormValue(formik.values.placementCompany)}
+                >
+                  {departments.map((dept) => (
+                    <MenuItem key={dept._id} value={dept._id}>
+                      {safeRenderText(dept.name)} ({safeRenderText(dept.code)})
+                    </MenuItem>
+                  ))}
+                  {safeFormValue(formik.values.placementCompany) && (
+                                      <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon fontSize="small" />
+                        Add New Department
+                      </Box>
+                    </MenuItem>
+                  )}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Section */}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <InputLabel>Section</InputLabel>
                 <Select
                   name="placementSection"
                   value={safeFormValue(formik.values.placementSection)}
-                  onChange={formik.handleChange}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddSectionDialog(true);
+                      return;
+                    }
+                    formik.setFieldValue('placementSection', e.target.value);
+                    
+                    // Only clear designation if we're creating a new employee (no ID) or if the section actually changed
+                    if (!id || id === 'add') {
+                      formik.setFieldValue('placementDesignation', '');
+                    }
+                    
+                    if (e.target.value) {
+                      fetchDesignationsBySection(e.target.value);
+                    }
+                  }}
                   error={formik.touched.placementSection && Boolean(formik.errors.placementSection)}
                   label="Section"
+                  disabled={!safeFormValue(formik.values.placementCompany)}
                 >
                   {sections.map((section) => (
                     <MenuItem key={section._id} value={section._id}>
                       {safeRenderText(section.name)} - {safeRenderText(section.department?.name)}
                     </MenuItem>
                   ))}
+                  {safeFormValue(formik.values.placementCompany) && (
+                                      <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon fontSize="small" />
+                        Add New Section
+                      </Box>
+                    </MenuItem>
+                  )}
                 </Select>
               </FormControl>
             </Grid>
+
+            {/* Designation/Position */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Designation/Position</InputLabel>
+                <Select
+                  name="placementDesignation"
+                  value={safeFormValue(formik.values.placementDesignation)}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddDesignationDialog(true);
+                      return;
+                    }
+                    formik.handleChange(e);
+                  }}
+                  error={formik.touched.placementDesignation && Boolean(formik.errors.placementDesignation)}
+                  label="Designation/Position"
+                  disabled={!safeFormValue(formik.values.placementCompany)}
+                >
+                  {designations.map((designation) => (
+                    <MenuItem key={designation._id} value={designation._id}>
+                      {safeRenderText(designation.title)} - {safeRenderText(designation.level)}
+                    </MenuItem>
+                  ))}
+                  {safeFormValue(formik.values.placementCompany) && (
+                                      <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon fontSize="small" />
+                        Add New Designation
+                      </Box>
+                    </MenuItem>
+                  )}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Location */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Location</InputLabel>
+                <Select
+                  name="placementLocation"
+                  value={safeFormValue(formik.values.placementLocation)}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddLocationDialog(true);
+                      return;
+                    }
+                    formik.handleChange(e);
+                  }}
+                  error={formik.touched.placementLocation && Boolean(formik.errors.placementLocation)}
+                  label="Location"
+                >
+                  {locations.map((location) => (
+                    <MenuItem key={location._id} value={location._id}>
+                      {safeRenderText(location.name)} ({safeRenderText(location.type)})
+                    </MenuItem>
+                  ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New Location
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Old Designation (Optional) */}
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <InputLabel>Old Designation (Optional)</InputLabel>
@@ -1286,24 +2316,6 @@ const EmployeeForm = () => {
                   {designations.map((designation) => (
                     <MenuItem key={designation._id} value={designation._id}>
                       {safeRenderText(designation.title)} - {safeRenderText(designation.level)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Location</InputLabel>
-                <Select
-                  name="placementLocation"
-                  value={safeFormValue(formik.values.placementLocation)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.placementLocation && Boolean(formik.errors.placementLocation)}
-                  label="Location"
-                >
-                  {locations.map((location) => (
-                    <MenuItem key={location._id} value={location._id}>
-                      {safeRenderText(location.name)} ({safeRenderText(location.type)})
                     </MenuItem>
                   ))}
                 </Select>
@@ -1551,10 +2563,10 @@ const EmployeeForm = () => {
                     <>
                       <Divider sx={{ my: 1 }} />
                       <Typography variant="body2" color="error">
-                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6666 * 0.08834))}
+                        <strong>Provident Fund Deduction:</strong> {formatPKR(formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6666 * 0.0834))}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
-                        Auto-calculated: 8.834% of basic salary
+                        Auto-calculated: 8.34% of basic salary
                       </Typography>
                     </>
                   )}
@@ -1569,10 +2581,13 @@ const EmployeeForm = () => {
                     Employment Details
                   </Typography>
                   <Typography variant="body1">
-                    <strong>Department:</strong> {safeRenderText(departments.find(d => d._id === safeFormValue(formik.values.department))?.name) || 'Not selected'}
+                    <strong>Company:</strong> {safeRenderText(companies.find(c => c._id === safeFormValue(formik.values.placementCompany))?.name) || 'Not selected'}
                   </Typography>
                   <Typography variant="body1">
-                    <strong>Position:</strong> {safeRenderText(positions.find(p => p._id === safeFormValue(formik.values.position))?.title) || 'Not selected'}
+                    <strong>Department:</strong> {safeRenderText(departments.find(d => d._id === safeFormValue(formik.values.placementDepartment))?.name) || 'Not selected'}
+                  </Typography>
+                  <Typography variant="body1">
+                    <strong>Designation:</strong> {safeRenderText(designations.find(d => d._id === safeFormValue(formik.values.placementDesignation))?.title) || 'Not selected'}
                   </Typography>
                   <Typography variant="body1">
                     <strong>Status:</strong> 
@@ -1678,18 +2693,261 @@ const EmployeeForm = () => {
         </Box>
       </Paper>
 
-      {/* Add New Position Dialog */}
-      <Dialog open={showAddPositionDialog} onClose={() => setShowAddPositionDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Position</DialogTitle>
+      {/* Add New Company Dialog */}
+      <Dialog open={showAddCompanyDialog} onClose={() => setShowAddCompanyDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Company</DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
             <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Company Name"
+                  value={newCompanyData.name}
+                  onChange={(e) => handleNewCompanyChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Company Code"
+                  value={newCompanyData.code}
+                  onChange={(e) => handleNewCompanyChange('code', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Company Type</InputLabel>
+                  <Select
+                    value={newCompanyData.type}
+                    onChange={(e) => handleNewCompanyChange('type', e.target.value)}
+                    label="Company Type"
+                  >
+                    <MenuItem value="Private Limited">Private Limited</MenuItem>
+                    <MenuItem value="Public Limited">Public Limited</MenuItem>
+                    <MenuItem value="Partnership">Partnership</MenuItem>
+                    <MenuItem value="Sole Proprietorship">Sole Proprietorship</MenuItem>
+                    <MenuItem value="Government">Government</MenuItem>
+                    <MenuItem value="NGO">NGO</MenuItem>
+                    <MenuItem value="Other">Other</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
-                  label="Position Title"
-                  value={newPositionData.title}
-                  onChange={(e) => handleNewPositionChange('title', e.target.value)}
+                  label="Description"
+                  value={newCompanyData.description}
+                  onChange={(e) => handleNewCompanyChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddCompanyDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewCompany} variant="contained">
+            Add Company
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Sector Dialog */}
+      <Dialog open={showAddSectorDialog} onClose={() => setShowAddSectorDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Sector</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Sector Name"
+                  value={newSectorData.name}
+                  onChange={(e) => handleNewSectorChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Sector Code"
+                  value={newSectorData.code}
+                  onChange={(e) => handleNewSectorChange('code', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={newSectorData.description}
+                  onChange={(e) => handleNewSectorChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddSectorDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewSector} variant="contained">
+            Add Sector
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Project Dialog */}
+      <Dialog open={showAddProjectDialog} onClose={() => setShowAddProjectDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Project</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Project Name"
+                  value={newProjectData.name}
+                  onChange={(e) => handleNewProjectChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Project Code"
+                  value={newProjectData.code}
+                  onChange={(e) => handleNewProjectChange('code', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={newProjectData.description}
+                  onChange={(e) => handleNewProjectChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddProjectDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewProject} variant="contained">
+            Add Project
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Department Dialog */}
+      <Dialog open={showAddDepartmentDialog} onClose={() => setShowAddDepartmentDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Department</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Department Name"
+                  value={newDepartmentData.name}
+                  onChange={(e) => handleNewDepartmentChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Department Code"
+                  value={newDepartmentData.code}
+                  onChange={(e) => handleNewDepartmentChange('code', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={newDepartmentData.description}
+                  onChange={(e) => handleNewDepartmentChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddDepartmentDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewDepartment} variant="contained">
+            Add Department
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Section Dialog */}
+      <Dialog open={showAddSectionDialog} onClose={() => setShowAddSectionDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Section</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Section Name"
+                  value={newSectionData.name}
+                  onChange={(e) => handleNewSectionChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Section Code"
+                  value={newSectionData.code}
+                  onChange={(e) => handleNewSectionChange('code', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={newSectionData.description}
+                  onChange={(e) => handleNewSectionChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddSectionDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewSection} variant="contained">
+            Add Section
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Designation Dialog */}
+      <Dialog open={showAddDesignationDialog} onClose={() => setShowAddDesignationDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Designation</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Designation Title"
+                  value={newDesignationData.title}
+                  onChange={(e) => handleNewDesignationChange('title', e.target.value)}
                   required
                 />
               </Grid>
@@ -1697,8 +2955,8 @@ const EmployeeForm = () => {
                 <FormControl fullWidth>
                   <InputLabel>Level</InputLabel>
                   <Select
-                    value={newPositionData.level}
-                    onChange={(e) => handleNewPositionChange('level', e.target.value)}
+                    value={newDesignationData.level}
+                    onChange={(e) => handleNewDesignationChange('level', e.target.value)}
                     label="Level"
                   >
                     <MenuItem value="Entry">Entry</MenuItem>
@@ -1712,17 +2970,12 @@ const EmployeeForm = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={6}>
-                <Typography variant="body2" color="textSecondary" sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                  Department: {safeRenderText(departments.find(d => d._id === formik.values.department)?.name) || 'Not selected'}
-                </Typography>
-              </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Description"
-                  value={newPositionData.description}
-                  onChange={(e) => handleNewPositionChange('description', e.target.value)}
+                  value={newDesignationData.description}
+                  onChange={(e) => handleNewDesignationChange('description', e.target.value)}
                   multiline
                   rows={3}
                 />
@@ -1731,12 +2984,67 @@ const EmployeeForm = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowAddPositionDialog(false)}>Cancel</Button>
-          <Button onClick={handleSaveNewPosition} variant="contained">
-            Add Position
+          <Button onClick={() => setShowAddDesignationDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewDesignation} variant="contained">
+            Add Designation
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Add New Location Dialog */}
+      <Dialog open={showAddLocationDialog} onClose={() => setShowAddLocationDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Location</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Location Name"
+                  value={newLocationData.name}
+                  onChange={(e) => handleNewLocationChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Location Type</InputLabel>
+                  <Select
+                    value={newLocationData.type}
+                    onChange={(e) => handleNewLocationChange('type', e.target.value)}
+                    label="Location Type"
+                  >
+                    <MenuItem value="Office">Office</MenuItem>
+                    <MenuItem value="Branch">Branch</MenuItem>
+                    <MenuItem value="Site">Site</MenuItem>
+                    <MenuItem value="Warehouse">Warehouse</MenuItem>
+                    <MenuItem value="Factory">Factory</MenuItem>
+                    <MenuItem value="Other">Other</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={newLocationData.description}
+                  onChange={(e) => handleNewLocationChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddLocationDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewLocation} variant="contained">
+            Add Location
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+
 
       {/* Snackbar */}
       <Snackbar

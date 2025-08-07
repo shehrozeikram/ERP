@@ -103,7 +103,7 @@ const Dashboard = () => {
                   size="small"
                 />
                 <Chip
-                  label={user?.department}
+                  label={typeof user?.department === 'object' ? user?.department?.name : user?.department || 'N/A'}
                   color="secondary"
                   size="small"
                 />
@@ -194,7 +194,7 @@ const Dashboard = () => {
                 Department
               </Typography>
               <Typography variant="h5" color="info.main">
-                {user?.department}
+                {typeof user?.department === 'object' ? user?.department?.name : user?.department || 'N/A'}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Your assigned department

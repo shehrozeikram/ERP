@@ -22,6 +22,7 @@ import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
 import PayrollDetail from './pages/HR/PayrollDetail';
 import AttendanceList from './pages/HR/AttendanceList';
+import AttendanceDetail from './pages/HR/AttendanceDetail';
 import AttendanceForm from './pages/HR/AttendanceForm';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
 import FinanceDashboard from './pages/Finance/FinanceDashboard';
@@ -211,11 +212,15 @@ function App() {
 
             {/* Attendance Routes */}
             <Route
-              path="/hr/attendance"
-              element={<ProtectedRoute><AttendanceList /></ProtectedRoute>}
+              path="/hr/attendance/employee/:employeeId/detail"
+              element={<ProtectedRoute><AttendanceDetail /></ProtectedRoute>}
             />
             <Route
               path="/hr/attendance/add"
+              element={<ProtectedRoute><AttendanceForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/attendance/:id/edit"
               element={<ProtectedRoute><AttendanceForm /></ProtectedRoute>}
             />
             <Route
@@ -223,8 +228,8 @@ function App() {
               element={<ProtectedRoute><AttendanceForm /></ProtectedRoute>}
             />
             <Route
-              path="/hr/attendance/edit/:id"
-              element={<ProtectedRoute><AttendanceForm /></ProtectedRoute>}
+              path="/hr/attendance"
+              element={<ProtectedRoute><AttendanceList /></ProtectedRoute>}
             />
 
             {/* Biometric Integration Routes */}

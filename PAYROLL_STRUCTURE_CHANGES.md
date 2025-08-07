@@ -23,7 +23,7 @@ Updated the payroll system to implement new salary structure and Provident Fund 
 - 8% of basic salary
 
 #### New:
-- **8.834% of basic salary**
+- **8.34% of basic salary**
 
 ### 3. Files Modified
 
@@ -32,7 +32,7 @@ Updated the payroll system to implement new salary structure and Provident Fund 
    - Updated salary component calculations
    - Changed basic salary from 60% to 66.66%
    - Changed house rent from 30% to 23.34%
-   - Updated Provident Fund calculation to 8.834%
+   - Updated Provident Fund calculation to 8.34%
 
 2. **`client/src/pages/HR/EmployeeForm.js`**
    - Updated display labels and calculations
@@ -51,7 +51,7 @@ Updated the payroll system to implement new salary structure and Provident Fund 
 
 #### Backend Changes:
 1. **`server/routes/payroll.js`**
-   - Added auto-calculation of Provident Fund (8.834% of basic salary)
+   - Added auto-calculation of Provident Fund (8.34% of basic salary)
    - Updated both create and update payroll routes
 
 2. **`server/models/hr/Payroll.js`**
@@ -90,7 +90,7 @@ Updated the payroll system to implement new salary structure and Provident Fund 
 - **Basic Salary: 66,660 PKR (66.66%)**
 - **House Rent: 23,340 PKR (23.34%)**
 - **Medical: 10,000 PKR (10%)**
-- **Provident Fund: 5,888 PKR (8.834% of basic)**
+- **Provident Fund: 5,888 PKR (8.34% of basic)**
 
 ### 6. Impact
 

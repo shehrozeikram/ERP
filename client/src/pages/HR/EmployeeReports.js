@@ -358,7 +358,7 @@ const EmployeeReports = () => {
                         </TableCell>
                         <TableCell>
                           <Chip 
-                            label={employee.department} 
+                            label={typeof employee.department === 'object' ? employee.department?.name : employee.department || 'N/A'} 
                             size="small" 
                             color="primary" 
                             variant="outlined"

@@ -64,6 +64,74 @@ class ZKTecoService {
     }
   }
 
+  // Get unique users from attendance data (fallback method)
+  async getUsersFromAttendance() {
+    if (!this.isConnected) {
+      throw new Error('Device not connected');
+    }
+
+    try {
+      // Get attendance data first
+      const attendanceData = await this.getAttendanceData();
+      
+      if (!attendanceData.success || !attendanceData.data) {
+        return {
+          success: true,
+          data: [],
+          count: 0,
+          source: 'attendance_data'
+        };
+      }
+
+      // Extract unique users from attendance records
+      const uniqueUsers = new Map();
+      
+      attendanceData.data.forEach(record => {
+        const userId = record.deviceUserId || record.uid || record.userId;
+        if (userId && !uniqueUsers.has(userId)) {
+          uniqueUsers.set(userId, {
+            uid: userId,
+            userId: userId,
+            deviceUserId: userId,
+            name: `User ${userId}`,
+            userName: `User ${userId}`,
+            role: 'Employee',
+            userRole: 'Employee',
+            password: false,
+            card: '',
+            group: 'Default',
+            timeZone: 'UTC',
+            privilege: 'User',
+            fingerprints: [],
+            faces: [],
+            status: 'Active',
+            lastAttendance: record.recordTime || record.timestamp,
+            attendanceCount: 1
+          });
+        } else if (userId) {
+          // Update attendance count for existing user
+          const user = uniqueUsers.get(userId);
+          user.attendanceCount++;
+          if (record.recordTime || record.timestamp) {
+            user.lastAttendance = record.recordTime || record.timestamp;
+          }
+        }
+      });
+
+      const usersArray = Array.from(uniqueUsers.values());
+      
+      return {
+        success: true,
+        data: usersArray,
+        count: usersArray.length,
+        source: 'attendance_data'
+      };
+    } catch (error) {
+      console.error('❌ Failed to get users from attendance:', error.message);
+      throw error;
+    }
+  }
+
   // Get attendance data from device
   async getAttendanceData() {
     if (!this.isConnected) {

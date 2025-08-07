@@ -42,6 +42,7 @@ import * as Yup from 'yup';
 import payslipService from '../../services/payslipService';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
+import { PageLoading, LoadingSpinner } from '../../components/LoadingSpinner';
 
 const steps = ['Employee Selection', 'Salary & Earnings', 'Deductions & Attendance', 'Review & Submit'];
 
@@ -359,9 +360,11 @@ const PayslipForm = () => {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <CircularProgress />
-      </Box>
+      <PageLoading 
+        message="Loading payslip form..." 
+        showSkeleton={true}
+        skeletonType="cards"
+      />
     );
   }
 

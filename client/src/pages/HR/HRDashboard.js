@@ -64,6 +64,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
+import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
 
 const HRDashboard = () => {
   const [stats, setStats] = useState({});
@@ -293,14 +294,14 @@ const HRDashboard = () => {
       return {
         experience: yearsOfService,
         salary: emp.salary || 0,
-        department: emp.department || 'General',
+        department: emp.placementDepartment?.name || 'General',
         performance: emp.performance?.rating || 3.5
       };
     });
 
     // Real Department salary analysis
     const departmentSalaryData = deptStats.map(dept => {
-      const deptEmployees = employees.filter(emp => emp.department === dept.name);
+      const deptEmployees = employees.filter(emp => emp.placementDepartment?.name === dept.name);
       const totalSalary = deptEmployees.reduce((sum, emp) => sum + (emp.salary || 0), 0);
       const avgSalary = deptEmployees.length > 0 ? totalSalary / deptEmployees.length : 0;
       
@@ -323,7 +324,7 @@ const HRDashboard = () => {
       return {
         employee: `${emp.firstName} ${emp.lastName}`,
         attendance: Math.round(attendancePercentage),
-        department: emp.department,
+        department: emp.placementDepartment?.name || 'General',
         salary: emp.salary || 0
       };
     }).filter(item => item.attendance > 0);
@@ -339,7 +340,7 @@ const HRDashboard = () => {
         sick: leaveBalance.sick || 0,
         personal: leaveBalance.personal || 0,
         total: totalLeave,
-        department: emp.department
+        department: emp.placementDepartment?.name || 'General'
       };
     });
 
@@ -388,7 +389,7 @@ const HRDashboard = () => {
       }
       
       // Fetch employees
-      const employeesResponse = await api.get('/hr/employees');
+      const employeesResponse = await api.get('/hr/employees?limit=1000');
       const employees = employeesResponse.data.data || [];
       
       // Fetch departments
@@ -433,7 +434,7 @@ const HRDashboard = () => {
       // Department statistics
       const deptStats = departments.map(dept => ({
         ...dept,
-        employeeCount: employees.filter(emp => emp.department === dept.name).length
+        employeeCount: employees.filter(emp => emp.placementDepartment?.name === dept.name).length
       }));
       
       setRecentEmployees(employees.slice(0, 5)); // Get 5 most recent
@@ -465,9 +466,11 @@ const HRDashboard = () => {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <CircularProgress />
-      </Box>
+      <PageLoading 
+        message="Loading HR dashboard..." 
+        showSkeleton={true}
+        skeletonType="cards"
+      />
     );
   }
 

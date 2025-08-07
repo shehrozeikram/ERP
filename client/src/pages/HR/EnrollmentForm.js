@@ -75,7 +75,7 @@ const EnrollmentForm = () => {
       setLoadingData(true);
       
       // Load employees
-      const employeesResponse = await api.get('/hr/employees');
+      const employeesResponse = await api.get('/hr/employees?limit=1000');
       setEmployees(employeesResponse.data.data || []);
       
       // Load all courses (including drafts for now)

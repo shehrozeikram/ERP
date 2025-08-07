@@ -39,6 +39,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/authService';
+import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 
 const EmployeeList = () => {
   const [employees, setEmployees] = useState([]);
@@ -56,7 +57,8 @@ const EmployeeList = () => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/hr/employees');
+      // Request all employees by setting a high limit
+      const response = await api.get('/hr/employees?limit=1000');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -85,24 +87,31 @@ const EmployeeList = () => {
     fetchDepartments();
   }, []);
 
+
+
   // Filter employees
   const filteredEmployees = employees.filter(employee => {
+    // Simple search - only search in name and employee ID
+    const searchLower = searchTerm.toLowerCase();
     const matchesSearch = 
-      employee.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.employeeId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.idCard?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.religion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.maritalStatus?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  employee.qualification?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            employee.bankName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            employee.spouseName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            employee.appointmentDate?.toLowerCase().includes(searchTerm.toLowerCase());
+      (employee.firstName || '').toLowerCase().includes(searchLower) ||
+      (employee.lastName || '').toLowerCase().includes(searchLower) ||
+      (employee.employeeId || '').toLowerCase().includes(searchLower);
     
-    const employeeDepartment = typeof employee.department === 'object' ? employee.department?.name : employee.department;
+    const employeeDepartment = typeof employee.placementDepartment === 'object' ? employee.placementDepartment?.name : employee.placementDepartment;
     const matchesDepartment = !departmentFilter || employeeDepartment === departmentFilter;
-    const matchesStatus = !statusFilter || employee.isActive === (statusFilter === 'active');
+    
+    // Handle status filter
+    let matchesStatus = true;
+    if (statusFilter) {
+      if (statusFilter === 'active') {
+        matchesStatus = employee.isActive === true;
+      } else if (statusFilter === 'inactive') {
+        matchesStatus = employee.isActive === false;
+      }
+    }
+
+
 
     return matchesSearch && matchesDepartment && matchesStatus;
   });
@@ -138,9 +147,11 @@ const EmployeeList = () => {
 
   if (loading) {
     return (
-      <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Typography>Loading employees...</Typography>
-      </Box>
+      <PageLoading 
+        message="Loading employees..." 
+        showSkeleton={true}
+        skeletonType="table"
+      />
     );
   }
 
@@ -168,6 +179,9 @@ const EmployeeList = () => {
               <Typography variant="h4">
                 {employees.length}
               </Typography>
+              <Typography variant="caption" color="textSecondary">
+                (Excluding deleted)
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -179,6 +193,9 @@ const EmployeeList = () => {
               </Typography>
               <Typography variant="h4">
                 {employees.filter(emp => emp.isActive).length}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                (Excluding deleted)
               </Typography>
             </CardContent>
           </Card>
@@ -208,6 +225,9 @@ const EmployeeList = () => {
                   return hireDate.getMonth() === now.getMonth() && 
                          hireDate.getFullYear() === now.getFullYear();
                 }).length}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                (Excluding deleted)
               </Typography>
             </CardContent>
           </Card>
@@ -274,8 +294,8 @@ const EmployeeList = () => {
                 }}
               >
                 <MenuItem value="">All Status</MenuItem>
-                <MenuItem value="active">Active</MenuItem>
-                <MenuItem value="inactive">Inactive</MenuItem>
+                <MenuItem value="active" sx={{ color: 'success.main' }}>Active</MenuItem>
+                <MenuItem value="inactive" sx={{ color: 'error.main', fontWeight: 'bold' }}>Inactive</MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -313,8 +333,7 @@ const EmployeeList = () => {
               <TableCell>Probation Period</TableCell>
               <TableCell>End of Probation</TableCell>
               <TableCell>Confirmation Date</TableCell>
-              <TableCell>Department</TableCell>
-              <TableCell>Position</TableCell>
+              <TableCell>Placement Info</TableCell>
               <TableCell>Email</TableCell>
               <TableCell>Phone</TableCell>
               <TableCell>Status</TableCell>
@@ -350,8 +369,19 @@ const EmployeeList = () => {
                 <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>
                 <TableCell>{employee.endOfProbationDate ? new Date(employee.endOfProbationDate).toLocaleDateString() : 'N/A'}</TableCell>
                 <TableCell>{employee.confirmationDate ? new Date(employee.confirmationDate).toLocaleDateString() : 'N/A'}</TableCell>
-                <TableCell>{typeof employee.department === 'object' ? employee.department?.name : employee.department}</TableCell>
-                <TableCell>{typeof employee.position === 'object' ? employee.position?.title : employee.position}</TableCell>
+                <TableCell>
+                  <Box>
+                    <Typography variant="caption" display="block">
+                      {employee.placementCompany?.name ? `Company: ${employee.placementCompany.name}` : 'Company: N/A'}
+                    </Typography>
+                    <Typography variant="caption" display="block">
+                      {employee.placementDepartment?.name ? `Dept: ${employee.placementDepartment.name}` : 'Dept: N/A'}
+                    </Typography>
+                    <Typography variant="caption" display="block">
+                      {employee.placementDesignation?.title ? `Designation: ${employee.placementDesignation.title}` : 'Designation: N/A'}
+                    </Typography>
+                  </Box>
+                </TableCell>
                 <TableCell>{employee.email}</TableCell>
                 <TableCell>{employee.phone}</TableCell>
                 <TableCell>

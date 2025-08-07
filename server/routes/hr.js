@@ -7,12 +7,18 @@ const Employee = require('../models/hr/Employee');
 const Department = require('../models/hr/Department');
 const Position = require('../models/hr/Position');
 const Bank = require('../models/hr/Bank');
+const Company = require('../models/hr/Company');
+const Project = require('../models/hr/Project');
+const Section = require('../models/hr/Section');
+const Designation = require('../models/hr/Designation');
+const Location = require('../models/hr/Location');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
 const { calculateMonthlyTax, calculateTaxableIncome, getTaxSlabInfo } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
+const Sector = require('../models/hr/Sector');
 
 const router = express.Router();
 
@@ -124,14 +130,20 @@ router.get('/employees',
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
-      limit = 10, 
+      limit = 1000, 
       department, 
       position, 
       status,
-      search 
+      search,
+      active 
     } = req.query;
 
-    const query = { isActive: true };
+    const query = { isDeleted: false }; // Return all non-deleted employees (both active and inactive)
+    
+    // Add active status filter if provided
+    if (active !== undefined) {
+      query.isActive = active === 'true';
+    }
 
     // Add filters
     if (department) query.department = department;
@@ -151,12 +163,13 @@ router.get('/employees',
       { spouseName: { $regex: search, $options: 'i' } },
       { appointmentDate: { $regex: search, $options: 'i' } },
       { 'placementCompany.name': { $regex: search, $options: 'i' } },
+      { 'placementSector.name': { $regex: search, $options: 'i' } },
       { 'placementProject.name': { $regex: search, $options: 'i' } },
       { 'placementDepartment.name': { $regex: search, $options: 'i' } },
       { 'placementSection.name': { $regex: search, $options: 'i' } },
       { 'placementDesignation.title': { $regex: search, $options: 'i' } },
       { 'oldDesignation.title': { $regex: search, $options: 'i' } },
-                      { 'placementLocation.name': { $regex: search, $options: 'i' } },
+      { 'placementLocation.name': { $regex: search, $options: 'i' } },
                 { 'address.city.name': { $regex: search, $options: 'i' } },
                 { 'address.state.name': { $regex: search, $options: 'i' } },
                 { 'address.country.name': { $regex: search, $options: 'i' } }
@@ -164,8 +177,15 @@ router.get('/employees',
     }
 
     const employees = await Employee.find(query)
-      .populate('department', 'name code')
-      .populate('position', 'title')
+      .populate('bankName', 'name type')
+      .populate('placementCompany', 'name code type')
+      .populate('placementSector', 'name code')
+      .populate('placementProject', 'name company')
+      .populate('placementDepartment', 'name code')
+      .populate('placementSection', 'name department')
+      .populate('placementDesignation', 'title level')
+      .populate('oldDesignation', 'title level')
+      .populate('placementLocation', 'name type')
       .populate('manager', 'firstName lastName employeeId')
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -202,8 +222,6 @@ router.post('/employees', [
   body('nationality').trim().notEmpty().withMessage('Nationality is required'),
   body('religion').isIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Buddhism', 'Judaism', 'Other', 'None']).withMessage('Valid religion is required'),
   body('maritalStatus').isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
-  body('department').notEmpty().withMessage('Department is required'),
-  body('position').notEmpty().withMessage('Position is required'),
   body('qualification').notEmpty().withMessage('Qualification is required'),
   body('bankName').notEmpty().withMessage('Bank name is required'),
   body('spouseName').custom((value, { req }) => {
@@ -244,10 +262,18 @@ router.post('/employees', [
       appointmentDate: new Date(req.body.appointmentDate)
     };
 
-    // Handle empty oldDesignation field
-    if (employeeData.oldDesignation === '') {
-      delete employeeData.oldDesignation;
-    }
+    // Handle empty or "add_new" placement fields
+    const placementFields = [
+      'placementCompany', 'placementSector', 'placementProject', 
+      'placementDepartment', 'placementSection', 'placementDesignation', 
+      'placementLocation', 'oldDesignation'
+    ];
+
+    placementFields.forEach(field => {
+      if (employeeData[field] === '' || employeeData[field] === 'add_new' || employeeData[field] === null || employeeData[field] === undefined) {
+        delete employeeData[field];
+      }
+    });
 
     const employee = new Employee(employeeData);
     await employee.save();
@@ -524,11 +550,10 @@ router.get('/employees/:id',
       });
     }
 
-    const employee = await Employee.findById(req.params.id)
-      .populate('department', 'name code')
-      .populate('position', 'title')
+    const employee = await Employee.findOne({ _id: req.params.id, isDeleted: false })
       .populate('bankName', 'name type')
-      .populate('placementCompany', 'name type')
+      .populate('placementCompany', 'name code type')
+      .populate('placementSector', 'name code')
       .populate('placementProject', 'name company')
       .populate('placementDepartment', 'name code')
       .populate('placementSection', 'name department')
@@ -569,8 +594,6 @@ router.put('/employees/:id', [
   body('nationality').optional().trim().notEmpty().withMessage('Nationality is required'),
   body('religion').optional().isIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Buddhism', 'Judaism', 'Other', 'None']).withMessage('Valid religion is required'),
   body('maritalStatus').optional().isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
-  body('department').optional().notEmpty().withMessage('Department is required'),
-  body('position').optional().notEmpty().withMessage('Position is required'),
   body('qualification').optional().notEmpty().withMessage('Qualification is required'),
   body('bankName').optional().notEmpty().withMessage('Bank name is required'),
   body('spouseName').optional().custom((value, { req }) => {
@@ -656,8 +679,8 @@ router.put('/employees/:id', [
       employeeData.appointmentDate = new Date(req.body.appointmentDate);
     }
 
-    const employee = await Employee.findByIdAndUpdate(
-      req.params.id,
+    const employee = await Employee.findOneAndUpdate(
+      { _id: req.params.id, isDeleted: false },
       employeeData,
       { new: true, runValidators: true }
     );
@@ -701,7 +724,7 @@ router.delete('/employees/:id',
 
     const employee = await Employee.findByIdAndUpdate(
       req.params.id,
-      { isActive: false, employmentStatus: 'Terminated' },
+      { isActive: false, employmentStatus: 'Terminated', isDeleted: true },
       { new: true }
     );
 
@@ -752,7 +775,9 @@ router.post('/employees/:id/update-payrolls', [
 // @route   GET /api/hr/departments
 // @desc    Get all departments
 // @access  Private
-router.get('/departments', asyncHandler(async (req, res) => {
+router.get('/departments', 
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
   const departments = await Department.find({ isActive: true })
     .populate('manager', 'firstName lastName employeeId')
     .populate('parentDepartment', 'name code');
@@ -761,6 +786,36 @@ router.get('/departments', asyncHandler(async (req, res) => {
       success: true,
       data: departments
     });
+}));
+
+// @route   GET /api/hr/departments/:id
+// @desc    Get department by ID
+// @access  Private
+router.get('/departments/:id', 
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid department ID format'
+    });
+  }
+
+  const department = await Department.findById(req.params.id)
+    .populate('manager', 'firstName lastName employeeId')
+    .populate('parentDepartment', 'name code');
+
+  if (!department) {
+    return res.status(404).json({
+      success: false,
+      message: 'Department not found'
+    });
+  }
+
+  res.json({
+    success: true,
+    data: department
+  });
 }));
 
 // @route   GET /api/hr/positions
@@ -777,10 +832,40 @@ router.get('/positions',
   })
 );
 
-// @route   GET /api/hr/positions/:departmentId
+// @route   GET /api/hr/positions/:id
+// @desc    Get position by ID
+// @access  Private (HR and Admin)
+router.get('/positions/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid position ID format'
+      });
+    }
+
+    const position = await Position.findById(req.params.id)
+      .populate('department', 'name code');
+
+    if (!position) {
+      return res.status(404).json({
+        success: false,
+        message: 'Position not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: position
+    });
+  })
+);
+
+// @route   GET /api/hr/positions/department/:departmentId
 // @desc    Get positions by department
 // @access  Private (HR and Admin)
-router.get('/positions/:departmentId', 
+router.get('/positions/department/:departmentId', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.departmentId)) {
@@ -1181,5 +1266,557 @@ router.post('/fbr-tax-slabs/calculate', [
     }
   });
 }));
+
+// ==================== SECTOR ROUTES ====================
+
+// @route   GET /api/hr/sectors
+// @desc    Get all sectors
+// @access  Private (HR and Admin)
+router.get('/sectors', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { company, search } = req.query;
+    
+    const query = { isActive: true };
+    
+    if (company) {
+      query.company = company;
+    }
+    
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    const sectors = await Sector.find(query)
+      .populate('company', 'name code')
+      .populate('manager', 'firstName lastName employeeId')
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: sectors
+    });
+  })
+);
+
+// @route   POST /api/hr/sectors
+// @desc    Create new sector
+// @access  Private (HR and Admin)
+router.post('/sectors', [
+  authorize('admin', 'hr_manager'),
+  body('name').trim().notEmpty().withMessage('Sector name is required'),
+  body('code').trim().notEmpty().withMessage('Sector code is required'),
+  body('company').notEmpty().withMessage('Company is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const sector = new Sector(req.body);
+    await sector.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Sector created successfully',
+      data: sector
+    });
+  })
+);
+
+// @route   GET /api/hr/sectors/:id
+// @desc    Get sector by ID
+// @access  Private (HR and Admin)
+router.get('/sectors/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const sector = await Sector.findById(req.params.id)
+      .populate('company', 'name code')
+      .populate('manager', 'firstName lastName employeeId');
+
+    if (!sector) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sector not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: sector
+    });
+  })
+);
+
+// @route   PUT /api/hr/sectors/:id
+// @desc    Update sector
+// @access  Private (HR and Admin)
+router.put('/sectors/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const sector = await Sector.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    ).populate('company', 'name code')
+     .populate('manager', 'firstName lastName employeeId');
+
+    if (!sector) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sector not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Sector updated successfully',
+      data: sector
+    });
+  })
+);
+
+// @route   DELETE /api/hr/sectors/:id
+// @desc    Delete sector
+// @access  Private (HR and Admin)
+router.delete('/sectors/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const sector = await Sector.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!sector) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sector not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Sector deleted successfully'
+    });
+  })
+);
+
+// ==================== COMPANY ROUTES ====================
+
+// @route   GET /api/hr/companies
+// @desc    Get all companies
+// @access  Private (HR and Admin)
+router.get('/companies', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { type, search } = req.query;
+    
+    const query = { isActive: true };
+    
+    if (type) {
+      query.type = type;
+    }
+    
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    const companies = await Company.find(query)
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: companies
+    });
+  })
+);
+
+// @route   POST /api/hr/companies
+// @desc    Create new company
+// @access  Private (HR and Admin)
+router.post('/companies', [
+  authorize('admin', 'hr_manager'),
+  body('name').trim().notEmpty().withMessage('Company name is required'),
+  body('code').trim().notEmpty().withMessage('Company code is required'),
+  body('type').optional().isIn(['Private Limited', 'Public Limited', 'Partnership', 'Sole Proprietorship', 'Government', 'NGO', 'Other']).withMessage('Valid type is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const company = new Company(req.body);
+    await company.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Company created successfully',
+      data: company
+    });
+  })
+);
+
+// @route   GET /api/hr/companies/:id
+// @desc    Get company by ID
+// @access  Private (HR and Admin)
+router.get('/companies/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const company = await Company.findById(req.params.id);
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: 'Company not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: company
+    });
+  })
+);
+
+// @route   PUT /api/hr/companies/:id
+// @desc    Update company
+// @access  Private (HR and Admin)
+router.put('/companies/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const company = await Company.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: 'Company not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Company updated successfully',
+      data: company
+    });
+  })
+);
+
+// @route   DELETE /api/hr/companies/:id
+// @desc    Delete company
+// @access  Private (HR and Admin)
+router.delete('/companies/:id', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const company = await Company.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        message: 'Company not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Company deleted successfully'
+    });
+  })
+);
+
+// ==================== PROJECT ROUTES ====================
+
+// @route   GET /api/hr/projects
+// @desc    Get all projects
+// @access  Private (HR and Admin)
+router.get('/projects', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { company, search } = req.query;
+    
+    const query = { isActive: true };
+    
+    if (company) {
+      query.company = company;
+    }
+    
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    const projects = await Project.find(query)
+      .populate('company', 'name code')
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: projects
+    });
+  })
+);
+
+// @route   POST /api/hr/projects
+// @desc    Create new project
+// @access  Private (HR and Admin)
+router.post('/projects', [
+  authorize('admin', 'hr_manager'),
+  body('name').trim().notEmpty().withMessage('Project name is required'),
+  body('code').trim().notEmpty().withMessage('Project code is required'),
+  body('company').notEmpty().withMessage('Company is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    // Add default startDate if not provided
+    const projectData = {
+      ...req.body,
+      startDate: req.body.startDate || new Date()
+    };
+
+    const project = new Project(projectData);
+    await project.save();
+
+    const populatedProject = await Project.findById(project._id)
+      .populate('company', 'name code');
+
+    res.status(201).json({
+      success: true,
+      message: 'Project created successfully',
+      data: populatedProject
+    });
+  })
+);
+
+// ==================== SECTION ROUTES ====================
+
+// @route   GET /api/hr/sections
+// @desc    Get all sections
+// @access  Private (HR and Admin)
+router.get('/sections', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { department, search } = req.query;
+    
+    const query = { isActive: true };
+    
+    if (department) {
+      query.department = department;
+    }
+    
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    const sections = await Section.find(query)
+      .populate('department', 'name code')
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: sections
+    });
+  })
+);
+
+// @route   POST /api/hr/sections
+// @desc    Create new section
+// @access  Private (HR and Admin)
+router.post('/sections', [
+  authorize('admin', 'hr_manager'),
+  body('name').trim().notEmpty().withMessage('Section name is required'),
+  body('code').trim().notEmpty().withMessage('Section code is required'),
+  body('department').notEmpty().withMessage('Department is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const section = new Section(req.body);
+    await section.save();
+
+    const populatedSection = await Section.findById(section._id)
+      .populate('department', 'name code');
+
+    res.status(201).json({
+      success: true,
+      message: 'Section created successfully',
+      data: populatedSection
+    });
+  })
+);
+
+// ==================== DESIGNATION ROUTES ====================
+
+// @route   GET /api/hr/designations
+// @desc    Get all designations
+// @access  Private (HR and Admin)
+router.get('/designations', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { section, search } = req.query;
+    
+    const query = { isActive: true };
+    
+    if (section) {
+      query.section = section;
+    }
+    
+    if (search) {
+      query.title = { $regex: search, $options: 'i' };
+    }
+
+    const designations = await Designation.find(query)
+      .populate('section', 'name department')
+      .sort({ title: 1 });
+
+    res.json({
+      success: true,
+      data: designations
+    });
+  })
+);
+
+// @route   POST /api/hr/designations
+// @desc    Create new designation
+// @access  Private (HR and Admin)
+router.post('/designations', [
+  authorize('admin', 'hr_manager'),
+  body('title').trim().notEmpty().withMessage('Designation title is required'),
+  body('level').optional().isIn(['Entry', 'Junior', 'Mid', 'Senior', 'Lead', 'Manager', 'Director', 'Executive']).withMessage('Valid level is required'),
+  body('section').notEmpty().withMessage('Section is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    // Get the section to find the department
+    const section = await Section.findById(req.body.section);
+    if (!section) {
+      return res.status(400).json({
+        success: false,
+        message: 'Section not found'
+      });
+    }
+
+    // Generate a unique code
+    const timestamp = Date.now();
+    const code = `${req.body.title.substring(0, 3).toUpperCase()}${timestamp.toString().slice(-3)}`;
+
+    const designationData = {
+      ...req.body,
+      code: code,
+      department: section.department
+    };
+
+    const designation = new Designation(designationData);
+    await designation.save();
+
+    const populatedDesignation = await Designation.findById(designation._id)
+      .populate('section', 'name department')
+      .populate('department', 'name code');
+
+    res.status(201).json({
+      success: true,
+      message: 'Designation created successfully',
+      data: populatedDesignation
+    });
+  })
+);
+
+// ==================== LOCATION ROUTES ====================
+
+// @route   GET /api/hr/locations
+// @desc    Get all locations
+// @access  Private (HR and Admin)
+router.get('/locations', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { type, search } = req.query;
+    
+    const query = { isActive: true };
+    
+    if (type) {
+      query.type = type;
+    }
+    
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+
+    const locations = await Location.find(query)
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: locations
+    });
+  })
+);
+
+// @route   POST /api/hr/locations
+// @desc    Create new location
+// @access  Private (HR and Admin)
+router.post('/locations', [
+  authorize('admin', 'hr_manager'),
+  body('name').trim().notEmpty().withMessage('Location name is required'),
+  body('type').optional().isIn(['Office', 'Branch', 'Site', 'Warehouse', 'Factory', 'Other']).withMessage('Valid type is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const location = new Location(req.body);
+    await location.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Location created successfully',
+      data: location
+    });
+  })
+);
 
 module.exports = router; 

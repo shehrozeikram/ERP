@@ -320,7 +320,7 @@ const PayrollDetail = () => {
                     ID: {payroll.employee?.employeeId}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    {payroll.employee?.department} • {payroll.employee?.position}
+                    {typeof payroll.employee?.department === 'object' ? payroll.employee?.department?.name : payroll.employee?.department || 'N/A'} • {payroll.employee?.position}
                   </Typography>
                 </Box>
               </Box>

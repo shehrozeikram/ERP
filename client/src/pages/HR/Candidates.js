@@ -60,6 +60,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import candidateService from '../../services/candidateService';
 import candidateApprovalService from '../../services/candidateApprovalService';
+import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
 
 const Candidates = () => {
   const theme = useTheme();
@@ -298,9 +299,11 @@ const Candidates = () => {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <CircularProgress />
-      </Box>
+      <PageLoading 
+        message="Loading candidates..." 
+        showSkeleton={true}
+        skeletonType="cards"
+      />
     );
   }
 

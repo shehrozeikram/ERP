@@ -1,44 +1,39 @@
 # Tax Calculation Structure
 
 ## Overview
-Updated the tax calculation system to properly handle the new salary structure according to FBR 2025-2026 rules where only medical allowance is tax-exempt and all other allowances are taxable.
+Updated the tax calculation system to properly handle the new salary structure according to Pakistan FBR 2025-2026 rules where 10% of the total gross amount is deducted as medical allowance (tax-exempt) and tax is calculated on the remaining amount.
 
 ## New Salary Structure
 
 ### Salary Breakdown:
-- **Basic Salary**: 66.66% of gross salary (**Taxable**)
-- **Medical Allowance**: 10% of gross salary (**Tax-Exempt**)
-- **House Rent Allowance**: 23.34% of gross salary (**Taxable**)
+- **Total Gross Amount**: Basic Salary + All Allowances
+- **Medical Allowance**: 10% of Total Gross Amount (**Tax-Exempt**)
+- **Taxable Income**: Total Gross Amount - Medical Allowance
 
 ### Tax Calculation Logic:
 ```
-Taxable Income = Basic Salary + House Rent Allowance + Conveyance Allowance + Meal Allowance + Other Allowances
-Tax-Exempt Income = Medical Allowance (Only)
+Total Gross Amount = Basic Salary + House Rent Allowance + Conveyance Allowance + Meal Allowance + Other Allowances + Medical Allowance
+Medical Allowance = 10% of Total Gross Amount (Tax-Exempt)
+Taxable Income = Total Gross Amount - Medical Allowance
 ```
 
 ## Tax Calculation Examples
 
-### Example 1: 100,000 PKR Gross Salary + 50,000 PKR Conveyance
-- **Basic Salary**: 66,660 PKR (66.66%) - **Taxable**
-- **Medical Allowance**: 10,000 PKR (10%) - **Tax-Exempt**
-- **House Rent Allowance**: 23,340 PKR (23.34%) - **Taxable**
-- **Conveyance Allowance**: 50,000 PKR - **Taxable**
-- **Total**: 150,000 PKR
-- **Taxable Income**: 140,000 PKR (66,660 + 23,340 + 50,000)
-- **Annual Taxable Income**: 1,680,000 PKR
-- **Monthly Tax**: 8,500 PKR (based on FBR tax slabs)
-- **Tax on Conveyance**: 3,036 PKR (35.7% of total tax)
+### Example 1: 100,000 PKR Basic Salary + 50,000 PKR Conveyance
+- **Total Gross Amount**: 100,000 + 50,000 = 150,000 PKR
+- **Medical Allowance**: 10% of 150,000 = 15,000 PKR (**Tax-Exempt**)
+- **Taxable Income**: 150,000 - 15,000 = 135,000 PKR
+- **Annual Taxable Income**: 1,620,000 PKR
+- **Monthly Tax**: 4,350 PKR (based on FBR tax slabs)
+- **Salary After Tax**: 145,650 PKR
 
-### Example 2: 200,000 PKR Gross Salary + Multiple Allowances
-- **Basic Salary**: 133,320 PKR (66.66%) - **Taxable**
-- **Medical Allowance**: 20,000 PKR (10%) - **Tax-Exempt**
-- **House Rent Allowance**: 46,680 PKR (23.34%) - **Taxable**
-- **Conveyance Allowance**: 30,000 PKR - **Taxable**
-- **Meal Allowance**: 15,000 PKR - **Taxable**
-- **Total**: 245,000 PKR
-- **Taxable Income**: 225,000 PKR (133,320 + 46,680 + 30,000 + 15,000)
-- **Annual Taxable Income**: 2,700,000 PKR
-- **Monthly Tax**: 25,417 PKR (based on FBR tax slabs)
+### Example 2: 200,000 PKR Basic Salary + Multiple Allowances
+- **Total Gross Amount**: 200,000 + 30,000 + 15,000 = 245,000 PKR
+- **Medical Allowance**: 10% of 245,000 = 24,500 PKR (**Tax-Exempt**)
+- **Taxable Income**: 245,000 - 24,500 = 220,500 PKR
+- **Annual Taxable Income**: 2,646,000 PKR
+- **Monthly Tax**: 24,500 PKR (based on FBR tax slabs)
+- **Salary After Tax**: 220,500 PKR
 
 ## Implementation Details
 
@@ -46,34 +41,38 @@ Tax-Exempt Income = Medical Allowance (Only)
 
 ```javascript
 function calculateTaxableIncome(salary) {
-  let taxableIncome = 0;
+  // Calculate total gross amount (basic + all allowances)
+  let totalGrossAmount = 0;
 
-  // Add basic salary (66.66% of gross - taxable)
+  // Add basic salary
   if (salary.basic) {
-    taxableIncome += salary.basic;
+    totalGrossAmount += salary.basic;
   }
 
-  // Add house rent allowance (23.34% of gross - taxable)
-  if (salary.allowances && salary.allowances.housing) {
-    taxableIncome += salary.allowances.housing;
-  }
-
-  // Add other allowances (all taxable except medical)
+  // Add all allowances
   if (salary.allowances) {
+    if (salary.allowances.housing) {
+      totalGrossAmount += salary.allowances.housing;
+    }
     if (salary.allowances.transport) {
-      taxableIncome += salary.allowances.transport;
+      totalGrossAmount += salary.allowances.transport;
     }
     if (salary.allowances.meal) {
-      taxableIncome += salary.allowances.meal;
+      totalGrossAmount += salary.allowances.meal;
     }
     if (salary.allowances.other) {
-      taxableIncome += salary.allowances.other;
+      totalGrossAmount += salary.allowances.other;
+    }
+    if (salary.allowances.medical) {
+      totalGrossAmount += salary.allowances.medical;
     }
   }
 
-  // Medical allowance (10% of gross) is tax-exempt, so we don't add it
-  // According to FBR 2025-2026: Only medical allowance is tax-exempt
-  // All other allowances (conveyance, meal, transport, etc.) are taxable
+  // Calculate medical allowance as 10% of total gross amount
+  const medicalAllowance = totalGrossAmount * 0.10; // 10% of total gross (tax-exempt)
+
+  // Calculate taxable income by deducting medical allowance
+  const taxableIncome = totalGrossAmount - medicalAllowance;
 
   return taxableIncome;
 }
@@ -83,18 +82,22 @@ function calculateTaxableIncome(salary) {
 
 ```javascript
 const calculateTaxInfo = async (basicSalary, allowances) => {
-  // Calculate taxable income based on new salary structure:
-  // - 66.66% Basic Salary (taxable)
-  // - 10% Medical Allowance (tax-exempt)
-  // - 23.34% House Rent Allowance (taxable)
-  // - Other Allowances (conveyance, meal, transport, etc.) are taxable
-  const taxableIncome = basicSalary + 
+  // Calculate taxable income based on Pakistan FBR 2025-2026 rules:
+  // - Calculate total gross amount (basic + all allowances)
+  // - Deduct 10% of total gross as medical allowance (tax-exempt)
+  // - Calculate tax on remaining amount
+  let totalGrossAmount = basicSalary + 
     (allowances?.housing || 0) + 
     (allowances?.transport || 0) + 
     (allowances?.meal || 0) + 
-    (allowances?.other || 0);
-  // Only medical allowance is tax-exempt according to FBR 2025-2026
-  // All other allowances are taxable
+    (allowances?.other || 0) + 
+    (allowances?.medical || 0);
+  
+  // Calculate medical allowance as 10% of total gross amount
+  const medicalAllowance = totalGrossAmount * 0.10; // 10% of total gross (tax-exempt)
+  
+  // Calculate taxable income by deducting medical allowance
+  const taxableIncome = totalGrossAmount - medicalAllowance;
 
   const annualTaxableIncome = taxableIncome * 12;
   // ... rest of calculation
@@ -111,7 +114,9 @@ When a gross salary is entered:
 
 ### 2. Taxable Income Calculation
 ```
-Taxable Income = Basic Salary + House Rent Allowance + Conveyance Allowance + Meal Allowance + Other Allowances
+Total Gross Amount = Basic Salary + House Rent Allowance + Conveyance Allowance + Meal Allowance + Other Allowances + Medical Allowance
+Medical Allowance = 10% of Total Gross Amount (Tax-Exempt)
+Taxable Income = Total Gross Amount - Medical Allowance
 ```
 
 ### 3. Tax Calculation
@@ -151,7 +156,7 @@ The system uses the FBR tax slabs stored in the database:
 
 ## Benefits of New Structure
 
-1. **Tax Compliance**: Properly excludes medical allowance from taxation
+1. **Tax Compliance**: Properly calculates medical allowance as 10% of total gross amount (tax-exempt)
 2. **Clear Separation**: Distinguishes between taxable and tax-exempt components
 3. **Accurate Calculation**: Uses FBR tax slabs for precise tax amounts
 4. **Transparency**: Clear breakdown of salary components and tax implications
@@ -172,11 +177,11 @@ The tax calculation has been tested with various salary levels and allowances:
 - Monthly Tax: 8,500 PKR
 - **Tax on Conveyance**: 3,036 PKR (35.7% of total tax)
 
-All calculations correctly include conveyance and other allowances in taxable income while excluding only medical allowance.
+All calculations correctly calculate total gross amount, deduct 10% as medical allowance (tax-exempt), and apply tax on the remaining amount.
 
 ## Important Notes
 
-1. **Medical Allowance**: Always tax-exempt regardless of amount (FBR 2025-2026)
+1. **Medical Allowance**: 10% of total gross amount is tax-exempt (FBR 2025-2026)
 2. **Basic Salary**: Always taxable (66.66% of gross)
 3. **House Rent Allowance**: Always taxable (23.34% of gross)
 4. **Conveyance Allowance**: Always taxable (FBR 2025-2026)
