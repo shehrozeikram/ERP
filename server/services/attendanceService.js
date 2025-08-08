@@ -449,14 +449,31 @@ class AttendanceService {
   // Sync ZKTeco attendance specifically
   async syncZKTecoAttendance(startDate, endDate) {
     try {
+      console.log('🔄 Starting ZKTeco attendance sync...');
+      
       await zktecoService.connect('splaza.nayatel.net', 4370);
+      console.log('✅ Connected to ZKTeco device');
       
       const attendanceData = await zktecoService.getAttendanceData();
       await zktecoService.disconnect();
+      console.log('🔌 Disconnected from ZKTeco device');
 
       if (!attendanceData.success || !attendanceData.data) {
-        return [];
+        console.log('❌ No attendance data received from device');
+        return {
+          success: false,
+          message: 'No attendance data received from device',
+          data: {
+            processed: 0,
+            created: 0,
+            updated: 0,
+            errors: 0,
+            errorDetails: []
+          }
+        };
       }
+
+      console.log(`📊 Found ${attendanceData.data.length} records from ZKTeco device`);
 
       // Group attendance records by employee and date
       const employeeAttendance = new Map();
@@ -482,14 +499,14 @@ class AttendanceService {
 
       console.log(`📊 Filtered ${validRecords.length} valid records out of ${attendanceData.data.length} total records`);
 
+      // Group records by employee and date
       validRecords.forEach(record => {
         try {
           const employeeId = record.uid || record.userId || record.deviceUserId;
-          // Process ZKTeco timestamp with proper timezone handling
           const rawTimestamp = record.timestamp || record.recordTime;
-          const timestamp = processZKTecoTimestamp(rawTimestamp);
+          const timestamp = new Date(rawTimestamp);
           
-          if (!timestamp) {
+          if (!timestamp || isNaN(timestamp.getTime())) {
             console.warn(`⚠️ Invalid timestamp for employee ${employeeId}: ${rawTimestamp}`);
             return;
           }
@@ -500,46 +517,174 @@ class AttendanceService {
           }); // YYYY-MM-DD format in Pakistan timezone
           const key = `${employeeId}-${dateKey}`;
           
-          console.log(`🕐 Processing: Employee ${employeeId}, Raw: ${rawTimestamp}, Processed: ${formatLocalDateTime(timestamp)}`);
-
-        if (!employeeAttendance.has(key)) {
-          employeeAttendance.set(key, {
-            employeeId,
-            date: timestamp,
-            checkInTime: null,
-            checkOutTime: null,
-            deviceId: 'ZKTeco Device',
-            method: 'Biometric',
-            location: 'Office'
-          });
-        }
-
-        const attendance = employeeAttendance.get(key);
-        
-        // Determine if this is check-in or check-out based on state
-        // State 1 typically means check-in, State 0 means check-out
-        if (record.state === 1 || record.state === 'IN') {
-          // Check-in
-          if (!attendance.checkInTime || timestamp < new Date(attendance.checkInTime)) {
-            attendance.checkInTime = timestamp;
+          if (!employeeAttendance.has(key)) {
+            employeeAttendance.set(key, {
+              employeeId,
+              date: timestamp,
+              checkInTime: null,
+              checkOutTime: null,
+              deviceId: 'ZKTeco Device',
+              method: 'Biometric',
+              location: 'Office',
+              times: []
+            });
           }
-        } else {
-          // Check-out
-          if (!attendance.checkOutTime || timestamp > new Date(attendance.checkOutTime)) {
-            attendance.checkOutTime = timestamp;
-          }
-        }
+
+          const attendance = employeeAttendance.get(key);
+          attendance.times.push(timestamp);
         } catch (error) {
           console.error(`Error processing attendance record for employee ${record.uid || record.userId}:`, error);
-          // Skip this record and continue with the next one
         }
       });
 
-      // Convert map to array
-      return Array.from(employeeAttendance.values());
+      // Process each employee's attendance
+      let processed = 0;
+      let created = 0;
+      let updated = 0;
+      let errors = 0;
+      const errorDetails = [];
+
+      for (const [key, attendanceData] of employeeAttendance) {
+        try {
+          // Sort times for this date
+          attendanceData.times.sort((a, b) => a - b);
+          
+          // First time is check-in, last time is check-out
+          const checkInTime = attendanceData.times[0];
+          const checkOutTime = attendanceData.times.length > 1 ? attendanceData.times[attendanceData.times.length - 1] : null;
+
+          // Find employee
+          const employee = await Employee.findOne({ 
+            $or: [
+              { employeeId: attendanceData.employeeId.toString() },
+              { employeeId: attendanceData.employeeId }
+            ],
+            isDeleted: false
+          });
+
+          if (!employee) {
+            console.warn(`⚠️ Employee not found: ${attendanceData.employeeId}`);
+            errors++;
+            errorDetails.push({
+              employeeId: attendanceData.employeeId,
+              error: 'Employee not found'
+            });
+            continue;
+          }
+
+          // Set date to start of day in Pakistan timezone
+          const attendanceDate = new Date(checkInTime);
+          attendanceDate.setHours(0, 0, 0, 0);
+
+          // Find existing attendance record for this employee and date
+          let attendance = await Attendance.findOne({
+            employee: employee._id,
+            date: {
+              $gte: attendanceDate,
+              $lt: new Date(attendanceDate.getTime() + 24 * 60 * 60 * 1000)
+            },
+            isActive: true
+          });
+
+          if (!attendance) {
+            // Create new attendance record
+            attendance = new Attendance({
+              employee: employee._id,
+              date: attendanceDate,
+              status: 'Present',
+              checkIn: {
+                time: checkInTime,
+                location: attendanceData.location,
+                method: attendanceData.method,
+                deviceId: attendanceData.deviceId
+              },
+              checkOut: checkOutTime ? {
+                time: checkOutTime,
+                location: attendanceData.location,
+                method: attendanceData.method,
+                deviceId: attendanceData.deviceId
+              } : {},
+              isActive: true
+            });
+
+            await attendance.save();
+            created++;
+            console.log(`✅ Created attendance for ${employee.firstName} ${employee.lastName} (${employee.employeeId}) - ${checkInTime.toLocaleString('en-US', { timeZone: 'Asia/Karachi' })}`);
+          } else {
+            // Update existing attendance record
+            let needsUpdate = false;
+
+            // Update check-in if earlier time found
+            if (!attendance.checkIn?.time || checkInTime < attendance.checkIn.time) {
+              attendance.checkIn = {
+                time: checkInTime,
+                location: attendanceData.location,
+                method: attendanceData.method,
+                deviceId: attendanceData.deviceId
+              };
+              needsUpdate = true;
+            }
+
+            // Update check-out if later time found
+            if (checkOutTime && (!attendance.checkOut?.time || checkOutTime > attendance.checkOut.time)) {
+              attendance.checkOut = {
+                time: checkOutTime,
+                location: attendanceData.location,
+                method: attendanceData.method,
+                deviceId: attendanceData.deviceId
+              };
+              needsUpdate = true;
+            }
+
+            if (needsUpdate) {
+              await attendance.save();
+              updated++;
+              console.log(`🔄 Updated attendance for ${employee.firstName} ${employee.lastName} (${employee.employeeId})`);
+            }
+          }
+
+          processed++;
+        } catch (error) {
+          console.error(`❌ Error processing attendance for employee ${attendanceData.employeeId}:`, error);
+          errors++;
+          errorDetails.push({
+            employeeId: attendanceData.employeeId,
+            error: error.message
+          });
+        }
+      }
+
+      console.log(`\n📊 ZKTeco sync completed:`);
+      console.log(`   Processed: ${processed} records`);
+      console.log(`   Created: ${created} new records`);
+      console.log(`   Updated: ${updated} existing records`);
+      console.log(`   Errors: ${errors} errors`);
+
+      return {
+        success: true,
+        message: 'ZKTeco attendance data synced successfully',
+        data: {
+          processed,
+          created,
+          updated,
+          errors,
+          errorDetails
+        }
+      };
+
     } catch (error) {
-      console.error('Error syncing ZKTeco attendance:', error);
-      throw error;
+      console.error('❌ Error syncing ZKTeco attendance:', error);
+      return {
+        success: false,
+        message: error.message,
+        data: {
+          processed: 0,
+          created: 0,
+          updated: 0,
+          errors: 1,
+          errorDetails: [{ error: error.message }]
+        }
+      };
     }
   }
 

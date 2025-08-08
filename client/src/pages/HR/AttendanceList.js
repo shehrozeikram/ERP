@@ -67,6 +67,7 @@ const AttendanceList = () => {
   const [biometricIntegrations, setBiometricIntegrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalRecords, setTotalRecords] = useState(0);
@@ -278,6 +279,9 @@ const AttendanceList = () => {
   const handleSyncZKTeco = async () => {
     try {
       setSyncLoading(true);
+      setError(null);
+      setSuccess(null);
+      
       const response = await api.post('/attendance/sync-zkteco', {
         startDate: syncDateRange.startDate,
         endDate: syncDateRange.endDate
@@ -285,15 +289,28 @@ const AttendanceList = () => {
 
       if (response.data.success) {
         setSyncDialogOpen(false);
+        
+        // Show success message with sync results
+        const { data } = response.data;
+        const message = `ZKTeco sync completed successfully! Processed: ${data.processed}, Created: ${data.created}, Updated: ${data.updated}, Errors: ${data.errors}`;
+        
+        // Update the attendance list
         fetchAttendance();
+        fetchStatistics();
+        
         // Show success message
+        setSuccess(message);
         setError(null);
+        
+        console.log('✅ ZKTeco sync completed:', data);
       } else {
-        setError('Failed to sync ZKTeco attendance');
+        setError(response.data.message || 'Failed to sync ZKTeco attendance');
+        setSuccess(null);
       }
     } catch (error) {
       console.error('Error syncing ZKTeco attendance:', error);
-      setError('Failed to sync ZKTeco attendance');
+      setError(error.response?.data?.message || 'Failed to sync ZKTeco attendance');
+      setSuccess(null);
     } finally {
       setSyncLoading(false);
     }
@@ -405,6 +422,12 @@ const AttendanceList = () => {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+          {success}
         </Alert>
       )}
 

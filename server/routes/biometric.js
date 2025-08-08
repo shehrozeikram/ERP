@@ -614,19 +614,22 @@ router.get('/zkteco/users', authMiddleware, async (req, res) => {
 });
 
 // Test ZKTeco connection
-router.post('/zkteco/test-connection', authMiddleware, async (req, res) => {
+router.get('/zkteco/test-connection', authMiddleware, async (req, res) => {
   try {
+    console.log('🔄 Testing ZKTeco connection...');
     const result = await zktecoService.testConnection('splaza.nayatel.net', [4370, 5200, 5000]);
     
+    console.log('✅ ZKTeco connection test completed successfully');
     res.json({
       success: true,
-      message: 'ZKTeco connection test completed',
+      message: 'ZKTeco connection test completed successfully',
       data: result
     });
   } catch (error) {
-    console.error('ZKTeco connection test error:', error);
+    console.error('❌ ZKTeco connection test error:', error);
     res.status(500).json({ 
       success: false,
+      message: 'Failed to test ZKTeco connection',
       error: error.message 
     });
   }

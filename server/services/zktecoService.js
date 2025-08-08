@@ -278,23 +278,23 @@ class ZKTecoService {
         const users = await this.getUsers();
         const attendance = await this.getAttendanceData();
         
-        results.push({
+        const result = {
           port,
           success: true,
           deviceInfo,
-          usersCount: users.count,
-          attendanceCount: attendance.count
-        });
+          usersCount: users.count || 0,
+          attendanceCount: attendance.count || 0
+        };
 
         // Disconnect and try next port
         await this.disconnect();
         
         console.log(`✅ Port ${port} works!`);
-        console.log(`   Users: ${users.count}`);
-        console.log(`   Attendance records: ${attendance.count}`);
+        console.log(`   Users: ${result.usersCount}`);
+        console.log(`   Attendance records: ${result.attendanceCount}`);
         
         // If we found a working port, return early
-        return results[results.length - 1];
+        return result;
         
       } catch (error) {
         console.log(`❌ Port ${port} failed: ${error.message}`);
@@ -315,7 +315,13 @@ class ZKTecoService {
       }
     }
 
-    return results;
+    // If all ports failed, return the last error
+    if (results.length > 0) {
+      const lastResult = results[results.length - 1];
+      throw new Error(`All ports failed. Last error (port ${lastResult.port}): ${lastResult.error}`);
+    }
+
+    throw new Error('No ports were tested');
   }
 }
 

@@ -353,7 +353,7 @@ const BiometricIntegration = () => {
     setZktecoLoading(true);
     clearZktecoUsers(); // Clear and hide users section
     try {
-      const response = await api.get('/biometric/zkteco/device-info');
+      const response = await api.get('/biometric/zkteco/info');
       setZktecoData(response.data);
       setSnackbar({
         open: true,
