@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -32,7 +32,8 @@ import {
   Switch,
   FormControlLabel,
   Tabs,
-  Tab
+  Tab,
+  Badge
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -49,7 +50,9 @@ import {
   Sync as SyncIcon,
   Fingerprint as BiometricIcon,
   Cancel as AbsentIcon,
-  Wifi as WifiIcon
+  Wifi as WifiIcon,
+  WifiOff as WifiOffIcon,
+  Notifications as NotificationIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -59,6 +62,100 @@ import api from '../../services/api';
 import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 import { formatAttendanceTime, formatLocalDate, isLateCheckIn, getTimeDifference } from '../../utils/timezoneHelper';
 import RealTimeAttendance from '../../components/RealTimeAttendance';
+
+// Global WebSocket singleton
+let globalWebSocket = null;
+let globalWebSocketListeners = new Set();
+
+// Global WebSocket manager
+const WebSocketManager = {
+  connect() {
+    if (globalWebSocket && globalWebSocket.readyState === WebSocket.OPEN) {
+      return Promise.resolve(true);
+    }
+    
+    if (globalWebSocket && globalWebSocket.readyState === WebSocket.CONNECTING) {
+      return new Promise((resolve) => {
+        const checkConnection = () => {
+          if (globalWebSocket && globalWebSocket.readyState === WebSocket.OPEN) {
+            resolve(true);
+          } else if (globalWebSocket && globalWebSocket.readyState === WebSocket.CONNECTING) {
+            setTimeout(checkConnection, 100);
+          } else {
+            resolve(false);
+          }
+        };
+        checkConnection();
+      });
+    }
+    
+    return new Promise((resolve) => {
+      const wsUrl = `ws://${window.location.hostname}:8080`;
+      console.log('🔌 Creating global WebSocket connection:', wsUrl);
+      
+      globalWebSocket = new WebSocket(wsUrl);
+      
+      globalWebSocket.onopen = () => {
+        console.log('✅ Global WebSocket connected');
+        resolve(true);
+      };
+      
+      globalWebSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📥 Global WebSocket received:', data);
+          
+          // Notify all listeners
+          globalWebSocketListeners.forEach(listener => {
+            try {
+              listener(data);
+            } catch (error) {
+              console.error('Error in WebSocket listener:', error);
+            }
+          });
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      };
+      
+      globalWebSocket.onclose = (event) => {
+        console.log('🔌 Global WebSocket disconnected:', event.code, event.reason);
+        globalWebSocket = null;
+        
+        // Auto-reconnect after 5 seconds
+        setTimeout(() => {
+          if (globalWebSocketListeners.size > 0) {
+            WebSocketManager.connect();
+          }
+        }, 5000);
+      };
+      
+      globalWebSocket.onerror = (error) => {
+        console.error('❌ Global WebSocket error:', error);
+        resolve(false);
+      };
+    });
+  },
+  
+  disconnect() {
+    if (globalWebSocket) {
+      globalWebSocket.close();
+      globalWebSocket = null;
+    }
+    globalWebSocketListeners.clear();
+  },
+  
+  addListener(listener) {
+    globalWebSocketListeners.add(listener);
+    return () => {
+      globalWebSocketListeners.delete(listener);
+    };
+  },
+  
+  isConnected() {
+    return globalWebSocket && globalWebSocket.readyState === WebSocket.OPEN;
+  }
+};
 
 const AttendanceList = () => {
   const [attendance, setAttendance] = useState([]);
@@ -97,17 +194,216 @@ const AttendanceList = () => {
     endDate: new Date()
   });
   const [activeTab, setActiveTab] = useState(0);
+  const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [realTimeError, setRealTimeError] = useState(null);
+  const removeListenerRef = useRef(null);
   const navigate = useNavigate();
+
+  // Handle real-time attendance updates
+  const handleRealTimeAttendanceUpdate = (attendanceData) => {
+    try {
+      console.log('🔄 Processing real-time attendance update:', attendanceData);
+      
+      // Show notification
+      showRealTimeNotification(attendanceData);
+      
+      // Update the attendance list with new data
+      setAttendance(prevAttendance => {
+        const updatedAttendance = [...prevAttendance];
+        
+        // Find if this employee already has an attendance record for today
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+        const existingIndex = updatedAttendance.findIndex(record => {
+          const recordDate = new Date(record.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+          return record.employee?.employeeId === attendanceData.employeeId && recordDate === today;
+        });
+        
+        if (existingIndex >= 0) {
+          // Update existing record
+          const existingRecord = updatedAttendance[existingIndex];
+          if (attendanceData.isCheckIn) {
+            existingRecord.checkIn = {
+              time: new Date(attendanceData.timestamp),
+              location: 'ZKTeco Device',
+              method: 'Biometric'
+            };
+          } else {
+            existingRecord.checkOut = {
+              time: new Date(attendanceData.timestamp),
+              location: 'ZKTeco Device',
+              method: 'Biometric'
+            };
+          }
+          updatedAttendance[existingIndex] = { ...existingRecord };
+        } else {
+          // Create new record
+          const newRecord = {
+            _id: `realtime_${Date.now()}`,
+            employee: {
+              _id: attendanceData.employeeId,
+              firstName: attendanceData.employeeName?.split(' ')[0] || '',
+              lastName: attendanceData.employeeName?.split(' ').slice(1).join(' ') || '',
+              employeeId: attendanceData.employeeId
+            },
+            date: new Date(attendanceData.timestamp),
+            checkIn: attendanceData.isCheckIn ? {
+              time: new Date(attendanceData.timestamp),
+              location: 'ZKTeco Device',
+              method: 'Biometric'
+            } : null,
+            checkOut: !attendanceData.isCheckIn ? {
+              time: new Date(attendanceData.timestamp),
+              location: 'ZKTeco Device',
+              method: 'Biometric'
+            } : null,
+            status: 'Present',
+            isActive: true
+          };
+          updatedAttendance.unshift(newRecord);
+        }
+        
+        return updatedAttendance;
+      });
+      
+      // Update statistics
+      fetchStatistics();
+      
+      // Update last update timestamp
+      setLastUpdate(new Date());
+      
+    } catch (error) {
+      console.error('❌ Error processing real-time attendance update:', error);
+    }
+  };
+
+  // Show notification for real-time updates
+  const showRealTimeNotification = (attendanceData) => {
+    const action = attendanceData.isCheckIn ? 'checked in' : 'checked out';
+    const time = new Date(attendanceData.timestamp).toLocaleTimeString();
+    const message = `${attendanceData.employeeName} ${action} at ${time}`;
+    
+    // Browser notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Attendance Update', {
+        body: message,
+        icon: '/favicon.ico',
+        badge: '/favicon.ico'
+      });
+    }
+    
+    // Console log for debugging
+    console.log(`🔔 Real-time notification: ${message}`);
+  };
+
+  // Initialize real-time connection
+  const initializeRealTime = async () => {
+    if (!isRealTimeEnabled || activeTab !== 0) return;
+    
+    try {
+      console.log('🔍 Initializing real-time connection...');
+      
+      // Check if ZKTeco Push service is running
+      const response = await api.get('/zkteco-push/status');
+      const isServiceRunning = response.data.success && response.data.data.isRunning;
+      
+      if (!isServiceRunning) {
+        console.log('🔄 ZKTeco Push service not running, attempting to start...');
+        const startResponse = await api.post('/zkteco-push/start');
+        if (!startResponse.data.success) {
+          setRealTimeError('Failed to start ZKTeco Push service');
+          return;
+        }
+        
+        // Wait for service to start
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // Connect to global WebSocket
+      const connected = await WebSocketManager.connect();
+      if (connected) {
+        setIsConnected(true);
+        setConnectionStatus('connected');
+        setRealTimeError(null);
+        
+        // Add listener for real-time updates
+        removeListenerRef.current = WebSocketManager.addListener((data) => {
+          if (data.type === 'attendance') {
+            handleRealTimeAttendanceUpdate(data.data);
+          } else if (data.type === 'connection') {
+            console.log('🔗 WebSocket connection confirmed:', data.message);
+          }
+        });
+        
+        console.log('✅ Real-time connection initialized successfully');
+      } else {
+        setRealTimeError('Failed to connect to real-time service');
+        setConnectionStatus('error');
+      }
+    } catch (error) {
+      console.error('❌ Error initializing real-time:', error);
+      setRealTimeError('Failed to initialize real-time connection');
+      setConnectionStatus('error');
+    }
+  };
 
   useEffect(() => {
     fetchAttendance();
     fetchStatistics();
-  }, [page, rowsPerPage, filters]);
-
-  useEffect(() => {
     fetchEmployees();
     fetchDepartments();
     fetchBiometricIntegrations();
+  }, [page, rowsPerPage, filters]);
+
+  // Real-time connection management
+  useEffect(() => {
+    if (isRealTimeEnabled && activeTab === 0) {
+      initializeRealTime();
+    } else {
+      // Remove listener but don't disconnect global WebSocket
+      if (removeListenerRef.current) {
+        removeListenerRef.current();
+        removeListenerRef.current = null;
+      }
+      setIsConnected(false);
+      setConnectionStatus('disconnected');
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (removeListenerRef.current) {
+        removeListenerRef.current();
+        removeListenerRef.current = null;
+      }
+    };
+  }, [isRealTimeEnabled, activeTab]);
+
+  // Check connection status periodically
+  useEffect(() => {
+    if (isRealTimeEnabled && activeTab === 0) {
+      const checkConnection = () => {
+        const connected = WebSocketManager.isConnected();
+        setIsConnected(connected);
+        setConnectionStatus(connected ? 'connected' : 'disconnected');
+      };
+      
+      // Check immediately
+      checkConnection();
+      
+      // Check every 5 seconds
+      const interval = setInterval(checkConnection, 5000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [isRealTimeEnabled, activeTab]);
+
+  // Request notification permission
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
   }, []);
 
   const fetchAttendance = async () => {
@@ -392,15 +688,41 @@ const AttendanceList = () => {
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h4" component="h1">
-            Attendance Management
-          </Typography>
-          <Typography variant="subtitle1" color="textSecondary">
-            Latest attendance records per employee
-          </Typography>
-        </Box>
-        <Box>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Attendance Management
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Real-time Status Indicator */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={isRealTimeEnabled}
+                  onChange={(e) => setIsRealTimeEnabled(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="Real-time"
+            />
+            <Tooltip title={isConnected ? 'Connected to real-time service' : 'Disconnected from real-time service'}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {isConnected ? (
+                  <WifiIcon color="success" />
+                ) : (
+                  <WifiOffIcon color="error" />
+                )}
+                <Typography variant="caption" color={isConnected ? 'success.main' : 'error.main'}>
+                  {isConnected ? 'Live' : 'Offline'}
+                </Typography>
+              </Box>
+            </Tooltip>
+            {lastUpdate && (
+              <Typography variant="caption" color="textSecondary">
+                Last: {lastUpdate.toLocaleTimeString()}
+              </Typography>
+            )}
+          </Box>
+          
           <Button
             variant="outlined"
             startIcon={<SyncIcon />}
@@ -428,6 +750,60 @@ const AttendanceList = () => {
       {success && (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
           {success}
+        </Alert>
+      )}
+
+      {/* Real-time Status Alerts */}
+      {realTimeError && (
+        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setRealTimeError(null)}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WifiOffIcon />
+            <Typography>
+              Real-time connection issue: {realTimeError}
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={async () => {
+                setRealTimeError(null);
+                await initializeRealTime();
+              }}
+              sx={{ ml: 2 }}
+            >
+              Retry Connection
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={async () => {
+                setRealTimeError(null);
+                try {
+                  const response = await api.post('/zkteco-push/start');
+                  if (response.data.success) {
+                    await initializeRealTime();
+                  } else {
+                    setRealTimeError('Failed to start ZKTeco Push service manually.');
+                  }
+                } catch (error) {
+                  setRealTimeError('Failed to start ZKTeco Push service manually.');
+                }
+              }}
+              sx={{ ml: 1 }}
+            >
+              Start Service
+            </Button>
+          </Box>
+        </Alert>
+      )}
+
+      {isConnected && (
+        <Alert severity="info" sx={{ mb: 2 }} onClose={() => {}}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WifiIcon />
+            <Typography>
+              Real-time attendance is active. New check-ins/outs will appear automatically.
+            </Typography>
+          </Box>
         </Alert>
       )}
 
@@ -523,7 +899,17 @@ const AttendanceList = () => {
       {/* Tabs */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab label="Attendance Records" icon={<CalendarToday />} />
+          <Tab 
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CalendarToday />
+                <Typography>Attendance Records</Typography>
+                {isRealTimeEnabled && isConnected && (
+                  <Badge color="success" variant="dot" />
+                )}
+              </Box>
+            } 
+          />
           <Tab label="Real-Time Attendance" icon={<WifiIcon />} />
         </Tabs>
       </Box>
@@ -612,22 +998,40 @@ const AttendanceList = () => {
           </TableHead>
           <TableBody>
             {attendance.map((record) => (
-              <TableRow key={record._id} hover>
+              <TableRow 
+                key={record._id} 
+                hover
+                sx={{
+                  ...(record._id?.startsWith('realtime_') && {
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(76, 175, 80, 0.2)',
+                    }
+                  })
+                }}
+              >
                 <TableCell>
-                  <Box>
-                    <Typography variant="body2" fontWeight="bold">
-                      {record.employee?.firstName} {record.employee?.lastName}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      {record.employee?.employeeId}
-                    </Typography>
-                    {record.employee?.department && (
-                      <Typography variant="caption" color="textSecondary" display="block">
-                        {typeof record.employee.department === 'string' 
-                          ? record.employee.department 
-                          : record.employee.department?.name || 'N/A'
-                        }
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box>
+                      <Typography variant="body2" fontWeight="bold">
+                        {record.employee?.firstName} {record.employee?.lastName}
                       </Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        {record.employee?.employeeId}
+                      </Typography>
+                      {record.employee?.department && (
+                        <Typography variant="caption" color="textSecondary" display="block">
+                          {typeof record.employee.department === 'string' 
+                            ? record.employee.department 
+                            : record.employee.department?.name || 'N/A'
+                          }
+                        </Typography>
+                      )}
+                    </Box>
+                    {record._id?.startsWith('realtime_') && (
+                      <Tooltip title="Real-time update">
+                        <Badge color="success" variant="dot" />
+                      </Tooltip>
                     )}
                   </Box>
                 </TableCell>

@@ -98,10 +98,14 @@ class ZKTecoPushService {
       });
 
       // Start WebSocket server for real-time updates
-      this.wss = new WebSocket.Server({ server: this.pushServer });
+      this.wss = new WebSocket.Server({ 
+        server: this.pushServer,
+        clientTracking: true,
+        perMessageDeflate: false
+      });
       
-      this.wss.on('connection', (ws) => {
-        console.log('🔌 New WebSocket client connected');
+      this.wss.on('connection', (ws, req) => {
+        console.log('🔌 New WebSocket client connected from:', req.socket.remoteAddress);
         this.clients.add(ws);
 
         // Send current status
@@ -120,6 +124,10 @@ class ZKTecoPushService {
           console.error('❌ WebSocket error:', error);
           this.clients.delete(ws);
         });
+      });
+
+      this.wss.on('error', (error) => {
+        console.error('❌ WebSocket server error:', error);
       });
 
       this.isRunning = true;
