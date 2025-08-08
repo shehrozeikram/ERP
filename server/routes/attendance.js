@@ -3,9 +3,10 @@ const router = express.Router();
 const Attendance = require('../models/hr/Attendance');
 const Employee = require('../models/hr/Employee');
 const { authMiddleware } = require('../middleware/auth');
-const errorHandler = require('../middleware/errorHandler');
+const { errorHandler } = require('../middleware/errorHandler');
 const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
+const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
 
 // Get all attendance records with pagination and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -293,6 +294,180 @@ router.get('/department/:department', authMiddleware, async (req, res) => {
       date: attendanceDate
     });
   } catch (error) {
+    errorHandler(error, req, res);
+  }
+});
+
+// Process and save all biometric data to attendance database
+router.post('/process-biometric-data', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔄 Processing all biometric data to attendance database...');
+    
+    // Connect to ZKTeco device and get data
+    await zktecoService.connect('splaza.nayatel.net', 4370);
+    const rawData = await zktecoService.getAttendanceData();
+    await zktecoService.disconnect();
+    
+    if (!rawData.success || !rawData.data || rawData.data.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No attendance data found on biometric device',
+        data: {
+          processed: 0,
+          created: 0,
+          updated: 0,
+          errors: 0
+        }
+      });
+    }
+
+    // Filter out invalid records first
+    const validRecords = rawData.data.filter(record => {
+      const employeeId = record.uid || record.userId || record.deviceUserId;
+      const timestamp = record.timestamp || record.recordTime;
+      
+      if (!employeeId || !timestamp || timestamp === undefined) {
+        return false;
+      }
+      
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return false;
+      }
+      
+      return true;
+    });
+
+    console.log(`📊 Filtered ${validRecords.length} valid records out of ${rawData.data.length} total records`);
+
+    // Process each record
+    let processed = 0;
+    let created = 0;
+    let updated = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    for (const record of validRecords) {
+      try {
+        const employeeId = record.uid || record.userId || record.deviceUserId;
+        const timestamp = new Date(record.timestamp || record.recordTime);
+        
+        // Find employee by employeeId
+        const employee = await Employee.findOne({ employeeId: employeeId.toString() });
+        
+        if (!employee) {
+          errorDetails.push({
+            employeeId,
+            timestamp: record.timestamp || record.recordTime,
+            error: 'Employee not found in database'
+          });
+          errors++;
+          continue;
+        }
+
+        // Get date (without time) for grouping
+        const attendanceDate = new Date(timestamp);
+        attendanceDate.setHours(0, 0, 0, 0);
+
+        // Find existing attendance record for this employee and date
+        let attendance = await Attendance.findOne({
+          employee: employee._id,
+          date: {
+            $gte: attendanceDate,
+            $lt: new Date(attendanceDate.getTime() + 24 * 60 * 60 * 1000)
+          },
+          isActive: true
+        });
+
+        const isCheckIn = record.state === 1 || record.state === '1' || record.state === 'IN';
+        
+        if (!attendance) {
+          // Create new attendance record
+          attendance = new Attendance({
+            employee: employee._id,
+            date: attendanceDate,
+            status: 'Present',
+            isActive: true,
+            createdBy: req.user.id
+          });
+
+          // Set check-in or check-out
+          if (isCheckIn) {
+            attendance.checkIn = {
+              time: timestamp,
+              location: 'Biometric Device',
+              method: 'Biometric'
+            };
+          } else {
+            attendance.checkOut = {
+              time: timestamp,
+              location: 'Biometric Device',
+              method: 'Biometric'
+            };
+          }
+
+          await attendance.save();
+          created++;
+        } else {
+          // Update existing attendance record
+          let needsUpdate = false;
+
+          if (isCheckIn) {
+            if (!attendance.checkIn || !attendance.checkIn.time || timestamp < attendance.checkIn.time) {
+              attendance.checkIn = {
+                time: timestamp,
+                location: 'Biometric Device',
+                method: 'Biometric'
+              };
+              needsUpdate = true;
+            }
+          } else {
+            if (!attendance.checkOut || !attendance.checkOut.time || timestamp > attendance.checkOut.time) {
+              attendance.checkOut = {
+                time: timestamp,
+                location: 'Biometric Device',
+                method: 'Biometric'
+              };
+              needsUpdate = true;
+            }
+          }
+
+          if (needsUpdate) {
+            attendance.updatedBy = req.user.id;
+            await attendance.save();
+            updated++;
+          }
+        }
+
+        processed++;
+      } catch (error) {
+        console.error(`❌ Error processing record for employee ${record.uid || record.userId || record.deviceUserId}:`, error.message);
+        errorDetails.push({
+          employeeId: record.uid || record.userId || record.deviceUserId,
+          timestamp: record.timestamp || record.recordTime,
+          error: error.message
+        });
+        errors++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Biometric data processing completed successfully',
+      data: {
+        totalRawRecords: rawData.data.length,
+        validRecords: validRecords.length,
+        processed,
+        created,
+        updated,
+        errors,
+        errorDetails: errorDetails.slice(0, 10), // Limit error details in response
+        summary: `Processed ${processed} records, created ${created} new attendance records, updated ${updated} existing records`
+      }
+    });
+
+  } catch (error) {
+    console.error('Error processing biometric data:', error);
     errorHandler(error, req, res);
   }
 });

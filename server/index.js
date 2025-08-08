@@ -46,6 +46,10 @@ const publicApplicationRoutes = require('./routes/publicApplications');
 const courseRoutes = require('./routes/courses');
 const enrollmentRoutes = require('./routes/enrollments');
 const trainingProgramRoutes = require('./routes/trainingPrograms');
+const zktecoPushRoutes = require('./routes/zktecoPush');
+
+// Import services
+const scheduledSyncService = require('./services/scheduledSyncService');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -144,6 +148,7 @@ app.use('/api/applications', authMiddleware, applicationRoutes);
 app.use('/api/courses', authMiddleware, courseRoutes);
 app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
+app.use('/api/zkteco-push', zktecoPushRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
@@ -158,23 +163,34 @@ app.use('*', (req, res) => {
 
 const PORT = process.env.PORT || 5001;
 
-app.listen(PORT, () => {
+// Scheduled Sync Service is already initialized as singleton
+
+app.listen(PORT, async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV}`);
   console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
+  
+  // Initialize scheduled syncs after server starts
+  try {
+    await scheduledSyncService.initializeScheduledSyncs();
+  } catch (error) {
+    console.error('⚠️ Failed to initialize scheduled syncs:', error);
+  }
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
+  await scheduledSyncService.stopAllScheduledSyncs();
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');
     process.exit(0);
   });
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully');
+  await scheduledSyncService.stopAllScheduledSyncs();
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');
     process.exit(0);

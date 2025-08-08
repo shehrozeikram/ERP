@@ -30,7 +30,9 @@ import {
   CardContent,
   Grid,
   Switch,
-  FormControlLabel
+  FormControlLabel,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -46,7 +48,8 @@ import {
   Work,
   Sync as SyncIcon,
   Fingerprint as BiometricIcon,
-  Cancel as AbsentIcon
+  Cancel as AbsentIcon,
+  Wifi as WifiIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -54,6 +57,8 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
+import { formatAttendanceTime, formatLocalDate, isLateCheckIn, getTimeDifference } from '../../utils/timezoneHelper';
+import RealTimeAttendance from '../../components/RealTimeAttendance';
 
 const AttendanceList = () => {
   const [attendance, setAttendance] = useState([]);
@@ -90,6 +95,7 @@ const AttendanceList = () => {
     startDate: new Date(new Date().setDate(new Date().getDate() - 1)),
     endDate: new Date()
   });
+  const [activeTab, setActiveTab] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -311,20 +317,11 @@ const AttendanceList = () => {
   };
 
   const formatTime = (time) => {
-    if (!time) return 'N/A';
-    return new Date(time).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    return formatAttendanceTime(time);
   };
 
   const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    return formatLocalDate(date);
   };
 
   const calculateWorkHours = (checkInTime, checkOutTime) => {
@@ -344,6 +341,13 @@ const AttendanceList = () => {
     
     // Calculate from check-in/check-out times if workHours not set
     const calculatedHours = calculateWorkHours(record.checkIn?.time, record.checkOut?.time);
+    
+    // Also show as time difference for better readability
+    if (record.checkIn?.time && record.checkOut?.time) {
+      const timeDiff = getTimeDifference(record.checkIn.time, record.checkOut.time);
+      return calculatedHours > 0 ? `${calculatedHours} hrs (${timeDiff})` : timeDiff;
+    }
+    
     return calculatedHours > 0 ? `${calculatedHours} hrs` : 'N/A';
   };
 
@@ -352,15 +356,9 @@ const AttendanceList = () => {
       return record.status;
     }
 
-    // Calculate status based on check-in time if not already set
+    // Calculate status based on check-in time in Pakistan timezone
     if (record.checkIn?.time) {
-      const checkInTime = new Date(record.checkIn.time);
-      const checkInHour = checkInTime.getHours();
-      const checkInMinute = checkInTime.getMinutes();
-      const totalMinutes = checkInHour * 60 + checkInMinute;
-
-      // Consider late if check-in is after 9:30 AM (570 minutes)
-      if (totalMinutes > 570) {
+      if (isLateCheckIn(record.checkIn.time)) {
         return 'Late';
       } else {
         return 'Present';
@@ -498,6 +496,18 @@ const AttendanceList = () => {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Tabs */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
+          <Tab label="Attendance Records" icon={<CalendarToday />} />
+          <Tab label="Real-Time Attendance" icon={<WifiIcon />} />
+        </Tabs>
+      </Box>
+
+      {/* Tab Content */}
+      {activeTab === 0 && (
+        <Box>
 
       {/* Filters */}
       <Card sx={{ mb: 3 }}>
@@ -703,6 +713,8 @@ const AttendanceList = () => {
           onRowsPerPageChange={handleRowsPerPageChange}
         />
       </TableContainer>
+        </Box>
+      )}
 
       {/* Sync Dialog */}
       <Dialog open={syncDialogOpen} onClose={() => setSyncDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -784,6 +796,11 @@ const AttendanceList = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Real-time Attendance Tab */}
+      {activeTab === 1 && (
+        <RealTimeAttendance />
+      )}
     </Box>
   );
 };

@@ -4,6 +4,7 @@ const Department = require('../models/hr/Department');
 const Designation = require('../models/hr/Designation');
 const BiometricIntegration = require('../models/hr/BiometricIntegration');
 const zktecoService = require('./zktecoService');
+const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
 const mongoose = require('mongoose');
 
 class AttendanceService {
@@ -50,13 +51,13 @@ class AttendanceService {
           $lte: new Date(endDate)
         };
       } else {
-        // Default to today's records if no date range is specified
+        // Default to last 30 days if no date range is specified to show more data
         const today = new Date();
-        const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+        const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
+        const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
         query.date = {
-          $gte: startOfDay,
-          $lte: endOfDay
+          $gte: thirtyDaysAgo,
+          $lte: endOfToday
         };
       }
 
@@ -101,15 +102,18 @@ class AttendanceService {
         });
       }
 
-      // If latestOnly is true, get only the latest record per employee
+      // If latestOnly is true, get only the latest record per employee per day
       if (latestOnly) {
         pipeline.push(
           {
-            $sort: { date: -1 } // Sort by date descending
+            $sort: { date: -1, 'checkIn.time': -1 } // Sort by date descending, then by check-in time
           },
           {
             $group: {
-              _id: '$employee',
+              _id: {
+                employee: '$employee',
+                date: { $dateToString: { format: "%Y-%m-%d", date: "$date" } }
+              },
               latestRecord: { $first: '$$ROOT' }
             }
           },
@@ -197,11 +201,14 @@ class AttendanceService {
 
         totalPipeline.push(
           {
-            $sort: { date: -1 }
+            $sort: { date: -1, 'checkIn.time': -1 }
           },
           {
             $group: {
-              _id: '$employee'
+              _id: {
+                employee: '$employee',
+                date: { $dateToString: { format: "%Y-%m-%d", date: "$date" } }
+              }
             }
           },
           {
@@ -454,11 +461,46 @@ class AttendanceService {
       // Group attendance records by employee and date
       const employeeAttendance = new Map();
 
-      attendanceData.data.forEach(record => {
-        const employeeId = record.uid || record.userId;
-        const timestamp = new Date(record.timestamp);
-        const dateKey = timestamp.toISOString().split('T')[0]; // YYYY-MM-DD format
-        const key = `${employeeId}-${dateKey}`;
+      // Filter out invalid records first
+      const validRecords = attendanceData.data.filter(record => {
+        const employeeId = record.uid || record.userId || record.deviceUserId;
+        const timestamp = record.timestamp || record.recordTime;
+        
+        // Skip records with no employee ID or timestamp
+        if (!employeeId || !timestamp || timestamp === undefined) {
+          return false;
+        }
+        
+        // Check if timestamp can be converted to valid date
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) {
+          return false;
+        }
+        
+        return true;
+      });
+
+      console.log(`📊 Filtered ${validRecords.length} valid records out of ${attendanceData.data.length} total records`);
+
+      validRecords.forEach(record => {
+        try {
+          const employeeId = record.uid || record.userId || record.deviceUserId;
+          // Process ZKTeco timestamp with proper timezone handling
+          const rawTimestamp = record.timestamp || record.recordTime;
+          const timestamp = processZKTecoTimestamp(rawTimestamp);
+          
+          if (!timestamp) {
+            console.warn(`⚠️ Invalid timestamp for employee ${employeeId}: ${rawTimestamp}`);
+            return;
+          }
+          
+          // Use Pakistan timezone for date key generation
+          const dateKey = timestamp.toLocaleDateString('en-CA', { 
+            timeZone: 'Asia/Karachi' 
+          }); // YYYY-MM-DD format in Pakistan timezone
+          const key = `${employeeId}-${dateKey}`;
+          
+          console.log(`🕐 Processing: Employee ${employeeId}, Raw: ${rawTimestamp}, Processed: ${formatLocalDateTime(timestamp)}`);
 
         if (!employeeAttendance.has(key)) {
           employeeAttendance.set(key, {
@@ -486,6 +528,10 @@ class AttendanceService {
           if (!attendance.checkOutTime || timestamp > new Date(attendance.checkOutTime)) {
             attendance.checkOutTime = timestamp;
           }
+        }
+        } catch (error) {
+          console.error(`Error processing attendance record for employee ${record.uid || record.userId}:`, error);
+          // Skip this record and continue with the next one
         }
       });
 

@@ -101,6 +101,16 @@ const biometricIntegrationSchema = new mongoose.Schema({
       type: Number,
       default: 15 // minutes
     },
+    // Scheduled sync configuration
+    scheduledSync: {
+      type: Boolean,
+      default: false
+    },
+    cronExpression: {
+      type: String,
+      default: '0 6 * * *' // Daily at 6:00 AM
+    },
+    lastScheduleUpdate: Date,
     lastSyncAt: Date,
     syncStatus: {
       type: String,

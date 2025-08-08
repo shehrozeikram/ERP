@@ -4,8 +4,9 @@ const BiometricIntegration = require('../models/hr/BiometricIntegration');
 const biometricService = require('../services/biometricService');
 const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
+const scheduledSyncService = require('../services/scheduledSyncService');
 const { authMiddleware } = require('../middleware/auth');
-const errorHandler = require('../middleware/errorHandler');
+const { errorHandler } = require('../middleware/errorHandler');
 
 // Get all biometric integrations
 router.get('/', authMiddleware, async (req, res) => {
@@ -202,6 +203,216 @@ router.post('/:id/sync', authMiddleware, async (req, res) => {
       }
     });
   } catch (error) {
+    errorHandler(error, req, res);
+  }
+});
+
+// Process and save biometric data to attendance database
+router.post('/:id/process-to-attendance', authMiddleware, async (req, res) => {
+  try {
+    const { daysBack = 7 } = req.body;
+    const integration = await BiometricIntegration.findById(req.params.id);
+
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: 'Biometric integration not found'
+      });
+    }
+
+    if (!integration.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Biometric integration is not active'
+      });
+    }
+
+    console.log(`📥 Processing biometric data to attendance database (last ${daysBack} days)...`);
+
+    // Get raw attendance data from ZKTeco device
+    const rawData = await zktecoService.getAttendanceData();
+    
+    if (!rawData.success || !rawData.data || rawData.data.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No attendance data found on device',
+        data: {
+          processed: 0,
+          created: 0,
+          updated: 0,
+          errors: 0
+        }
+      });
+    }
+
+    // Filter out invalid records first
+    const validRecords = rawData.data.filter(record => {
+      const employeeId = record.uid || record.userId || record.deviceUserId;
+      const timestamp = record.timestamp || record.recordTime;
+      
+      // Skip records with no employee ID or timestamp
+      if (!employeeId || !timestamp || timestamp === undefined) {
+        return false;
+      }
+      
+      // Check if timestamp can be converted to valid date
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return false;
+      }
+      
+      return true;
+    });
+
+    console.log(`📊 Filtered ${validRecords.length} valid records out of ${rawData.data.length} total records`);
+
+    // Filter by date range
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+    
+    const filteredData = validRecords.filter(record => {
+      const recordDate = new Date(record.timestamp || record.recordTime);
+      return recordDate >= cutoffDate;
+    });
+
+    // Process each record
+    let processed = 0;
+    let created = 0;
+    let updated = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    const Employee = require('../models/hr/Employee');
+    const Attendance = require('../models/hr/Attendance');
+
+    for (const record of filteredData) {
+      try {
+        const employeeId = record.uid || record.userId || record.deviceUserId;
+        const timestamp = new Date(record.timestamp || record.recordTime);
+        
+        if (!employeeId) {
+          continue;
+        }
+
+        // Find employee by employeeId
+        const employee = await Employee.findOne({ employeeId: employeeId.toString() });
+        
+        if (!employee) {
+          errorDetails.push({
+            employeeId,
+            timestamp: record.timestamp,
+            error: 'Employee not found in database'
+          });
+          errors++;
+          continue;
+        }
+
+        // Get date (without time) for grouping
+        const attendanceDate = new Date(timestamp);
+        attendanceDate.setHours(0, 0, 0, 0);
+
+        // Find existing attendance record for this employee and date
+        let attendance = await Attendance.findOne({
+          employee: employee._id,
+          date: {
+            $gte: attendanceDate,
+            $lt: new Date(attendanceDate.getTime() + 24 * 60 * 60 * 1000)
+          },
+          isActive: true
+        });
+
+        const isCheckIn = record.state === 1 || record.state === '1' || record.state === 'IN';
+        
+        if (!attendance) {
+          // Create new attendance record
+          attendance = new Attendance({
+            employee: employee._id,
+            date: attendanceDate,
+            status: 'Present',
+            isActive: true,
+            createdBy: req.user.id
+          });
+
+          // Set check-in or check-out
+          if (isCheckIn) {
+            attendance.checkIn = {
+              time: timestamp,
+              location: 'Biometric Device',
+              method: 'Biometric'
+            };
+          } else {
+            attendance.checkOut = {
+              time: timestamp,
+              location: 'Biometric Device',
+              method: 'Biometric'
+            };
+          }
+
+          await attendance.save();
+          created++;
+        } else {
+          // Update existing attendance record
+          let needsUpdate = false;
+
+          if (isCheckIn) {
+            if (!attendance.checkIn || !attendance.checkIn.time || timestamp < attendance.checkIn.time) {
+              attendance.checkIn = {
+                time: timestamp,
+                location: 'Biometric Device',
+                method: 'Biometric'
+              };
+              needsUpdate = true;
+            }
+          } else {
+            if (!attendance.checkOut || !attendance.checkOut.time || timestamp > attendance.checkOut.time) {
+              attendance.checkOut = {
+                time: timestamp,
+                location: 'Biometric Device',
+                method: 'Biometric'
+              };
+              needsUpdate = true;
+            }
+          }
+
+          if (needsUpdate) {
+            attendance.updatedBy = req.user.id;
+            await attendance.save();
+            updated++;
+          }
+        }
+
+        processed++;
+      } catch (error) {
+        console.error(`❌ Error processing record for employee ${record.uid || record.userId}:`, error.message);
+        errorDetails.push({
+          employeeId: record.uid || record.userId,
+          timestamp: record.timestamp,
+          error: error.message
+        });
+        errors++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Biometric data processed and saved to attendance database successfully',
+      data: {
+        totalRawRecords: rawData.data.length,
+        filteredRecords: filteredData.length,
+        processed,
+        created,
+        updated,
+        errors,
+        errorDetails: errorDetails.slice(0, 10), // Limit error details in response
+        summary: {
+          dateRange: `Last ${daysBack} days`,
+          cutoffDate: cutoffDate.toISOString().split('T')[0]
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error processing biometric data to attendance:', error);
     errorHandler(error, req, res);
   }
 });
@@ -418,6 +629,136 @@ router.post('/zkteco/test-connection', authMiddleware, async (req, res) => {
       success: false,
       error: error.message 
     });
+  }
+});
+
+// Scheduled sync service is already initialized as singleton
+
+// Schedule daily sync for biometric integration
+router.post('/:id/schedule-sync', authMiddleware, async (req, res) => {
+  try {
+    const { cronExpression } = req.body;
+    const integrationId = req.params.id;
+
+    const integration = await BiometricIntegration.findById(integrationId);
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: 'Biometric integration not found'
+      });
+    }
+
+    if (!integration.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Biometric integration is not active'
+      });
+    }
+
+    // Use provided cron expression or default to 6 AM daily
+    const cron = cronExpression || '0 6 * * *';
+    
+    const result = await scheduledSyncService.scheduleSync(integrationId, cron);
+    
+    res.json({
+      success: true,
+      message: 'Scheduled sync configured successfully',
+      data: {
+        integrationId,
+        cronExpression: cron,
+        nextRun: 'Daily at 6:00 AM',
+        ...result
+      }
+    });
+  } catch (error) {
+    console.error('Error scheduling sync:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Stop scheduled sync for biometric integration
+router.post('/:id/schedule-sync/stop', authMiddleware, async (req, res) => {
+  try {
+    const integrationId = req.params.id;
+
+    const integration = await BiometricIntegration.findById(integrationId);
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: 'Biometric integration not found'
+      });
+    }
+
+    const result = scheduledSyncService.stopScheduledSync(integrationId);
+    
+    // Update database
+    integration.syncConfig.scheduledSync = false;
+    integration.updatedBy = req.user.id;
+    await integration.save();
+
+    res.json({
+      success: true,
+      message: result ? 'Scheduled sync stopped successfully' : 'No scheduled sync was running',
+      data: { integrationId }
+    });
+  } catch (error) {
+    console.error('Error stopping scheduled sync:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Setup daily 6 AM sync for all active integrations
+router.post('/setup-daily-sync', authMiddleware, async (req, res) => {
+  try {
+    console.log('Setting up daily 6 AM sync for all active biometric integrations...');
+    
+    const results = await scheduledSyncService.setupDailySyncForAll();
+    
+    res.json({
+      success: true,
+      message: 'Daily sync setup completed for all active integrations',
+      data: {
+        processedIntegrations: results.length,
+        results
+      }
+    });
+  } catch (error) {
+    console.error('Error setting up daily sync:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Get scheduled sync status for all integrations
+router.get('/schedule-sync/status', authMiddleware, async (req, res) => {
+  try {
+    const status = scheduledSyncService.getScheduledSyncStatus();
+    
+    // Get additional info from database
+    const integrations = await BiometricIntegration.find({
+      isActive: true,
+      'syncConfig.scheduledSync': true
+    }).select('systemName syncConfig');
+
+    const detailedStatus = status.map(item => {
+      const integration = integrations.find(i => i._id.toString() === item.integrationId);
+      return {
+        ...item,
+        systemName: integration?.systemName || 'Unknown',
+        cronExpression: integration?.syncConfig?.cronExpression || '0 6 * * *',
+        lastSync: integration?.syncConfig?.lastSyncAt || null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        activeSchedules: detailedStatus.length,
+        schedules: detailedStatus
+      }
+    });
+  } catch (error) {
+    console.error('Error getting scheduled sync status:', error);
+    errorHandler(error, req, res);
   }
 });
 
