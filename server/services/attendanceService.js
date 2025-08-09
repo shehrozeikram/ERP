@@ -106,7 +106,7 @@ class AttendanceService {
       if (latestOnly) {
         pipeline.push(
           {
-            $sort: { date: -1, 'checkIn.time': -1 } // Sort by date descending, then by check-in time
+            $sort: { date: -1, updatedAt: -1, createdAt: -1 } // Sort by date, then by most recently updated/created
           },
           {
             $group: {
@@ -123,9 +123,25 @@ class AttendanceService {
         );
       }
 
-      // Add sorting
+      // Add sorting - prioritize most recently updated/recorded attendance
+      const sortObject = {};
+      
+      // Primary sort by updatedAt (most recently updated first)
+      sortObject['updatedAt'] = -1;
+      
+      // Secondary sort by createdAt
+      sortObject['createdAt'] = -1;
+      
+      // Tertiary sort by date if specified
+      if (sortBy === 'date') {
+        sortObject['date'] = sortOrder === 'desc' ? -1 : 1;
+      } else if (sortBy !== 'date') {
+        const sortField = sortBy;
+        sortObject[sortField] = sortOrder === 'desc' ? -1 : 1;
+      }
+      
       pipeline.push({
-        $sort: { [sortBy]: sortOrder === 'desc' ? -1 : 1 }
+        $sort: sortObject
       });
 
       // Add pagination

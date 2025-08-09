@@ -65,12 +65,19 @@ class ZKTecoPushService {
           const attendanceData = req.body;
           const result = await this.processRealTimeAttendance(attendanceData);
           
-          // Broadcast to connected WebSocket clients
-          this.broadcastToClients({
-            type: 'attendance',
-            data: result,
-            timestamp: new Date().toISOString()
-          });
+          // Broadcast successful records to connected WebSocket clients
+          if (result.records && result.records.length > 0) {
+            result.records.forEach((record, index) => {
+              if (record.success) {
+                // Broadcast individual attendance record
+                this.broadcastToClients({
+                  type: 'attendance',
+                  data: record,
+                  timestamp: new Date().toISOString()
+                });
+              }
+            });
+          }
 
           res.json({ success: true, message: 'Attendance processed successfully' });
         } catch (error) {
@@ -296,7 +303,7 @@ class ZKTecoPushService {
         isActive: true
       });
 
-      const isCheckIn = record.state === 1 || record.state === '1' || record.state === 'IN';
+      const isCheckIn = record.state === 0 || record.state === '0' || record.state === 'IN';
       let action = 'none';
 
       if (!attendance) {
@@ -315,6 +322,12 @@ class ZKTecoPushService {
             method: 'Biometric'
           };
         } else {
+          // For check-out, also set a default check-in if required by schema
+          attendance.checkIn = {
+            time: timestamp, // Use same time as default
+            location: 'Biometric Device',
+            method: 'Biometric'
+          };
           attendance.checkOut = {
             time: timestamp,
             location: 'Biometric Device',
@@ -359,7 +372,8 @@ class ZKTecoPushService {
         action,
         employeeId,
         employeeName: `${employee.firstName} ${employee.lastName}`,
-        timestamp: formatLocalDateTime(timestamp),
+        timestamp: formatLocalDateTime(timestamp), // Send as formatted local time string
+        localTimestamp: timestamp.toISOString(), // Keep ISO for consistency
         isCheckIn,
         attendanceId: attendance._id
       };
@@ -382,16 +396,26 @@ class ZKTecoPushService {
    * Broadcast message to all connected WebSocket clients
    */
   broadcastToClients(message) {
+    console.log(`📡 Broadcasting to ${this.clients.size} clients:`, message);
+    
     if (!this.wss || this.clients.size === 0) {
+      console.log('⚠️ No WebSocket server or no clients connected');
       return;
     }
 
     const messageStr = JSON.stringify(message);
+    let sentCount = 0;
+    
     this.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(messageStr);
+        sentCount++;
+      } else {
+        console.log('⚠️ Client connection not open, state:', client.readyState);
       }
     });
+    
+    console.log(`✅ Message broadcasted to ${sentCount} clients`);
   }
 
   /**

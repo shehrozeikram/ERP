@@ -51,8 +51,7 @@ import {
   Fingerprint as BiometricIcon,
   Cancel as AbsentIcon,
   Wifi as WifiIcon,
-  WifiOff as WifiOffIcon,
-  Notifications as NotificationIcon
+  WifiOff as WifiOffIcon
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -61,7 +60,6 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 import { formatAttendanceTime, formatLocalDate, isLateCheckIn, getTimeDifference } from '../../utils/timezoneHelper';
-import RealTimeAttendance from '../../components/RealTimeAttendance';
 
 // Global WebSocket singleton
 let globalWebSocket = null;
@@ -207,12 +205,20 @@ const AttendanceList = () => {
     try {
       console.log('🔄 Processing real-time attendance update:', attendanceData);
       
+      // Validate the attendance data structure
+      if (!attendanceData || !attendanceData.employeeId || !attendanceData.timestamp) {
+        console.error('❌ Invalid attendance data received:', attendanceData);
+        return;
+      }
+      
       // Show notification
       showRealTimeNotification(attendanceData);
       
       // Update the attendance list with new data
       setAttendance(prevAttendance => {
-        const updatedAttendance = [...prevAttendance];
+        console.log('🔄 Current attendance count:', prevAttendance.length);
+        // Create a completely new array to ensure React detects the change
+        let updatedAttendance = [...prevAttendance.map(record => ({ ...record }))];
         
         // Find if this employee already has an attendance record for today
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
@@ -224,22 +230,37 @@ const AttendanceList = () => {
         if (existingIndex >= 0) {
           // Update existing record
           const existingRecord = updatedAttendance[existingIndex];
+          
+          // Use localTimestamp if available, otherwise parse the formatted timestamp
+          const timeToUse = attendanceData.localTimestamp ? 
+            new Date(attendanceData.localTimestamp) : 
+            new Date(attendanceData.timestamp);
+          
           if (attendanceData.isCheckIn) {
             existingRecord.checkIn = {
-              time: new Date(attendanceData.timestamp),
+              time: timeToUse,
               location: 'ZKTeco Device',
               method: 'Biometric'
             };
           } else {
             existingRecord.checkOut = {
-              time: new Date(attendanceData.timestamp),
+              time: timeToUse,
               location: 'ZKTeco Device',
               method: 'Biometric'
             };
           }
-          updatedAttendance[existingIndex] = { ...existingRecord };
+          
+          // Move updated record to the top for latest visibility
+          const updatedRecord = { ...existingRecord };
+          updatedAttendance.splice(existingIndex, 1); // Remove from current position
+          updatedAttendance.unshift(updatedRecord); // Add to top
+          console.log('✅ Updated and moved attendance record to top for employee:', attendanceData.employeeId);
         } else {
           // Create new record
+          const timeToUse = attendanceData.localTimestamp ? 
+            new Date(attendanceData.localTimestamp) : 
+            new Date(attendanceData.timestamp);
+            
           const newRecord = {
             _id: `realtime_${Date.now()}`,
             employee: {
@@ -248,31 +269,63 @@ const AttendanceList = () => {
               lastName: attendanceData.employeeName?.split(' ').slice(1).join(' ') || '',
               employeeId: attendanceData.employeeId
             },
-            date: new Date(attendanceData.timestamp),
+            date: timeToUse,
             checkIn: attendanceData.isCheckIn ? {
-              time: new Date(attendanceData.timestamp),
+              time: timeToUse,
               location: 'ZKTeco Device',
               method: 'Biometric'
             } : null,
             checkOut: !attendanceData.isCheckIn ? {
-              time: new Date(attendanceData.timestamp),
+              time: timeToUse,
               location: 'ZKTeco Device',
               method: 'Biometric'
             } : null,
             status: 'Present',
             isActive: true
           };
-          updatedAttendance.unshift(newRecord);
+          updatedAttendance.unshift(newRecord); // Add new record to top
+          console.log('✅ Created new attendance record at top for employee:', attendanceData.employeeId);
         }
         
+        // Sort to ensure most recently recorded attendance appears at top
+        updatedAttendance.sort((a, b) => {
+          // First check if either record is a real-time record (starts with 'realtime_')
+          const aIsRealtime = a._id?.toString().startsWith('realtime_');
+          const bIsRealtime = b._id?.toString().startsWith('realtime_');
+          
+          // Real-time records always come first
+          if (aIsRealtime && !bIsRealtime) return -1;
+          if (!aIsRealtime && bIsRealtime) return 1;
+          
+          // For real-time records, sort by ID (which contains timestamp)
+          if (aIsRealtime && bIsRealtime) {
+            return b._id.localeCompare(a._id);
+          }
+          
+          // For database records, sort by createdAt if available, otherwise by date
+          const createdAtA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
+          const createdAtB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
+          
+          // Most recently created/recorded first
+          return createdAtB - createdAtA;
+        });
+        
+        console.log('🔄 Updated attendance count:', updatedAttendance.length);
+        console.log('🏆 First record:', updatedAttendance[0]?.employee?.firstName, updatedAttendance[0]?.employee?.lastName);
         return updatedAttendance;
       });
       
-      // Update statistics
-      fetchStatistics();
+      // Immediately refresh BEFORE any potential WebSocket issues
+      console.log('🔄 About to refresh attendance data...');
+      try {
+        console.log('🔄 Calling fetchAttendance...');
+        fetchAttendance();
+        console.log('🔄 fetchAttendance called successfully');
+      } catch (refreshError) {
+        console.error('❌ Error calling fetchAttendance:', refreshError);
+      }
       
-      // Update last update timestamp
-      setLastUpdate(new Date());
+      console.log('✅ Real-time attendance update completed successfully');
       
     } catch (error) {
       console.error('❌ Error processing real-time attendance update:', error);
@@ -282,7 +335,14 @@ const AttendanceList = () => {
   // Show notification for real-time updates
   const showRealTimeNotification = (attendanceData) => {
     const action = attendanceData.isCheckIn ? 'checked in' : 'checked out';
-    const time = new Date(attendanceData.timestamp).toLocaleTimeString();
+    
+    // Use the formatted timestamp directly if available, or parse localTimestamp
+    const time = attendanceData.localTimestamp ? 
+      new Date(attendanceData.localTimestamp).toLocaleTimeString() : 
+      (typeof attendanceData.timestamp === 'string' && attendanceData.timestamp.includes(',') ? 
+        attendanceData.timestamp.split(',')[1]?.trim() || attendanceData.timestamp : 
+        new Date(attendanceData.timestamp).toLocaleTimeString());
+    
     const message = `${attendanceData.employeeName} ${action} at ${time}`;
     
     // Browser notification
@@ -300,40 +360,85 @@ const AttendanceList = () => {
 
   // Initialize real-time connection
   const initializeRealTime = async () => {
-    if (!isRealTimeEnabled || activeTab !== 0) return;
+    if (!isRealTimeEnabled || activeTab !== 0) {
+      console.log('⏭️ Skipping real-time initialization - disabled or not on attendance tab');
+      return;
+    }
     
     try {
       console.log('🔍 Initializing real-time connection...');
       
-      // Check if ZKTeco Push service is running
-      const response = await api.get('/zkteco-push/status');
-      const isServiceRunning = response.data.success && response.data.data.isRunning;
-      
-      if (!isServiceRunning) {
-        console.log('🔄 ZKTeco Push service not running, attempting to start...');
-        const startResponse = await api.post('/zkteco-push/start');
-        if (!startResponse.data.success) {
-          setRealTimeError('Failed to start ZKTeco Push service');
-          return;
-        }
-        
-        // Wait for service to start
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      // Skip API check and directly connect WebSocket since service is auto-started
+      console.log('📡 Connecting directly to WebSocket (service auto-started)...');
       
       // Connect to global WebSocket
+      console.log('🔌 Attempting WebSocket connection...');
       const connected = await WebSocketManager.connect();
+      console.log('🔌 WebSocket connection result:', connected);
+      
       if (connected) {
         setIsConnected(true);
         setConnectionStatus('connected');
         setRealTimeError(null);
         
         // Add listener for real-time updates
+        console.log('👂 Adding WebSocket listener...');
         removeListenerRef.current = WebSocketManager.addListener((data) => {
+          console.log('📥 WebSocket listener received data:', data);
+          console.log('📊 Data type:', data.type, 'Data keys:', Object.keys(data));
+          
           if (data.type === 'attendance') {
-            handleRealTimeAttendanceUpdate(data.data);
+            console.log('📋 Processing attendance data:', data.data);
+            
+            // Show real-time notification
+            showRealTimeNotification(data.data);
+            
+            // Update state directly for smooth real-time without refresh
+            console.log('🎯 NEW CODE: Updating attendance list smoothly without refresh!');
+            
+            const newRecord = {
+              _id: data.data.attendanceId || `realtime_${Date.now()}`,
+              employee: {
+                _id: data.data.employeeId,
+                firstName: data.data.employeeName?.split(' ')[0] || '',
+                lastName: data.data.employeeName?.split(' ').slice(1).join(' ') || '',
+                employeeId: data.data.employeeId,
+                department: { name: 'Unknown' }
+              },
+              date: data.data.localTimestamp || new Date().toISOString(),
+              checkIn: data.data.isCheckIn ? {
+                time: new Date(data.data.localTimestamp || data.data.timestamp),
+                location: 'ZKTeco Device',
+                method: 'Biometric'
+              } : null,
+              checkOut: !data.data.isCheckIn ? {
+                time: new Date(data.data.localTimestamp || data.data.timestamp),
+                location: 'ZKTeco Device',
+                method: 'Biometric'
+              } : null,
+              status: 'Present',
+              isActive: true,
+              workHours: '0 hrs'
+            };
+            
+            // Smooth state update without causing re-render
+            setAttendance(current => {
+              const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+              
+              // Filter out existing record for this employee today
+              const filtered = current.filter(record => {
+                const recordDate = new Date(record.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
+                return !(record.employee?.employeeId === data.data.employeeId && recordDate === today);
+              });
+              
+              // Return new array with record at top
+              return [newRecord, ...filtered];
+            });
+            
           } else if (data.type === 'connection') {
             console.log('🔗 WebSocket connection confirmed:', data.message);
+          } else {
+            console.log('❓ Unknown message type:', data.type, 'Full data:', data);
           }
         });
         
@@ -414,7 +519,9 @@ const AttendanceList = () => {
       const params = new URLSearchParams({
         page: page + 1,
         limit: rowsPerPage,
-        latestOnly: 'true', // Show only latest records per employee
+        latestOnly: 'false', // Show all records to see most recent updates
+        sortBy: 'date', // Sort by date to trigger updatedAt sorting
+        sortOrder: 'desc', // Most recent first
         ...filters
       });
 
@@ -910,7 +1017,6 @@ const AttendanceList = () => {
               </Box>
             } 
           />
-          <Tab label="Real-Time Attendance" icon={<WifiIcon />} />
         </Tabs>
       </Box>
 
@@ -1223,11 +1329,6 @@ const AttendanceList = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Real-time Attendance Tab */}
-      {activeTab === 1 && (
-        <RealTimeAttendance />
-      )}
     </Box>
   );
 };

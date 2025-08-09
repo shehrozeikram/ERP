@@ -50,6 +50,8 @@ const zktecoPushRoutes = require('./routes/zktecoPush');
 
 // Import services
 const scheduledSyncService = require('./services/scheduledSyncService');
+const zktecoPushService = require('./services/zktecoPushService');
+const attendanceService = require('./services/attendanceService');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -176,12 +178,52 @@ app.listen(PORT, async () => {
   } catch (error) {
     console.error('⚠️ Failed to initialize scheduled syncs:', error);
   }
+  
+  // Automatically sync any missed attendance records on startup
+  try {
+    console.log('🔄 Checking for missed attendance records...');
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    
+    const syncResult = await attendanceService.syncZKTecoAttendance(yesterday, today);
+    if (syncResult.success) {
+      console.log(`✅ Auto-sync completed: ${syncResult.data.created} created, ${syncResult.data.updated} updated`);
+    } else {
+      console.log('⚠️ Auto-sync failed, but continuing...');
+    }
+  } catch (error) {
+    console.error('⚠️ Auto-sync error (continuing anyway):', error.message);
+  }
+  
+  // Start ZKTeco real-time push service
+  try {
+    console.log('🚀 Starting ZKTeco real-time push service...');
+    const pushResult = await zktecoPushService.startPushServer();
+    if (pushResult.success) {
+      console.log('✅ ZKTeco real-time push service started successfully');
+      console.log(`📡 Push endpoint: http://localhost:${pushResult.port}${pushResult.pushEndpoint}`);
+      console.log('🔄 Real-time attendance updates are now active');
+    } else {
+      console.log('⚠️ ZKTeco real-time push service failed to start');
+    }
+  } catch (error) {
+    console.error('⚠️ Failed to start ZKTeco real-time push service:', error.message);
+  }
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
   await scheduledSyncService.stopAllScheduledSyncs();
+  
+  // Stop ZKTeco push service
+  try {
+    await zktecoPushService.stopPushServer();
+    console.log('✅ ZKTeco push service stopped');
+  } catch (error) {
+    console.error('⚠️ Error stopping ZKTeco push service:', error);
+  }
+  
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');
     process.exit(0);
@@ -191,6 +233,15 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully');
   await scheduledSyncService.stopAllScheduledSyncs();
+  
+  // Stop ZKTeco push service
+  try {
+    await zktecoPushService.stopPushServer();
+    console.log('✅ ZKTeco push service stopped');
+  } catch (error) {
+    console.error('⚠️ Error stopping ZKTeco push service:', error);
+  }
+  
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');
     process.exit(0);

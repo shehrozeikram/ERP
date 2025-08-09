@@ -24,6 +24,7 @@ import PayrollDetail from './pages/HR/PayrollDetail';
 import AttendanceList from './pages/HR/AttendanceList';
 import AttendanceDetail from './pages/HR/AttendanceDetail';
 import AttendanceForm from './pages/HR/AttendanceForm';
+import AttendanceReport from './pages/HR/AttendanceReport';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
 import FinanceDashboard from './pages/Finance/FinanceDashboard';
 import AccountList from './pages/Finance/AccountList';
@@ -230,6 +231,10 @@ function App() {
             <Route
               path="/hr/attendance"
               element={<ProtectedRoute><AttendanceList /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/attendance/report"
+              element={<ProtectedRoute><AttendanceReport /></ProtectedRoute>}
             />
 
             {/* Biometric Integration Routes */}

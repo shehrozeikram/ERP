@@ -10,7 +10,9 @@
     "build": "cd client && npm run build",
     "install-all": "npm install && cd client && npm install",
     "start": "node server/index.js",
-    "setup": "node setup.js"
+    "setup": "node setup.js",
+    "start-realtime": "node server/scripts/startRealTimeService.js",
+    "test-realtime": "node server/scripts/testRealTimeAttendance.js"
   },
   "keywords": [
     "erp",

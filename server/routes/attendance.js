@@ -49,6 +49,98 @@ router.get('/statistics', authMiddleware, async (req, res) => {
   }
 });
 
+// Attendance report endpoint
+router.get('/report', authMiddleware, async (req, res) => {
+  try {
+    const { startDate, endDate, department, employee } = req.query;
+    
+    // Build query
+    const query = {
+      isActive: true
+    };
+
+    // Date range filter
+    if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+
+    // Department filter
+    if (department) {
+      const employeesInDept = await Employee.find({ 
+        placementDepartment: department,
+        isDeleted: false 
+      }).select('_id');
+      query.employee = { $in: employeesInDept.map(emp => emp._id) };
+    }
+
+    // Employee filter
+    if (employee) {
+      query.employee = employee;
+    }
+
+    // Fetch attendance data with employee details
+    const attendanceData = await Attendance.find(query)
+      .populate('employee', 'firstName lastName employeeId')
+      .sort({ date: -1, 'employee.firstName': 1 });
+
+    // Process the data for the report
+    const processedData = attendanceData.map(record => {
+      const checkInTime = record.checkIn?.time;
+      const checkOutTime = record.checkOut?.time;
+      
+      // Calculate late minutes (assuming 7:00 AM as standard start time)
+      let lateMinutes = 0;
+      if (checkInTime) {
+        const checkIn = new Date(checkInTime);
+        const scheduledTime = new Date(checkIn);
+        scheduledTime.setHours(7, 0, 0, 0);
+        
+        if (checkIn > scheduledTime) {
+          lateMinutes = Math.floor((checkIn - scheduledTime) / (1000 * 60));
+        }
+      }
+
+      // Calculate work hours
+      let workHours = 0;
+      if (checkInTime && checkOutTime) {
+        const start = new Date(checkInTime);
+        const end = new Date(checkOutTime);
+        workHours = Math.round((end - start) / (1000 * 60 * 60) * 100) / 100;
+      }
+
+      return {
+        _id: record._id,
+        employee: record.employee,
+        date: record.date,
+        checkIn: record.checkIn,
+        checkOut: record.checkOut,
+        status: record.status,
+        workHours: workHours,
+        overtimeHours: record.overtimeHours || 0,
+        lateMinutes: lateMinutes,
+        notes: record.notes
+      };
+    });
+
+    res.json({
+      success: true,
+      data: processedData,
+      total: processedData.length
+    });
+
+  } catch (error) {
+    console.error('Error generating attendance report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate attendance report',
+      error: error.message
+    });
+  }
+});
+
 // Get single attendance record
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
