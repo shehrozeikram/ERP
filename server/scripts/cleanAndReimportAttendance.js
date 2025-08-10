@@ -92,7 +92,9 @@ async function cleanAndReimportAttendance() {
       const checkOutTime = data.times.length > 1 ? data.times[data.times.length - 1] : null;
       
       // Create the attendance record with EXACT ZKTeco times (as they are)
-      const attendanceDate = new Date(data.date + 'T00:00:00.000Z');
+      // Parse the date string (YYYY-MM-DD) and create a proper date object
+      const [year, month, day] = data.date.split('-').map(Number);
+      const attendanceDate = new Date(year, month - 1, day); // month is 0-indexed
       
       const attendanceRecord = new Attendance({
         employee: data.employee._id,

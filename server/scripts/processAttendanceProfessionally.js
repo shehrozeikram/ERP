@@ -33,9 +33,8 @@ async function processAttendanceProfessionally() {
     // Step 3: Clear old attendance records for today
     console.log('\n🧹 Step 3: Clearing old attendance records for today...');
     const today = new Date();
-    const todayPakistan = today.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-    const todayStartPakistan = new Date(todayPakistan + 'T00:00:00');
-    const todayStartUTC = new Date(todayStartPakistan.getTime() - (5 * 60 * 60 * 1000));
+    // Use today's date directly without timezone conversion
+    const todayStartUTC = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     
     // Delete all attendance records for today
     const deleteResult = await Attendance.deleteMany({

@@ -36,6 +36,13 @@ const applicationSchema = new mongoose.Schema({
     default: 'applied'
   },
   
+  // Application Type
+  applicationType: {
+    type: String,
+    enum: ['standard', 'easy_apply', 'referral', 'campus_recruitment'],
+    default: 'standard'
+  },
+  
   // Application Details
   coverLetter: {
     type: String,
@@ -99,8 +106,22 @@ const applicationSchema = new mongoose.Schema({
     questions: String
   },
   
-  // Evaluation System
+  // Evaluation System (Manual Control)
   evaluation: {
+    // Manual Status Control (Primary)
+    manualStatus: {
+      type: String,
+      enum: ['pending', 'under_review', 'shortlisted', 'rejected', 'interviewed', 'offered', 'hired'],
+      default: 'pending'
+    },
+    manualStatusReason: String,
+    manuallyUpdatedAt: Date,
+    manuallyUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    
+    // Legacy Auto-Evaluation Fields (Kept for backward compatibility)
     requirementsMatch: {
       type: Number,
       min: 0,
@@ -160,6 +181,17 @@ const applicationSchema = new mongoose.Schema({
     description: String,
     uploadedAt: Date
   }],
+  
+  // Easy Apply Documents
+  documents: {
+    cv: {
+      filename: String,
+      originalName: String,
+      path: String,
+      size: Number,
+      mimetype: String
+    }
+  },
   
   // Interview Information
   interviews: [{

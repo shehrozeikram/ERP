@@ -6,9 +6,21 @@ const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
+const server = http.createServer(app);
+
+// Socket.IO setup with CORS
+const io = new Server(server, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -43,6 +55,7 @@ const candidateApprovalRoutes = require('./routes/candidateApprovals');
 const publicApprovalRoutes = require('./routes/publicApprovals');
 const applicationRoutes = require('./routes/applications');
 const publicApplicationRoutes = require('./routes/publicApplications');
+const easyApplyRoutes = require('./routes/easyApply');
 const courseRoutes = require('./routes/courses');
 const enrollmentRoutes = require('./routes/enrollments');
 const trainingProgramRoutes = require('./routes/trainingPrograms');
@@ -52,6 +65,7 @@ const zktecoPushRoutes = require('./routes/zktecoPush');
 const scheduledSyncService = require('./services/scheduledSyncService');
 const zktecoPushService = require('./services/zktecoPushService');
 const attendanceService = require('./services/attendanceService');
+const ChangeStreamService = require('./services/changeStreamService');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -65,6 +79,39 @@ mongoose.connect(process.env.MONGODB_URI, {
 })
 .then(() => console.log('✅ MongoDB connected successfully'))
 .catch(err => console.error('❌ MongoDB connection error:', err));
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('🔌 Client connected:', socket.id);
+  
+  // Send initial connection status
+  socket.emit('connection_status', { 
+    status: 'connected', 
+    message: 'Connected to real-time attendance service',
+    timestamp: new Date()
+  });
+
+  // Handle client joining attendance room
+  socket.on('join_attendance', () => {
+    socket.join('attendance');
+    console.log(`👥 Client ${socket.id} joined attendance room`);
+    socket.emit('room_joined', { room: 'attendance', message: 'Joined attendance updates room' });
+  });
+
+  // Handle client leaving attendance room
+  socket.on('leave_attendance', () => {
+    socket.leave('attendance');
+    console.log(`👋 Client ${socket.id} left attendance room`);
+  });
+
+  // Handle disconnect
+  socket.on('disconnect', () => {
+    console.log('🔌 Client disconnected:', socket.id);
+  });
+});
+
+// Initialize Change Stream service
+let changeStreamService = null;
 
 // Security middleware
 app.use(helmet());
@@ -140,6 +187,7 @@ app.use('/api/payslips', authMiddleware, payslipRoutes);
 // Public routes (no authentication required)
 app.use('/api/job-postings/apply', publicJobPostingRoutes);
 app.use('/api/applications/public', publicApplicationRoutes);
+app.use('/api/applications/easy-apply', easyApplyRoutes);
 app.use('/api/public-approvals', publicApprovalRoutes); // Public approval endpoints
 
 // Protected routes (authentication required)
@@ -165,12 +213,25 @@ app.use('*', (req, res) => {
 
 const PORT = process.env.PORT || 5001;
 
+// Initialize Change Stream service after MongoDB connection
+mongoose.connection.once('open', async () => {
+  try {
+    console.log('🚀 Initializing Change Stream service...');
+    changeStreamService = new ChangeStreamService(io);
+    await changeStreamService.startWatching();
+    console.log('✅ Change Stream service initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize Change Stream service:', error);
+  }
+});
+
 // Scheduled Sync Service is already initialized as singleton
 
-app.listen(PORT, async () => {
+server.listen(PORT, async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV}`);
   console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
+  console.log(`🔌 Socket.IO server running on port ${PORT}`);
   
   // Initialize scheduled syncs after server starts
   try {
@@ -216,6 +277,12 @@ process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
   await scheduledSyncService.stopAllScheduledSyncs();
   
+  // Stop Change Stream service
+  if (changeStreamService) {
+    changeStreamService.stopWatching();
+    console.log('✅ Change Stream service stopped');
+  }
+  
   // Stop ZKTeco push service
   try {
     await zktecoPushService.stopPushServer();
@@ -233,6 +300,12 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully');
   await scheduledSyncService.stopAllScheduledSyncs();
+  
+  // Stop Change Stream service
+  if (changeStreamService) {
+    changeStreamService.stopWatching();
+    console.log('✅ Change Stream service stopped');
+  }
   
   // Stop ZKTeco push service
   try {

@@ -3,12 +3,10 @@ const nodemailer = require('nodemailer');
 class EmailService {
   constructor() {
     this.transporter = nodemailer.createTransport({
-      host: 'sandbox.smtp.mailtrap.io',
-      port: 2525,
-      secure: false,
+      service: 'gmail',
       auth: {
-        user: '0d5770511c00f0',
-        pass: '53d7800c0f72cf'
+        user: 'shehrozeikram2@gmail.com', // Your Gmail address
+        pass: 'khzv jkft zpml uwtj' // Your Gmail app password
       }
     });
   }
@@ -30,25 +28,27 @@ class EmailService {
       const result = await this.transporter.sendMail(mailOptions);
       console.log(`✅ Shortlist email sent to ${candidate.email}: ${result.messageId}`);
       
-      // Update candidate with email delivery status
-      const Candidate = require('../models/hr/Candidate');
-      await Candidate.findByIdAndUpdate(candidate._id, {
-        $push: {
-          emailNotifications: {
-            type: 'shortlist',
-            jobPosting: jobPosting._id,
-            sentAt: new Date(),
-            deliveredAt: new Date(), // For Mailtrap, we assume delivered
-            deliveryStatus: 'delivered',
-            messageId: result.messageId,
-            emailContent: {
-              subject: mailOptions.subject,
-              htmlContent: htmlContent,
-              textContent: textContent
+      // Update candidate with email delivery status (only if candidate has _id)
+      if (candidate._id) {
+        const Candidate = require('../models/hr/Candidate');
+        await Candidate.findByIdAndUpdate(candidate._id, {
+          $push: {
+            emailNotifications: {
+              type: 'shortlist',
+              jobPosting: jobPosting._id,
+              sentAt: new Date(),
+              deliveredAt: new Date(), // For Mailtrap, we assume delivered
+              deliveryStatus: 'delivered',
+              messageId: result.messageId,
+              emailContent: {
+                subject: mailOptions.subject,
+                htmlContent: htmlContent,
+                textContent: textContent
+              }
             }
           }
-        }
-      });
+        });
+      }
       
       return {
         success: true,
@@ -59,24 +59,26 @@ class EmailService {
     } catch (error) {
       console.error(`❌ Failed to send shortlist email to ${candidate.email}:`, error.message);
       
-      // Update candidate with failed delivery status
-      const Candidate = require('../models/hr/Candidate');
-      await Candidate.findByIdAndUpdate(candidate._id, {
-        $push: {
-          emailNotifications: {
-            type: 'shortlist',
-            jobPosting: jobPosting._id,
-            sentAt: new Date(),
-            deliveryStatus: 'failed',
-            errorMessage: error.message,
-            emailContent: {
-              subject: `🎉 Congratulations! You've Been Shortlisted - ${jobPosting.title}`,
-              htmlContent: '',
-              textContent: ''
+      // Update candidate with failed delivery status (only if candidate has _id)
+      if (candidate._id) {
+        const Candidate = require('../models/hr/Candidate');
+        await Candidate.findByIdAndUpdate(candidate._id, {
+          $push: {
+            emailNotifications: {
+              type: 'shortlist',
+              jobPosting: jobPosting._id,
+              sentAt: new Date(),
+              deliveryStatus: 'failed',
+              errorMessage: error.message,
+              emailContent: {
+                subject: `🎉 Congratulations! You've Been Shortlisted - ${jobPosting.title}`,
+                htmlContent: '',
+                textContent: ''
+              }
             }
           }
-        }
-      });
+        });
+      }
       
       return {
         success: false,
@@ -93,17 +95,35 @@ class EmailService {
     
     for (const application of shortlistedApplications) {
       try {
-        const result = await this.sendShortlistNotification(
-          application.candidate,
-          application.jobPosting,
-          application
-        );
-        results.push(result);
+        // Handle case where candidate might not exist yet
+        let candidate = application.candidate;
+        if (!candidate && application.personalInfo) {
+          candidate = {
+            email: application.personalInfo.email,
+            firstName: application.personalInfo.firstName,
+            lastName: application.personalInfo.lastName
+          };
+        }
+        
+        if (candidate) {
+          const result = await this.sendShortlistNotification(
+            candidate,
+            application.jobPosting,
+            application
+          );
+          results.push(result);
+        } else {
+          results.push({
+            success: false,
+            error: 'No candidate information available',
+            email: 'Unknown'
+          });
+        }
       } catch (error) {
         results.push({
           success: false,
           error: error.message,
-          email: application.candidate?.email || 'Unknown'
+          email: application.candidate?.email || application.personalInfo?.email || 'Unknown'
         });
       }
     }

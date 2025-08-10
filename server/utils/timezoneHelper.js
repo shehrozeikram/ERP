@@ -202,10 +202,8 @@ function processZKTecoTimestamp(zktecoTimestamp) {
  */
 function getTodayLocalDate() {
   const now = new Date();
-  const localDateString = now.toLocaleDateString('en-CA', { // YYYY-MM-DD format
-    timeZone: getLocalTimezone()
-  });
-  return new Date(localDateString + 'T00:00:00.000Z');
+  // Use today's date directly without timezone conversion
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
 module.exports = {

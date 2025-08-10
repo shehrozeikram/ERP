@@ -130,10 +130,9 @@ async function syncTodayAttendance() {
           continue;
         }
 
-        // Get attendance date in Pakistan timezone
-        const attendanceDate = new Date(attendanceData.date.toLocaleDateString('en-CA', { 
-          timeZone: 'Asia/Karachi' 
-        }) + 'T00:00:00.000Z');
+        // Get attendance date - use the date directly from attendanceData
+        // The date is already in local time, no need for timezone conversion
+        const attendanceDate = new Date(attendanceData.date.getFullYear(), attendanceData.date.getMonth(), attendanceData.date.getDate());
 
         // Find existing attendance record
         let attendance = await Attendance.findOne({

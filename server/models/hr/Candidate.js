@@ -255,10 +255,20 @@ const candidateSchema = new mongoose.Schema({
   // Source Information
   source: {
     type: String,
-    enum: ['website', 'job_board', 'referral', 'social_media', 'recruitment_agency', 'direct_application', 'other'],
+    enum: ['website', 'job_board', 'referral', 'social_media', 'recruitment_agency', 'direct_application', 'other', 'application_shortlisted'],
     required: true
   },
   sourceDetails: String,
+  
+  // Job and Application References
+  jobPosting: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'JobPosting'
+  },
+  application: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Application'
+  },
   
   // Notes and Comments
   notes: [{
@@ -361,6 +371,7 @@ candidateSchema.virtual('sourceLabel').get(function() {
     social_media: 'Social Media',
     recruitment_agency: 'Recruitment Agency',
     direct_application: 'Direct Application',
+    application_shortlisted: 'Application Shortlisted',
     other: 'Other'
   };
   return labels[this.source] || this.source;

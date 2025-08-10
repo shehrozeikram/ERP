@@ -616,4 +616,43 @@ router.post('/bulk', authMiddleware, async (req, res) => {
   }
 });
 
+// Get latest attendance record
+router.get('/latest', authMiddleware, async (req, res) => {
+  try {
+    // Find the most recent attendance record based on updatedAt timestamp
+    const latestAttendance = await Attendance.findOne({ isActive: true })
+      .populate('employee', 'firstName lastName employeeId department position')
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    if (!latestAttendance) {
+      return res.status(404).json({
+        success: false,
+        message: 'No attendance records found'
+      });
+    }
+
+    // Format the response with Pakistan timezone
+    const formattedAttendance = {
+      ...latestAttendance,
+      checkInTime: latestAttendance.checkIn?.time ? 
+        formatLocalDateTime(latestAttendance.checkIn.time) : null,
+      checkOutTime: latestAttendance.checkOut?.time ? 
+        formatLocalDateTime(latestAttendance.checkOut.time) : null,
+      attendanceDate: formatLocalDateTime(latestAttendance.date),
+      lastUpdated: formatLocalDateTime(latestAttendance.updatedAt)
+    };
+
+    res.json({
+      success: true,
+      message: 'Latest attendance record retrieved successfully',
+      data: formattedAttendance
+    });
+
+  } catch (error) {
+    console.error('Error fetching latest attendance:', error);
+    errorHandler(error, req, res);
+  }
+});
+
 module.exports = router; 

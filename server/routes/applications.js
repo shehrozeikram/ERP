@@ -19,6 +19,7 @@ router.get('/',
       page = 1,
       limit = 10,
       status,
+      manualStatus,
       jobPosting,
       candidate,
       search
@@ -27,6 +28,7 @@ router.get('/',
     const filter = {};
 
     if (status) filter.status = status;
+    if (manualStatus) filter['evaluation.manualStatus'] = manualStatus;
     if (jobPosting) filter.jobPosting = jobPosting;
     if (candidate) filter.candidate = candidate;
     if (search) {
@@ -94,6 +96,21 @@ router.get('/',
       
       transformed.statusLabel = statusLabels[transformed.status] || transformed.status;
       
+      // Add manual status labels
+      const manualStatusLabels = {
+        pending: 'Pending Review',
+        under_review: 'Under Review',
+        shortlisted: 'Shortlisted',
+        interviewed: 'Interviewed',
+        offered: 'Offered',
+        hired: 'Hired',
+        rejected: 'Rejected'
+      };
+      
+      if (transformed.evaluation?.manualStatus) {
+        transformed.manualStatusLabel = manualStatusLabels[transformed.evaluation.manualStatus] || transformed.evaluation.manualStatus;
+      }
+      
       // Add availability labels
       const availabilityLabels = {
         immediate: 'Immediate',
@@ -115,7 +132,12 @@ router.get('/',
           experienceMatch: transformed.evaluation.experienceMatch,
           skillsMatch: transformed.evaluation.skillsMatch,
           shortlistReason: transformed.evaluation.shortlistReason,
-          evaluatedAt: transformed.evaluation.evaluatedAt
+          evaluatedAt: transformed.evaluation.evaluatedAt,
+          // Manual status information
+          manualStatus: transformed.evaluation.manualStatus,
+          manualStatusReason: transformed.evaluation.manualStatusReason,
+          manuallyUpdatedAt: transformed.evaluation.manuallyUpdatedAt,
+          manuallyUpdatedBy: transformed.evaluation.manuallyUpdatedBy
         };
       }
       
@@ -230,66 +252,209 @@ router.get('/:id',
   })
 );
 
-// @route   POST /api/applications/bulk-evaluate
-// @desc    Bulk evaluate all pending applications
+// @route   POST /api/applications/bulk-update-status
+// @desc    Bulk update status for pending applications (manual control)
 // @access  Private (HR and Admin)
-router.post('/bulk-evaluate', 
+router.post('/bulk-update-status', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     try {
-      // Find all applications that haven't been evaluated yet
-      const pendingApplications = await Application.find({
-        $or: [
-          { 'evaluation.evaluatedAt': { $exists: false } },
-          { 'evaluation.evaluatedAt': null }
-        ]
-      }).populate('jobPosting');
-
-      if (pendingApplications.length === 0) {
-        return res.json({
-          success: true,
-          message: 'No pending applications to evaluate',
-          data: {
-            total: 0,
-            evaluated: 0,
-            shortlisted: 0
-          }
+      const { status, reason, applications } = req.body;
+      
+      if (!status || !applications || !Array.isArray(applications)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Status and applications array are required'
         });
       }
 
-      let evaluatedCount = 0;
-      let shortlistedCount = 0;
+      // Update status for selected applications
+      const updateResult = await Application.updateMany(
+        { _id: { $in: applications } },
+        { 
+          $set: { 
+            status: status,
+            'evaluation.manualStatus': status,
+            'evaluation.manualStatusReason': reason || '',
+            'evaluation.manuallyUpdatedAt': new Date(),
+            'evaluation.manuallyUpdatedBy': req.user._id
+          }
+        }
+      );
 
-      // Evaluate each pending application
-      for (const application of pendingApplications) {
+      res.json({
+        success: true,
+        message: `Bulk status update completed. ${updateResult.modifiedCount} applications updated to ${status}.`,
+        data: {
+          total: applications.length,
+          updated: updateResult.modifiedCount,
+          status: status
+        }
+      });
+
+    } catch (error) {
+      console.error('Bulk status update error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error during bulk status update',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   PUT /api/applications/:id/status
+// @desc    Update individual application status (manual control)
+// @access  Private (HR and Admin)
+router.put('/:id/status', 
+  authorize('admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    try {
+      const { status, reason } = req.body;
+      const { id } = req.params;
+      
+      if (!status) {
+        return res.status(400).json({
+          success: false,
+          message: 'Status is required'
+        });
+      }
+
+      // Find and update the application
+      const application = await Application.findByIdAndUpdate(
+        id,
+        { 
+          $set: { 
+            status: status,
+            'evaluation.manualStatus': status,
+            'evaluation.manualStatusReason': reason || '',
+            'evaluation.manuallyUpdatedAt': new Date(),
+            'evaluation.manuallyUpdatedBy': req.user._id
+          }
+        },
+        { new: true }
+      ).populate('jobPosting').populate('candidate');
+
+      if (!application) {
+        return res.status(404).json({
+          success: false,
+          message: 'Application not found'
+        });
+      }
+
+      // If status is changed to "shortlisted", handle shortlisting process
+      if (status === 'shortlisted') {
         try {
-          const result = await ApplicationEvaluationService.evaluateApplication(application._id);
-          if (result.success) {
-            evaluatedCount++;
-            if (result.evaluation.isShortlisted) {
-              shortlistedCount++;
+          console.log('🎯 Shortlisting application:', application._id);
+          
+          // Get candidate information (either from candidate reference or personalInfo)
+          let candidateData = null;
+          let candidateEmail = null;
+          
+          if (application.candidate) {
+            // Application has an existing candidate record
+            candidateData = application.candidate;
+            candidateEmail = candidateData.email;
+          } else if (application.personalInfo) {
+            // Public application - use personalInfo
+            candidateEmail = application.personalInfo.email;
+            
+            // Check if candidate already exists
+            const existingCandidate = await Candidate.findOne({ email: candidateEmail });
+            
+            if (existingCandidate) {
+              // Update existing candidate
+              candidateData = await Candidate.findByIdAndUpdate(
+                existingCandidate._id,
+                {
+                  $set: {
+                    currentPosition: application.professionalInfo?.currentPosition || existingCandidate.currentPosition,
+                    currentCompany: application.professionalInfo?.currentCompany || existingCandidate.currentCompany,
+                    yearsOfExperience: application.professionalInfo?.yearsOfExperience || existingCandidate.yearsOfExperience,
+                    expectedSalary: application.professionalInfo?.expectedSalary || application.expectedSalary || existingCandidate.expectedSalary,
+                    noticePeriod: application.professionalInfo?.noticePeriod || existingCandidate.noticePeriod,
+                    status: 'shortlisted',
+                    lastUpdated: new Date()
+                  }
+                },
+                { new: true }
+              );
+            } else {
+              // Create new candidate from application data - SIMPLE VERSION
+              console.log('📝 Creating new candidate for application:', application._id);
+              
+              candidateData = await Candidate.create({
+                firstName: application.personalInfo?.firstName || 'Candidate',
+                lastName: application.personalInfo?.lastName || 'From Application',
+                email: application.personalInfo?.email || 'no-email@example.com',
+                phone: application.personalInfo?.phone || 'Not Provided',
+                dateOfBirth: new Date('1990-01-01'),
+                gender: 'other',
+                nationality: 'Pakistani',
+                address: {
+                  street: 'Not Specified',
+                  city: 'Not Specified',
+                  state: 'Not Specified',
+                  country: 'Pakistan'
+                },
+                currentPosition: application.professionalInfo?.currentPosition || 'Not Specified',
+                currentCompany: application.professionalInfo?.currentCompany || 'Not Specified',
+                yearsOfExperience: 0,
+                expectedSalary: 0,
+                noticePeriod: 30,
+                availability: 'negotiable',
+                preferredWorkType: 'on_site',
+                education: [], // Empty array to avoid validation issues
+                skills: [], // Empty array to avoid validation issues
+                source: 'application_shortlisted',
+                status: 'shortlisted',
+                jobPosting: application.jobPosting._id,
+                application: application._id,
+                createdBy: req.user._id
+              });
+              
+              console.log('✅ Candidate created successfully:', candidateData._id);
+            }
+            
+            // Link the candidate to the application
+            await Application.findByIdAndUpdate(application._id, {
+              $set: { candidate: candidateData._id }
+            });
+          }
+          
+          // Send shortlist notification email
+          if (candidateEmail) {
+            try {
+              await EmailService.sendShortlistNotification(
+                candidateData || { email: candidateEmail },
+                application.jobPosting,
+                application
+              );
+              console.log(`✅ Shortlist email sent to ${candidateEmail}`);
+            } catch (emailError) {
+              console.error(`❌ Failed to send shortlist email to ${candidateEmail}:`, emailError.message);
             }
           }
-        } catch (error) {
-          console.error(`Error evaluating application ${application._id}:`, error.message);
+          
+          console.log(`✅ Application ${application.applicationId} shortlisted successfully`);
+          
+        } catch (shortlistError) {
+          console.error('❌ Error during shortlisting process:', shortlistError);
+          // Don't fail the entire request if shortlisting process fails
         }
       }
 
       res.json({
         success: true,
-        message: `Bulk evaluation completed. ${evaluatedCount} applications evaluated, ${shortlistedCount} shortlisted.`,
-        data: {
-          total: pendingApplications.length,
-          evaluated: evaluatedCount,
-          shortlisted: shortlistedCount
-        }
+        message: `Application status updated to ${status}`,
+        data: application
       });
 
     } catch (error) {
-      console.error('Bulk evaluation error:', error);
+      console.error('Status update error:', error);
       res.status(500).json({
         success: false,
-        message: 'Error during bulk evaluation',
+        message: 'Error updating application status',
         error: error.message
       });
     }

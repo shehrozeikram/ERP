@@ -288,10 +288,9 @@ class ZKTecoPushService {
         };
       }
 
-      // Get date for attendance record
-      const attendanceDate = new Date(timestamp.toLocaleDateString('en-CA', { 
-        timeZone: 'Asia/Karachi' 
-      }) + 'T00:00:00.000Z');
+      // Get date for attendance record - use the timestamp's date directly
+      // ZKTeco sends timestamps in Pakistan time, so extract the date part
+      const attendanceDate = new Date(timestamp.getFullYear(), timestamp.getMonth(), timestamp.getDate());
 
       // Find existing attendance record
       let attendance = await Attendance.findOne({
@@ -362,6 +361,8 @@ class ZKTecoPushService {
         }
 
         if (needsUpdate) {
+          // Ensure updatedAt is set to current time for proper sorting
+          attendance.updatedAt = new Date();
           await attendance.save();
           action = 'updated';
         }
@@ -375,7 +376,17 @@ class ZKTecoPushService {
         timestamp: formatLocalDateTime(timestamp), // Send as formatted local time string
         localTimestamp: timestamp.toISOString(), // Keep ISO for consistency
         isCheckIn,
-        attendanceId: attendance._id
+        attendanceId: attendance._id,
+        attendance: {
+          _id: attendance._id,
+          date: attendance.date,
+          status: attendance.status,
+          checkIn: attendance.checkIn,
+          checkOut: attendance.checkOut,
+          workHours: attendance.workHours,
+          updatedAt: attendance.updatedAt,
+          createdAt: attendance.createdAt
+        }
       };
 
       console.log(`✅ Real-time: ${employee.firstName} ${employee.lastName} (${employeeId}) - ${isCheckIn ? 'Check-in' : 'Check-out'} at ${formatLocalDateTime(timestamp)}`);

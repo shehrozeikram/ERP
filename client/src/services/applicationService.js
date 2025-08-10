@@ -40,10 +40,10 @@ export const updateApplication = async (id, applicationData) => {
   }
 };
 
-// Update application status
-export const updateApplicationStatus = async (id, status) => {
+// Update application status (manual control)
+export const updateApplicationStatus = async (id, status, reason = '') => {
   try {
-    const response = await api.put(`/applications/${id}/status`, { status });
+    const response = await api.put(`/applications/${id}/status`, { status, reason });
     return response.data;
   } catch (error) {
     throw error;
@@ -110,10 +110,14 @@ export const deleteApplication = async (id) => {
   }
 };
 
-// Bulk evaluate applications
-export const bulkEvaluateApplications = async () => {
+// Bulk update application statuses (manual control)
+export const bulkUpdateApplicationStatuses = async (applications, status, reason = '') => {
   try {
-    const response = await api.post('/applications/bulk-evaluate');
+    const response = await api.post('/applications/bulk-update-status', {
+      applications,
+      status,
+      reason
+    });
     return response.data;
   } catch (error) {
     throw error;

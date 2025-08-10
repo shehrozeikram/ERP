@@ -55,7 +55,9 @@ import {
   Star,
   StarBorder,
   AutoAwesome,
-  Email
+  Email,
+  Cancel,
+  Info
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import applicationService from '../../services/applicationService';
@@ -82,6 +84,7 @@ const Applications = () => {
     try {
       const params = {};
       if (filters.status) params.status = filters.status;
+      if (filters.manualStatus) params.manualStatus = filters.manualStatus;
       if (filters.search) params.search = filters.search;
       if (filters.jobPosting) params.jobPosting = filters.jobPosting;
       if (filters.candidate) params.candidate = filters.candidate;
@@ -135,7 +138,7 @@ const Applications = () => {
   // Load data on mount and when filters change
   useEffect(() => {
     loadApplications();
-  }, [filters.status, filters.jobPosting, filters.candidate]);
+  }, [filters.status, filters.manualStatus, filters.jobPosting, filters.candidate]);
 
   // Debounced search effect
   useEffect(() => {
@@ -149,14 +152,25 @@ const Applications = () => {
   }, [filters.search]);
 
   // Handle status change
-  const handleStatusChange = async (application, newStatus) => {
+  const handleStatusChange = async (application, newStatus, reason = '') => {
     try {
-      await applicationService.updateApplicationStatus(application._id, newStatus);
-      setSnackbar({
-        open: true,
-        message: 'Application status updated successfully',
-        severity: 'success'
-      });
+      await applicationService.updateApplicationStatus(application._id, newStatus, reason);
+      
+      // If status is changed to "shortlisted", handle shortlisting process
+      if (newStatus === 'shortlisted') {
+        setSnackbar({
+          open: true,
+          message: 'Application shortlisted! Email sent to candidate and candidate record created/updated.',
+          severity: 'success'
+        });
+      } else {
+        setSnackbar({
+          open: true,
+          message: 'Application status updated successfully',
+          severity: 'success'
+        });
+      }
+      
       loadApplications();
     } catch (error) {
       setSnackbar({
@@ -189,47 +203,6 @@ const Applications = () => {
     }
   };
 
-  const handleBulkEvaluation = async () => {
-    try {
-      setLoading(true);
-      const response = await applicationService.bulkEvaluateApplications();
-      setSnackbar({
-        open: true,
-        message: response.message || 'Bulk evaluation completed successfully',
-        severity: 'success'
-      });
-      loadApplications();
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Error during bulk evaluation',
-        severity: 'error'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBulkEmail = async () => {
-    try {
-      setLoading(true);
-      const response = await applicationService.sendBulkShortlistEmails();
-      setSnackbar({
-        open: true,
-        message: response.message || 'Bulk emails sent successfully',
-        severity: 'success'
-      });
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Error sending bulk emails',
-        severity: 'error'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Get status color
   const getStatusColor = (status) => {
     const colors = {
@@ -248,6 +221,48 @@ const Applications = () => {
       withdrawn: 'default'
     };
     return colors[status] || 'default';
+  };
+
+  // Get manual status color
+  const getManualStatusColor = (status) => {
+    switch (status) {
+      case 'shortlisted':
+        return 'success';
+      case 'rejected':
+        return 'error';
+      case 'under_review':
+        return 'info';
+      case 'interviewed':
+        return 'warning';
+      case 'offered':
+        return 'primary';
+      case 'hired':
+        return 'success';
+      case 'pending':
+      default:
+        return 'default';
+    }
+  };
+
+  // Get manual status icon
+  const getManualStatusIcon = (status) => {
+    switch (status) {
+      case 'shortlisted':
+        return <Star fontSize="small" />;
+      case 'rejected':
+        return <Cancel fontSize="small" />;
+      case 'under_review':
+        return <Info fontSize="small" />;
+      case 'interviewed':
+        return <Schedule fontSize="small" />;
+      case 'offered':
+        return <CheckCircle fontSize="small" />;
+      case 'hired':
+        return <CheckCircle fontSize="small" />;
+      case 'pending':
+      default:
+        return <Warning fontSize="small" />;
+    }
   };
 
   // Get initials for avatar
@@ -296,7 +311,7 @@ const Applications = () => {
       <Card sx={{ mb: 3, bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} md={3}>
               <Button
                 variant="contained"
                 startIcon={<Add />}
@@ -304,29 +319,6 @@ const Applications = () => {
                 onClick={() => navigate('/hr/talent-acquisition/applications/new')}
               >
                 Create Application
-              </Button>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <Button
-                variant="outlined"
-                startIcon={<AutoAwesome />}
-                fullWidth
-                onClick={handleBulkEvaluation}
-                disabled={loading}
-              >
-                Evaluate All
-              </Button>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <Button
-                variant="outlined"
-                startIcon={<Email />}
-                fullWidth
-                onClick={handleBulkEmail}
-                disabled={loading}
-                color="success"
-              >
-                Send Emails
               </Button>
             </Grid>
             <Grid item xs={12} md={3}>
@@ -364,19 +356,40 @@ const Applications = () => {
                   }}
                 >
                   <MenuItem value="">All</MenuItem>
-                  <MenuItem value="applied">Applied</MenuItem>
-                  <MenuItem value="screening">Screening</MenuItem>
+                  <MenuItem value="pending">Pending Review</MenuItem>
+                  <MenuItem value="under_review">Under Review</MenuItem>
                   <MenuItem value="shortlisted">Shortlisted</MenuItem>
-                  <MenuItem value="interview_scheduled">Interview Scheduled</MenuItem>
                   <MenuItem value="interviewed">Interviewed</MenuItem>
-                  <MenuItem value="technical_test">Technical Test</MenuItem>
-                  <MenuItem value="reference_check">Reference Check</MenuItem>
-                  <MenuItem value="offer_sent">Offer Sent</MenuItem>
-                  <MenuItem value="offer_accepted">Offer Accepted</MenuItem>
-                  <MenuItem value="offer_declined">Offer Declined</MenuItem>
+                  <MenuItem value="offered">Offered</MenuItem>
                   <MenuItem value="hired">Hired</MenuItem>
                   <MenuItem value="rejected">Rejected</MenuItem>
-                  <MenuItem value="withdrawn">Withdrawn</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Manual Status</InputLabel>
+                <Select
+                  value={filters.manualStatus || ''}
+                  onChange={(e) => setFilters(prev => ({ ...prev, manualStatus: e.target.value }))}
+                  label="Manual Status"
+                  sx={{
+                    '& .MuiSelect-select': {
+                      paddingRight: '32px', // Ensure space for dropdown icon
+                    },
+                    '& .MuiSelect-icon': {
+                      right: '8px', // Position icon properly
+                    }
+                  }}
+                >
+                  <MenuItem value="">All Statuses</MenuItem>
+                  <MenuItem value="pending">Pending Review</MenuItem>
+                  <MenuItem value="under_review">Under Review</MenuItem>
+                  <MenuItem value="shortlisted">Shortlisted</MenuItem>
+                  <MenuItem value="interviewed">Interviewed</MenuItem>
+                  <MenuItem value="offered">Offered</MenuItem>
+                  <MenuItem value="hired">Hired</MenuItem>
+                  <MenuItem value="rejected">Rejected</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -416,7 +429,7 @@ const Applications = () => {
                   <TableCell><strong>Candidate</strong></TableCell>
                   <TableCell><strong>Job Position</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
-                  <TableCell><strong>Shortlist Status</strong></TableCell>
+                  <TableCell><strong>Manual Status</strong></TableCell>
                   <TableCell><strong>Applied Date</strong></TableCell>
                   <TableCell><strong>Expected Salary</strong></TableCell>
                   <TableCell><strong>Availability</strong></TableCell>
@@ -468,38 +481,25 @@ const Applications = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      {application.evaluation ? (
+                      {application.evaluation?.manualStatus ? (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {application.evaluation.isShortlisted ? (
-                            <>
-                              <Star sx={{ color: 'gold', fontSize: 20 }} />
-                              <Chip
-                                label="Shortlisted"
-                                color="success"
-                                size="small"
-                                icon={<AutoAwesome fontSize="small" />}
-                              />
-                            </>
-                          ) : (
-                            <>
-                              <StarBorder sx={{ color: 'text.secondary', fontSize: 20 }} />
-                              <Chip
-                                label="Not Shortlisted"
-                                color="default"
-                                size="small"
-                                variant="outlined"
-                              />
-                            </>
+                          <Chip
+                            label={application.evaluation.manualStatus.replace('_', ' ').toUpperCase()}
+                            color={getManualStatusColor(application.evaluation.manualStatus)}
+                            size="small"
+                            icon={getManualStatusIcon(application.evaluation.manualStatus)}
+                          />
+                          {application.evaluation.manualStatusReason && (
+                            <Tooltip title={application.evaluation.manualStatusReason}>
+                              <Info sx={{ color: 'text.secondary', fontSize: 16 }} />
+                            </Tooltip>
                           )}
-                          <Typography variant="caption" color="text.secondary">
-                            {application.evaluation.overallScore}/100
-                          </Typography>
                         </Box>
                       ) : (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Warning sx={{ color: 'warning.main', fontSize: 20 }} />
                           <Chip
-                            label="Pending Evaluation"
+                            label="PENDING REVIEW"
                             color="warning"
                             size="small"
                             variant="outlined"
@@ -556,6 +556,25 @@ const Applications = () => {
                           >
                             <Edit fontSize="small" />
                           </IconButton>
+                        </Tooltip>
+                        
+                        <Tooltip title="Change Status">
+                          <FormControl size="small" sx={{ minWidth: 120 }}>
+                            <Select
+                              value={application.evaluation?.manualStatus || 'pending'}
+                              onChange={(e) => handleStatusChange(application, e.target.value)}
+                              displayEmpty
+                              sx={{ fontSize: '0.75rem' }}
+                            >
+                              <MenuItem value="pending">Pending Review</MenuItem>
+                              <MenuItem value="under_review">Under Review</MenuItem>
+                              <MenuItem value="shortlisted">Shortlisted</MenuItem>
+                              <MenuItem value="interviewed">Interviewed</MenuItem>
+                              <MenuItem value="offered">Offered</MenuItem>
+                              <MenuItem value="hired">Hired</MenuItem>
+                              <MenuItem value="rejected">Rejected</MenuItem>
+                            </Select>
+                          </FormControl>
                         </Tooltip>
                         
                         <Tooltip title="Delete">

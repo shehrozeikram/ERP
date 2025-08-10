@@ -13,6 +13,7 @@ router.post('/submit',
   asyncHandler(async (req, res) => {
     const {
       affiliateCode,
+      applicationType = 'standard',
       personalInfo,
       professionalInfo,
       education,
@@ -21,11 +22,27 @@ router.post('/submit',
       documents
     } = req.body;
 
-    // Validate required fields
-    if (!affiliateCode || !personalInfo || !professionalInfo) {
+    // Validate required fields based on application type
+    if (!affiliateCode || !personalInfo) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields'
+        message: 'Missing required fields: affiliateCode and personalInfo'
+      });
+    }
+
+    // For standard applications, require professionalInfo
+    if (applicationType === 'standard' && !professionalInfo) {
+      return res.status(400).json({
+        success: false,
+        message: 'Professional information is required for standard applications'
+      });
+    }
+
+    // For easy apply, require CV
+    if (applicationType === 'easy_apply' && !documents?.cv) {
+      return res.status(400).json({
+        success: false,
+        message: 'CV is required for easy apply applications'
       });
     }
 
@@ -50,46 +67,45 @@ router.post('/submit',
       });
     }
 
-                    // Check if maximum applications reached
-                if (jobPosting.applications >= jobPosting.positionsAvailable) {
-                  return res.status(400).json({
-                    success: false,
-                    message: 'Maximum number of applications reached for this position'
-                  });
-                }
+    // Check if user has already applied with this email
+    const existingApplication = await Application.findOne({
+      jobPosting: jobPosting._id,
+      'personalInfo.email': personalInfo.email.toLowerCase()
+    });
 
-                // Check if user has already applied with this email
-                const existingApplication = await Application.findOne({
-                  jobPosting: jobPosting._id,
-                  'personalInfo.email': personalInfo.email.toLowerCase()
-                });
+    if (existingApplication) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already applied for this position with this email address'
+      });
+    }
 
-                if (existingApplication) {
-                  return res.status(400).json({
-                    success: false,
-                    message: 'You have already applied for this position with this email address'
-                  });
-                }
-
-    // Create the application
-    const application = new Application({
+    // Create the application with conditional fields
+    const applicationData = {
       jobPosting: jobPosting._id,
       affiliateCode: affiliateCode,
+      applicationType: applicationType,
       personalInfo,
-      professionalInfo,
-      education,
-      skills,
-      additionalInfo,
-      // For now, we'll store document references as strings
-      // In a production system, you'd want to handle file uploads properly
-      documents: {
-        cv: documents?.cv || null,
-        coverLetter: documents?.coverLetter || null,
-        additionalDocuments: documents?.additionalDocuments || []
-      },
       status: 'applied',
       submittedAt: new Date()
-    });
+    };
+
+    // Add optional fields for standard applications
+    if (applicationType === 'standard') {
+      applicationData.professionalInfo = professionalInfo;
+      applicationData.education = education;
+      applicationData.skills = skills;
+      applicationData.additionalInfo = additionalInfo;
+    }
+
+    // Add documents
+    applicationData.documents = {
+      cv: documents?.cv || null,
+      coverLetter: documents?.coverLetter || null,
+      additionalDocuments: documents?.additionalDocuments || []
+    };
+
+    const application = new Application(applicationData);
 
     await application.save();
 
@@ -97,22 +113,19 @@ router.post('/submit',
     jobPosting.applications = (jobPosting.applications || 0) + 1;
     await jobPosting.save();
 
-    // Automatically evaluate the application
-    try {
-      await ApplicationEvaluationService.evaluateApplication(application._id);
-      console.log(`Application ${application._id} evaluated successfully`);
-    } catch (evaluationError) {
-      console.error('Error evaluating application:', evaluationError.message);
-      // Don't fail the application submission if evaluation fails
-    }
+    // Application submitted successfully - no automatic evaluation
+    console.log(`Application ${application._id} submitted successfully - awaiting manual review`);
 
     res.status(201).json({
       success: true,
-      message: 'Application submitted successfully',
+      message: applicationType === 'easy_apply' 
+        ? 'Easy application submitted successfully' 
+        : 'Application submitted successfully',
       data: {
         applicationId: application._id,
         status: application.status,
-        submittedAt: application.submittedAt
+        submittedAt: application.submittedAt,
+        applicationType: application.applicationType
       }
     });
   })

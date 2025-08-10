@@ -58,102 +58,9 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import realtimeAttendanceService from '../../services/realtimeAttendanceService';
 import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 import { formatAttendanceTime, formatLocalDate, isLateCheckIn, getTimeDifference } from '../../utils/timezoneHelper';
-
-// Global WebSocket singleton
-let globalWebSocket = null;
-let globalWebSocketListeners = new Set();
-
-// Global WebSocket manager
-const WebSocketManager = {
-  connect() {
-    if (globalWebSocket && globalWebSocket.readyState === WebSocket.OPEN) {
-      return Promise.resolve(true);
-    }
-    
-    if (globalWebSocket && globalWebSocket.readyState === WebSocket.CONNECTING) {
-      return new Promise((resolve) => {
-        const checkConnection = () => {
-          if (globalWebSocket && globalWebSocket.readyState === WebSocket.OPEN) {
-            resolve(true);
-          } else if (globalWebSocket && globalWebSocket.readyState === WebSocket.CONNECTING) {
-            setTimeout(checkConnection, 100);
-          } else {
-            resolve(false);
-          }
-        };
-        checkConnection();
-      });
-    }
-    
-    return new Promise((resolve) => {
-      const wsUrl = `ws://${window.location.hostname}:8080`;
-      console.log('🔌 Creating global WebSocket connection:', wsUrl);
-      
-      globalWebSocket = new WebSocket(wsUrl);
-      
-      globalWebSocket.onopen = () => {
-        console.log('✅ Global WebSocket connected');
-        resolve(true);
-      };
-      
-      globalWebSocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('📥 Global WebSocket received:', data);
-          
-          // Notify all listeners
-          globalWebSocketListeners.forEach(listener => {
-            try {
-              listener(data);
-            } catch (error) {
-              console.error('Error in WebSocket listener:', error);
-            }
-          });
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-      
-      globalWebSocket.onclose = (event) => {
-        console.log('🔌 Global WebSocket disconnected:', event.code, event.reason);
-        globalWebSocket = null;
-        
-        // Auto-reconnect after 5 seconds
-        setTimeout(() => {
-          if (globalWebSocketListeners.size > 0) {
-            WebSocketManager.connect();
-          }
-        }, 5000);
-      };
-      
-      globalWebSocket.onerror = (error) => {
-        console.error('❌ Global WebSocket error:', error);
-        resolve(false);
-      };
-    });
-  },
-  
-  disconnect() {
-    if (globalWebSocket) {
-      globalWebSocket.close();
-      globalWebSocket = null;
-    }
-    globalWebSocketListeners.clear();
-  },
-  
-  addListener(listener) {
-    globalWebSocketListeners.add(listener);
-    return () => {
-      globalWebSocketListeners.delete(listener);
-    };
-  },
-  
-  isConnected() {
-    return globalWebSocket && globalWebSocket.readyState === WebSocket.OPEN;
-  }
-};
 
 const AttendanceList = () => {
   const [attendance, setAttendance] = useState([]);
@@ -205,125 +112,67 @@ const AttendanceList = () => {
     try {
       console.log('🔄 Processing real-time attendance update:', attendanceData);
       
-      // Validate the attendance data structure
-      if (!attendanceData || !attendanceData.employeeId || !attendanceData.timestamp) {
-        console.error('❌ Invalid attendance data received:', attendanceData);
-        return;
-      }
-      
-      // Show notification
-      showRealTimeNotification(attendanceData);
-      
-      // Update the attendance list with new data
-      setAttendance(prevAttendance => {
-        console.log('🔄 Current attendance count:', prevAttendance.length);
-        // Create a completely new array to ensure React detects the change
-        let updatedAttendance = [...prevAttendance.map(record => ({ ...record }))];
+      // Handle different types of attendance updates from Change Streams
+      if (attendanceData.type === 'attendance_added') {
+        // New attendance record
+        const newRecord = attendanceData.data;
+        console.log('➕ New attendance record received:', newRecord);
         
-        // Find if this employee already has an attendance record for today
-        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-        const existingIndex = updatedAttendance.findIndex(record => {
-          const recordDate = new Date(record.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-          return record.employee?.employeeId === attendanceData.employeeId && recordDate === today;
-        });
-        
-        if (existingIndex >= 0) {
-          // Update existing record
-          const existingRecord = updatedAttendance[existingIndex];
-          
-          // Use localTimestamp if available, otherwise parse the formatted timestamp
-          const timeToUse = attendanceData.localTimestamp ? 
-            new Date(attendanceData.localTimestamp) : 
-            new Date(attendanceData.timestamp);
-          
-          if (attendanceData.isCheckIn) {
-            existingRecord.checkIn = {
-              time: timeToUse,
-              location: 'ZKTeco Device',
-              method: 'Biometric'
-            };
-          } else {
-            existingRecord.checkOut = {
-              time: timeToUse,
-              location: 'ZKTeco Device',
-              method: 'Biometric'
-            };
+        setAttendance(prevAttendance => {
+          // Check if record already exists to prevent duplicates
+          const recordExists = prevAttendance.some(record => record._id === newRecord._id);
+          if (recordExists) {
+            console.log('⚠️ Record already exists, skipping duplicate');
+            return prevAttendance;
           }
           
-          // Move updated record to the top for latest visibility
-          const updatedRecord = { ...existingRecord };
-          updatedAttendance.splice(existingIndex, 1); // Remove from current position
-          updatedAttendance.unshift(updatedRecord); // Add to top
-          console.log('✅ Updated and moved attendance record to top for employee:', attendanceData.employeeId);
-        } else {
-          // Create new record
-          const timeToUse = attendanceData.localTimestamp ? 
-            new Date(attendanceData.localTimestamp) : 
-            new Date(attendanceData.timestamp);
-            
-          const newRecord = {
-            _id: `realtime_${Date.now()}`,
-            employee: {
-              _id: attendanceData.employeeId,
-              firstName: attendanceData.employeeName?.split(' ')[0] || '',
-              lastName: attendanceData.employeeName?.split(' ').slice(1).join(' ') || '',
-              employeeId: attendanceData.employeeId
-            },
-            date: timeToUse,
-            checkIn: attendanceData.isCheckIn ? {
-              time: timeToUse,
-              location: 'ZKTeco Device',
-              method: 'Biometric'
-            } : null,
-            checkOut: !attendanceData.isCheckIn ? {
-              time: timeToUse,
-              location: 'ZKTeco Device',
-              method: 'Biometric'
-            } : null,
-            status: 'Present',
-            isActive: true
-          };
-          updatedAttendance.unshift(newRecord); // Add new record to top
-          console.log('✅ Created new attendance record at top for employee:', attendanceData.employeeId);
+          const updatedAttendance = [newRecord, ...prevAttendance];
+          console.log('🔄 Updated attendance count:', updatedAttendance.length);
+          return updatedAttendance;
+        });
+        
+        // Show notification
+        if (newRecord.employee) {
+          const employeeName = `${newRecord.employee.firstName} ${newRecord.employee.lastName}`;
+          const action = newRecord.checkIn ? 'checked in' : 'checked out';
+          const time = newRecord.checkIn?.time || newRecord.checkOut?.time;
+          const timeStr = time ? new Date(time).toLocaleTimeString() : 'now';
+          
+          showRealTimeNotification({
+            employeeName,
+            isCheckIn: !!newRecord.checkIn,
+            timestamp: time,
+            localTimestamp: time
+          });
         }
         
-        // Sort to ensure most recently recorded attendance appears at top
-        updatedAttendance.sort((a, b) => {
-          // First check if either record is a real-time record (starts with 'realtime_')
-          const aIsRealtime = a._id?.toString().startsWith('realtime_');
-          const bIsRealtime = b._id?.toString().startsWith('realtime_');
-          
-          // Real-time records always come first
-          if (aIsRealtime && !bIsRealtime) return -1;
-          if (!aIsRealtime && bIsRealtime) return 1;
-          
-          // For real-time records, sort by ID (which contains timestamp)
-          if (aIsRealtime && bIsRealtime) {
-            return b._id.localeCompare(a._id);
-          }
-          
-          // For database records, sort by createdAt if available, otherwise by date
-          const createdAtA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-          const createdAtB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
-          
-          // Most recently created/recorded first
-          return createdAtB - createdAtA;
+      } else if (attendanceData.type === 'attendance_updated') {
+        // Updated attendance record
+        const updatedRecord = attendanceData.data;
+        console.log('✏️ Attendance record updated:', updatedRecord);
+        
+        setAttendance(prevAttendance => {
+          const updatedAttendance = prevAttendance.map(record => 
+            record._id === updatedRecord._id ? updatedRecord : record
+          );
+          console.log('🔄 Updated attendance count:', updatedAttendance.length);
+          return updatedAttendance;
         });
         
-        console.log('🔄 Updated attendance count:', updatedAttendance.length);
-        console.log('🏆 First record:', updatedAttendance[0]?.employee?.firstName, updatedAttendance[0]?.employee?.lastName);
-        return updatedAttendance;
-      });
-      
-      // Immediately refresh BEFORE any potential WebSocket issues
-      console.log('🔄 About to refresh attendance data...');
-      try {
-        console.log('🔄 Calling fetchAttendance...');
-        fetchAttendance();
-        console.log('🔄 fetchAttendance called successfully');
-      } catch (refreshError) {
-        console.error('❌ Error calling fetchAttendance:', refreshError);
+      } else if (attendanceData.type === 'attendance_deleted') {
+        // Deleted attendance record
+        const deletedId = attendanceData.data._id;
+        console.log('🗑️ Attendance record deleted:', deletedId);
+        
+        setAttendance(prevAttendance => {
+          const updatedAttendance = prevAttendance.filter(record => record._id !== deletedId);
+          console.log('🔄 Updated attendance count:', updatedAttendance.length);
+          return updatedAttendance;
+        });
       }
+      
+      // Refresh statistics
+      fetchStatistics();
       
       console.log('✅ Real-time attendance update completed successfully');
       
@@ -365,92 +214,58 @@ const AttendanceList = () => {
       return;
     }
     
+    // Prevent multiple initializations
+    if (removeListenerRef.current) {
+      console.log('⏭️ Real-time already initialized, skipping');
+      return;
+    }
+    
     try {
       console.log('🔍 Initializing real-time connection...');
       
-      // Skip API check and directly connect WebSocket since service is auto-started
-      console.log('📡 Connecting directly to WebSocket (service auto-started)...');
+      // Connect to real-time service
+      console.log('🔌 Connecting to real-time attendance service...');
+      realtimeAttendanceService.connect();
       
-      // Connect to global WebSocket
-      console.log('🔌 Attempting WebSocket connection...');
-      const connected = await WebSocketManager.connect();
-      console.log('🔌 WebSocket connection result:', connected);
+      // Add listeners for real-time events
+      console.log('👂 Adding real-time event listeners...');
       
-      if (connected) {
-        setIsConnected(true);
-        setConnectionStatus('connected');
-        setRealTimeError(null);
-        
-        // Add listener for real-time updates
-        console.log('👂 Adding WebSocket listener...');
-        removeListenerRef.current = WebSocketManager.addListener((data) => {
-          console.log('📥 WebSocket listener received data:', data);
-          console.log('📊 Data type:', data.type, 'Data keys:', Object.keys(data));
-          
-          if (data.type === 'attendance') {
-            console.log('📋 Processing attendance data:', data.data);
-            
-            // Show real-time notification
-            showRealTimeNotification(data.data);
-            
-            // Update state directly for smooth real-time without refresh
-            console.log('🎯 NEW CODE: Updating attendance list smoothly without refresh!');
-            
-            const newRecord = {
-              _id: data.data.attendanceId || `realtime_${Date.now()}`,
-              employee: {
-                _id: data.data.employeeId,
-                firstName: data.data.employeeName?.split(' ')[0] || '',
-                lastName: data.data.employeeName?.split(' ').slice(1).join(' ') || '',
-                employeeId: data.data.employeeId,
-                department: { name: 'Unknown' }
-              },
-              date: data.data.localTimestamp || new Date().toISOString(),
-              checkIn: data.data.isCheckIn ? {
-                time: new Date(data.data.localTimestamp || data.data.timestamp),
-                location: 'ZKTeco Device',
-                method: 'Biometric'
-              } : null,
-              checkOut: !data.data.isCheckIn ? {
-                time: new Date(data.data.localTimestamp || data.data.timestamp),
-                location: 'ZKTeco Device',
-                method: 'Biometric'
-              } : null,
-              status: 'Present',
-              isActive: true,
-              workHours: '0 hrs'
-            };
-            
-            // Smooth state update without causing re-render
-            setAttendance(current => {
-              const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-              
-              // Filter out existing record for this employee today
-              const filtered = current.filter(record => {
-                const recordDate = new Date(record.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
-                return !(record.employee?.employeeId === data.data.employeeId && recordDate === today);
-              });
-              
-              // Return new array with record at top
-              return [newRecord, ...filtered];
-            });
-            
-          } else if (data.type === 'connection') {
-            console.log('🔗 WebSocket connection confirmed:', data.message);
-          } else {
-            console.log('❓ Unknown message type:', data.type, 'Full data:', data);
-          }
-        });
-        
-        console.log('✅ Real-time connection initialized successfully');
-      } else {
-        setRealTimeError('Failed to connect to real-time service');
-        setConnectionStatus('error');
-      }
+      // Connection status listener
+      removeListenerRef.current = realtimeAttendanceService.addListener('connection_status', (data) => {
+        console.log('📡 Connection status update:', data);
+        if (data.status === 'connected') {
+          setIsConnected(true);
+          setConnectionStatus('connected');
+          setRealTimeError(null);
+        } else if (data.status === 'disconnected' || data.status === 'error') {
+          setIsConnected(false);
+          setConnectionStatus('disconnected');
+          setRealTimeError(data.message || 'Connection lost');
+        }
+      });
+      
+      // Attendance update listener
+      const attendanceListener = realtimeAttendanceService.addListener('attendance_update', (data) => {
+        console.log('📊 Attendance update received:', data);
+        handleRealTimeAttendanceUpdate(data);
+      });
+      
+      // Room joined listener
+      const roomListener = realtimeAttendanceService.addListener('room_joined', (data) => {
+        console.log('👥 Room joined:', data);
+      });
+      
+      // Store all listeners for cleanup
+      removeListenerRef.current = () => {
+        attendanceListener();
+        roomListener();
+      };
+      
+      console.log('✅ Real-time initialization completed');
+      
     } catch (error) {
-      console.error('❌ Error initializing real-time:', error);
+      console.error('❌ Error initializing real-time connection:', error);
       setRealTimeError('Failed to initialize real-time connection');
-      setConnectionStatus('error');
     }
   };
 
@@ -482,26 +297,25 @@ const AttendanceList = () => {
         removeListenerRef.current();
         removeListenerRef.current = null;
       }
+      // Disconnect from real-time service
+      realtimeAttendanceService.disconnect();
+      console.log('🧹 Cleaned up real-time connection');
     };
   }, [isRealTimeEnabled, activeTab]);
 
   // Check connection status periodically
   useEffect(() => {
-    if (isRealTimeEnabled && activeTab === 0) {
-      const checkConnection = () => {
-        const connected = WebSocketManager.isConnected();
-        setIsConnected(connected);
-        setConnectionStatus(connected ? 'connected' : 'disconnected');
-      };
-      
-      // Check immediately
-      checkConnection();
-      
-      // Check every 5 seconds
-      const interval = setInterval(checkConnection, 5000);
-      
-      return () => clearInterval(interval);
-    }
+      // Check connection status every 5 seconds
+      if (isRealTimeEnabled && activeTab === 0) {
+        const checkConnection = () => {
+          const connected = realtimeAttendanceService.getConnectionStatus().isConnected;
+          setIsConnected(connected);
+          setConnectionStatus(connected ? 'connected' : 'disconnected');
+        };
+        
+        const connectionInterval = setInterval(checkConnection, 5000);
+        return () => clearInterval(connectionInterval);
+      }
   }, [isRealTimeEnabled, activeTab]);
 
   // Request notification permission
@@ -520,7 +334,7 @@ const AttendanceList = () => {
         page: page + 1,
         limit: rowsPerPage,
         latestOnly: 'false', // Show all records to see most recent updates
-        sortBy: 'date', // Sort by date to trigger updatedAt sorting
+                   sortBy: 'date', // Sort by date to get today's records first
         sortOrder: 'desc', // Most recent first
         ...filters
       });
@@ -1094,6 +908,7 @@ const AttendanceList = () => {
             <TableRow>
               <TableCell>Employee</TableCell>
               <TableCell>Date</TableCell>
+              <TableCell>Updated</TableCell>
               <TableCell>Check In</TableCell>
               <TableCell>Check Out</TableCell>
               <TableCell>Status</TableCell>
@@ -1144,6 +959,14 @@ const AttendanceList = () => {
                 <TableCell>
                   <Typography variant="body2">
                     {formatDate(record.date)}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2">
+                    {record.updatedAt ? new Date(record.updatedAt).toLocaleDateString() : 'N/A'}
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    {record.updatedAt ? new Date(record.updatedAt).toLocaleTimeString() : ''}
                   </Typography>
                 </TableCell>
                 <TableCell>
