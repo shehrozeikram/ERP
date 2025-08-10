@@ -7,6 +7,7 @@ const Candidate = require('../models/hr/Candidate');
 const Application = require('../models/hr/Application');
 const JobPosting = require('../models/hr/JobPosting');
 const EmailService = require('../services/emailService');
+const NotificationService = require('../services/notificationService');
 
 // @route   POST /api/candidate-approvals
 // @desc    Create new approval workflow for a candidate
@@ -259,6 +260,18 @@ router.post('/:id/approve',
       // Send hiring confirmation email to candidate
       await EmailService.sendHiringConfirmation(approval);
       
+      // Create notification for HR team about new employee
+      try {
+        await NotificationService.createCandidateHiredNotification(
+          approval.candidate,
+          approval.jobPosting,
+          req.user
+        );
+        console.log(`✅ HR notification created for newly hired candidate ${approval.candidate.firstName} ${approval.candidate.lastName}`);
+      } catch (notificationError) {
+        console.error(`❌ Failed to create HR notification for hired candidate:`, notificationError.message);
+      }
+      
       console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED!`);
     } else {
       // Move to next level
@@ -369,6 +382,18 @@ router.post('/:id/approve-public',
 
       // Send hiring confirmation email to candidate
       await EmailService.sendHiringConfirmation(approval);
+      
+      // Create notification for HR team about new employee
+      try {
+        await NotificationService.createCandidateHiredNotification(
+          approval.candidate,
+          approval.jobPosting,
+          { _id: null } // No user ID for external approvals
+        );
+        console.log(`✅ HR notification created for newly hired candidate ${approval.candidate.firstName} ${approval.candidate.lastName}`);
+      } catch (notificationError) {
+        console.error(`❌ Failed to create HR notification for hired candidate:`, notificationError.message);
+      }
       
       console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED!`);
     } else {

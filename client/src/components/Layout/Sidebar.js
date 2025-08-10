@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Drawer,
   List,
@@ -12,7 +12,11 @@ import {
   Avatar,
   Collapse,
   useTheme,
-  useMediaQuery
+  useMediaQuery,
+  Badge,
+  Tooltip,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import {
   Dashboard,
@@ -31,6 +35,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getModuleMenuItems } from '../../utils/permissions';
+import NotificationService from '../../services/notificationService';
 
 const drawerWidth = 280;
 
@@ -67,6 +72,10 @@ const Sidebar = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const [openSubmenu, setOpenSubmenu] = useState({});
+  const [candidateHiredCount, setCandidateHiredCount] = useState(0);
+  const [isMarkingRead, setIsMarkingRead] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [lastClearedCount, setLastClearedCount] = useState(0);
 
   // Debug: Log menu items for admin
   React.useEffect(() => {
@@ -75,6 +84,35 @@ const Sidebar = () => {
       console.log('Admin menu items:', menuItems);
     }
   }, [user?.role]);
+
+  // Fetch candidate hired notification count for Employee submodule badge
+  const fetchCandidateHiredCount = async () => {
+    if (user) {
+      try {
+        console.log('🔄 Fetching candidate hired notification count...');
+        const count = await NotificationService.getCandidateHiredNotificationCount();
+        console.log(`📊 Candidate hired notification count: ${count}`);
+        setCandidateHiredCount(count);
+      } catch (error) {
+        console.error('❌ Error fetching candidate hired notification count:', error);
+        setCandidateHiredCount(0);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchCandidateHiredCount();
+    
+    // Set up interval to refresh count every 30 seconds
+    const interval = setInterval(fetchCandidateHiredCount, 30000);
+    
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Function to refresh notification count (can be called from parent components)
+  const refreshNotificationCount = () => {
+    fetchCandidateHiredCount();
+  };
 
   const handleSubmenuToggle = (text) => {
     setOpenSubmenu(prev => ({
@@ -192,18 +230,71 @@ const Sidebar = () => {
                 <List component="div" disablePadding>
                   {item.subItems.map((subItem) => (
                     <Box key={subItem.path}>
-                      <ListItemButton
-                        sx={{ pl: 4 }}
-                        onClick={() => {
-                          if (subItem.subItems) {
-                            handleSubmenuToggle(subItem.text);
-                          } else {
-                            handleNavigation(subItem.path);
-                          }
-                        }}
-                        selected={isActive(subItem.path)}
-                      >
-                        <ListItemText primary={subItem.text} />
+                                              <ListItemButton
+                          sx={{ pl: 4 }}
+                          onClick={async () => {
+                            // Special handling for Employees section - mark notifications as read
+                            if (subItem.text === 'Employees' && candidateHiredCount > 0) {
+                              try {
+                                setIsMarkingRead(true);
+                                const countToClear = candidateHiredCount; // Store count before clearing
+                                console.log('🔄 Marking candidate hired notifications as read...');
+                                // Mark all candidate_hired notifications as read
+                                await NotificationService.markAllCandidateHiredAsRead();
+                                // Store the count that was cleared for success message
+                                setLastClearedCount(countToClear);
+                                // Refresh the count
+                                setCandidateHiredCount(0);
+                                // Show success message
+                                setShowSuccessMessage(true);
+                                console.log('✅ Candidate hired notifications marked as read');
+                                
+                                // Trigger a refresh of the top notification count
+                                // This will update the header notification badge
+                                window.dispatchEvent(new CustomEvent('refreshNotifications'));
+                              } catch (error) {
+                                console.error('❌ Error marking notifications as read:', error);
+                              } finally {
+                                setIsMarkingRead(false);
+                              }
+                            }
+                            
+                            // Handle navigation
+                            if (subItem.subItems) {
+                              handleSubmenuToggle(subItem.text);
+                            } else {
+                              handleNavigation(subItem.path);
+                            }
+                          }}
+                          selected={isActive(subItem.path)}
+                        >
+                        <ListItemText 
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              {subItem.text}
+                              {/* Show notification badge for Employees submenu item */}
+                              {subItem.text === 'Employees' && candidateHiredCount > 0 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                  <Tooltip title={`${candidateHiredCount} new employee(s) hired - requires onboarding`} arrow>
+                                    <Badge 
+                                      badgeContent={isMarkingRead ? '...' : candidateHiredCount} 
+                                      color={isMarkingRead ? "default" : "error"}
+                                      sx={{ 
+                                        ml: 1,
+                                        '& .MuiBadge-badge': {
+                                          fontSize: '0.75rem',
+                                          height: '20px',
+                                          minWidth: '20px',
+                                          borderRadius: '10px'
+                                        }
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </Box>
+                              )}
+                            </Box>
+                          } 
+                        />
                         {subItem.subItems && (
                           isSubmenuActive(subItem.subItems) ? <ExpandLess /> : <ExpandMore />
                         )}
@@ -258,6 +349,22 @@ const Sidebar = () => {
           </ListItem>
         </List>
       </Box>
+
+      {/* Success Message Snackbar */}
+      <Snackbar
+        open={showSuccessMessage}
+        autoHideDuration={3000}
+        onClose={() => setShowSuccessMessage(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setShowSuccessMessage(false)} 
+          severity="success" 
+          sx={{ width: '100%' }}
+        >
+          ✅ {lastClearedCount} employee notification(s) cleared! Top notification count updated.
+        </Alert>
+      </Snackbar>
     </Drawer>
   );
 };

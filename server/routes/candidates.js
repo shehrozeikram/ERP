@@ -423,6 +423,27 @@ router.put('/:id/status',
       }
     }
 
+    // Handle hired status - create notification for HR team
+    if (status === 'hired') {
+      console.log('🎉 Status changed to hired - creating HR notification...');
+      try {
+        const NotificationService = require('../services/notificationService');
+        const notification = await NotificationService.createCandidateHiredNotification(
+          candidate,
+          candidate.jobPosting,
+          req.user
+        );
+        
+        if (notification) {
+          console.log(`✅ HR notification created for newly hired candidate ${candidate.firstName} ${candidate.lastName}`);
+        } else {
+          console.log('⚠️ No HR users found to send notification to');
+        }
+      } catch (notificationError) {
+        console.error('❌ Error creating HR notification for hired candidate:', notificationError.message);
+      }
+    }
+
     await candidate.save();
 
     // Prepare response message
@@ -431,6 +452,8 @@ router.put('/:id/status',
       message = 'Job offer sent successfully! Email notification delivered to candidate.';
     } else if (status === 'offer_accepted') {
       message = 'Offer accepted! Confirmation email sent to candidate. Status changed to Offer Accepted.';
+    } else if (status === 'hired') {
+      message = 'Candidate hired successfully! HR notification created for employee onboarding.';
     }
 
     res.json({

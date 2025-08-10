@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import {
   Search,
-  Notifications,
+  Notifications as NotificationsIcon,
   AccountCircle,
   Settings,
   Logout,
@@ -24,6 +24,8 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import NotificationService from '../../services/notificationService';
+import Notifications from '../Notifications/Notifications';
 
 const SearchWrapper = styled('div')(({ theme }) => ({
   position: 'relative',
@@ -70,6 +72,53 @@ const Header = () => {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Fetch unread notification count
+  useEffect(() => {
+    if (!user) {
+      setUnreadCount(0);
+      return;
+    }
+
+    const fetchUnreadCount = async () => {
+      try {
+        const count = await NotificationService.getUnreadCount();
+        setUnreadCount(count);
+      } catch (error) {
+        console.error('Error fetching unread count:', error);
+      }
+    };
+
+    fetchUnreadCount();
+    
+    // Refresh count every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    
+    // Listen for custom event to refresh notifications (from sidebar)
+    const handleRefreshNotifications = () => {
+      console.log('🔄 Header: Refreshing notifications from sidebar event...');
+      refreshUnreadCount();
+    };
+    
+    window.addEventListener('refreshNotifications', handleRefreshNotifications);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('refreshNotifications', handleRefreshNotifications);
+    };
+  }, [user]);
+
+  const refreshUnreadCount = async () => {
+    if (!user) return;
+    
+    try {
+      const count = await NotificationService.getUnreadCount();
+      setUnreadCount(count);
+    } catch (error) {
+      console.error('Error refreshing unread count:', error);
+    }
+  };
 
   const handleProfileMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
@@ -132,8 +181,8 @@ const Header = () => {
           color="inherit"
           onClick={handleNotificationsOpen}
         >
-          <Badge badgeContent={4} color="error">
-            <Notifications />
+          <Badge badgeContent={unreadCount} color="error" max={99}>
+            <NotificationsIcon />
           </Badge>
         </IconButton>
 
@@ -149,27 +198,16 @@ const Header = () => {
           </Avatar>
         </IconButton>
 
-        {/* Notifications Menu */}
+                {/* Notifications Menu */}
         <Menu
           anchorEl={notificationsAnchor}
           open={isNotificationsOpen}
           onClose={handleMenuClose}
           PaperProps={{
-            sx: { width: 320, maxHeight: 400 }
+            sx: { width: 400, maxHeight: 600 }
           }}
         >
-          <MenuItem>
-            <Typography variant="subtitle2">New employee added</Typography>
-          </MenuItem>
-          <MenuItem>
-            <Typography variant="subtitle2">Purchase order approved</Typography>
-          </MenuItem>
-          <MenuItem>
-            <Typography variant="subtitle2">Sales target achieved</Typography>
-          </MenuItem>
-          <MenuItem>
-            <Typography variant="subtitle2">System maintenance scheduled</Typography>
-          </MenuItem>
+          <Notifications onNotificationAction={refreshUnreadCount} />
         </Menu>
 
         {/* User Profile Menu */}
