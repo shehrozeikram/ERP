@@ -53,12 +53,12 @@ router.post('/',
     // Save first to trigger pre-save middleware and initialize approvalLevels
     await approval.save();
 
-    // Now set approver emails for each level
-    approval.approvalLevels[0].approverEmail = approverEmails[0]; // Assistant Manager HR
-    approval.approvalLevels[1].approverEmail = approverEmails[1]; // Manager HR
-    approval.approvalLevels[2].approverEmail = approverEmails[2]; // HOD HR
-    approval.approvalLevels[3].approverEmail = approverEmails[3]; // Vice President
-    approval.approvalLevels[4].approverEmail = approverEmails[4]; // CEO
+    // Now set approver emails for each level (all emails go to shehrozeikram2@gmail.com for testing)
+    approval.approvalLevels[0].approverEmail = 'shehrozeikram2@gmail.com'; // Assistant Manager HR
+    approval.approvalLevels[1].approverEmail = 'shehrozeikram2@gmail.com'; // Manager HR
+    approval.approvalLevels[2].approverEmail = 'shehrozeikram2@gmail.com'; // HOD HR
+    approval.approvalLevels[3].approverEmail = 'shehrozeikram2@gmail.com'; // Vice President
+    approval.approvalLevels[4].approverEmail = 'shehrozeikram2@gmail.com'; // CEO
 
     // Save again to persist the approver emails
     await approval.save();
@@ -243,24 +243,27 @@ router.post('/:id/approve',
     const approvedLevels = approval.approvalLevels.filter(level => level.status === 'approved').length;
     
     if (approvedLevels === 5) {
-      // All levels approved
+      // All levels approved - CEO final approval
       approval.status = 'approved';
       approval.finalDecision = 'approved';
       approval.finalDecisionBy = req.user._id;
       approval.finalDecisionAt = new Date();
       approval.completedAt = new Date();
 
-      // Update candidate status
+      // Update candidate status to HIRED (final status)
       await Candidate.findByIdAndUpdate(approval.candidate._id, {
-        status: 'approved',
+        status: 'hired',
         updatedBy: req.user._id
       });
 
-      // Send appointment letter to candidate
-      await EmailService.sendAppointmentLetter(approval);
+      // Send hiring confirmation email to candidate
+      await EmailService.sendHiringConfirmation(approval);
+      
+      console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED!`);
     } else {
       // Move to next level
-      approval.currentLevel = approvedLevels + 1;
+      const nextLevel = approvedLevels + 1;
+      approval.currentLevel = nextLevel;
       approval.status = 'in_progress';
 
       // Update candidate status
@@ -269,8 +272,15 @@ router.post('/:id/approve',
         updatedBy: req.user._id
       });
 
+      console.log(`🔄 Moving to approval level ${nextLevel} (${approval.approvalLevels[nextLevel - 1].title})`);
+      
       // Send email to next approver
-      await EmailService.sendApprovalRequest(approval, approval.currentLevel);
+      try {
+        await EmailService.sendApprovalRequest(approval, nextLevel);
+        console.log(`✅ Approval request email sent to Level ${nextLevel} (${approval.approvalLevels[nextLevel - 1].title})`);
+      } catch (error) {
+        console.error(`❌ Failed to send approval request email to Level ${nextLevel}:`, error.message);
+      }
     }
 
     await approval.save();
@@ -344,24 +354,27 @@ router.post('/:id/approve-public',
     const approvedLevels = approval.approvalLevels.filter(level => level.status === 'approved').length;
     
     if (approvedLevels === 5) {
-      // All levels approved
+      // All levels approved - CEO final approval
       approval.status = 'approved';
       approval.finalDecision = 'approved';
       approval.finalDecisionBy = null; // No user ID for external approvals
       approval.finalDecisionAt = new Date();
       approval.completedAt = new Date();
 
-      // Update candidate status
+      // Update candidate status to HIRED (final status)
       await Candidate.findByIdAndUpdate(approval.candidate._id, {
-        status: 'approved',
+        status: 'hired',
         updatedBy: null
       });
 
-      // Send appointment letter to candidate
-      await EmailService.sendAppointmentLetter(approval);
+      // Send hiring confirmation email to candidate
+      await EmailService.sendHiringConfirmation(approval);
+      
+      console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED!`);
     } else {
       // Move to next level
-      approval.currentLevel = approvedLevels + 1;
+      const nextLevel = approvedLevels + 1;
+      approval.currentLevel = nextLevel;
       approval.status = 'in_progress';
 
       // Update candidate status
@@ -370,8 +383,15 @@ router.post('/:id/approve-public',
         updatedBy: null
       });
 
+      console.log(`🔄 Moving to approval level ${nextLevel} (${approval.approvalLevels[nextLevel - 1].title})`);
+      
       // Send email to next approver
-      await EmailService.sendApprovalRequest(approval, approval.currentLevel);
+      try {
+        await EmailService.sendApprovalRequest(approval, nextLevel);
+        console.log(`✅ Approval request email sent to Level ${nextLevel} (${approval.approvalLevels[nextLevel - 1].title})`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send approval request email to Level ${nextLevel}:`, emailError.message);
+      }
     }
 
     await approval.save();

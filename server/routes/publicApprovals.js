@@ -82,21 +82,21 @@ router.post('/:id/approve',
     const approvedLevels = approval.approvalLevels.filter(level => level.status === 'approved').length;
     
     if (approvedLevels === 5) {
-      // All levels approved
+      // All levels approved - CEO final approval
       approval.status = 'approved';
       approval.finalDecision = 'approved';
       approval.finalDecisionBy = null; // No user ID for external approvals
       approval.finalDecisionAt = new Date();
       approval.completedAt = new Date();
 
-      // Update candidate status
+      // Update candidate status to HIRED (final status)
       await Candidate.findByIdAndUpdate(approval.candidate._id, {
-        status: 'approved',
+        status: 'hired',
         updatedBy: null
       });
 
-      // Send appointment letter to candidate
-      await EmailService.sendAppointmentLetter(approval);
+      // Send hiring confirmation email to candidate
+      await EmailService.sendHiringConfirmation(approval);
     } else {
       // Move to next level
       approval.currentLevel = approvedLevels + 1;

@@ -217,15 +217,33 @@ const candidateSchema = new mongoose.Schema({
   // Application Status
   status: {
     type: String,
-    enum: ['active', 'shortlisted', 'interviewed', 'passed', 'approval_pending', 'approval_in_progress', 'approved', 'offered', 'hired', 'rejected', 'withdrawn'],
+    enum: ['active', 'shortlisted', 'interviewed', 'passed', 'approval_pending', 'approval_in_progress', 'approved', 'offered', 'offer_accepted', 'hired', 'rejected', 'withdrawn'],
     default: 'active'
+  },
+  
+  // Offer Information
+  offer: {
+    offeredSalary: {
+      type: Number,
+      min: 0
+    },
+    offeredPosition: String,
+    offeredDepartment: String,
+    offerDate: Date,
+    offerExpiryDate: Date,
+    offerAcceptedAt: Date,
+    offerAcceptedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    offerNotes: String
   },
   
   // Email Delivery Tracking
   emailNotifications: [{
     type: {
       type: String,
-      enum: ['shortlist', 'interview', 'offer', 'rejection', 'other'],
+      enum: ['shortlist', 'interview', 'offer', 'offer_accepted', 'rejection', 'other'],
       required: true
     },
     jobPosting: {

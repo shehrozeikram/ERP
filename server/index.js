@@ -51,6 +51,7 @@ const payslipRoutes = require('./routes/payslips');
 const jobPostingRoutes = require('./routes/jobPostings');
 const publicJobPostingRoutes = require('./routes/publicJobPostings');
 const candidateRoutes = require('./routes/candidates');
+const publicCandidateRoutes = require('./routes/publicCandidates');
 const candidateApprovalRoutes = require('./routes/candidateApprovals');
 const publicApprovalRoutes = require('./routes/publicApprovals');
 const applicationRoutes = require('./routes/applications');
@@ -192,7 +193,9 @@ app.use('/api/public-approvals', publicApprovalRoutes); // Public approval endpo
 
 // Protected routes (authentication required)
 app.use('/api/job-postings', authMiddleware, jobPostingRoutes);
+// Mount candidate routes with authentication
 app.use('/api/candidates', authMiddleware, candidateRoutes);
+app.use('/api/public/candidates', publicCandidateRoutes);
 app.use('/api/candidate-approvals', authMiddleware, candidateApprovalRoutes);
 app.use('/api/applications', authMiddleware, applicationRoutes);
 app.use('/api/courses', authMiddleware, courseRoutes);

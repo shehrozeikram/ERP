@@ -82,6 +82,13 @@ const Candidates = () => {
   const [approvalData, setApprovalData] = useState({
     approverEmails: ['', '', '', '', '']
   });
+  const [offerDialog, setOfferDialog] = useState({ open: false, candidate: null });
+  const [offerData, setOfferData] = useState({
+    salary: '',
+    position: '',
+    department: '',
+    notes: ''
+  });
 
   // Load candidates
   const loadCandidates = async () => {
@@ -125,7 +132,17 @@ const Candidates = () => {
   // Handle status change
   const handleStatusChange = async (candidate, newStatus) => {
     try {
-      await candidateService.updateCandidateStatus(candidate._id, newStatus);
+      // If status is changed to "offered", show offer details dialog
+      if (newStatus === 'offered') {
+        setOfferDialog({ open: true, candidate });
+        setOfferData({
+          salary: candidate.expectedSalary || '',
+          position: candidate.currentPosition || '',
+          department: candidate.jobPosting?.department?.name || '',
+          notes: ''
+        });
+        return; // Don't proceed yet, wait for offer details
+      }
       
       // If status is changed to "passed", show approval configuration dialog
       if (newStatus === 'passed') {
@@ -139,13 +156,17 @@ const Candidates = () => {
             'ceo@company.com'
           ]
         });
-      } else {
-        setSnackbar({
-          open: true,
-          message: 'Candidate status updated successfully',
-          severity: 'success'
-        });
+        return; // Don't proceed yet, wait for approval details
       }
+
+      // For other status changes, proceed normally
+      await candidateService.updateCandidateStatus(candidate._id, newStatus);
+      
+      setSnackbar({
+        open: true,
+        message: 'Candidate status updated successfully',
+        severity: 'success'
+      });
       
       loadCandidates();
     } catch (error) {
@@ -174,6 +195,31 @@ const Candidates = () => {
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error deleting candidate',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Handle sending job offer
+  const handleSendOffer = async () => {
+    if (!offerDialog.candidate) return;
+
+    try {
+      await candidateService.updateCandidateStatus(offerDialog.candidate._id, 'offered', offerData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Job offer sent successfully! Email notification delivered to candidate.',
+        severity: 'success'
+      });
+      
+      setOfferDialog({ open: false, candidate: null });
+      setOfferData({ salary: '', position: '', department: '', notes: '' });
+      loadCandidates();
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error sending job offer',
         severity: 'error'
       });
     }
@@ -579,6 +625,7 @@ const Candidates = () => {
                               <MenuItem value="approval_in_progress">Approval In Progress</MenuItem>
                               <MenuItem value="approved">Approved</MenuItem>
                               <MenuItem value="offered">Offered</MenuItem>
+                              <MenuItem value="offer_accepted">Offer Accepted</MenuItem>
                               <MenuItem value="hired">Hired</MenuItem>
                               <MenuItem value="rejected">Rejected</MenuItem>
                               <MenuItem value="withdrawn">Withdrawn</MenuItem>
@@ -686,6 +733,80 @@ const Candidates = () => {
             disabled={approvalData.approverEmails.some(email => !email.trim())}
           >
             Create Approval Workflow
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Job Offer Dialog */}
+      <Dialog
+        open={offerDialog.open}
+        onClose={() => setOfferDialog({ open: false, candidate: null })}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Send Job Offer</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            You are about to send a job offer to "{offerDialog.candidate?.firstName} {offerDialog.candidate?.lastName}" for the position of "{offerDialog.candidate?.currentPosition || 'N/A'}". 
+            Please review and confirm the offer details below.
+          </DialogContentText>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Offered Salary (PKR)"
+                type="number"
+                value={offerData.salary}
+                onChange={(e) => setOfferData({ ...offerData, salary: e.target.value })}
+                placeholder="50000"
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Position"
+                value={offerData.position}
+                onChange={(e) => setOfferData({ ...offerData, position: e.target.value })}
+                placeholder="Software Engineer"
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Department"
+                value={offerData.department}
+                onChange={(e) => setOfferData({ ...offerData, department: e.target.value })}
+                placeholder="IT Department"
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Additional Notes"
+                value={offerData.notes}
+                onChange={(e) => setOfferData({ ...offerData, notes: e.target.value })}
+                placeholder="Any additional information about the offer..."
+                multiline
+                rows={3}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOfferDialog({ open: false, candidate: null })}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSendOffer} 
+            variant="contained" 
+            color="primary"
+            disabled={!offerData.salary || !offerData.position || !offerData.department}
+          >
+            Send Job Offer
           </Button>
         </DialogActions>
       </Dialog>

@@ -81,6 +81,7 @@ import JobAnalysis from './pages/HR/JobAnalysis';
 import SuccessionPlanning from './pages/HR/SuccessionPlanning';
 import JobApplication from './pages/Public/JobApplication';
 import PublicApproval from './pages/Public/PublicApproval';
+import OfferAcceptance from './pages/Public/OfferAcceptance';
 
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
@@ -141,6 +142,7 @@ function App() {
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
         <Route path="/apply/:affiliateCode" element={<JobApplication />} />
         <Route path="/public-approval/:id" element={<PublicApproval />} />
+        <Route path="/candidates/offer/:candidateId" element={<OfferAcceptance />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

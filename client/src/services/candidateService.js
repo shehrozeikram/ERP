@@ -13,7 +13,7 @@ export const getCandidates = async (params = {}) => {
 // Get candidate by ID
 export const getCandidateById = async (id) => {
   try {
-    const response = await api.get(`/candidates/${id}`);
+    const response = await api.get(`/public/candidates/${id}`);
     return response.data;
   } catch (error) {
     throw error;
@@ -41,9 +41,24 @@ export const updateCandidate = async (id, candidateData) => {
 };
 
 // Update candidate status
-export const updateCandidateStatus = async (id, status) => {
+export const updateCandidateStatus = async (id, status, offerDetails = null) => {
   try {
-    const response = await api.put(`/candidates/${id}/status`, { status });
+    const requestBody = { status };
+    if (offerDetails) {
+      requestBody.offerDetails = offerDetails;
+    }
+    
+    const response = await api.put(`/candidates/${id}/status`, requestBody);
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Accept job offer (for candidates)
+export const acceptJobOffer = async (id) => {
+  try {
+    const response = await api.post(`/public/candidates/${id}/accept-offer`);
     return response.data;
   } catch (error) {
     throw error;
@@ -107,6 +122,7 @@ export const getCandidateStatusColor = (status) => {
     approval_in_progress: 'info',
     approved: 'success',
     offered: 'success',
+    offer_accepted: 'success',
     hired: 'success',
     rejected: 'error',
     withdrawn: 'default'
@@ -125,6 +141,7 @@ export const getCandidateStatusLabel = (status) => {
     approval_in_progress: 'Approval In Progress',
     approved: 'Approved',
     offered: 'Offered',
+    offer_accepted: 'Offer Accepted',
     hired: 'Hired',
     rejected: 'Rejected',
     withdrawn: 'Withdrawn'
@@ -141,6 +158,7 @@ export const getSourceLabel = (source) => {
     social_media: 'Social Media',
     recruitment_agency: 'Recruitment Agency',
     direct_application: 'Direct Application',
+    application_shortlisted: 'Application Shortlisted',
     other: 'Other'
   };
   return labels[source] || source;
@@ -251,6 +269,7 @@ export default {
   createCandidate,
   updateCandidate,
   updateCandidateStatus,
+  acceptJobOffer,
   addCandidateNote,
   deleteCandidate,
   getCandidateStats,

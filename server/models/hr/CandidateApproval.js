@@ -113,7 +113,7 @@ const candidateApprovalSchema = new mongoose.Schema({
   emailNotifications: [{
     type: {
       type: String,
-      enum: ['approval_request', 'approval_reminder', 'approval_completed', 'appointment_letter'],
+      enum: ['approval_request', 'approval_reminder', 'approval_completed', 'appointment_letter', 'hiring_confirmation'],
       required: true
     },
     level: Number,

@@ -165,6 +165,11 @@ The approval system is accessible through:
 - **Content**: Friendly reminder with candidate details
 - **Actions**: Link to approve
 
+### Hiring Confirmation Email
+- **Subject**: 🎉 Congratulations! You're Hired - [Position]
+- **Content**: Final hiring confirmation, onboarding process, next steps
+- **Actions**: Welcome message and onboarding information
+
 ### Appointment Letter
 - **Subject**: 🎉 Congratulations! Appointment Letter - [Position]
 - **Content**: Congratulations, approval completion, next steps
@@ -175,9 +180,9 @@ The approval system is accessible through:
 ### Candidate Status Updates
 - `passed` → `approval_pending` (workflow created)
 - `approval_pending` → `approval_in_progress` (first approval)
-- `approval_in_progress` → `approved` (all levels approved)
-- `approved` → `offered` (offer letter sent)
-- `offered` → `hired` (candidate accepts)
+- `approval_in_progress` → `hired` (all levels approved - CEO final approval)
+- `hired` → `offered` (offer letter sent - if needed)
+- `offered` → `offer_accepted` (candidate accepts offer)
 
 ### Approval Status Updates
 - `pending` → `in_progress` (first level approved)
@@ -215,7 +220,9 @@ MAILTRAP_PASS=your_password
 ```
 
 ### Approver Email Configuration
-Update approver emails in the approval creation form:
+**For Testing Purposes**: All approval emails are currently configured to go to `shehrozeikram2@gmail.com`
+
+**Production Configuration**: Update approver emails in the approval creation form:
 - Level 1: Assistant Manager HR email
 - Level 2: Manager HR email
 - Level 3: HOD HR email

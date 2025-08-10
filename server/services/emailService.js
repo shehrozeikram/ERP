@@ -398,6 +398,50 @@ Please do not reply to this email. For inquiries, contact our HR team.
     }
   }
 
+  // Send hiring confirmation email to candidate
+  async sendHiringConfirmation(approval) {
+    try {
+      const htmlContent = this.generateHiringConfirmationHTML(approval);
+      const textContent = this.generateHiringConfirmationText(approval);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        to: approval.candidate.email,
+        subject: `🎉 Congratulations! You're Hired - ${approval.jobPosting.title}`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Hiring confirmation email sent to ${approval.candidate.email}: ${result.messageId}`);
+      
+      // Update approval with email notification
+      approval.emailNotifications.push({
+        type: 'hiring_confirmation',
+        sentTo: approval.candidate.email,
+        sentAt: new Date(),
+        deliveredAt: new Date(),
+        status: 'delivered',
+        messageId: result.messageId
+      });
+      await approval.save();
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: approval.candidate.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send hiring confirmation email:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
   // Generate approval request HTML
   generateApprovalRequestHTML(approval, level) {
     const currentLevel = approval.approvalLevels.find(l => l.level === level);
@@ -819,6 +863,411 @@ Our HR team will contact you within the next 2-3 business days to discuss:
 - Required documentation and background checks
 
 Welcome to our team! We look forward to having you join us and contribute to our organization's success.
+
+---
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our HR team.
+    `;
+  }
+
+  // Send job offer email
+  async sendJobOffer(candidate, jobPosting, offerDetails) {
+    try {
+      const htmlContent = this.generateJobOfferHTML(candidate, jobPosting, offerDetails);
+      const textContent = this.generateJobOfferText(candidate, jobPosting, offerDetails);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        to: candidate.email,
+        subject: `🎉 Job Offer - ${jobPosting.title} Position`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Job offer email sent to ${candidate.email}: ${result.messageId}`);
+      
+      // Update candidate with email delivery status
+      if (candidate._id) {
+        const Candidate = require('../models/hr/Candidate');
+        await Candidate.findByIdAndUpdate(candidate._id, {
+          $push: {
+            emailNotifications: {
+              type: 'offer',
+              jobPosting: jobPosting._id,
+              sentAt: new Date(),
+              deliveredAt: new Date(),
+              deliveryStatus: 'delivered',
+              messageId: result.messageId,
+              emailContent: {
+                subject: mailOptions.subject,
+                htmlContent: htmlContent,
+                textContent: textContent
+              }
+            }
+          }
+        });
+      }
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: candidate.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send job offer email to ${candidate.email}:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        email: candidate.email,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
+  // Send offer acceptance confirmation email
+  async sendOfferAcceptanceConfirmation(candidate, jobPosting) {
+    try {
+      const htmlContent = this.generateOfferAcceptanceHTML(candidate, jobPosting);
+      const textContent = this.generateOfferAcceptanceText(candidate, jobPosting);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        to: candidate.email,
+        subject: `✅ Offer Accepted - ${jobPosting.title} Position`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Offer acceptance confirmation sent to ${candidate.email}: ${result.messageId}`);
+      
+      // Update candidate with email delivery status
+      if (candidate._id) {
+        const Candidate = require('../models/hr/Candidate');
+        await Candidate.findByIdAndUpdate(candidate._id, {
+          $push: {
+            emailNotifications: {
+              type: 'offer_accepted',
+              jobPosting: jobPosting._id,
+              sentAt: new Date(),
+              deliveredAt: new Date(),
+              deliveryStatus: 'delivered',
+              messageId: result.messageId,
+              emailContent: {
+                subject: mailOptions.subject,
+                htmlContent: htmlContent,
+                textContent: textContent
+              }
+            }
+          }
+        });
+      }
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: candidate.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send offer acceptance confirmation to ${candidate.email}:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        email: candidate.email,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
+  // Generate job offer HTML
+  generateJobOfferHTML(candidate, jobPosting, offerDetails) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Job Offer - ${jobPosting.title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }
+          .offer-details { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #27ae60; }
+          .salary { font-size: 24px; color: #27ae60; font-weight: bold; }
+          .cta-button { display: inline-block; background: #27ae60; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🎉 Congratulations!</h1>
+            <h2>You've Been Offered the Position</h2>
+          </div>
+          
+          <div class="content">
+            <p>Dear <strong>${candidate.firstName} ${candidate.lastName}</strong>,</p>
+            
+            <p>We are delighted to inform you that after careful consideration of your application and interview performance, we are pleased to offer you the position of <strong>${jobPosting.title}</strong> at our organization.</p>
+            
+            <div class="offer-details">
+              <h3>📋 Offer Details</h3>
+              <p><strong>Position:</strong> ${jobPosting.title}</p>
+              <p><strong>Department:</strong> ${offerDetails.department || jobPosting.department?.name || 'N/A'}</p>
+              <p><strong>Offered Salary:</strong> <span class="salary">PKR ${offerDetails.salary?.toLocaleString() || 'To be discussed'}</span></p>
+              <p><strong>Offer Date:</strong> ${new Date().toLocaleDateString()}</p>
+              <p><strong>Offer Expires:</strong> ${offerDetails.expiryDate || '7 days from today'}</p>
+            </div>
+            
+            <div class="offer-details">
+              <h3>📝 Next Steps</h3>
+              <p>To accept this offer, please click the button below:</p>
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidates/offer/${candidate._id}" class="cta-button">✅ Accept Offer</a>
+              
+              <p><strong>Important:</strong> This offer is valid for ${offerDetails.expiryDate || '7 days'}. Please respond within this timeframe.</p>
+            </div>
+            
+            <div class="offer-details">
+              <h3>📞 Questions?</h3>
+              <p>If you have any questions about this offer or need clarification on any terms, please don't hesitate to contact our HR team.</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our HR team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate job offer text
+  generateJobOfferText(candidate, jobPosting, offerDetails) {
+    return `
+Congratulations! You've Been Offered the Position
+
+Dear ${candidate.firstName} ${candidate.lastName},
+
+We are delighted to inform you that after careful consideration of your application and interview performance, we are pleased to offer you the position of ${jobPosting.title} at our organization.
+
+OFFER DETAILS:
+- Position: ${jobPosting.title}
+- Department: ${offerDetails.department || jobPosting.department?.name || 'N/A'}
+- Offered Salary: PKR ${offerDetails.salary?.toLocaleString() || 'To be discussed'}
+- Offer Date: ${new Date().toLocaleDateString()}
+- Offer Expires: ${offerDetails.expiryDate || '7 days from today'}
+
+NEXT STEPS:
+To accept this offer, please visit: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidates/offer/${candidate._id}
+
+Important: This offer is valid for ${offerDetails.expiryDate || '7 days'}. Please respond within this timeframe.
+
+If you have any questions about this offer or need clarification on any terms, please don't hesitate to contact our HR team.
+
+---
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our HR team.
+    `;
+  }
+
+  // Generate offer acceptance HTML
+  generateOfferAcceptanceHTML(candidate, jobPosting) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Offer Accepted - ${jobPosting.title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #27ae60; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }
+          .status { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #27ae60; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>✅ Offer Accepted!</h1>
+            <h2>Welcome to Our Team</h2>
+          </div>
+          
+          <div class="content">
+            <p>Dear <strong>${candidate.firstName} ${candidate.lastName}</strong>,</p>
+            
+            <p>Thank you for accepting our offer for the position of <strong>${jobPosting.title}</strong>! We're excited to have you join our team.</p>
+            
+            <div class="status">
+              <h3>📋 Current Status</h3>
+              <p><strong>Status:</strong> Offer Accepted</p>
+              <p><strong>Next Step:</strong> Approval Pending</p>
+              <p><strong>Timeline:</strong> 2-3 business days for final approval</p>
+            </div>
+            
+            <div class="status">
+              <h3>📝 What Happens Next?</h3>
+              <p>1. Your acceptance has been recorded in our system</p>
+              <p>2. Our HR team will review and process your application</p>
+              <p>3. You'll receive final approval confirmation within 2-3 business days</p>
+              <p>4. We'll then proceed with onboarding and employment documentation</p>
+            </div>
+            
+            <div class="status">
+              <h3>📞 Stay Connected</h3>
+              <p>We'll keep you updated on the progress. If you have any questions, please contact our HR team.</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our HR team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate offer acceptance text
+  generateOfferAcceptanceText(candidate, jobPosting) {
+    return `
+Offer Accepted! Welcome to Our Team
+
+Dear ${candidate.firstName} ${candidate.lastName},
+
+Thank you for accepting our offer for the position of ${jobPosting.title}! We're excited to have you join our team.
+
+CURRENT STATUS:
+- Status: Offer Accepted
+- Next Step: Approval Pending
+- Timeline: 2-3 business days for final approval
+
+WHAT HAPPENS NEXT?
+1. Your acceptance has been recorded in our system
+2. Our HR team will review and process your application
+3. You'll receive final approval confirmation within 2-3 business days
+4. We'll then proceed with onboarding and employment documentation
+
+Stay connected! We'll keep you updated on the progress. If you have any questions, please contact our HR team.
+
+---
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our HR team.
+    `;
+  }
+
+  // Generate hiring confirmation HTML
+  generateHiringConfirmationHTML(approval) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Congratulations! You're Hired</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #27ae60; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }
+          .status { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #27ae60; }
+          .next-steps { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #f39c12; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+          .badge { background: #27ae60; color: white; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🎉 Congratulations!</h1>
+            <h2>You're Officially Hired!</h2>
+            <p>Welcome to the SGC Family</p>
+          </div>
+          
+          <div class="content">
+            <p>Dear <strong>${approval.candidate.firstName} ${approval.candidate.lastName}</strong>,</p>
+            
+            <p>We are thrilled to inform you that after a thorough review and approval process, you have been <strong>officially hired</strong> for the position of <strong>${approval.jobPosting.title}</strong> at SGC!</p>
+            
+            <div class="status">
+              <h3>✅ Final Status</h3>
+              <p><strong>Status:</strong> <span class="badge">HIRED</span></p>
+              <p><strong>Position:</strong> ${approval.jobPosting.title}</p>
+              <p><strong>Department:</strong> ${approval.jobPosting.department?.name || 'N/A'}</p>
+              <p><strong>Application ID:</strong> ${approval.application.applicationId || approval.application._id}</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>🚀 What Happens Next?</h3>
+              <p><strong>1. Onboarding Process:</strong> Our HR team will contact you within 24-48 hours to begin the onboarding process.</p>
+              <p><strong>2. Documentation:</strong> You'll receive employment contracts and required documentation to review and sign.</p>
+              <p><strong>3. Start Date:</strong> We'll discuss and confirm your official start date.</p>
+              <p><strong>4. Welcome Package:</strong> You'll receive company information, policies, and welcome materials.</p>
+            </div>
+            
+            <div class="status">
+              <h3>📞 Contact Information</h3>
+              <p>If you have any questions about the onboarding process or need to discuss your start date, please contact our HR team.</p>
+              <p><strong>Email:</strong> hr@sgc.com</p>
+              <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>🎯 Welcome to the Team!</h3>
+              <p>We're excited to have you join our organization and look forward to working together. Your skills and experience will be valuable assets to our team.</p>
+              <p>Once again, congratulations on your new role!</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our HR team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate hiring confirmation text
+  generateHiringConfirmationText(approval) {
+    return `
+Congratulations! You're Officially Hired!
+
+Dear ${approval.candidate.firstName} ${approval.candidate.lastName},
+
+We are thrilled to inform you that after a thorough review and approval process, you have been officially hired for the position of ${approval.jobPosting.title} at SGC!
+
+FINAL STATUS:
+- Status: HIRED
+- Position: ${approval.jobPosting.title}
+- Department: ${approval.jobPosting.department?.name || 'N/A'}
+- Application ID: ${approval.application.applicationId || approval.application._id}
+
+WHAT HAPPENS NEXT?
+1. Onboarding Process: Our HR team will contact you within 24-48 hours to begin the onboarding process.
+2. Documentation: You'll receive employment contracts and required documentation to review and sign.
+3. Start Date: We'll discuss and confirm your official start date.
+4. Welcome Package: You'll receive company information, policies, and welcome materials.
+
+CONTACT INFORMATION:
+If you have any questions about the onboarding process or need to discuss your start date, please contact our HR team.
+- Email: hr@sgc.com
+- Phone: +92-XXX-XXXXXXX
+
+WELCOME TO THE TEAM!
+We're excited to have you join our organization and look forward to working together. Your skills and experience will be valuable assets to our team.
+
+Once again, congratulations on your new role!
 
 ---
 This is an automated message from SGC ERP System

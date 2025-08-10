@@ -133,6 +133,8 @@ router.get('/:id',
   })
 );
 
+
+
 // @route   POST /api/candidates
 // @desc    Create new candidate
 // @access  Private (HR and Admin)
@@ -268,7 +270,7 @@ router.put('/:id',
 router.put('/:id/status', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const { status } = req.body;
+    const { status, offerDetails } = req.body;
 
     if (!status) {
       return res.status(400).json({
@@ -277,7 +279,8 @@ router.put('/:id/status',
       });
     }
 
-    const candidate = await Candidate.findById(req.params.id);
+    const candidate = await Candidate.findById(req.params.id)
+      .populate('jobPosting');
 
     if (!candidate) {
       return res.status(404).json({
@@ -286,13 +289,213 @@ router.put('/:id/status',
       });
     }
 
+    // Store previous status for comparison
+    const previousStatus = candidate.status;
+    
+    // Update candidate status
     candidate.status = status;
     candidate.updatedBy = req.user._id;
+
+    // Handle offer status
+    if (status === 'offered') {
+      // Update offer information
+      candidate.offer = {
+        offeredSalary: offerDetails?.salary || candidate.expectedSalary || 0,
+        offeredPosition: offerDetails?.position || candidate.currentPosition || 'N/A',
+        offeredDepartment: offerDetails?.department || candidate.jobPosting?.department?.name || 'N/A',
+        offerDate: new Date(),
+        offerExpiryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+        offerNotes: offerDetails?.notes || ''
+      };
+
+      // Send job offer email
+      try {
+        const EmailService = require('../services/emailService');
+        const emailResult = await EmailService.sendJobOffer(candidate, candidate.jobPosting, candidate.offer);
+        
+        if (emailResult.success) {
+          console.log(`✅ Job offer email sent successfully to ${candidate.email}`);
+        } else {
+          console.error(`❌ Failed to send job offer email:`, emailResult.error);
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending job offer email:', emailError);
+      }
+    }
+
+    // Handle approval pending status - automatically create approval workflow
+    if (status === 'approval_pending') {
+      console.log('🔄 Status changed to approval_pending - creating approval workflow...');
+      try {
+        // Check if approval workflow already exists
+        const CandidateApproval = require('../models/hr/CandidateApproval');
+        const existingApproval = await CandidateApproval.findOne({ candidate: candidate._id });
+        
+        if (!existingApproval) {
+          console.log('📝 Creating new approval workflow...');
+          // Create approval workflow automatically
+          const approval = new CandidateApproval({
+            candidate: candidate._id,
+            jobPosting: candidate.jobPosting?._id || '688a0e15e1a3b69572795558', // Default job posting ID
+            application: candidate.application || '688b459a5961257b92c0202f', // Default application ID
+            createdBy: req.user._id,
+            status: 'pending'
+          });
+
+          // Save first to trigger pre-save middleware and initialize approvalLevels
+          await approval.save();
+          console.log('✅ Approval workflow saved with ID:', approval._id);
+          console.log('📧 Approval levels created:', approval.approvalLevels.length);
+
+          // Now update all approver emails to shehrozeikram2@gmail.com for testing
+          console.log('🔄 Updating approver emails to shehrozeikram2@gmail.com...');
+          approval.approvalLevels[0].approverEmail = 'shehrozeikram2@gmail.com'; // Assistant Manager HR
+          approval.approvalLevels[1].approverEmail = 'shehrozeikram2@gmail.com'; // Manager HR
+          approval.approvalLevels[2].approverEmail = 'shehrozeikram2@gmail.com'; // HOD HR
+          approval.approvalLevels[3].approverEmail = 'shehrozeikram2@gmail.com'; // Vice President
+          approval.approvalLevels[4].approverEmail = 'shehrozeikram2@gmail.com'; // CEO
+
+          await approval.save();
+          console.log('✅ Approver emails updated successfully');
+
+          // Populate approval object before sending emails
+          console.log('🔄 Populating approval object for email...');
+          const populatedApproval = await CandidateApproval.findById(approval._id)
+            .populate('candidate', 'firstName lastName email phone')
+            .populate('jobPosting', 'title department')
+            .populate('application', 'applicationId')
+            .populate('createdBy', 'firstName lastName');
+
+          console.log('📧 Sending approval request email to Level 1...');
+          // Send email to Level 1 (Assistant Manager HR)
+          const EmailService = require('../services/emailService');
+          const emailResult = await EmailService.sendApprovalRequest(populatedApproval, 1);
+          
+          if (emailResult.success) {
+            console.log(`✅ Approval request email sent to Assistant Manager HR (shehrozeikram2@gmail.com)`);
+          } else {
+            console.error(`❌ Failed to send approval request email:`, emailResult.error);
+          }
+        } else {
+          console.log(`ℹ️ Approval workflow already exists for candidate ${candidate._id}`);
+          console.log('📧 Sending approval request email for existing workflow...');
+          
+          // Send email to Level 1 (Assistant Manager HR) for existing workflow
+          const populatedApproval = await CandidateApproval.findById(existingApproval._id)
+            .populate('candidate', 'firstName lastName email phone')
+            .populate('jobPosting', 'title department')
+            .populate('application', 'applicationId')
+            .populate('createdBy', 'firstName lastName');
+
+          const EmailService = require('../services/emailService');
+          const emailResult = await EmailService.sendApprovalRequest(populatedApproval, 1);
+          
+          if (emailResult.success) {
+            console.log(`✅ Approval request email sent to Assistant Manager HR (shehrozeikram2@gmail.com)`);
+          } else {
+            console.error(`❌ Failed to send approval request email:`, emailResult.error);
+          }
+        }
+      } catch (approvalError) {
+        console.error('❌ Error creating approval workflow:', approvalError);
+        console.error('❌ Error details:', approvalError.stack);
+      }
+    }
+
+    // Handle offer acceptance
+    if (status === 'offer_accepted') {
+      // Update offer acceptance details
+      candidate.offer.offerAcceptedAt = new Date();
+      candidate.offer.offerAcceptedBy = req.user._id;
+      
+      // Send offer acceptance confirmation email
+      try {
+        const EmailService = require('../services/emailService');
+        const emailResult = await EmailService.sendOfferAcceptanceConfirmation(candidate, candidate.jobPosting);
+        
+        if (emailResult.success) {
+          console.log(`✅ Offer acceptance confirmation sent successfully to ${candidate.email}`);
+        } else {
+          console.error(`❌ Failed to send offer acceptance confirmation:`, emailResult.error);
+        }
+      } catch (emailError) {
+        console.error('❌ Error sending offer acceptance confirmation:', emailResult.error);
+      }
+    }
+
     await candidate.save();
+
+    // Prepare response message
+    let message = 'Candidate status updated successfully';
+    if (status === 'offered') {
+      message = 'Job offer sent successfully! Email notification delivered to candidate.';
+    } else if (status === 'offer_accepted') {
+      message = 'Offer accepted! Confirmation email sent to candidate. Status changed to Offer Accepted.';
+    }
 
     res.json({
       success: true,
-      message: 'Candidate status updated successfully',
+      message: message,
+      data: candidate
+    });
+  })
+);
+
+// @route   POST /api/candidates/:id/accept-offer
+// @desc    Candidate accepts job offer
+// @access  Public (for candidates)
+router.post('/:id/accept-offer', 
+  asyncHandler(async (req, res) => {
+    const candidate = await Candidate.findById(req.params.id)
+      .populate('jobPosting');
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    // Check if candidate has an active offer
+    if (candidate.status !== 'offered' || !candidate.offer) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active job offer found for this candidate'
+      });
+    }
+
+    // Check if offer has expired
+    if (candidate.offer.offerExpiryDate && new Date() > candidate.offer.offerExpiryDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'This job offer has expired'
+      });
+    }
+
+    // Update candidate status to offer accepted
+    candidate.status = 'offer_accepted';
+    candidate.offer.offerAcceptedAt = new Date();
+    candidate.offer.offerAcceptedBy = candidate._id; // Self-acceptance
+
+    await candidate.save();
+
+    // Send offer acceptance confirmation email
+    try {
+      const EmailService = require('../services/emailService');
+      const emailResult = await EmailService.sendOfferAcceptanceConfirmation(candidate, candidate.jobPosting);
+      
+      if (emailResult.success) {
+        console.log(`✅ Offer acceptance confirmation sent successfully to ${candidate.email}`);
+      } else {
+        console.error(`❌ Failed to send offer acceptance confirmation:`, emailResult.error);
+      }
+    } catch (emailError) {
+      console.error('❌ Error sending offer acceptance confirmation:', emailError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Job offer accepted successfully! Confirmation email sent.',
       data: candidate
     });
   })
