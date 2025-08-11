@@ -61,13 +61,15 @@ const easyApplyRoutes = require('./routes/easyApply');
 const courseRoutes = require('./routes/courses');
 const enrollmentRoutes = require('./routes/enrollments');
 const trainingProgramRoutes = require('./routes/trainingPrograms');
-const zktecoPushRoutes = require('./routes/zktecoPush');
+
 
 // Import services
-const scheduledSyncService = require('./services/scheduledSyncService');
-const zktecoPushService = require('./services/zktecoPushService');
+const ZKTecoWebSocketService = require('./services/zktecoWebSocketService');
 const attendanceService = require('./services/attendanceService');
 const ChangeStreamService = require('./services/changeStreamService');
+
+// Initialize services
+let zktecoWebSocketService;
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -203,7 +205,7 @@ app.use('/api/notifications', authMiddleware, notificationRoutes);
 app.use('/api/courses', authMiddleware, courseRoutes);
 app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
-app.use('/api/zkteco-push', zktecoPushRoutes);
+
 
 // Error handling middleware
 app.use(errorHandler);
@@ -228,6 +230,16 @@ mongoose.connection.once('open', async () => {
   } catch (error) {
     console.error('❌ Failed to initialize Change Stream service:', error);
   }
+  
+  // Initialize ZKTeco WebSocket service
+  try {
+    console.log('🚀 Initializing ZKTeco WebSocket service...');
+    zktecoWebSocketService = new ZKTecoWebSocketService(io);
+    await zktecoWebSocketService.startWebSocketConnection();
+    console.log('✅ ZKTeco WebSocket service initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize ZKTeco WebSocket service:', error);
+  }
 });
 
 // Scheduled Sync Service is already initialized as singleton
@@ -238,49 +250,33 @@ server.listen(PORT, async () => {
   console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
   console.log(`🔌 Socket.IO server running on port ${PORT}`);
   
-  // Initialize scheduled syncs after server starts
-  try {
-    await scheduledSyncService.initializeScheduledSyncs();
-  } catch (error) {
-    console.error('⚠️ Failed to initialize scheduled syncs:', error);
-  }
+
   
   // Automatically sync any missed attendance records on startup
-  try {
-    console.log('🔄 Checking for missed attendance records...');
-    const today = new Date();
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-    
-    const syncResult = await attendanceService.syncZKTecoAttendance(yesterday, today);
-    if (syncResult.success) {
-      console.log(`✅ Auto-sync completed: ${syncResult.data.created} created, ${syncResult.data.updated} updated`);
-    } else {
-      console.log('⚠️ Auto-sync failed, but continuing...');
-    }
-  } catch (error) {
-    console.error('⚠️ Auto-sync error (continuing anyway):', error.message);
-  }
+  // Note: This is disabled since we're using real-time WebSocket connection
+  // The ZKTeco device sends data in real-time, so no scheduled sync is needed
   
-  // Start ZKTeco real-time push service
-  try {
-    console.log('🚀 Starting ZKTeco real-time push service...');
-    const pushResult = await zktecoPushService.startPushServer();
-    if (pushResult.success) {
-      console.log('✅ ZKTeco real-time push service started successfully');
-      console.log(`📡 Push endpoint: http://localhost:${pushResult.port}${pushResult.pushEndpoint}`);
-      console.log('🔄 Real-time attendance updates are now active');
-    } else {
-      console.log('⚠️ ZKTeco real-time push service failed to start');
-    }
-  } catch (error) {
-    console.error('⚠️ Failed to start ZKTeco real-time push service:', error.message);
-  }
+  // try {
+  //   console.log('🔄 Checking for missed attendance records...');
+  //   const today = new Date();
+  //   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  //   
+  //   const syncResult = await attendanceService.syncZKTecoAttendance(yesterday, today);
+  //   if (syncResult.success) {
+  //     console.log(`✅ Auto-sync completed: ${syncResult.data.created} created, ${syncResult.data.updated} updated`);
+  //   } else {
+  //     console.log('⚠️ Auto-sync failed, but continuing...');
+  //   }
+  // } catch (error) {
+  //   console.error('⚠️ Auto-sync error (continuing anyway):', error.message);
+  // }
+  
+
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
-  await scheduledSyncService.stopAllScheduledSyncs();
   
   // Stop Change Stream service
   if (changeStreamService) {
@@ -288,12 +284,12 @@ process.on('SIGTERM', async () => {
     console.log('✅ Change Stream service stopped');
   }
   
-  // Stop ZKTeco push service
+  // Stop ZKTeco WebSocket service
   try {
-    await zktecoPushService.stopPushServer();
-    console.log('✅ ZKTeco push service stopped');
+    zktecoWebSocketService.stopWebSocketConnection();
+    console.log('✅ ZKTeco WebSocket service stopped');
   } catch (error) {
-    console.error('⚠️ Error stopping ZKTeco push service:', error);
+    console.error('⚠️ Error stopping ZKTeco WebSocket service:', error);
   }
   
   mongoose.connection.close().then(() => {
@@ -304,7 +300,6 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully');
-  await scheduledSyncService.stopAllScheduledSyncs();
   
   // Stop Change Stream service
   if (changeStreamService) {
@@ -312,12 +307,12 @@ process.on('SIGINT', async () => {
     console.log('✅ Change Stream service stopped');
   }
   
-  // Stop ZKTeco push service
+  // Stop ZKTeco WebSocket service
   try {
-    await zktecoPushService.stopPushServer();
-    console.log('✅ ZKTeco push service stopped');
+    zktecoWebSocketService.stopWebSocketConnection();
+    console.log('✅ ZKTeco WebSocket service stopped');
   } catch (error) {
-    console.error('⚠️ Error stopping ZKTeco push service:', error);
+    console.error('⚠️ Error stopping ZKTeco WebSocket service:', error);
   }
   
   mongoose.connection.close().then(() => {

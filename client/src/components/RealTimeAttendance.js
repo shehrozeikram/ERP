@@ -87,7 +87,7 @@ const RealTimeAttendance = () => {
           
           // Try alternative connection method
           console.log('🔄 Trying alternative connection method...');
-          const alternativeUrl = `ws://localhost:8080`;
+          const alternativeUrl = `ws://localhost:85`;
           if (alternativeUrl !== wsUrl) {
             console.log('🔌 Trying alternative URL:', alternativeUrl);
             wsRef.current = new WebSocket(alternativeUrl);

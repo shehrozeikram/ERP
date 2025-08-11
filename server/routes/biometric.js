@@ -4,7 +4,7 @@ const BiometricIntegration = require('../models/hr/BiometricIntegration');
 const biometricService = require('../services/biometricService');
 const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
-const scheduledSyncService = require('../services/scheduledSyncService');
+
 const { authMiddleware } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 
@@ -635,134 +635,12 @@ router.get('/zkteco/test-connection', authMiddleware, async (req, res) => {
   }
 });
 
-// Scheduled sync service is already initialized as singleton
 
-// Schedule daily sync for biometric integration
-router.post('/:id/schedule-sync', authMiddleware, async (req, res) => {
-  try {
-    const { cronExpression } = req.body;
-    const integrationId = req.params.id;
 
-    const integration = await BiometricIntegration.findById(integrationId);
-    if (!integration) {
-      return res.status(404).json({
-        success: false,
-        message: 'Biometric integration not found'
-      });
-    }
 
-    if (!integration.isActive) {
-      return res.status(400).json({
-        success: false,
-        message: 'Biometric integration is not active'
-      });
-    }
 
-    // Use provided cron expression or default to 6 AM daily
-    const cron = cronExpression || '0 6 * * *';
-    
-    const result = await scheduledSyncService.scheduleSync(integrationId, cron);
-    
-    res.json({
-      success: true,
-      message: 'Scheduled sync configured successfully',
-      data: {
-        integrationId,
-        cronExpression: cron,
-        nextRun: 'Daily at 6:00 AM',
-        ...result
-      }
-    });
-  } catch (error) {
-    console.error('Error scheduling sync:', error);
-    errorHandler(error, req, res);
-  }
-});
 
-// Stop scheduled sync for biometric integration
-router.post('/:id/schedule-sync/stop', authMiddleware, async (req, res) => {
-  try {
-    const integrationId = req.params.id;
 
-    const integration = await BiometricIntegration.findById(integrationId);
-    if (!integration) {
-      return res.status(404).json({
-        success: false,
-        message: 'Biometric integration not found'
-      });
-    }
 
-    const result = scheduledSyncService.stopScheduledSync(integrationId);
-    
-    // Update database
-    integration.syncConfig.scheduledSync = false;
-    integration.updatedBy = req.user.id;
-    await integration.save();
-
-    res.json({
-      success: true,
-      message: result ? 'Scheduled sync stopped successfully' : 'No scheduled sync was running',
-      data: { integrationId }
-    });
-  } catch (error) {
-    console.error('Error stopping scheduled sync:', error);
-    errorHandler(error, req, res);
-  }
-});
-
-// Setup daily 6 AM sync for all active integrations
-router.post('/setup-daily-sync', authMiddleware, async (req, res) => {
-  try {
-    console.log('Setting up daily 6 AM sync for all active biometric integrations...');
-    
-    const results = await scheduledSyncService.setupDailySyncForAll();
-    
-    res.json({
-      success: true,
-      message: 'Daily sync setup completed for all active integrations',
-      data: {
-        processedIntegrations: results.length,
-        results
-      }
-    });
-  } catch (error) {
-    console.error('Error setting up daily sync:', error);
-    errorHandler(error, req, res);
-  }
-});
-
-// Get scheduled sync status for all integrations
-router.get('/schedule-sync/status', authMiddleware, async (req, res) => {
-  try {
-    const status = scheduledSyncService.getScheduledSyncStatus();
-    
-    // Get additional info from database
-    const integrations = await BiometricIntegration.find({
-      isActive: true,
-      'syncConfig.scheduledSync': true
-    }).select('systemName syncConfig');
-
-    const detailedStatus = status.map(item => {
-      const integration = integrations.find(i => i._id.toString() === item.integrationId);
-      return {
-        ...item,
-        systemName: integration?.systemName || 'Unknown',
-        cronExpression: integration?.syncConfig?.cronExpression || '0 6 * * *',
-        lastSync: integration?.syncConfig?.lastSyncAt || null
-      };
-    });
-
-    res.json({
-      success: true,
-      data: {
-        activeSchedules: detailedStatus.length,
-        schedules: detailedStatus
-      }
-    });
-  } catch (error) {
-    console.error('Error getting scheduled sync status:', error);
-    errorHandler(error, req, res);
-  }
-});
 
 module.exports = router; 

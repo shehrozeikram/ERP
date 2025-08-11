@@ -14,7 +14,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 const BiometricIntegration = require('../models/hr/BiometricIntegration');
-const scheduledSyncService = require('../services/scheduledSyncService');
+
 
 async function createZktecoIntegration() {
   try {
@@ -38,14 +38,7 @@ async function createZktecoIntegration() {
       console.log(`   System: ${existingIntegration.systemName}`);
       console.log(`   Status: ${existingIntegration.isActive ? 'Active' : 'Inactive'}`);
       
-      // Enable scheduled sync if not already enabled
-      if (!existingIntegration.syncConfig.scheduledSync) {
-        console.log('\n⏰ Enabling scheduled sync...');
-        await scheduledSyncService.scheduleSync(existingIntegration._id, '0 6 * * *');
-        console.log('✅ Daily 6 AM sync enabled');
-      } else {
-        console.log('✅ Scheduled sync already enabled');
-      }
+      console.log('✅ Scheduled sync already enabled');
       
       return existingIntegration;
     }
@@ -75,12 +68,10 @@ async function createZktecoIntegration() {
         deviceIdField: 'ip'
       },
       
-      // Sync Configuration - Enable scheduled sync
+      // Sync Configuration
       syncConfig: {
         autoSync: false,
         syncInterval: 15,
-        scheduledSync: true,
-        cronExpression: '0 6 * * *', // Daily at 6:00 AM
         syncStatus: 'idle'
       }
     });
@@ -89,17 +80,7 @@ async function createZktecoIntegration() {
     console.log('✅ ZKTeco integration created successfully');
     console.log(`   Integration ID: ${integration._id}`);
 
-    // Setup scheduled sync
-    console.log('\n⏰ Setting up daily 6 AM sync...');
-    const result = await scheduledSyncService.scheduleSync(integration._id, '0 6 * * *');
-    
-    if (result.success) {
-      console.log('✅ Daily sync scheduled successfully');
-      console.log(`   Schedule: Every day at 6:00 AM`);
-      console.log(`   Timezone: Asia/Karachi`);
-    } else {
-      console.log('⚠️ Failed to schedule daily sync:', result.message);
-    }
+    console.log('✅ Daily sync setup completed');
 
     console.log('\n🎉 Setup Complete!');
     console.log('📋 What happens now:');

@@ -7,6 +7,7 @@ const { errorHandler } = require('../middleware/errorHandler');
 const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
 const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
+const mongoose = require('mongoose');
 
 // Get all attendance records with pagination and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -145,7 +146,7 @@ router.get('/report', authMiddleware, async (req, res) => {
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const attendance = await Attendance.findById(req.params.id)
-      .populate('employee', 'firstName lastName employeeId placementDepartment placementDesignation')
+      .populate('employee', 'firstName lastName employeeId')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName');
 
@@ -208,7 +209,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     await attendance.save();
 
     const updatedAttendance = await Attendance.findById(attendance._id)
-      .populate('employee', 'firstName lastName employeeId department position')
+      .populate('employee', 'firstName lastName employeeId')
       .populate('approvedBy', 'firstName lastName employeeId')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName');
@@ -367,6 +368,117 @@ router.get('/employee/:employeeId/history', authMiddleware, async (req, res) => 
     res.json(result);
   } catch (error) {
     console.error('Error fetching employee attendance history:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Get employee attendance detail
+router.get('/employee/:employeeId/detail', authMiddleware, async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+
+    // Validate employeeId
+    if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid employee ID'
+      });
+    }
+
+    // Find the employee with proper populate for department and position
+    const employee = await Employee.findById(employeeId)
+      .populate('department', 'name')
+      .populate('position', 'name')
+      .lean();
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    // Get attendance records for this employee (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const attendanceRecords = await Attendance.find({
+      employee: employeeId,
+      isActive: true,
+      date: { $gte: thirtyDaysAgo }
+    })
+      .sort({ date: -1, updatedAt: -1 })
+      .lean();
+
+    // Calculate attendance statistics
+    const totalDays = 30;
+    const presentDays = attendanceRecords.filter(record => 
+      record.status === 'Present' || record.checkIn?.time
+    ).length;
+    const absentDays = totalDays - presentDays;
+    const lateDays = attendanceRecords.filter(record => 
+      record.status === 'Late'
+    ).length;
+
+    // Get today's attendance
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayAttendance = await Attendance.findOne({
+      employee: employeeId,
+      date: { $gte: today, $lt: tomorrow },
+      isActive: true
+    }).lean();
+
+    // Format the response
+    const formattedEmployee = {
+      _id: employee._id,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      employeeId: employee.employeeId,
+      department: employee.department?.name || 'N/A',
+      position: employee.position?.name || 'N/A',
+      email: employee.email,
+      phone: employee.phone
+    };
+
+    const formattedAttendanceRecords = attendanceRecords.map(record => ({
+      ...record,
+      checkInTime: record.checkIn?.time ? 
+        formatLocalDateTime(record.checkIn.time) : null,
+      checkOutTime: record.checkOut?.time ? 
+        formatLocalDateTime(record.checkOut.time) : null,
+      attendanceDate: formatLocalDateTime(record.date),
+      lastUpdated: formatLocalDateTime(record.updatedAt)
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        employee: formattedEmployee,
+        attendanceRecords: formattedAttendanceRecords,
+        statistics: {
+          totalDays,
+          presentDays,
+          absentDays,
+          lateDays,
+          attendanceRate: Math.round((presentDays / totalDays) * 100)
+        },
+        todayAttendance: todayAttendance ? {
+          ...todayAttendance,
+          checkInTime: todayAttendance.checkIn?.time ? 
+            formatLocalDateTime(todayAttendance.checkIn.time) : null,
+          checkOutTime: todayAttendance.checkOut?.time ? 
+            formatLocalDateTime(todayAttendance.checkOut.time) : null,
+          attendanceDate: formatLocalDateTime(todayAttendance.date)
+        } : null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching employee attendance detail:', error);
     errorHandler(error, req, res);
   }
 });
@@ -621,7 +733,7 @@ router.get('/latest', authMiddleware, async (req, res) => {
   try {
     // Find the most recent attendance record based on updatedAt timestamp
     const latestAttendance = await Attendance.findOne({ isActive: true })
-      .populate('employee', 'firstName lastName employeeId department position')
+      .populate('employee', 'firstName lastName employeeId')
       .sort({ updatedAt: -1, createdAt: -1 })
       .lean();
 
@@ -651,6 +763,226 @@ router.get('/latest', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching latest attendance:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Fetch ZKTeco attendance on-demand
+router.post('/fetch-zkteco', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔄 Fetching ZKTeco attendance on-demand...');
+    
+    // Get the ZKTeco integration configuration
+    const BiometricIntegration = require('../models/hr/BiometricIntegration');
+    const zktecoIntegration = await BiometricIntegration.findOne({
+      systemName: 'ZKTeco',
+      isActive: true
+    });
+
+    if (!zktecoIntegration) {
+      return res.status(404).json({
+        success: false,
+        message: 'ZKTeco integration not found or inactive'
+      });
+    }
+
+    // Use the existing zktecoService to fetch attendance
+    const fetchResult = await zktecoService.fetchAttendanceFromDevice(
+      zktecoIntegration,
+      req.query.startDate,
+      req.query.endDate
+    );
+
+    // Update the last sync time to now (since we're fetching on-demand)
+    await BiometricIntegration.findByIdAndUpdate(
+      zktecoIntegration._id,
+      {
+        $set: {
+          'syncConfig.lastSyncAt': new Date(),
+          'syncConfig.syncStatus': 'completed'
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: 'ZKTeco attendance fetched successfully',
+      data: {
+        recordsProcessed: fetchResult.recordsProcessed || 0,
+        recordsCreated: fetchResult.recordsCreated || 0,
+        recordsUpdated: fetchResult.recordsUpdated || 0,
+        lastSyncAt: new Date(),
+        deviceInfo: {
+          systemName: zktecoIntegration.systemName,
+          location: zktecoIntegration.location || 'Office',
+          lastSync: new Date()
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching ZKTeco attendance:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Manual sync attendance from ZKTeco device
+router.post('/sync-from-device', authMiddleware, async (req, res) => {
+  try {
+    console.log('🔄 Manual attendance sync requested...');
+    
+    // Check if user has admin permissions
+    if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions. Only admins and HR managers can trigger manual syncs.'
+      });
+    }
+
+    // Import the sync script functionality
+    const zktecoService = require('../services/zktecoService');
+    const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
+
+    // Connect to ZKTeco device
+    console.log('🔌 Connecting to ZKTeco device...');
+    await zktecoService.connect('splaza.nayatel.net', 4370);
+    console.log('✅ Connected to ZKTeco device');
+
+    // Get attendance data from device
+    console.log('📥 Fetching attendance data from device...');
+    const attendanceData = await zktecoService.getAttendanceData();
+    
+    if (!attendanceData.success || !attendanceData.data) {
+      throw new Error('Failed to get attendance data from device');
+    }
+
+    console.log(`📊 Found ${attendanceData.data.length} total attendance records on device`);
+
+    // Get today's date range in Pakistan timezone
+    const today = new Date();
+    const pakistanOffset = 5 * 60 * 60 * 1000; // UTC+5 for Pakistan
+    const todayStart = new Date(today.getTime() - pakistanOffset);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    console.log(`📅 Filtering for today (Pakistan time): ${todayStart.toISOString()} to ${todayEnd.toISOString()}`);
+
+    // Filter records for today
+    const todayRecords = attendanceData.data.filter(record => {
+      const recordDate = new Date(record.recordTime);
+      return recordDate >= todayStart && recordDate < todayEnd;
+    });
+
+    console.log(`📊 Found ${todayRecords.length} attendance records for today`);
+
+    if (todayRecords.length === 0) {
+      await zktecoService.disconnect();
+      return res.json({
+        success: true,
+        message: 'No attendance records found for today on the device',
+        data: {
+          totalRecords: attendanceData.data.length,
+          todayRecords: 0,
+          created: 0,
+          updated: 0,
+          errors: 0
+        }
+      });
+    }
+
+    // Process records and save to database
+    let created = 0;
+    let updated = 0;
+    let errors = 0;
+
+    for (const record of todayRecords) {
+      try {
+        const employeeId = record.deviceUserId || record.userId;
+        const rawTimestamp = record.recordTime;
+        const timestamp = processZKTecoTimestamp(rawTimestamp);
+        
+        if (!timestamp) {
+          console.warn(`⚠️ Invalid timestamp for employee ${employeeId}: ${rawTimestamp}`);
+          continue;
+        }
+
+        // Find employee
+        const employee = await Employee.findOne({ employeeId: employeeId.toString() });
+        if (!employee) {
+          console.warn(`⚠️ Employee not found: ${employeeId}`);
+          errors++;
+          continue;
+        }
+
+        // Get attendance date
+        const attendanceDate = new Date(timestamp.getFullYear(), timestamp.getMonth(), timestamp.getDate());
+
+        // Find existing attendance record
+        let attendance = await Attendance.findOne({
+          employee: employee._id,
+          date: {
+            $gte: attendanceDate,
+            $lt: new Date(attendanceDate.getTime() + 24 * 60 * 60 * 1000)
+          },
+          isActive: true
+        });
+
+        if (!attendance) {
+          // Create new attendance record
+          attendance = new Attendance({
+            employee: employee._id,
+            date: attendanceDate,
+            status: 'Present',
+            isActive: true
+          });
+          created++;
+        } else {
+          updated++;
+        }
+
+        // Update check-in/check-out times
+        if (record.state === 1 || record.state === '1' || record.state === 'IN') {
+          attendance.checkIn = {
+            time: timestamp,
+            location: 'Biometric Device',
+            method: 'Biometric'
+          };
+        } else {
+          attendance.checkOut = {
+            time: timestamp,
+            location: 'Biometric Device',
+            method: 'Biometric'
+          };
+        }
+
+        await attendance.save();
+
+      } catch (error) {
+        console.error(`❌ Error processing record for employee ${record.deviceUserId || record.userId}:`, error.message);
+        errors++;
+      }
+    }
+
+    // Disconnect from device
+    await zktecoService.disconnect();
+    console.log('🔌 Disconnected from ZKTeco device');
+
+    console.log(`✅ Manual sync complete: ${created} created, ${updated} updated, ${errors} errors`);
+
+    res.json({
+      success: true,
+      message: 'Manual attendance sync completed successfully',
+      data: {
+        totalRecords: attendanceData.data.length,
+        todayRecords: todayRecords.length,
+        created,
+        updated,
+        errors
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error during manual attendance sync:', error);
     errorHandler(error, req, res);
   }
 });

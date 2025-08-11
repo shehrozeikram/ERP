@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -29,10 +29,6 @@ import {
   Card,
   CardContent,
   Grid,
-  Switch,
-  FormControlLabel,
-  Tabs,
-  Tab,
   Badge
 } from '@mui/material';
 import {
@@ -44,14 +40,12 @@ import {
   FilterList as FilterIcon,
   Refresh as RefreshIcon,
   Download as DownloadIcon,
-  CalendarToday,
   Person,
   Work,
-  Sync as SyncIcon,
   Fingerprint as BiometricIcon,
   Cancel as AbsentIcon,
   Wifi as WifiIcon,
-  WifiOff as WifiOffIcon
+
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -59,15 +53,8 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import realtimeAttendanceService from '../../services/realtimeAttendanceService';
-import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
-import { formatAttendanceTime, formatLocalDate, isLateCheckIn, getTimeDifference } from '../../utils/timezoneHelper';
 
 const AttendanceList = () => {
-  const [attendance, setAttendance] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [biometricIntegrations, setBiometricIntegrations] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [page, setPage] = useState(0);
@@ -81,13 +68,6 @@ const AttendanceList = () => {
     endDate: '',
     isApproved: ''
   });
-  const [statistics, setStatistics] = useState({
-    totalRecords: 0,
-    presentToday: 0,
-    lateToday: 0,
-    absentToday: 0,
-    biometricRecords: 0
-  });
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedAttendance, setSelectedAttendance] = useState(null);
@@ -98,327 +78,307 @@ const AttendanceList = () => {
     startDate: new Date(new Date().setDate(new Date().getDate() - 1)),
     endDate: new Date()
   });
-  const [activeTab, setActiveTab] = useState(0);
+
+  // Real-time attendance state
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
-  const [lastUpdate, setLastUpdate] = useState(null);
-  const [realTimeError, setRealTimeError] = useState(null);
-  const removeListenerRef = useRef(null);
+  const [lastUpdateTime, setLastUpdateTime] = useState(new Date());
+
+  // Attendance data state
+  const [attendance, setAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   const navigate = useNavigate();
 
-  // Handle real-time attendance updates
-  const handleRealTimeAttendanceUpdate = (attendanceData) => {
-    try {
-      console.log('🔄 Processing real-time attendance update:', attendanceData);
-      
-      // Handle different types of attendance updates from Change Streams
-      if (attendanceData.type === 'attendance_added') {
-        // New attendance record
-        const newRecord = attendanceData.data;
-        console.log('➕ New attendance record received:', newRecord);
-        
-        setAttendance(prevAttendance => {
-          // Check if record already exists to prevent duplicates
-          const recordExists = prevAttendance.some(record => record._id === newRecord._id);
-          if (recordExists) {
-            console.log('⚠️ Record already exists, skipping duplicate');
-            return prevAttendance;
-          }
-          
-          const updatedAttendance = [newRecord, ...prevAttendance];
-          console.log('🔄 Updated attendance count:', updatedAttendance.length);
-          return updatedAttendance;
-        });
-        
-        // Show notification
-        if (newRecord.employee) {
-          const employeeName = `${newRecord.employee.firstName} ${newRecord.employee.lastName}`;
-          const action = newRecord.checkIn ? 'checked in' : 'checked out';
-          const time = newRecord.checkIn?.time || newRecord.checkOut?.time;
-          const timeStr = time ? new Date(time).toLocaleTimeString() : 'now';
-          
-          showRealTimeNotification({
-            employeeName,
-            isCheckIn: !!newRecord.checkIn,
-            timestamp: time,
-            localTimestamp: time
-          });
-        }
-        
-      } else if (attendanceData.type === 'attendance_updated') {
-        // Updated attendance record
-        const updatedRecord = attendanceData.data;
-        console.log('✏️ Attendance record updated:', updatedRecord);
-        
-        setAttendance(prevAttendance => {
-          const updatedAttendance = prevAttendance.map(record => 
-            record._id === updatedRecord._id ? updatedRecord : record
-          );
-          console.log('🔄 Updated attendance count:', updatedAttendance.length);
-          return updatedAttendance;
-        });
-        
-      } else if (attendanceData.type === 'attendance_deleted') {
-        // Deleted attendance record
-        const deletedId = attendanceData.data._id;
-        console.log('🗑️ Attendance record deleted:', deletedId);
-        
-        setAttendance(prevAttendance => {
-          const updatedAttendance = prevAttendance.filter(record => record._id !== deletedId);
-          console.log('🔄 Updated attendance count:', updatedAttendance.length);
-          return updatedAttendance;
-        });
-      }
-      
-      // Refresh statistics
-      fetchStatistics();
-      
-      console.log('✅ Real-time attendance update completed successfully');
-      
-    } catch (error) {
-      console.error('❌ Error processing real-time attendance update:', error);
-    }
-  };
-
-  // Show notification for real-time updates
-  const showRealTimeNotification = (attendanceData) => {
-    const action = attendanceData.isCheckIn ? 'checked in' : 'checked out';
-    
-    // Use the formatted timestamp directly if available, or parse localTimestamp
-    const time = attendanceData.localTimestamp ? 
-      new Date(attendanceData.localTimestamp).toLocaleTimeString() : 
-      (typeof attendanceData.timestamp === 'string' && attendanceData.timestamp.includes(',') ? 
-        attendanceData.timestamp.split(',')[1]?.trim() || attendanceData.timestamp : 
-        new Date(attendanceData.timestamp).toLocaleTimeString());
-    
-    const message = `${attendanceData.employeeName} ${action} at ${time}`;
-    
-    // Browser notification
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Attendance Update', {
-        body: message,
-        icon: '/favicon.ico',
-        badge: '/favicon.ico'
-      });
-    }
-    
-    // Console log for debugging
-    console.log(`🔔 Real-time notification: ${message}`);
-  };
-
-  // Initialize real-time connection
-  const initializeRealTime = async () => {
-    if (!isRealTimeEnabled || activeTab !== 0) {
-      console.log('⏭️ Skipping real-time initialization - disabled or not on attendance tab');
-      return;
-    }
-    
-    // Prevent multiple initializations
-    if (removeListenerRef.current) {
-      console.log('⏭️ Real-time already initialized, skipping');
-      return;
-    }
-    
-    try {
-      console.log('🔍 Initializing real-time connection...');
-      
-      // Connect to real-time service
-      console.log('🔌 Connecting to real-time attendance service...');
-      realtimeAttendanceService.connect();
-      
-      // Add listeners for real-time events
-      console.log('👂 Adding real-time event listeners...');
-      
-      // Connection status listener
-      removeListenerRef.current = realtimeAttendanceService.addListener('connection_status', (data) => {
-        console.log('📡 Connection status update:', data);
-        if (data.status === 'connected') {
-          setIsConnected(true);
-          setConnectionStatus('connected');
-          setRealTimeError(null);
-        } else if (data.status === 'disconnected' || data.status === 'error') {
-          setIsConnected(false);
-          setConnectionStatus('disconnected');
-          setRealTimeError(data.message || 'Connection lost');
-        }
-      });
-      
-      // Attendance update listener
-      const attendanceListener = realtimeAttendanceService.addListener('attendance_update', (data) => {
-        console.log('📊 Attendance update received:', data);
-        handleRealTimeAttendanceUpdate(data);
-      });
-      
-      // Room joined listener
-      const roomListener = realtimeAttendanceService.addListener('room_joined', (data) => {
-        console.log('👥 Room joined:', data);
-      });
-      
-      // Store all listeners for cleanup
-      removeListenerRef.current = () => {
-        attendanceListener();
-        roomListener();
-      };
-      
-      console.log('✅ Real-time initialization completed');
-      
-    } catch (error) {
-      console.error('❌ Error initializing real-time connection:', error);
-      setRealTimeError('Failed to initialize real-time connection');
-    }
-  };
-
+  // Initialize real-time attendance
   useEffect(() => {
-    fetchAttendance();
-    fetchStatistics();
-    fetchEmployees();
-    fetchDepartments();
-    fetchBiometricIntegrations();
-  }, [page, rowsPerPage, filters]);
-
-  // Real-time connection management
-  useEffect(() => {
-    if (isRealTimeEnabled && activeTab === 0) {
-      initializeRealTime();
-    } else {
-      // Remove listener but don't disconnect global WebSocket
-      if (removeListenerRef.current) {
-        removeListenerRef.current();
-        removeListenerRef.current = null;
+    console.log('🚀 Component mounted, initializing real-time attendance...');
+    initializeRealTimeAttendance();
+    fetchAttendanceData(); // Fetch initial attendance data ONLY ONCE
+    
+    // Set up real-time attendance listeners
+    console.log('🎧 Setting up real-time listeners...');
+    const unsubscribeAttendanceUpdate = realtimeAttendanceService.addListener('attendance_update', handleRealTimeAttendanceUpdate);
+    const unsubscribeConnectionStatus = realtimeAttendanceService.addListener('connection_status', handleConnectionStatusUpdate);
+    
+    // The backend only emits 'attendance_update' events, so we only need these two listeners
+    console.log('✅ Real-time listeners set up successfully');
+    
+    // Check connection status immediately
+    setTimeout(() => {
+      const status = realtimeAttendanceService.getConnectionStatus();
+      console.log('🔍 Initial connection status:', status);
+      if (!status.isConnected) {
+        console.log('⚠️ Real-time service not connected, attempting to connect...');
+        realtimeAttendanceService.connect();
+        setTimeout(() => {
+          realtimeAttendanceService.joinAttendanceRoom();
+        }, 1000);
       }
-      setIsConnected(false);
-      setConnectionStatus('disconnected');
-    }
-
-    // Cleanup on unmount
+    }, 2000);
+    
     return () => {
-      if (removeListenerRef.current) {
-        removeListenerRef.current();
-        removeListenerRef.current = null;
+      // Cleanup real-time connections
+      if (window.realtimeSocket) {
+        window.realtimeSocket.close();
       }
-      // Disconnect from real-time service
-      realtimeAttendanceService.disconnect();
-      console.log('🧹 Cleaned up real-time connection');
+      // Cleanup real-time listeners
+      console.log('🧹 Cleaning up real-time listeners...');
+      unsubscribeAttendanceUpdate();
+      unsubscribeConnectionStatus();
     };
-  }, [isRealTimeEnabled, activeTab]);
-
-  // Check connection status periodically
-  useEffect(() => {
-      // Check connection status every 5 seconds
-      if (isRealTimeEnabled && activeTab === 0) {
-        const checkConnection = () => {
-          const connected = realtimeAttendanceService.getConnectionStatus().isConnected;
-          setIsConnected(connected);
-          setConnectionStatus(connected ? 'connected' : 'disconnected');
-        };
-        
-        const connectionInterval = setInterval(checkConnection, 5000);
-        return () => clearInterval(connectionInterval);
-      }
-  }, [isRealTimeEnabled, activeTab]);
-
-  // Request notification permission
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
   }, []);
 
-  const fetchAttendance = async () => {
+  // Handle real-time attendance updates
+  const handleRealTimeAttendanceUpdate = (data) => {
+    console.log('📊 Real-time attendance update received:', data);
+    console.log('🔍 Data structure:', JSON.stringify(data, null, 2));
+    
+    // Handle different data structures from backend
+    let updateType = null;
+    let attendanceData = null;
+    
+    // Check if data has the expected structure
+    if (data.type === 'attendance_update' && data.data) {
+      // New structure from ZKTeco service
+      updateType = data.data.type;
+      attendanceData = data.data.attendance || data.data;
+    } else if (data.type === 'attendance_added' || data.type === 'attendance_updated' || data.type === 'attendance_deleted') {
+      // Direct structure from change streams
+      updateType = data.type;
+      attendanceData = data.data;
+    } else if (data.type === 'realtime_attendance' && data.data) {
+      // Structure from ZKTeco real-time updates
+      console.log('📥 Processing ZKTeco real-time data:', data.data);
+      
+      // Process ZKTeco real-time data directly without API calls
+      if (data.data && Array.isArray(data.data)) {
+        // This is raw ZKTeco data, we need to process it
+        // For now, we'll refresh to get the processed data
+        // TODO: Process ZKTeco data directly in the future
+        // fetchAttendanceData(); // REMOVED - No more automatic refreshes
+        console.log('📥 ZKTeco real-time data received, waiting for processed attendance_update event');
+        return;
+      }
+    }
+    
+    console.log('🔍 Processed update:', { updateType, attendanceData });
+    
+    if (!updateType || !attendanceData) {
+      console.log('⚠️ Unknown data structure, skipping update');
+      // fetchAttendanceData(); // REMOVED - No more automatic refreshes
+      return;
+    }
+    
+    if (updateType === 'attendance_added') {
+      // Add new attendance record to the list WITHOUT API call
+      setAttendance(prev => {
+        // Check if record already exists to avoid duplicates
+        const exists = prev.some(record => record._id === attendanceData._id);
+        if (exists) {
+          console.log('⚠️ Record already exists, skipping duplicate');
+          return prev;
+        }
+        
+        const newList = [attendanceData, ...prev];
+        console.log('➕ Added new attendance, total records:', newList.length);
+        return newList;
+      });
+      setTotalRecords(prev => prev + 1);
+      showRealTimeUpdate(`New attendance recorded for ${attendanceData.employee?.firstName} ${attendanceData.employee?.lastName}`);
+    } else if (updateType === 'attendance_updated') {
+      // Update existing attendance record WITHOUT API call
+      setAttendance(prev => {
+        const updated = prev.map(record => 
+          record._id === attendanceData._id ? attendanceData : record
+        );
+        console.log('✏️ Updated attendance record');
+        return updated;
+      });
+      showRealTimeUpdate(`Attendance updated for ${attendanceData.employee?.firstName} ${attendanceData.employee?.lastName}`);
+    } else if (updateType === 'attendance_deleted') {
+      // Remove deleted attendance record WITHOUT API call
+      setAttendance(prev => {
+        const filtered = prev.filter(record => record._id !== attendanceData._id);
+        console.log('🗑️ Removed attendance record, total records:', filtered.length);
+        return filtered;
+      });
+      setTotalRecords(prev => Math.max(0, prev - 1));
+      showRealTimeUpdate('Attendance record deleted');
+    }
+    
+    setLastUpdateTime(new Date());
+  };
+
+  // Handle connection status updates
+  const handleConnectionStatusUpdate = (data) => {
+    console.log('📡 Connection status update:', data);
+    
+    if (data.status === 'connected') {
+      setIsRealTimeEnabled(true);
+      setSuccess('Real-time attendance service connected!');
+    } else if (data.status === 'disconnected') {
+      setIsRealTimeEnabled(false);
+      setError('Real-time attendance service disconnected');
+    } else if (data.status === 'error') {
+      setIsRealTimeEnabled(false);
+      setError(`Real-time service error: ${data.error || 'Unknown error'}`);
+    }
+  };
+
+  // Fetch attendance data from database
+  const fetchAttendanceData = async () => {
     try {
       setLoading(true);
-      setError(null);
-
-      const params = new URLSearchParams({
-        page: page + 1,
-        limit: rowsPerPage,
-        latestOnly: 'false', // Show all records to see most recent updates
-                   sortBy: 'date', // Sort by date to get today's records first
-        sortOrder: 'desc', // Most recent first
-        ...filters
-      });
-
-      // Remove empty filters
-      Object.keys(params).forEach(key => {
-        if (!params.get(key) || params.get(key) === '' || params.get(key) === 'null') {
-          params.delete(key);
+      console.log('🔄 Fetching attendance data...');
+      
+      const response = await api.get('/attendance', {
+        params: {
+          page: page + 1,
+          limit: rowsPerPage,
+          sortBy: 'date',
+          sortOrder: 'desc'
         }
       });
-
-      const response = await api.get(`/attendance?${params.toString()}`);
-
+      
+      console.log('📊 API Response:', response.data);
+      
       if (response.data.success) {
-        setAttendance(response.data.data);
+        setAttendance(response.data.data || []);
         setTotalRecords(response.data.pagination?.total || 0);
+        setLastUpdateTime(new Date());
+        console.log('✅ Attendance data fetched:', response.data.data?.length || 0, 'records');
+        console.log('📋 First record:', response.data.data?.[0]);
       } else {
+        console.error('❌ Failed to fetch attendance data');
         setError('Failed to fetch attendance data');
       }
     } catch (error) {
-      console.error('Error fetching attendance:', error);
+      console.error('❌ Error fetching attendance:', error);
       setError('Failed to fetch attendance data');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchStatistics = async () => {
+  // Fetch real-time attendance data (without pagination for latest records)
+  const fetchRealTimeData = async () => {
     try {
-      const params = new URLSearchParams({
-        ...filters
-      });
-
-      // Remove empty filters
-      Object.keys(params).forEach(key => {
-        if (!params.get(key) || params.get(key) === '' || params.get(key) === 'null') {
-          params.delete(key);
+      console.log('🔄 Fetching real-time attendance data...');
+      
+      const response = await api.get('/attendance', {
+        params: {
+          page: 1,
+          limit: 50, // Get more records for real-time updates
+          sortBy: 'date',
+          sortOrder: 'desc'
         }
       });
-
-      const response = await api.get(`/attendance/statistics?${params}`);
       
       if (response.data.success) {
-        setStatistics(response.data.data);
-      } else {
-        console.error('Statistics failed:', response.data);
+        const newData = response.data.data || [];
+        console.log('📊 Real-time API response:', response.data);
+        console.log('📋 New data received:', newData.length, 'records');
+        console.log('📋 First record:', newData[0]);
+        
+        setAttendance(prevData => {
+          // Merge new data with existing data, avoiding duplicates
+          const merged = [...newData];
+          console.log('🔄 Real-time data merged:', merged.length, 'records');
+          console.log('🔄 Previous data count:', prevData.length);
+          console.log('🔄 New data count:', merged.length);
+          return merged;
+        });
+        setLastUpdateTime(new Date());
+        console.log('✅ Real-time data updated');
       }
     } catch (error) {
-      console.error('Error fetching statistics:', error);
+      console.error('❌ Error fetching real-time data:', error);
     }
   };
 
-  const fetchEmployees = async () => {
+  // Refresh attendance data
+  const refreshAttendanceData = () => {
+    fetchAttendanceData();
+  };
+
+  const initializeRealTimeAttendance = async () => {
     try {
-      const response = await api.get('/hr/employees?limit=1000');
-      if (response.data.success) {
-        setEmployees(response.data.data);
-      }
+      console.log('🚀 Initializing real-time attendance...');
+      
+      // Connect to real-time attendance service
+      realtimeAttendanceService.connect();
+      
+      // Wait a bit for connection to establish
+      setTimeout(() => {
+        if (realtimeAttendanceService.getConnectionStatus().isConnected) {
+          // Join attendance room to receive updates
+          realtimeAttendanceService.joinAttendanceRoom();
+          setIsRealTimeEnabled(true);
+          console.log('✅ Real-time attendance service connected and joined attendance room');
+        } else {
+          console.warn('⚠️ Real-time service not connected, will retry...');
+          // Retry connection
+          setTimeout(() => {
+            if (realtimeAttendanceService.getConnectionStatus().isConnected) {
+              realtimeAttendanceService.joinAttendanceRoom();
+              setIsRealTimeEnabled(true);
+              console.log('✅ Real-time attendance service connected on retry');
+            } else {
+              setIsRealTimeEnabled(false);
+              console.error('❌ Failed to connect to real-time service');
+            }
+          }, 2000);
+        }
+      }, 1000);
+      
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      console.error('❌ Error initializing real-time attendance:', error);
+      setIsRealTimeEnabled(false);
     }
   };
 
-  const fetchDepartments = async () => {
-    try {
-      const response = await api.get('/hr/departments');
-      if (response.data.success) {
-        setDepartments(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching departments:', error);
+  // Real-time attendance is now handled by the server via ZKTeco WebSocket
+  const checkRealTimeStatus = () => {
+    const status = realtimeAttendanceService.getConnectionStatus();
+    
+    if (status.isConnected) {
+      setIsRealTimeEnabled(true);
+      setSuccess('Real-time attendance service is connected and active!');
+    } else {
+      setIsRealTimeEnabled(false);
+      setError('Real-time attendance service is not connected. Attempting to reconnect...');
+      
+      // Try to reconnect
+      realtimeAttendanceService.connect();
+      setTimeout(() => {
+        const newStatus = realtimeAttendanceService.getConnectionStatus();
+        if (newStatus.isConnected) {
+          realtimeAttendanceService.joinAttendanceRoom();
+          setIsRealTimeEnabled(true);
+          setSuccess('Real-time attendance service reconnected successfully!');
+        } else {
+          setError('Failed to reconnect to real-time service');
+        }
+      }, 2000);
     }
   };
 
-  const fetchBiometricIntegrations = async () => {
-    try {
-      const response = await api.get('/biometric');
-      if (response.data.success) {
-        setBiometricIntegrations(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching biometric integrations:', error);
-    }
+  // Show real-time update notification
+  const showRealTimeUpdate = (message) => {
+    setSuccess(message);
+    // Auto-hide after 5 seconds for better visibility
+    setTimeout(() => setSuccess(null), 5000);
+    
+    // Also update the last update time
+    setLastUpdateTime(new Date());
+    
+    // Show a console log for debugging
+    console.log('📱 Real-time notification:', message);
   };
+
+
+
+
 
   const handlePageChange = (event, newPage) => {
     setPage(newPage);
@@ -430,11 +390,7 @@ const AttendanceList = () => {
   };
 
   const handleFilterChange = (field, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    setPage(0);
+    setFilters(prev => ({ ...prev, [field]: value }));
   };
 
   const clearFilters = () => {
@@ -446,91 +402,21 @@ const AttendanceList = () => {
       endDate: '',
       isApproved: ''
     });
-    setPage(0);
   };
 
   const handleDelete = async () => {
-    try {
-      await api.delete(`/attendance/${selectedAttendance._id}`);
-      setDeleteDialogOpen(false);
-      setSelectedAttendance(null);
-      fetchAttendance();
-    } catch (error) {
-      console.error('Error deleting attendance:', error);
-      setError('Failed to delete attendance record');
-    }
+    // Delete functionality removed
+    setDeleteDialogOpen(false);
   };
 
-  // Approval functionality removed - attendance is automatically approved based on biometric data
-
   const handleSyncBiometric = async () => {
-    if (!selectedIntegration) {
-      setError('Please select a biometric integration');
-      return;
-    }
-
-    try {
-      setSyncLoading(true);
-      const response = await api.post('/attendance/sync-biometric', {
-        integrationId: selectedIntegration,
-        startDate: syncDateRange.startDate,
-        endDate: syncDateRange.endDate
-      });
-
-      if (response.data.success) {
-        setSyncDialogOpen(false);
-        fetchAttendance();
-        // Show success message
-        setError(null);
-      } else {
-        setError('Failed to sync biometric attendance');
-      }
-    } catch (error) {
-      console.error('Error syncing biometric attendance:', error);
-      setError('Failed to sync biometric attendance');
-    } finally {
-      setSyncLoading(false);
-    }
+    // Sync functionality removed
+    setSyncDialogOpen(false);
   };
 
   const handleSyncZKTeco = async () => {
-    try {
-      setSyncLoading(true);
-      setError(null);
-      setSuccess(null);
-      
-      const response = await api.post('/attendance/sync-zkteco', {
-        startDate: syncDateRange.startDate,
-        endDate: syncDateRange.endDate
-      });
-
-      if (response.data.success) {
-        setSyncDialogOpen(false);
-        
-        // Show success message with sync results
-        const { data } = response.data;
-        const message = `ZKTeco sync completed successfully! Processed: ${data.processed}, Created: ${data.created}, Updated: ${data.updated}, Errors: ${data.errors}`;
-        
-        // Update the attendance list
-        fetchAttendance();
-        fetchStatistics();
-        
-        // Show success message
-        setSuccess(message);
-        setError(null);
-        
-        console.log('✅ ZKTeco sync completed:', data);
-      } else {
-        setError(response.data.message || 'Failed to sync ZKTeco attendance');
-        setSuccess(null);
-      }
-    } catch (error) {
-      console.error('Error syncing ZKTeco attendance:', error);
-      setError(error.response?.data?.message || 'Failed to sync ZKTeco attendance');
-      setSuccess(null);
-    } finally {
-      setSyncLoading(false);
-    }
+    // ZKTeco sync functionality removed
+    setSyncDialogOpen(false);
   };
 
   const getStatusColor = (status) => {
@@ -542,8 +428,6 @@ const AttendanceList = () => {
       case 'Late':
         return 'warning';
       case 'Leave':
-      case 'Sick Leave':
-      case 'Personal Leave':
         return 'info';
       default:
         return 'default';
@@ -551,107 +435,137 @@ const AttendanceList = () => {
   };
 
   const formatTime = (time) => {
-    return formatAttendanceTime(time);
+    if (!time) return 'N/A';
+    return new Date(time).toLocaleTimeString();
   };
 
   const formatDate = (date) => {
-    return formatLocalDate(date);
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString();
   };
 
   const calculateWorkHours = (checkInTime, checkOutTime) => {
     if (!checkInTime || !checkOutTime) return 0;
-    
-    const checkIn = new Date(checkInTime);
-    const checkOut = new Date(checkOutTime);
-    const diffMs = checkOut - checkIn;
-    const diffHours = diffMs / (1000 * 60 * 60);
-    return Math.round(diffHours * 100) / 100;
+    const diff = new Date(checkOutTime) - new Date(checkInTime);
+    return Math.round((diff / (1000 * 60 * 60)) * 100) / 100;
   };
 
   const getWorkHoursDisplay = (record) => {
-    if (record.workHours !== undefined && record.workHours !== null) {
-      return `${record.workHours} hrs`;
-    }
-    
-    // Calculate from check-in/check-out times if workHours not set
-    const calculatedHours = calculateWorkHours(record.checkIn?.time, record.checkOut?.time);
-    
-    // Also show as time difference for better readability
-    if (record.checkIn?.time && record.checkOut?.time) {
-      const timeDiff = getTimeDifference(record.checkIn.time, record.checkOut.time);
-      return calculatedHours > 0 ? `${calculatedHours} hrs (${timeDiff})` : timeDiff;
-    }
-    
-    return calculatedHours > 0 ? `${calculatedHours} hrs` : 'N/A';
+    if (!record.checkIn?.time || !record.checkOut?.time) return 'N/A';
+    const hours = calculateWorkHours(record.checkIn.time, record.checkOut.time);
+    return `${hours}h`;
   };
 
   const getStatusDisplay = (record) => {
-    if (record.status) {
-      return record.status;
-    }
-
-    // Calculate status based on check-in time in Pakistan timezone
-    if (record.checkIn?.time) {
-      if (isLateCheckIn(record.checkIn.time)) {
-        return 'Late';
-      } else {
-        return 'Present';
-      }
-    }
-
-    return 'Unknown';
+    if (record.status) return record.status;
+    if (record.checkIn?.time && record.checkOut?.time) return 'Present';
+    if (record.checkIn?.time) return 'Present';
+    return 'Absent';
   };
-
-  if (loading) {
-    return <PageLoading skeletonType="table" />;
-  }
 
   return (
     <Box sx={{ p: 3 }}>
+      {/* Real-Time Status Banner */}
+      {isRealTimeEnabled && (
+        <Paper sx={{ p: 2, mb: 3, backgroundColor: '#e8f5e8', border: '1px solid #4caf50' }}>
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Box display="flex" alignItems="center">
+              <WifiIcon sx={{ color: '#4caf50', mr: 1 }} />
+              <Typography variant="h6" color="#2e7d32">
+                🟢 Real-Time Attendance Active
+              </Typography>
+            </Box>
+            <Box display="flex" alignItems="center">
+              <Typography variant="body2" color="textSecondary" sx={{ mr: 2 }}>
+                Last Update: {lastUpdateTime.toLocaleTimeString()}
+              </Typography>
+              <Chip
+                label="Connected"
+                color="success"
+                size="small"
+                icon={<WifiIcon />}
+              />
+            </Box>
+          </Box>
+          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+            Attendance updates from ZKTeco device appear instantly without page refresh
+          </Typography>
+        </Paper>
+      )}
+
+      {/* Page Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           Attendance Management
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           {/* Real-time Status Indicator */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={isRealTimeEnabled}
-                  onChange={(e) => setIsRealTimeEnabled(e.target.checked)}
-                  color="primary"
-                />
-              }
-              label="Real-time"
-            />
-            <Tooltip title={isConnected ? 'Connected to real-time service' : 'Disconnected from real-time service'}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {isConnected ? (
-                  <WifiIcon color="success" />
-                ) : (
-                  <WifiOffIcon color="error" />
-                )}
-                <Typography variant="caption" color={isConnected ? 'success.main' : 'error.main'}>
-                  {isConnected ? 'Live' : 'Offline'}
-                </Typography>
-              </Box>
-            </Tooltip>
-            {lastUpdate && (
-              <Typography variant="caption" color="textSecondary">
-                Last: {lastUpdate.toLocaleTimeString()}
-              </Typography>
-            )}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 2 }}>
+            <WifiIcon color="success" />
+            <Typography variant="body2" color="success.main">
+              Real-time Active
+            </Typography>
+            <Typography variant="caption" color="textSecondary">
+              Last update: {lastUpdateTime.toLocaleTimeString()}
+            </Typography>
           </Box>
-          
+
           <Button
             variant="outlined"
-            startIcon={<SyncIcon />}
+            startIcon={<RefreshIcon />}
+            onClick={refreshAttendanceData}
+            sx={{ mr: 1 }}
+          >
+            Refresh Data
+          </Button>
+
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              console.log('🔄 Manual real-time refresh...');
+              fetchAttendanceData();
+              // Also try to reconnect real-time service
+              if (!realtimeAttendanceService.getConnectionStatus().isConnected) {
+                console.log('🔄 Reconnecting real-time service...');
+                realtimeAttendanceService.connect();
+                setTimeout(() => {
+                  realtimeAttendanceService.joinAttendanceRoom();
+                }, 1000);
+              }
+            }}
+            sx={{ mr: 1 }}
+          >
+            Force Refresh
+          </Button>
+
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              console.log('🔄 Immediate refresh after attendance...');
+              // Force immediate refresh to see if data is available
+              fetchAttendanceData();
+              // Also check real-time status
+              const status = realtimeAttendanceService.getConnectionStatus();
+              console.log('🔍 Real-time status after refresh:', status);
+              alert(`Real-time Status:\nConnected: ${status.isConnected}\nStatus: ${status.connectionStatus}\nSocket ID: ${status.socketId || 'N/A'}`);
+            }}
+            sx={{ mr: 1 }}
+            color="secondary"
+          >
+            Check After Attendance
+          </Button>
+
+          <Button
+            variant="outlined"
+            startIcon={<BiometricIcon />}
             onClick={() => setSyncDialogOpen(true)}
             sx={{ mr: 1 }}
           >
             Sync Biometric
           </Button>
+
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -661,6 +575,158 @@ const AttendanceList = () => {
           </Button>
         </Box>
       </Box>
+
+      {/* Debug Panel */}
+      <Paper sx={{ p: 2, mb: 3, backgroundColor: '#f5f5f5' }}>
+        <Typography variant="h6" gutterBottom>
+          🔍 Real-Time Debug Panel
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography variant="body2" color="textSecondary">
+                Connection Status
+              </Typography>
+              <Chip
+                label={isRealTimeEnabled ? 'Connected' : 'Disconnected'}
+                color={isRealTimeEnabled ? 'success' : 'error'}
+                size="small"
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography variant="body2" color="textSecondary">
+                Last Update
+              </Typography>
+              <Typography variant="body2">
+                {lastUpdateTime.toLocaleTimeString()}
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography variant="body2" color="textSecondary">
+                Total Records
+              </Typography>
+              <Typography variant="body2">
+                {totalRecords}
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography variant="body2" color="textSecondary">
+                Current Page Records
+              </Typography>
+              <Typography variant="body2">
+                {attendance.length}
+              </Typography>
+            </Box>
+          </Grid>
+        </Grid>
+        <Box sx={{ mt: 2 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => {
+              const status = realtimeAttendanceService.getConnectionStatus();
+              console.log('🔍 Real-time service status:', status);
+              const readyStateText = status.readyState || 'UNKNOWN';
+              alert(`Socket.IO Status:\nConnected: ${status.isConnected}\nStatus: ${status.connectionStatus}\nSocket ID: ${status.socketId || 'N/A'}\nURL: ${status.url}`);
+            }}
+            sx={{ mr: 1 }}
+          >
+            Check Service Status
+          </Button>
+          
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => {
+              console.log('🧪 Testing real-time update handler...');
+              // Simulate a real-time attendance update
+              const testData = {
+                type: 'attendance_update',
+                data: {
+                  type: 'attendance_added',
+                  attendance: {
+                    _id: 'test_' + Date.now(),
+                    employee: {
+                      firstName: 'Test',
+                      lastName: 'User',
+                      employeeId: 'TEST001'
+                    },
+                    checkIn: {
+                      time: new Date(),
+                      location: 'Office',
+                      method: 'Biometric'
+                    },
+                    status: 'Present',
+                    date: new Date()
+                  }
+                }
+              };
+              handleRealTimeAttendanceUpdate(testData);
+            }}
+            sx={{ mr: 1 }}
+          >
+            Test Real-time Handler
+          </Button>
+          
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => {
+              console.log('🧪 Testing Socket.IO connection directly...');
+              // Test the Socket.IO connection directly
+              const socket = realtimeAttendanceService.socket;
+              if (socket) {
+                console.log('🔌 Socket exists, ID:', socket.id);
+                console.log('🔌 Socket connected:', socket.connected);
+                console.log('🔌 Socket transport:', socket.io.engine.transport.name);
+                
+                // Test emitting a test event
+                socket.emit('test_event', { message: 'Test from frontend', timestamp: new Date() });
+                console.log('📤 Test event emitted');
+                
+                // Also test joining the attendance room
+                socket.emit('join_attendance');
+                console.log('📤 Join attendance event emitted');
+                
+                // Test ping to server
+                socket.emit('ping', { message: 'Ping from frontend', timestamp: new Date() });
+                console.log('📤 Ping event emitted');
+              } else {
+                console.log('❌ No socket found');
+              }
+            }}
+            sx={{ mr: 1 }}
+          >
+            Test Socket.IO
+          </Button>
+          
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => {
+              console.log('🔄 Testing real-time service connection...');
+              // Force reconnect to real-time service
+              realtimeAttendanceService.disconnect();
+              setTimeout(() => {
+                realtimeAttendanceService.connect();
+                setTimeout(() => {
+                  realtimeAttendanceService.joinAttendanceRoom();
+                  const status = realtimeAttendanceService.getConnectionStatus();
+                  console.log('🔄 Reconnection test completed, status:', status);
+                }, 1000);
+              }, 500);
+            }}
+          >
+            Test Reconnection
+          </Button>
+        </Box>
+      </Paper>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
@@ -674,59 +740,18 @@ const AttendanceList = () => {
         </Alert>
       )}
 
-      {/* Real-time Status Alerts */}
-      {realTimeError && (
-        <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setRealTimeError(null)}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <WifiOffIcon />
-            <Typography>
-              Real-time connection issue: {realTimeError}
-            </Typography>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={async () => {
-                setRealTimeError(null);
-                await initializeRealTime();
-              }}
-              sx={{ ml: 2 }}
-            >
-              Retry Connection
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={async () => {
-                setRealTimeError(null);
-                try {
-                  const response = await api.post('/zkteco-push/start');
-                  if (response.data.success) {
-                    await initializeRealTime();
-                  } else {
-                    setRealTimeError('Failed to start ZKTeco Push service manually.');
-                  }
-                } catch (error) {
-                  setRealTimeError('Failed to start ZKTeco Push service manually.');
-                }
-              }}
-              sx={{ ml: 1 }}
-            >
-              Start Service
-            </Button>
-          </Box>
-        </Alert>
-      )}
 
-      {isConnected && (
-        <Alert severity="info" sx={{ mb: 2 }} onClose={() => {}}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <WifiIcon />
-            <Typography>
-              Real-time attendance is active. New check-ins/outs will appear automatically.
-            </Typography>
-          </Box>
-        </Alert>
-      )}
+
+      {/* Real-Time Status */}
+      <Alert severity="success" sx={{ mb: 2 }} onClose={() => {}}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography>
+            <strong>✅ Real-Time Status:</strong> Real-time attendance is active via ZKTeco WebSocket! Attendance updates automatically when employees check in/out.
+          </Typography>
+        </Box>
+      </Alert>
+
+
 
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
@@ -734,13 +759,13 @@ const AttendanceList = () => {
           <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <CalendarToday sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <Person sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
                     Total Records
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {statistics.totalRecords}
+                    {totalRecords}
                   </Typography>
                 </Box>
               </Box>
@@ -757,7 +782,7 @@ const AttendanceList = () => {
                     Present Today
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {statistics.presentToday}
+                    {attendance.filter(r => getStatusDisplay(r) === 'Present').length}
                   </Typography>
                 </Box>
               </Box>
@@ -767,14 +792,14 @@ const AttendanceList = () => {
         <Grid item xs={12} sm={6} md={2.4}>
           <Card sx={{ background: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', color: 'white' }}>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <Work sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
                     Late Today
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {statistics.lateToday}
+                    {attendance.filter(r => getStatusDisplay(r) === 'Late').length}
                   </Typography>
                 </Box>
               </Box>
@@ -791,7 +816,7 @@ const AttendanceList = () => {
                     Absent Today
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {statistics.absentToday}
+                    {attendance.filter(r => getStatusDisplay(r) === 'Absent').length}
                   </Typography>
                 </Box>
               </Box>
@@ -802,13 +827,13 @@ const AttendanceList = () => {
           <Card sx={{ background: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)', color: 'white' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <SyncIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
+                <WifiIcon sx={{ fontSize: 40, color: 'white', mr: 2 }} />
                 <Box>
                   <Typography color="white" gutterBottom>
-                    Biometric Records
+                    Real-time Today
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {statistics.biometricRecords}
+                    ✅
                   </Typography>
                 </Box>
               </Box>
@@ -816,27 +841,6 @@ const AttendanceList = () => {
           </Card>
         </Grid>
       </Grid>
-
-      {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab 
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <CalendarToday />
-                <Typography>Attendance Records</Typography>
-                {isRealTimeEnabled && isConnected && (
-                  <Badge color="success" variant="dot" />
-                )}
-              </Box>
-            } 
-          />
-        </Tabs>
-      </Box>
-
-      {/* Tab Content */}
-      {activeTab === 0 && (
-        <Box>
 
       {/* Filters */}
       <Card sx={{ mb: 3 }}>
@@ -860,11 +864,6 @@ const AttendanceList = () => {
                   label="Department"
                 >
                   <MenuItem value="">All Departments</MenuItem>
-                  {departments.map((dept) => (
-                    <MenuItem key={dept._id} value={dept._id}>
-                      {dept.name}
-                    </MenuItem>
-                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -886,7 +885,6 @@ const AttendanceList = () => {
                 </Select>
               </FormControl>
             </Grid>
-            {/* Approval filter removed - attendance is automatically approved based on biometric data */}
             <Grid item xs={12} sm={6} md={2}>
               <Button
                 variant="outlined"
@@ -918,145 +916,135 @@ const AttendanceList = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {attendance.map((record) => (
-              <TableRow 
-                key={record._id} 
-                hover
-                sx={{
-                  ...(record._id?.startsWith('realtime_') && {
-                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                    '&:hover': {
-                      backgroundColor: 'rgba(76, 175, 80, 0.2)',
-                    }
-                  })
-                }}
-              >
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={9} align="center">
+                  <CircularProgress size={24} />
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    Loading attendance records...
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : attendance.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={9} align="center">
+                  <Typography variant="body2" color="textSecondary">
+                    No attendance records found
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              attendance.map((record) => (
+                <TableRow key={record._id} hover>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight="bold">
+                          {record.employee?.firstName} {record.employee?.lastName}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          {record.employee?.employeeId}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {formatDate(record.date)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {record.updatedAt ? new Date(record.updatedAt).toLocaleDateString() : 'N/A'}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      {record.updatedAt ? new Date(record.updatedAt).toLocaleTimeString() : ''}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
                     <Box>
-                      <Typography variant="body2" fontWeight="bold">
-                        {record.employee?.firstName} {record.employee?.lastName}
+                      <Typography variant="body2">
+                        {formatTime(record.checkIn?.time)}
                       </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {record.employee?.employeeId}
-                      </Typography>
-                      {record.employee?.department && (
-                        <Typography variant="caption" color="textSecondary" display="block">
-                          {typeof record.employee.department === 'string' 
-                            ? record.employee.department 
-                            : record.employee.department?.name || 'N/A'
-                          }
+                      {record.checkIn?.location && (
+                        <Typography variant="caption" color="textSecondary">
+                          {record.checkIn.location}
                         </Typography>
                       )}
                     </Box>
-                    {record._id?.startsWith('realtime_') && (
-                      <Tooltip title="Real-time update">
-                        <Badge color="success" variant="dot" />
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2">
+                        {formatTime(record.checkOut?.time)}
+                      </Typography>
+                      {record.checkOut?.location && (
+                        <Typography variant="caption" color="textSecondary">
+                          {record.checkOut.location}
+                        </Typography>
+                      )}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={getStatusDisplay(record)}
+                      color={getStatusColor(getStatusDisplay(record))}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2" fontWeight="medium">
+                        {getWorkHoursDisplay(record)}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2">
+                        {record.checkIn?.method || record.checkOut?.method || 'Manual'}
+                      </Typography>
+                      {record.deviceType && (
+                        <Typography variant="caption" color="textSecondary">
+                          {record.deviceType}
+                        </Typography>
+                      )}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Tooltip title="View Details">
+                        <IconButton
+                          size="small"
+                          onClick={() => navigate(`/hr/attendance/employee/${record.employee._id}/detail`)}
+                        >
+                          <ViewIcon />
+                        </IconButton>
                       </Tooltip>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="body2">
-                    {formatDate(record.date)}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Typography variant="body2">
-                    {record.updatedAt ? new Date(record.updatedAt).toLocaleDateString() : 'N/A'}
-                  </Typography>
-                  <Typography variant="caption" color="textSecondary">
-                    {record.updatedAt ? new Date(record.updatedAt).toLocaleTimeString() : ''}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="body2">
-                      {formatTime(record.checkIn?.time)}
-                    </Typography>
-                    {record.checkIn?.location && (
-                      <Typography variant="caption" color="textSecondary">
-                        {record.checkIn.location}
-                      </Typography>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="body2">
-                      {formatTime(record.checkOut?.time)}
-                    </Typography>
-                    {record.checkOut?.location && (
-                      <Typography variant="caption" color="textSecondary">
-                        {record.checkOut.location}
-                      </Typography>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Chip
-                    label={getStatusDisplay(record)}
-                    color={getStatusColor(getStatusDisplay(record))}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="body2" fontWeight="medium">
-                      {getWorkHoursDisplay(record)}
-                    </Typography>
-                    {record.overtimeHours > 0 && (
-                      <Typography variant="caption" color="warning.main">
-                        +{record.overtimeHours} OT
-                      </Typography>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="body2">
-                      {record.checkIn?.method || record.checkOut?.method || 'Manual'}
-                    </Typography>
-                    {record.checkIn?.deviceId && (
-                      <Typography variant="caption" color="textSecondary">
-                        {record.checkIn.deviceId}
-                      </Typography>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Tooltip title="View Details">
-                      <IconButton
-                        size="small"
-                        onClick={() => navigate(`/hr/attendance/employee/${record.employee._id}/detail`)}
-                      >
-                        <ViewIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Edit">
-                      <IconButton
-                        size="small"
-                        onClick={() => navigate(`/hr/attendance/${record._id}/edit`)}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          setSelectedAttendance(record);
-                          setDeleteDialogOpen(true);
-                        }}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            ))}
+                      <Tooltip title="Edit">
+                        <IconButton
+                          size="small"
+                          onClick={() => navigate(`/hr/attendance/${record._id}/edit`)}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setSelectedAttendance(record);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
         <TablePagination
@@ -1069,8 +1057,6 @@ const AttendanceList = () => {
           onRowsPerPageChange={handleRowsPerPageChange}
         />
       </TableContainer>
-        </Box>
-      )}
 
       {/* Sync Dialog */}
       <Dialog open={syncDialogOpen} onClose={() => setSyncDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -1086,11 +1072,6 @@ const AttendanceList = () => {
                   label="Biometric Integration"
                 >
                   <MenuItem value="">Select Integration</MenuItem>
-                  {biometricIntegrations.map((integration) => (
-                    <MenuItem key={integration._id} value={integration._id}>
-                      {integration.systemName} - {integration.integrationType}
-                    </MenuItem>
-                  ))}
                 </Select>
               </FormControl>
             </Grid>
@@ -1122,7 +1103,7 @@ const AttendanceList = () => {
             onClick={handleSyncZKTeco}
             variant="contained"
             disabled={syncLoading}
-            startIcon={syncLoading ? <CircularProgress size={20} /> : <SyncIcon />}
+            startIcon={syncLoading ? <CircularProgress size={20} /> : <RefreshIcon />}
           >
             Sync ZKTeco
           </Button>

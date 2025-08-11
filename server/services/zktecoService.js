@@ -247,6 +247,80 @@ class ZKTecoService {
     }
   }
 
+  // Fetch attendance from device on-demand
+  async fetchAttendanceFromDevice(integrationConfig, startDate = null, endDate = null) {
+    try {
+      console.log('🔄 Fetching attendance from ZKTeco device on-demand...');
+      
+      // Connect to the device using integration config
+      const host = integrationConfig.apiConfig?.endpoints?.attendance?.split(':')[0] || 'splaza.nayatel.net';
+      const port = parseInt(integrationConfig.apiConfig?.endpoints?.attendance?.split(':')[1]) || 4370;
+      
+      await this.connect(host, port);
+      
+      // Get attendance data from device
+      const attendanceData = await this.getAttendanceData();
+      
+      if (!attendanceData.success || !attendanceData.data || attendanceData.data.length === 0) {
+        console.log('ℹ️ No attendance data found on device');
+        await this.disconnect();
+        return {
+          recordsProcessed: 0,
+          recordsCreated: 0,
+          recordsUpdated: 0,
+          message: 'No attendance data found on device'
+        };
+      }
+      
+      console.log(`📊 Found ${attendanceData.data.length} attendance records on device`);
+      
+      // Filter by date range if provided
+      let filteredData = attendanceData.data;
+      if (startDate && endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        filteredData = attendanceData.data.filter(record => {
+          const recordDate = new Date(record.recordTime || record.timestamp);
+          return recordDate >= start && recordDate <= end;
+        });
+        console.log(`📅 Filtered to ${filteredData.length} records within date range`);
+      }
+      
+      // Process and sync the attendance data
+      const syncResult = await this.syncAttendanceToDatabase();
+      
+      // Disconnect from device
+      await this.disconnect();
+      
+      return {
+        recordsProcessed: filteredData.length,
+        recordsCreated: syncResult.syncedRecords || 0,
+        recordsUpdated: 0, // We're not updating existing records in this method
+        message: `Successfully processed ${filteredData.length} attendance records`,
+        deviceInfo: {
+          host,
+          port,
+          totalRecordsOnDevice: attendanceData.data.length,
+          filteredRecords: filteredData.length
+        }
+      };
+      
+    } catch (error) {
+      console.error('❌ Error fetching attendance from device:', error.message);
+      
+      // Make sure we disconnect on error
+      if (this.isConnected) {
+        try {
+          await this.disconnect();
+        } catch (disconnectError) {
+          console.error('❌ Error disconnecting:', disconnectError.message);
+        }
+      }
+      
+      throw error;
+    }
+  }
+
   // Disconnect from device
   async disconnect() {
     if (this.device && this.isConnected) {

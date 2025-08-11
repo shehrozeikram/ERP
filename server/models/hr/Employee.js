@@ -193,6 +193,16 @@ const employeeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'
   },
+  department: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    required: false
+  },
+  position: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Position',
+    required: false
+  },
   hireDate: {
     type: Date,
     required: [true, 'Hire date is required'],

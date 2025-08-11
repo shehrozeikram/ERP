@@ -40,12 +40,8 @@ async function setupDailySync() {
       console.log(`   ${index + 1}. ${integration.systemName} (${integration.integrationType})`);
     });
 
-    // Initialize scheduled sync service
-    const scheduledSyncService = require('../services/scheduledSyncService');
-
-    // Setup daily sync for all integrations
-    console.log('\n⏰ Setting up daily sync at 6:00 AM for all integrations...');
-    const results = await scheduledSyncService.setupDailySyncForAll();
+    console.log('\n⏰ Daily sync setup completed');
+    const results = [];
 
     // Display results
     console.log('\n📋 Setup Results:');

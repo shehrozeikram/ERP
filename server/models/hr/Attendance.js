@@ -14,7 +14,8 @@ const attendanceSchema = new mongoose.Schema({
   checkIn: {
     time: {
       type: Date,
-      required: [true, 'Check-in time is required']
+      // Remove the required validation - allow check-in time to be optional
+      // The business logic will handle when to set it
     },
     location: {
       type: String,
@@ -94,6 +95,27 @@ const attendanceSchema = new mongoose.Schema({
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  
+  // Real-time attendance fields
+  isRealTime: {
+    type: Boolean,
+    default: false
+  },
+  lastRealTimeUpdate: {
+    type: Date
+  },
+  deviceType: {
+    type: String,
+    enum: ['ZKTeco', 'Manual', 'Other'],
+    default: 'ZKTeco'  // Changed from 'Manual' to 'ZKTeco' since most records will be from ZKTeco
+  },
+  deviceId: {
+    type: String
+  },
+  location: {
+    type: String,
+    default: 'Office'
   }
 }, {
   timestamps: true
@@ -145,7 +167,14 @@ attendanceSchema.virtual('totalHours').get(function() {
 
 // Pre-save middleware to calculate work hours
 attendanceSchema.pre('save', function(next) {
-  if (this.checkIn.time && this.checkOut.time) {
+  // Custom validation: at least one of checkIn.time or checkOut.time must be present
+  // But allow for different types of attendance events
+  if (!this.checkIn?.time && !this.checkOut?.time) {
+    return next(new Error('At least one of check-in time or check-out time is required'));
+  }
+  
+  // If we have both times, calculate work hours
+  if (this.checkIn?.time && this.checkOut?.time) {
     const diffMs = this.checkOut.time - this.checkIn.time;
     const diffHours = diffMs / (1000 * 60 * 60);
     const totalHours = Math.round(diffHours * 100) / 100;
@@ -157,6 +186,17 @@ attendanceSchema.pre('save', function(next) {
     // Calculate overtime (assuming 8 hours is standard work day)
     this.overtimeHours = this.workHours > 8 ? Math.round((this.workHours - 8) * 100) / 100 : 0;
   }
+  
+  // Set status based on what we have
+  if (this.checkIn?.time && !this.checkOut?.time) {
+    this.status = 'Present';
+  } else if (this.checkIn?.time && this.checkOut?.time) {
+    this.status = 'Present';
+  } else if (!this.checkIn?.time && this.checkOut?.time) {
+    // This could be a check-out only event (like Break Out)
+    this.status = 'Present';
+  }
+  
   next();
 });
 

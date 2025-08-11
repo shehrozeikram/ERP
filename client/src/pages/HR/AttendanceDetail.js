@@ -50,47 +50,33 @@ const AttendanceDetail = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch employee details
-      const employeeResponse = await api.get(`/hr/employees/${employeeId}`);
-      if (employeeResponse.data.success) {
-        const employeeData = employeeResponse.data.data;
-        setEmployee(employeeData);
-
-        // Fetch department details if department ID exists
-        if (employeeData.department) {
-          try {
-            const deptResponse = await api.get(`/hr/departments/${employeeData.department}`);
-            if (deptResponse.data.success) {
-              setDepartment(deptResponse.data.data);
-            }
-          } catch (deptError) {
-            console.error('Error fetching department:', deptError);
-          }
-        }
-
-        // Fetch position details if position ID exists
-        if (employeeData.position) {
-          try {
-            const posResponse = await api.get(`/hr/positions/${employeeData.position}`);
-            if (posResponse.data.success) {
-              setPosition(posResponse.data.data);
-            }
-          } catch (posError) {
-            console.error('Error fetching position:', posError);
-          }
-        }
-      }
-
-      // Fetch attendance history
-      const historyResponse = await api.get(`/attendance/employee/${employeeId}/history?limit=30`);
-      if (historyResponse.data.success) {
-        const history = historyResponse.data.data;
-        setAttendanceHistory(history);
+      // Fetch employee attendance detail using the new endpoint
+      const detailResponse = await api.get(`/attendance/employee/${employeeId}/detail`);
+      if (detailResponse.data.success) {
+        const detailData = detailResponse.data.data;
         
-        // Set current attendance (latest record)
-        if (history.length > 0) {
-          setCurrentAttendance(history[0]);
+        // Set employee data
+        setEmployee(detailData.employee);
+        
+        // Set attendance history
+        setAttendanceHistory(detailData.attendanceRecords);
+        
+        // Set current attendance (today's attendance or latest record)
+        if (detailData.todayAttendance) {
+          setCurrentAttendance(detailData.todayAttendance);
+        } else if (detailData.attendanceRecords.length > 0) {
+          setCurrentAttendance(detailData.attendanceRecords[0]);
         }
+        
+        // Set department and position from employee data
+        if (detailData.employee.department) {
+          setDepartment({ name: detailData.employee.department });
+        }
+        if (detailData.employee.position) {
+          setPosition({ name: detailData.employee.position });
+        }
+      } else {
+        throw new Error(detailResponse.data.message || 'Failed to fetch attendance details');
       }
     } catch (error) {
       console.error('Error fetching attendance detail:', error);

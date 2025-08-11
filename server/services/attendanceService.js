@@ -63,7 +63,7 @@ class AttendanceService {
 
       // SIMPLE APPROACH: Use find() instead of complex aggregation
       let attendanceQuery = Attendance.find(query)
-        .populate('employee', 'firstName lastName employeeId department position')
+        .populate('employee', 'firstName lastName employeeId')
         .lean();
 
       // Apply sorting
@@ -198,6 +198,105 @@ class AttendanceService {
       };
     } catch (error) {
       console.error('Error fetching attendance statistics:', error);
+      throw error;
+    }
+  }
+
+  // Get employee attendance history
+  async getEmployeeAttendanceHistory(employeeId, limit = 30) {
+    try {
+      // Validate employeeId
+      if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+        throw new Error('Invalid employee ID');
+      }
+
+      // Find the employee first (without populate since department/position are strings)
+      const employee = await Employee.findById(employeeId).lean();
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      // Get attendance records for this employee
+      const attendanceRecords = await Attendance.find({
+        employee: employeeId,
+        isActive: true
+      })
+        .populate('employee', 'firstName lastName employeeId')
+        .sort({ date: -1, updatedAt: -1 })
+        .limit(parseInt(limit))
+        .lean();
+
+      // Get total count for pagination
+      const totalRecords = await Attendance.countDocuments({
+        employee: employeeId,
+        isActive: true
+      });
+
+      // Format the response with Pakistan timezone
+      const formattedRecords = attendanceRecords.map(record => ({
+        ...record,
+        checkInTime: record.checkIn?.time ? 
+          formatLocalDateTime(record.checkIn.time) : null,
+        checkOutTime: record.checkOut?.time ? 
+          formatLocalDateTime(record.checkOut.time) : null,
+        attendanceDate: formatLocalDateTime(record.date),
+        lastUpdated: formatLocalDateTime(record.updatedAt)
+      }));
+
+      return {
+        success: true,
+        data: {
+          employee: {
+            _id: employee._id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            employeeId: employee.employeeId,
+            department: employee.department?.name || 'N/A',
+            position: employee.position?.name || 'N/A'
+          },
+          attendanceRecords: formattedRecords,
+          totalRecords,
+          limit: parseInt(limit)
+        }
+      };
+
+    } catch (error) {
+      console.error('Error fetching employee attendance history:', error);
+      throw error;
+    }
+  }
+
+  // Sync ZKTeco attendance
+  async syncZKTecoAttendance(startDate = null, endDate = null) {
+    try {
+      console.log('🔄 AttendanceService: Starting ZKTeco attendance sync...');
+      
+      // Get the biometric integration configuration
+      const integration = await BiometricIntegration.findOne({ 
+        $or: [
+          { integrationType: 'ZKTeco' },
+          { integrationType: 'API' }
+        ],
+        isActive: true 
+      });
+      
+      if (!integration) {
+        throw new Error('No active ZKTeco integration found');
+      }
+      
+      // Use the zktecoService to fetch attendance from device
+      const result = await zktecoService.fetchAttendanceFromDevice(integration, startDate, endDate);
+      
+      // Update the last sync time
+      await BiometricIntegration.findByIdAndUpdate(integration._id, {
+        lastSyncAt: new Date()
+      });
+      
+      console.log('✅ AttendanceService: ZKTeco sync completed successfully');
+      return result;
+      
+    } catch (error) {
+      console.error('❌ AttendanceService: Error syncing ZKTeco attendance:', error);
       throw error;
     }
   }

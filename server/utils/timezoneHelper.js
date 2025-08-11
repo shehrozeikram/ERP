@@ -179,20 +179,43 @@ function processZKTecoTimestamp(zktecoTimestamp) {
   if (!zktecoTimestamp) return null;
   
   try {
-    // ZKTeco timestamps are already in local time (Pakistan timezone)
-    // For example: "Fri Aug 08 2025 05:50:49 GMT+0500" is already in Pakistan time
+    // Parse the ZKTeco timestamp
     const localDate = new Date(zktecoTimestamp);
     if (isNaN(localDate.getTime())) {
       throw new Error('Invalid ZKTeco timestamp');
     }
     
-    // The ZKTeco device sends timestamps that are already in local time
-    // No conversion needed - just return the date as is
+    // Check if the date is in the past or future (more than 1 day)
+    const now = new Date();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const diffMs = Math.abs(now.getTime() - localDate.getTime());
+    
+    if (diffMs > oneDayMs) {
+      // If the date is more than 1 day off, use current date with the time from device
+      console.log('⚠️ ZKTeco timestamp date is off by more than 1 day, using current date');
+      const currentDate = new Date();
+      const deviceTime = localDate;
+      
+      // Create new date with current date but device time
+      const correctedDate = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        currentDate.getDate(),
+        deviceTime.getHours(),
+        deviceTime.getMinutes(),
+        deviceTime.getSeconds()
+      );
+      
+      return correctedDate;
+    }
+    
+    // If the date is reasonable, return as is
     return localDate;
     
   } catch (error) {
     console.error('Error processing ZKTeco timestamp:', error);
-    return null;
+    // Fallback to current time if timestamp is invalid
+    return new Date();
   }
 }
 
