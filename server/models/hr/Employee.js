@@ -73,49 +73,67 @@ const employeeSchema = new mongoose.Schema({
   address: {
     street: {
       type: String,
-      required: [true, 'Street address is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     },
     city: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'City',
-      required: [true, 'City is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     },
     state: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Province',
-      required: [true, 'State/Province is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     },
     country: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Country',
-      required: [true, 'Country is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     }
   },
   emergencyContact: {
     name: {
       type: String,
-      required: [true, 'Emergency contact name is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     },
     relationship: {
       type: String,
-      required: [true, 'Relationship is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     },
     phone: {
       type: String,
-      required: [true, 'Emergency contact phone is required']
+      required: function() {
+        return this.employmentStatus !== 'Draft';
+      }
     },
     email: String
   },
 
   qualification: {
     type: String,
-    required: [true, 'Qualification is required'],
+    required: function() {
+      return this.employmentStatus !== 'Draft';
+    },
     trim: true
   },
   bankName: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Bank',
-    required: [true, 'Bank is required']
+    required: function() {
+      return this.employmentStatus !== 'Draft';
+    }
   },
   foreignBankAccount: {
     type: String,
@@ -131,11 +149,15 @@ const employeeSchema = new mongoose.Schema({
   },
   appointmentDate: {
     type: Date,
-    required: [true, 'Appointment date is required']
+    required: function() {
+      return this.employmentStatus !== 'Draft';
+    }
   },
   probationPeriodMonths: {
     type: Number,
-    required: [true, 'Probation period is required'],
+    required: function() {
+      return this.employmentStatus !== 'Draft';
+    },
     min: [0, 'Probation period cannot be negative'],
     max: [24, 'Probation period cannot exceed 24 months']
   },
@@ -205,7 +227,9 @@ const employeeSchema = new mongoose.Schema({
   },
   hireDate: {
     type: Date,
-    required: [true, 'Hire date is required'],
+    required: function() {
+      return this.employmentStatus !== 'Draft';
+    },
     default: Date.now
   },
   employmentType: {
@@ -215,8 +239,8 @@ const employeeSchema = new mongoose.Schema({
   },
   employmentStatus: {
     type: String,
-    enum: ['Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'],
-    default: 'Active'
+    enum: ['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'],
+    default: 'Draft'
   },
   // Flexible Allowance Structure (House Rent removed as it's part of distributed salary)
   allowances: {
@@ -541,7 +565,17 @@ const employeeSchema = new mongoose.Schema({
   },
   terminationDate: Date,
   terminationReason: String,
-  notes: String
+  notes: String,
+  
+  // Talent Acquisition Integration
+  candidateId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Candidate'
+  },
+  onboardingId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EmployeeOnboarding'
+  }
 }, {
   timestamps: true
 });
@@ -555,6 +589,8 @@ employeeSchema.index({ employmentStatus: 1 });
 employeeSchema.index({ hireDate: 1 });
 employeeSchema.index({ isDeleted: 1 });
 employeeSchema.index({ isActive: 1 });
+employeeSchema.index({ candidateId: 1 });
+employeeSchema.index({ onboardingId: 1 });
 
 // Virtual for full name
 employeeSchema.virtual('fullName').get(function() {

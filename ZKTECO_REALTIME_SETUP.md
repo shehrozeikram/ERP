@@ -154,3 +154,4 @@ If you encounter issues:
 ---
 
 **🎯 Goal**: Pure real-time attendance system with zero scheduled sync or polling - just like Sidat Haider software!
+

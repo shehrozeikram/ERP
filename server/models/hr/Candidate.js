@@ -217,7 +217,7 @@ const candidateSchema = new mongoose.Schema({
   // Application Status
   status: {
     type: String,
-    enum: ['active', 'shortlisted', 'interviewed', 'passed', 'approval_pending', 'approval_in_progress', 'approved', 'offered', 'offer_accepted', 'hired', 'rejected', 'withdrawn'],
+    enum: ['active', 'shortlisted', 'interviewed', 'passed', 'approval_pending', 'approval_in_progress', 'approved', 'offered', 'offer_accepted', 'hired', 'joining_documents_filled', 'rejected', 'withdrawn'],
     default: 'active'
   },
   
@@ -237,6 +237,29 @@ const candidateSchema = new mongoose.Schema({
       ref: 'User'
     },
     offerNotes: String
+  },
+  
+  // Hiring Details
+  hiringDetails: {
+    hiredAt: Date,
+    approvalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CandidateApproval'
+    },
+    hiredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    joiningDocumentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'JoiningDocument'
+    },
+    startDate: Date,
+    onboardingStatus: {
+      type: String,
+      enum: ['pending', 'in_progress', 'completed'],
+      default: 'pending'
+    }
   },
   
   // Email Delivery Tracking
@@ -374,6 +397,7 @@ candidateSchema.virtual('statusLabel').get(function() {
     approved: 'Approved',
     offered: 'Offered',
     hired: 'Hired',
+    joining_documents_filled: 'Joining Documents Filled',
     rejected: 'Rejected',
     withdrawn: 'Withdrawn'
   };

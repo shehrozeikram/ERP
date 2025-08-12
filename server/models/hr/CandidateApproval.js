@@ -26,7 +26,7 @@ const candidateApprovalSchema = new mongoose.Schema({
   // Approval Status
   status: {
     type: String,
-    enum: ['pending', 'in_progress', 'approved', 'rejected', 'cancelled'],
+    enum: ['pending', 'in_progress', 'approved', 'rejected', 'cancelled', 'hired'],
     default: 'pending'
   },
   
@@ -98,35 +98,37 @@ const candidateApprovalSchema = new mongoose.Schema({
     ref: 'User'
   },
   finalDecisionAt: Date,
-  finalComments: String,
   
-  // Documents
-  candidateDocuments: {
-    resume: String,
-    coverLetter: String,
-    interviewFeedback: String,
-    technicalTestResults: String,
-    referenceChecks: String
+  // Hiring Details
+  hiringDate: Date,
+  joiningDocumentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'JoiningDocument'
   },
+  documentLink: String,
   
-  // Email Tracking
+  // Email Notifications
   emailNotifications: [{
     type: {
       type: String,
-      enum: ['approval_request', 'approval_reminder', 'approval_completed', 'appointment_letter', 'hiring_confirmation'],
+      enum: ['approval_request', 'approval_decision', 'hiring_confirmation'],
       required: true
     },
-    level: Number,
-    sentTo: String,
-    sentAt: Date,
+    sentTo: {
+      type: String,
+      required: true
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now
+    },
     deliveredAt: Date,
     status: {
       type: String,
       enum: ['pending', 'sent', 'delivered', 'failed'],
       default: 'pending'
     },
-    messageId: String,
-    errorMessage: String
+    messageId: String
   }],
   
   // Audit Trail

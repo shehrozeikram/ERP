@@ -273,6 +273,7 @@ const Candidates = () => {
       approved: 'success',
       offered: 'success',
       hired: 'success',
+      joining_documents_filled: 'success',
       rejected: 'error',
       withdrawn: 'default'
     };
@@ -422,7 +423,9 @@ const Candidates = () => {
                   <MenuItem value="approval_in_progress">Approval In Progress</MenuItem>
                   <MenuItem value="approved">Approved</MenuItem>
                   <MenuItem value="offered">Offered</MenuItem>
+                  <MenuItem value="offer_accepted">Offer Accepted</MenuItem>
                   <MenuItem value="hired">Hired</MenuItem>
+                  <MenuItem value="joining_documents_filled">Joining Documents Filled</MenuItem>
                   <MenuItem value="rejected">Rejected</MenuItem>
                   <MenuItem value="withdrawn">Withdrawn</MenuItem>
                 </Select>
@@ -627,6 +630,7 @@ const Candidates = () => {
                               <MenuItem value="offered">Offered</MenuItem>
                               <MenuItem value="offer_accepted">Offer Accepted</MenuItem>
                               <MenuItem value="hired">Hired</MenuItem>
+                              <MenuItem value="joining_documents_filled">Joining Documents Filled</MenuItem>
                               <MenuItem value="rejected">Rejected</MenuItem>
                               <MenuItem value="withdrawn">Withdrawn</MenuItem>
                             </Select>

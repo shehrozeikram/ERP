@@ -61,6 +61,9 @@ const easyApplyRoutes = require('./routes/easyApply');
 const courseRoutes = require('./routes/courses');
 const enrollmentRoutes = require('./routes/enrollments');
 const trainingProgramRoutes = require('./routes/trainingPrograms');
+const zktecoRoutes = require('./routes/zkteco');
+const hiringRoutes = require('./routes/hiring');
+const employeeOnboardingRoutes = require('./routes/employeeOnboarding');
 
 
 // Import services
@@ -193,6 +196,8 @@ app.use('/api/job-postings/apply', publicJobPostingRoutes);
 app.use('/api/applications/public', publicApplicationRoutes);
 app.use('/api/applications/easy-apply', easyApplyRoutes);
 app.use('/api/public-approvals', publicApprovalRoutes); // Public approval endpoints
+app.use('/api/hiring', hiringRoutes); // Hiring system endpoints (includes public routes)
+app.use('/api/employee-onboarding', employeeOnboardingRoutes); // Employee onboarding endpoints
 
 // Protected routes (authentication required)
 app.use('/api/job-postings', authMiddleware, jobPostingRoutes);
@@ -205,6 +210,7 @@ app.use('/api/notifications', authMiddleware, notificationRoutes);
 app.use('/api/courses', authMiddleware, courseRoutes);
 app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
+app.use('/api/zkteco', authMiddleware, zktecoRoutes);
 
 
 // Error handling middleware

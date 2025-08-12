@@ -8,6 +8,7 @@ const Application = require('../models/hr/Application');
 const JobPosting = require('../models/hr/JobPosting');
 const EmailService = require('../services/emailService');
 const NotificationService = require('../services/notificationService');
+const hiringService = require('../services/hiringService');
 
 // @route   POST /api/candidate-approvals
 // @desc    Create new approval workflow for a candidate
@@ -256,6 +257,15 @@ router.post('/:id/approve',
         status: 'hired',
         updatedBy: req.user._id
       });
+
+      // Trigger hiring process
+      try {
+        await hiringService.hireEmployee(approval._id);
+        console.log(`✅ Hiring process completed for candidate ${approval.candidate.firstName} ${approval.candidate.lastName}`);
+      } catch (hiringError) {
+        console.error(`❌ Failed to complete hiring process:`, hiringError.message);
+        // Continue with the process even if hiring service fails
+      }
 
       // Send hiring confirmation email to candidate
       await EmailService.sendHiringConfirmation(approval);

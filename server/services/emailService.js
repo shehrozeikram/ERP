@@ -442,6 +442,39 @@ Please do not reply to this email. For inquiries, contact our HR team.
     }
   }
 
+  // Send employee onboarding email to candidate
+  async sendEmployeeOnboardingEmail(approval, onboarding) {
+    try {
+      const htmlContent = this.generateEmployeeOnboardingHTML(approval, onboarding);
+      const textContent = this.generateEmployeeOnboardingText(approval, onboarding);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        to: approval.candidate.email,
+        subject: `🚀 Complete Your Employee Onboarding - ${approval.jobPosting.title}`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Employee onboarding email sent to ${approval.candidate.email}: ${result.messageId}`);
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: approval.candidate.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send employee onboarding email:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
   // Generate approval request HTML
   generateApprovalRequestHTML(approval, level) {
     const currentLevel = approval.approvalLevels.find(l => l.level === level);
@@ -1206,6 +1239,19 @@ Please do not reply to this email. For inquiries, contact our HR team.
               <p><strong>Application ID:</strong> ${approval.application.applicationId || approval.application._id}</p>
             </div>
             
+            <div class="status" style="text-align: center; background: #fff3cd; border-left: 4px solid #ffc107;">
+              <h3>📄 Important: Complete Your Joining Document</h3>
+              <p>To complete your onboarding process, you need to fill out and submit the official joining document. This document is required for your employment records and must be completed within 48 hours.</p>
+              
+              <p><strong>Please click the button below to access and complete your joining document:</strong></p>
+              
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-joining-document/${approval._id}" style="display: inline-block; background: #dc3545; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                📝 Complete Joining Document
+              </a>
+              
+              <p><em>Note: This document will be automatically saved to your employee record once completed.</em></p>
+            </div>
+            
             <div class="next-steps">
               <h3>🚀 What Happens Next?</h3>
               <p><strong>1. Onboarding Process:</strong> Our HR team will contact you within 24-48 hours to begin the onboarding process.</p>
@@ -1253,6 +1299,12 @@ FINAL STATUS:
 - Department: ${approval.jobPosting.department?.name || 'N/A'}
 - Application ID: ${approval.application.applicationId || approval.application._id}
 
+IMPORTANT: COMPLETE YOUR JOINING DOCUMENT
+To complete your onboarding process, you need to fill out and submit the official joining document. This document is required for your employment records and must be completed within 48 hours.
+
+Please visit this link to complete your joining document:
+${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-joining-document/${approval._id}
+
 WHAT HAPPENS NEXT?
 1. Onboarding Process: Our HR team will contact you within 24-48 hours to begin the onboarding process.
 2. Documentation: You'll receive employment contracts and required documentation to review and sign.
@@ -1268,6 +1320,144 @@ WELCOME TO THE TEAM!
 We're excited to have you join our organization and look forward to working together. Your skills and experience will be valuable assets to our team.
 
 Once again, congratulations on your new role!
+
+---
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our HR team.
+    `;
+  }
+
+  // Generate employee onboarding HTML
+  generateEmployeeOnboardingHTML(approval, onboarding) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Complete Your Employee Onboarding</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #3498db; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; }
+          .status { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #3498db; }
+          .next-steps { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #f39c12; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+          .badge { background: #3498db; color: white; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🚀 Welcome to SGC!</h1>
+            <h2>Complete Your Employee Onboarding</h2>
+            <p>Next Step: Employee Registration</p>
+          </div>
+          
+          <div class="content">
+            <p>Dear <strong>${approval.candidate.firstName} ${approval.candidate.lastName}</strong>,</p>
+            
+            <p>Congratulations on completing your joining document! Now it's time to complete your employee onboarding process. This will create your official employee record in our system.</p>
+            
+            <div class="status">
+              <h3>✅ Current Status</h3>
+              <p><strong>Status:</strong> <span class="badge">JOINING DOCUMENT COMPLETED</span></p>
+              <p><strong>Position:</strong> ${approval.jobPosting.title}</p>
+              <p><strong>Department:</strong> ${approval.jobPosting.department?.name || 'N/A'}</p>
+              <p><strong>Onboarding ID:</strong> ${onboarding._id}</p>
+            </div>
+            
+            <div class="status" style="text-align: center; background: #d1ecf1; border-left: 4px solid #17a2b8;">
+              <h3>📋 Complete Your Employee Profile</h3>
+              <p>To finalize your employment, you need to complete your employee onboarding form. This includes:</p>
+              <ul style="text-align: left; display: inline-block;">
+                <li>Personal information and contact details</li>
+                <li>Employment details and start date</li>
+                <li>Bank account information</li>
+                <li>Emergency contacts</li>
+                <li>Required documents and certificates</li>
+              </ul>
+              
+              <p><strong>Please click the button below to complete your employee onboarding:</strong></p>
+              
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-employee-onboarding/${onboarding._id}" style="display: inline-block; background: #17a2b8; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                🚀 Complete Employee Onboarding
+              </a>
+              
+              <p><em>Note: This form will create your employee record with draft status. HR will review and activate your account.</em></p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>🔄 What Happens Next?</h3>
+              <p><strong>1. Complete Onboarding Form:</strong> Fill out all required employee information</p>
+              <p><strong>2. HR Review:</strong> Our HR team will review your information</p>
+              <p><strong>3. Account Activation:</strong> Your employee account will be activated</p>
+              <p><strong>4. Welcome Package:</strong> You'll receive access to company systems and policies</p>
+            </div>
+            
+            <div class="status">
+              <h3>📞 Need Help?</h3>
+              <p>If you have any questions about the onboarding process or need assistance, please contact our HR team.</p>
+              <p><strong>Email:</strong> hr@sgc.com</p>
+              <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>🎯 Almost There!</h3>
+              <p>You're just one step away from becoming an official SGC employee. Complete your onboarding form to get started!</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our HR team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate employee onboarding text
+  generateEmployeeOnboardingText(approval, onboarding) {
+    return `
+Complete Your Employee Onboarding
+
+Dear ${approval.candidate.firstName} ${approval.candidate.lastName},
+
+Congratulations on completing your joining document! Now it's time to complete your employee onboarding process. This will create your official employee record in our system.
+
+CURRENT STATUS:
+- Status: JOINING DOCUMENT COMPLETED
+- Position: ${approval.jobPosting.title}
+- Department: ${approval.jobPosting.department?.name || 'N/A'}
+- Onboarding ID: ${onboarding._id}
+
+COMPLETE YOUR EMPLOYEE PROFILE:
+To finalize your employment, you need to complete your employee onboarding form. This includes:
+- Personal information and contact details
+- Employment details and start date
+- Bank account information
+- Emergency contacts
+- Required documents and certificates
+
+Please visit this link to complete your employee onboarding:
+${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-employee-onboarding/${onboarding._id}
+
+WHAT HAPPENS NEXT?
+1. Complete Onboarding Form: Fill out all required employee information
+2. HR Review: Our HR team will review your information
+3. Account Activation: Your employee account will be activated
+4. Welcome Package: You'll receive access to company systems and policies
+
+NEED HELP?
+If you have any questions about the onboarding process or need assistance, please contact our HR team.
+- Email: hr@sgc.com
+- Phone: +92-XXX-XXXXXXX
+
+ALMOST THERE!
+You're just one step away from becoming an official SGC employee. Complete your onboarding form to get started!
 
 ---
 This is an automated message from SGC ERP System

@@ -1,4 +1,5 @@
 const ZKLib = require('node-zklib');
+const { getDeviceConfig } = require('../config/zktecoConfig');
 
 class ZKTecoService {
   constructor() {
@@ -7,12 +8,16 @@ class ZKTecoService {
   }
 
   // Connect to ZKTeco device
-  async connect(host = 'splaza.nayatel.net', port = 4370) {
+  async connect(host = null, port = null) {
     try {
-      console.log(`🔌 Connecting to ZKTeco device at ${host}:${port}...`);
+      const deviceConfig = getDeviceConfig();
+      const targetHost = host || deviceConfig.host;
+      const targetPort = port || deviceConfig.port;
+      
+      console.log(`🔌 Connecting to ZKTeco device at ${targetHost}:${targetPort}...`);
       
       // Using the exact format you provided: new ZKLib(IP, port, timeout, inMsgDelay)
-      this.device = new ZKLib(host, port, 10000, 4000);
+      this.device = new ZKLib(targetHost, targetPort, deviceConfig.timeout, deviceConfig.inMsgDelay);
 
       await this.device.createSocket();
       this.isConnected = true;

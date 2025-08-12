@@ -2,18 +2,23 @@ const WebSocket = require('ws');
 const Employee = require('../models/hr/Employee');
 const Attendance = require('../models/hr/Attendance');
 const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
+const { getFormattedCookies, getDeviceConfig, getConnectionConfig, getLoggingConfig } = require('../config/zktecoConfig');
+const ZKTecoKeepAliveService = require('./zktecoKeepAliveService');
 
 class ZKTecoWebSocketService {
   constructor(io) {
     this.ws = null;
     this.isConnected = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-    this.reconnectInterval = 5000; // 5 seconds
+    this.maxReconnectAttempts = getConnectionConfig().maxReconnectAttempts;
+    this.reconnectInterval = getConnectionConfig().reconnectInterval;
     this.connectedClients = new Set();
     this.lastPunchEvent = null;
     this.connectionStatus = 'disconnected';
     this.io = io; // Socket.IO instance for broadcasting to frontend clients
+    
+    // Initialize keep-alive service
+    this.keepAliveService = new ZKTecoKeepAliveService();
   }
 
   /**
@@ -23,15 +28,32 @@ class ZKTecoWebSocketService {
     try {
       console.log('🔌 Starting ZKTeco WebSocket connection...');
       
-      // Set up WebSocket connection with authentication cookies
-      const cookies = [
-        'account_info=eyJ1c2VybmFtZSI6ICJhZGlsLmFhbWlyIiwgInBhc3N3b3JkIjogIlBhazEyMzQ1NiIsICJlbXBOYW1lIjogIiIsICJlbXBQd2QiOiAiIiwgInJlbWVtYmVyX21lX2FkbWluIjogImNoZWNrZWQiLCAicmVtZW1iZXJfbWVfZW1wbG95ZWUiOiAiIn0=',
-        'csrftoken=KjcOVAc9xIL5pwwuooQbLVgbPHk9rlWY',
-        'django_language=en',
-        'sessionid=enuay9f6ztl8jqvyd0pdo0ewq7kiw7ak'
-      ].join('; ');
+      // Initialize and start keep-alive service first
+      console.log('🔄 Initializing keep-alive service...');
+      const keepAliveInit = await this.keepAliveService.initialize();
+      
+      if (keepAliveInit) {
+        console.log('✅ Keep-alive service initialized, starting...');
+        await this.keepAliveService.start();
+      } else {
+        console.log('⚠️ Keep-alive service initialization failed, proceeding anyway...');
+      }
+      
+      // Get device configuration and cookies from centralized config
+      const deviceConfig = getDeviceConfig();
+      const cookies = getFormattedCookies();
+      const loggingConfig = getLoggingConfig();
 
-      this.ws = new WebSocket('ws://182.180.55.96:85/base/dashboard/realtime_punch/', {
+      if (loggingConfig.enabled) {
+        console.log('🔧 Device config:', {
+          host: deviceConfig.host,
+          port: deviceConfig.port,
+          websocketUrl: deviceConfig.websocketUrl,
+          timeout: deviceConfig.timeout
+        });
+      }
+
+      this.ws = new WebSocket(deviceConfig.websocketUrl, {
         headers: {
           'Cookie': cookies,
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -41,7 +63,7 @@ class ZKTecoWebSocketService {
       this.setupWebSocketEventHandlers();
       
     } catch (error) {
-      console.error('❌ Error starting WebSocket connection:', error);
+      console.error('❌ Error starting ZKTeco WebSocket connection:', error.message);
       this.scheduleReconnect();
     }
   }
@@ -324,16 +346,28 @@ class ZKTecoWebSocketService {
   /**
    * Get connection status
    */
-  getStatus() {
+  getConnectionStatus() {
     return {
+      status: this.connectionStatus,
       isConnected: this.isConnected,
-      connectionStatus: this.connectionStatus,
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts,
-      connectedClients: this.connectedClients.size,
-      lastPunchEvent: this.lastPunchEvent,
-      timestamp: new Date().toISOString()
+      keepAlive: this.keepAliveService.getStatus()
     };
+  }
+
+  /**
+   * Get keep-alive service status
+   */
+  getKeepAliveStatus() {
+    return this.keepAliveService.getStatus();
+  }
+
+  /**
+   * Force keep-alive refresh
+   */
+  async forceKeepAliveRefresh() {
+    return await this.keepAliveService.forceRefresh();
   }
 
   /**
@@ -346,6 +380,34 @@ class ZKTecoWebSocketService {
       this.isConnected = false;
       this.connectionStatus = 'stopped';
       console.log('🛑 ZKTeco WebSocket connection stopped');
+    }
+  }
+
+  /**
+   * Stop the WebSocket service
+   */
+  stop() {
+    try {
+      console.log('🛑 Stopping ZKTeco WebSocket service...');
+      
+      // Stop keep-alive service
+      if (this.keepAliveService) {
+        this.keepAliveService.stop();
+      }
+      
+      // Close WebSocket connection
+      if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+      }
+      
+      this.isConnected = false;
+      this.connectionStatus = 'stopped';
+      
+      console.log('✅ ZKTeco WebSocket service stopped');
+      
+    } catch (error) {
+      console.error('❌ Error stopping ZKTeco WebSocket service:', error.message);
     }
   }
 }
