@@ -59,7 +59,16 @@ router.get('/',
     const options = {
       page: parseInt(page),
       limit: parseInt(limit),
-      sort: { createdAt: -1 }
+      sort: { createdAt: -1 },
+      populate: [
+        {
+          path: 'jobPosting',
+          populate: [
+            { path: 'department', select: 'name' },
+            { path: 'position', select: 'title' }
+          ]
+        }
+      ]
     };
 
     const candidates = await Candidate.paginate(filter, options);
@@ -100,7 +109,14 @@ router.get('/',
 router.get('/:id', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const candidate = await Candidate.findById(req.params.id);
+    const candidate = await Candidate.findById(req.params.id)
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' },
+          { path: 'location', select: 'name' }
+        ]
+      });
 
     if (!candidate) {
       return res.status(404).json({
@@ -280,7 +296,13 @@ router.put('/:id/status',
     }
 
     const candidate = await Candidate.findById(req.params.id)
-      .populate('jobPosting');
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' },
+          { path: 'position', select: 'title' }
+        ]
+      });
 
     if (!candidate) {
       return res.status(404).json({
@@ -362,7 +384,12 @@ router.put('/:id/status',
           console.log('🔄 Populating approval object for email...');
           const populatedApproval = await CandidateApproval.findById(approval._id)
             .populate('candidate', 'firstName lastName email phone')
-            .populate('jobPosting', 'title department')
+            .populate({
+              path: 'jobPosting',
+              populate: [
+                { path: 'department', select: 'name' }
+              ]
+            })
             .populate('application', 'applicationId')
             .populate('createdBy', 'firstName lastName');
 
@@ -383,7 +410,12 @@ router.put('/:id/status',
           // Send email to Level 1 (Assistant Manager HR) for existing workflow
           const populatedApproval = await CandidateApproval.findById(existingApproval._id)
             .populate('candidate', 'firstName lastName email phone')
-            .populate('jobPosting', 'title department')
+            .populate({
+              path: 'jobPosting',
+              populate: [
+                { path: 'department', select: 'name' }
+              ]
+            })
             .populate('application', 'applicationId')
             .populate('createdBy', 'firstName lastName');
 
@@ -470,7 +502,13 @@ router.put('/:id/status',
 router.post('/:id/accept-offer', 
   asyncHandler(async (req, res) => {
     const candidate = await Candidate.findById(req.params.id)
-      .populate('jobPosting');
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' },
+          { path: 'location', select: 'name' }
+        ]
+      });
 
     if (!candidate) {
       return res.status(404).json({

@@ -5,6 +5,23 @@ const connectDB = async () => {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
+      // Enhanced connection options for Atlas
+      maxPoolSize: 10,
+      minPoolSize: 1,
+      maxIdleTimeMS: 30000,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      bufferMaxEntries: 0,
+      // SSL/TLS options
+      ssl: true,
+      sslValidate: true,
+      // Retry options
+      retryWrites: true,
+      w: 'majority',
+      // Connection timeout
+      connectTimeoutMS: 10000,
+      // Heartbeat settings
+      heartbeatFrequencyMS: 10000,
     });
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
@@ -20,6 +37,12 @@ const connectDB = async () => {
 
     mongoose.connection.on('reconnected', () => {
       console.log('✅ MongoDB reconnected');
+    });
+
+    // Handle process termination
+    process.on('SIGINT', async () => {
+      await disconnectDB();
+      process.exit(0);
     });
 
   } catch (error) {

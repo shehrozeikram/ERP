@@ -1,7 +1,0 @@
-{
-  "subject": "🎉 Congratulations! You've Been Shortlisted - Node.js Developer",
-  "from": "shehrozeikram2@gmail.com",
-  "to": "shehroze.ikram@txy.co",
-  "htmlFile": "email_templates/shortlist_notification.html",
-  "textFile": "email_templates/shortlist_notification.txt"
-}

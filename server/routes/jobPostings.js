@@ -252,7 +252,7 @@ router.put('/:id/publish',
     // Post to LinkedIn
     let linkedInResult = null;
     try {
-      linkedInResult = await LinkedInService.postJob(jobPosting);
+      linkedInResult = await LinkedInService.postJobUpdate(jobPosting);
       
       if (linkedInResult.success) {
         jobPosting.linkedInPostId = linkedInResult.postId;

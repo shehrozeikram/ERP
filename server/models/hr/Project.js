@@ -3,31 +3,26 @@ const mongoose = require('mongoose');
 const projectSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: [true, 'Project name is required'],
-    trim: true,
-    maxlength: [100, 'Project name cannot exceed 100 characters']
+    required: true,
+    trim: true
   },
   code: {
     type: String,
-    required: [true, 'Project code is required'],
+    required: true,
     unique: true,
-    trim: true,
-    uppercase: true,
-    maxlength: [10, 'Project code cannot exceed 10 characters']
-  },
-  company: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'PlacementCompany',
-    required: [true, 'Company is required']
+    trim: true
   },
   description: {
     type: String,
-    trim: true,
-    maxlength: [500, 'Description cannot exceed 500 characters']
+    required: true
+  },
+  client: {
+    type: String,
+    required: true
   },
   startDate: {
     type: Date,
-    required: [true, 'Start date is required']
+    required: true
   },
   endDate: {
     type: Date
@@ -35,49 +30,103 @@ const projectSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled'],
-    default: 'Active'
+    default: 'Planning'
+  },
+  priority: {
+    type: String,
+    enum: ['Low', 'Medium', 'High', 'Critical'],
+    default: 'Medium'
   },
   budget: {
     type: Number,
-    min: [0, 'Budget cannot be negative']
+    required: true
   },
-  manager: {
+  actualCost: {
+    type: Number,
+    default: 0
+  },
+  projectManager: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Employee'
+    ref: 'User',
+    required: true
   },
-  isActive: {
-    type: Boolean,
-    default: true
+  teamMembers: [{
+    employee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Employee'
+    },
+    role: String,
+    startDate: Date,
+    endDate: Date,
+    allocation: {
+      type: Number, // Percentage of time allocated
+      min: 0,
+      max: 100
+    }
+  }],
+  departments: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department'
+  }],
+  milestones: [{
+    name: String,
+    description: String,
+    dueDate: Date,
+    status: {
+      type: String,
+      enum: ['Not Started', 'In Progress', 'Completed', 'Delayed'],
+      default: 'Not Started'
+    },
+    completionDate: Date
+  }],
+  risks: [{
+    description: String,
+    impact: {
+      type: String,
+      enum: ['Low', 'Medium', 'High', 'Critical']
+    },
+    probability: {
+      type: String,
+      enum: ['Low', 'Medium', 'High', 'Critical']
+    },
+    mitigation: String,
+    status: {
+      type: String,
+      enum: ['Open', 'In Progress', 'Resolved', 'Closed'],
+      default: 'Open'
+    }
+  }],
+  documents: [{
+    name: String,
+    type: String,
+    url: String,
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  notes: String,
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-  notes: String
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
 }, {
   timestamps: true
 });
 
-// Indexes
-projectSchema.index({ name: 1 });
+// Index for better query performance
 projectSchema.index({ code: 1 });
-projectSchema.index({ company: 1 });
-projectSchema.index({ isActive: 1 });
 projectSchema.index({ status: 1 });
+projectSchema.index({ startDate: 1 });
+projectSchema.index({ projectManager: 1 });
 
-// Virtual for project duration
-projectSchema.virtual('duration').get(function() {
-  if (!this.startDate) return null;
-  const end = this.endDate || new Date();
-  const diffTime = Math.abs(end - this.startDate);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays;
-});
-
-// Static method to find active projects
-projectSchema.statics.findActive = function() {
-  return this.find({ isActive: true }).populate('company', 'name code').sort({ name: 1 });
-};
-
-// Static method to find projects by company
-projectSchema.statics.findByCompany = function(companyId) {
-  return this.find({ company: companyId, isActive: true }).sort({ name: 1 });
-};
-
-module.exports = mongoose.model('Project', projectSchema); 
+module.exports = mongoose.model('Project', projectSchema);

@@ -26,6 +26,22 @@ router.post('/',
       });
     }
 
+    // Check if candidate exists and has required data
+    const Candidate = require('../models/hr/Candidate');
+    const candidate = await Candidate.findById(candidateId);
+    if (!candidate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Candidate not found'
+      });
+    }
+    console.log('🔍 Candidate found:', {
+      id: candidate._id,
+      firstName: candidate.firstName,
+      lastName: candidate.lastName,
+      email: candidate.email
+    });
+
     // Check if approval already exists for this candidate
     const existingApproval = await CandidateApproval.findOne({ candidate: candidateId });
     if (existingApproval) {
@@ -52,8 +68,19 @@ router.post('/',
       status: 'pending'
     });
 
+    console.log('🔍 Creating approval with data:', {
+      candidateId,
+      jobPostingId,
+      applicationId,
+      createdBy: req.body.createdBy || req.user._id
+    });
+
     // Save first to trigger pre-save middleware and initialize approvalLevels
     await approval.save();
+    console.log('✅ Approval saved with ID:', approval._id);
+    console.log('✅ Approval candidate field:', approval.candidate);
+    console.log('✅ Approval candidate field type:', typeof approval.candidate);
+    console.log('✅ Approval candidate field value:', approval.candidate);
 
     // Now set approver emails for each level (all emails go to shehrozeikram2@gmail.com for testing)
     approval.approvalLevels[0].approverEmail = 'shehrozeikram2@gmail.com'; // Assistant Manager HR
@@ -74,7 +101,12 @@ router.post('/',
     // Populate approval object before sending emails
     const populatedApproval = await CandidateApproval.findById(approval._id)
       .populate('candidate', 'firstName lastName email phone')
-      .populate('jobPosting', 'title department')
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' }
+        ]
+      })
       .populate('application', 'applicationId')
       .populate('createdBy', 'firstName lastName');
 
@@ -118,7 +150,12 @@ router.get('/',
       limit: parseInt(limit),
       populate: [
         { path: 'candidate', select: 'firstName lastName email phone' },
-        { path: 'jobPosting', select: 'title department' },
+        { 
+          path: 'jobPosting', 
+          populate: [
+            { path: 'department', select: 'name' }
+          ]
+        },
         { path: 'application', select: 'applicationId' },
         { path: 'createdBy', select: 'firstName lastName' }
       ],
@@ -154,18 +191,89 @@ router.get('/:id',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const approval = await CandidateApproval.findById(req.params.id)
-      .populate('candidate', 'firstName lastName email phone dateOfBirth address')
-      .populate('jobPosting', 'title department description requirements')
+      .populate('candidate', 'firstName lastName email phone')
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' }
+        ]
+      })
       .populate('application', 'applicationId coverLetter expectedSalary')
       .populate('approvalLevels.approver', 'firstName lastName email')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName');
+
+    console.log('🔍 Population query executed for approval ID:', req.params.id);
+    console.log('🔍 Population fields selected for candidate:', 'firstName lastName email phone');
+    console.log('🔍 Raw approval object before population:', JSON.stringify(approval, null, 2));
 
     if (!approval) {
       return res.status(404).json({
         success: false,
         message: 'Approval workflow not found'
       });
+    }
+
+    // Debug logging
+    console.log('🔍 Approval data being returned:');
+    console.log('  - Approval ID:', approval._id);
+    console.log('  - Candidate field:', approval.candidate);
+    console.log('  - Candidate type:', typeof approval.candidate);
+    console.log('  - Candidate keys:', approval.candidate ? Object.keys(approval.candidate) : 'No candidate');
+    console.log('  - Job posting field:', approval.jobPosting);
+    console.log('  - Department field:', approval.jobPosting?.department);
+
+    // Detailed candidate inspection
+    if (approval.candidate) {
+      console.log('  - Candidate detailed inspection:');
+      console.log('    * Raw candidate object:', approval.candidate);
+      console.log('    * firstName value:', approval.candidate.firstName);
+      console.log('    * lastName value:', approval.candidate.lastName);
+      console.log('    * email value:', approval.candidate.email);
+      console.log('    * phone value:', approval.candidate.phone);
+      console.log('    * firstName type:', typeof approval.candidate.firstName);
+      console.log('    * lastName type:', typeof approval.candidate.lastName);
+      console.log('    * firstName === undefined:', approval.candidate.firstName === undefined);
+      console.log('    * lastName === undefined:', approval.candidate.lastName === undefined);
+      console.log('    * firstName === null:', approval.candidate.firstName === null);
+      console.log('    * lastName === null:', approval.candidate.lastName === null);
+      console.log('    * firstName === "":', approval.candidate.firstName === "");
+      console.log('    * lastName === "":', approval.candidate.lastName === "");
+      console.log('    * All candidate properties:', Object.getOwnPropertyNames(approval.candidate));
+      console.log('    * Candidate prototype:', Object.getPrototypeOf(approval.candidate));
+      console.log('    * Candidate hasOwnProperty firstName:', approval.candidate.hasOwnProperty('firstName'));
+      console.log('    * Candidate hasOwnProperty lastName:', approval.candidate.hasOwnProperty('lastName'));
+    }
+
+    // Check if candidate exists in database
+    if (approval.candidate) {
+      const Candidate = require('../models/hr/Candidate');
+      const candidateExists = await Candidate.findById(approval.candidate._id);
+      console.log('  - Candidate exists in DB:', !!candidateExists);
+      if (candidateExists) {
+        console.log('  - Candidate DB data:', {
+          firstName: candidateExists.firstName,
+          lastName: candidateExists.lastName,
+          email: candidateExists.email
+        });
+        console.log('  - All candidate fields:', Object.keys(candidateExists.toObject()));
+        console.log('  - Full candidate object:', JSON.stringify(candidateExists.toObject(), null, 2));
+        
+        // Check if there's a mismatch
+        console.log('  - Approval candidate ID:', approval.candidate._id);
+        console.log('  - Database candidate ID:', candidateExists._id);
+        console.log('  - IDs match:', approval.candidate._id.toString() === candidateExists._id.toString());
+        
+        // Check if the fields exist in the database
+        console.log('  - Database has firstName:', candidateExists.hasOwnProperty('firstName'));
+        console.log('  - Database has lastName:', candidateExists.hasOwnProperty('lastName'));
+        console.log('  - Database firstName value:', candidateExists.firstName);
+        console.log('  - Database lastName value:', candidateExists.lastName);
+        console.log('  - Database firstName type:', typeof candidateExists.firstName);
+        console.log('  - Database lastName type:', typeof candidateExists.lastName);
+      }
+    } else {
+      console.log('  - No candidate field in approval');
     }
 
     res.json({
@@ -181,8 +289,13 @@ router.get('/:id',
 router.get('/public/:id', 
   asyncHandler(async (req, res) => {
     const approval = await CandidateApproval.findById(req.params.id)
-      .populate('candidate', 'firstName lastName email phone dateOfBirth address')
-      .populate('jobPosting', 'title department description requirements')
+      .populate('candidate', 'firstName lastName email phone')
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' }
+        ]
+      })
       .populate('application', 'applicationId coverLetter expectedSalary')
       .populate('approvalLevels.approver', 'firstName lastName email')
       .populate('createdBy', 'firstName lastName')
@@ -212,7 +325,12 @@ router.post('/:id/approve',
 
     const approval = await CandidateApproval.findById(req.params.id)
       .populate('candidate', 'firstName lastName email phone')
-      .populate('jobPosting', 'title department')
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' }
+        ]
+      })
       .populate('application', 'applicationId');
 
     if (!approval) {
@@ -258,17 +376,21 @@ router.post('/:id/approve',
         updatedBy: req.user._id
       });
 
-      // Trigger hiring process
+      // Send joining document request email to candidate instead of immediately hiring
       try {
-        await hiringService.hireEmployee(approval._id);
-        console.log(`✅ Hiring process completed for candidate ${approval.candidate.firstName} ${approval.candidate.lastName}`);
-      } catch (hiringError) {
-        console.error(`❌ Failed to complete hiring process:`, hiringError.message);
-        // Continue with the process even if hiring service fails
+        await EmailService.sendJoiningDocumentRequest(approval);
+        console.log(`✅ Joining document request email sent to ${approval.candidate.email}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send joining document request email:`, emailError.message);
       }
 
       // Send hiring confirmation email to candidate
-      await EmailService.sendHiringConfirmation(approval);
+      try {
+        await EmailService.sendHiringConfirmation(approval);
+        console.log(`✅ Hiring confirmation email sent to ${approval.candidate.email}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send hiring confirmation email:`, emailError.message);
+      }
       
       // Create notification for HR team about new employee
       try {
@@ -282,7 +404,75 @@ router.post('/:id/approve',
         console.error(`❌ Failed to create HR notification for hired candidate:`, notificationError.message);
       }
       
-      console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED!`);
+      console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED! Joining document creation is pending.`);
+
+      // Create placeholder onboarding record for the candidate
+      try {
+        console.log(`📋 Creating placeholder onboarding record for candidate...`);
+        const EmployeeOnboarding = require('../models/hr/EmployeeOnboarding');
+        
+        // Check if onboarding already exists
+        const existingOnboarding = await EmployeeOnboarding.findOne({ approvalId: approval._id });
+        if (existingOnboarding) {
+          console.log(`✅ Onboarding record already exists: ${existingOnboarding._id}`);
+        } else {
+          // Create new placeholder onboarding
+          const placeholderOnboarding = new EmployeeOnboarding({
+            approvalId: approval._id,
+            status: 'pending',
+            // Onboarding tasks with correct field names
+            onboardingTasks: [
+              { 
+                taskName: 'Complete Personal Information',
+                description: 'Fill out personal details and contact information',
+                status: 'pending',
+                dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              },
+              { 
+                taskName: 'Submit Required Documents',
+                description: 'Upload CNIC, educational certificates, and other required documents',
+                status: 'pending',
+                dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              },
+              { 
+                taskName: 'Complete Employment Details',
+                description: 'Provide employment history and references',
+                status: 'pending',
+                dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              },
+              { 
+                taskName: 'Review Company Policies',
+                description: 'Read and acknowledge company policies and procedures',
+                status: 'pending',
+                dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              }
+            ],
+            // Training requirements with correct enum values
+            trainingRequirements: [
+              { 
+                trainingName: 'Company Orientation',
+                description: 'Introduction to company culture, policies, and procedures',
+                isRequired: true,
+                status: 'not_started'
+              },
+              { 
+                trainingName: 'Role-specific Training',
+                description: 'Training specific to the employee\'s role and responsibilities',
+                isRequired: true,
+                status: 'not_started'
+              }
+            ]
+          });
+          
+          await placeholderOnboarding.save();
+          console.log(`✅ Placeholder onboarding record created: ${placeholderOnboarding._id}`);
+        }
+      } catch (onboardingError) {
+        console.error(`❌ Failed to create placeholder onboarding record:`, onboardingError.message);
+        // Continue with the process even if onboarding creation fails
+      }
+
+      // Send joining document request email to candidate
     } else {
       // Move to next level
       const nextLevel = approvedLevels + 1;
@@ -299,7 +489,18 @@ router.post('/:id/approve',
       
       // Send email to next approver
       try {
-        await EmailService.sendApprovalRequest(approval, nextLevel);
+        // Ensure the approval object is fully populated before sending email
+        const populatedApproval = await CandidateApproval.findById(approval._id)
+          .populate('candidate', 'firstName lastName email phone')
+          .populate({
+            path: 'jobPosting',
+            populate: [
+              { path: 'department', select: 'name' }
+            ]
+          })
+          .populate('application', 'applicationId');
+        
+        await EmailService.sendApprovalRequest(populatedApproval, nextLevel);
         console.log(`✅ Approval request email sent to Level ${nextLevel} (${approval.approvalLevels[nextLevel - 1].title})`);
       } catch (error) {
         console.error(`❌ Failed to send approval request email to Level ${nextLevel}:`, error.message);
@@ -390,8 +591,21 @@ router.post('/:id/approve-public',
         updatedBy: null
       });
 
+      // Send joining document request email to candidate instead of immediately hiring
+      try {
+        await EmailService.sendJoiningDocumentRequest(approval);
+        console.log(`✅ Joining document request email sent to ${approval.candidate.email}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send joining document request email:`, emailError.message);
+      }
+
       // Send hiring confirmation email to candidate
-      await EmailService.sendHiringConfirmation(approval);
+      try {
+        await EmailService.sendHiringConfirmation(approval);
+        console.log(`✅ Hiring confirmation email sent to ${approval.candidate.email}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send hiring confirmation email:`, emailError.message);
+      }
       
       // Create notification for HR team about new employee
       try {
@@ -405,7 +619,7 @@ router.post('/:id/approve-public',
         console.error(`❌ Failed to create HR notification for hired candidate:`, notificationError.message);
       }
       
-      console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED!`);
+      console.log(`🎉 All approval levels completed! Candidate ${approval.candidate.firstName} ${approval.candidate.lastName} is now HIRED! Joining document creation is pending.`);
     } else {
       // Move to next level
       const nextLevel = approvedLevels + 1;
@@ -422,7 +636,18 @@ router.post('/:id/approve-public',
       
       // Send email to next approver
       try {
-        await EmailService.sendApprovalRequest(approval, nextLevel);
+        // Ensure the approval object is fully populated before sending email
+        const populatedApproval = await CandidateApproval.findById(approval._id)
+          .populate('candidate', 'firstName lastName email phone')
+          .populate({
+            path: 'jobPosting',
+            populate: [
+              { path: 'department', select: 'name' }
+            ]
+          })
+          .populate('application', 'applicationId');
+        
+        await EmailService.sendApprovalRequest(populatedApproval, nextLevel);
         console.log(`✅ Approval request email sent to Level ${nextLevel} (${approval.approvalLevels[nextLevel - 1].title})`);
       } catch (emailError) {
         console.error(`❌ Failed to send approval request email to Level ${nextLevel}:`, emailError.message);
@@ -461,7 +686,12 @@ router.post('/:id/reject',
 
     const approval = await CandidateApproval.findById(req.params.id)
       .populate('candidate', 'firstName lastName email phone')
-      .populate('jobPosting', 'title department');
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' }
+        ]
+      });
 
     if (!approval) {
       return res.status(404).json({
@@ -532,7 +762,12 @@ router.post('/:id/remind',
   asyncHandler(async (req, res) => {
     const approval = await CandidateApproval.findById(req.params.id)
       .populate('candidate', 'firstName lastName email phone')
-      .populate('jobPosting', 'title department');
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' }
+        ]
+      });
 
     if (!approval) {
       return res.status(404).json({

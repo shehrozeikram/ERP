@@ -134,6 +134,43 @@ class EmailService {
   // Generate HTML email template
   generateShortlistEmailHTML(candidate, jobPosting, application) {
     const evaluation = application.evaluation;
+    
+    // Debug logging to see what data is received
+    console.log('📧 Generating shortlist email with data:');
+    console.log('  - jobPosting:', jobPosting);
+    console.log('  - department:', jobPosting.department);
+    console.log('  - location:', jobPosting.location);
+    console.log('  - employmentType:', jobPosting.employmentType);
+    console.log('  - salaryRange:', jobPosting.salaryRange);
+
+    // Helper function to safely get nested values
+    const getDepartmentName = () => {
+      if (jobPosting.department?.name) return jobPosting.department.name;
+      if (jobPosting.department && typeof jobPosting.department === 'string') return jobPosting.department;
+      return 'Not specified';
+    };
+
+    const getLocationName = () => {
+      if (jobPosting.location?.name) return jobPosting.location.name;
+      if (jobPosting.location && typeof jobPosting.location === 'string') return jobPosting.location;
+      return 'Not specified';
+    };
+
+    const getEmploymentType = () => {
+      if (jobPosting.employmentType) {
+        return jobPosting.employmentType.replace('_', ' ').toUpperCase();
+      }
+      return 'FULL TIME';
+    };
+
+    const getSalaryRange = () => {
+      if (jobPosting.salaryRange && jobPosting.salaryRange.min && jobPosting.salaryRange.max) {
+        const currency = jobPosting.salaryRange.currency || 'PKR';
+        return `${jobPosting.salaryRange.min} - ${jobPosting.salaryRange.max} ${currency}`;
+      }
+      return 'To be discussed';
+    };
+    
     const score = evaluation?.overallScore || 'N/A';
     
     return `
@@ -184,12 +221,10 @@ class EmailService {
             <div class="details">
               <h4>📋 Position Details</h4>
               <p><strong>Job Title:</strong> ${jobPosting.title}</p>
-              <p><strong>Department:</strong> ${jobPosting.department?.name || 'N/A'}</p>
-              <p><strong>Location:</strong> ${jobPosting.location?.name || 'N/A'}</p>
-              <p><strong>Employment Type:</strong> ${jobPosting.employmentType?.replace('_', ' ').toUpperCase() || 'N/A'}</p>
-              ${jobPosting.salaryRange ? `
-                <p><strong>Salary Range:</strong> ${jobPosting.salaryRange.min} - ${jobPosting.salaryRange.max} ${jobPosting.salaryRange.currency}</p>
-              ` : ''}
+              <p><strong>Department:</strong> ${getDepartmentName()}</p>
+              <p><strong>Location:</strong> ${getLocationName()}</p>
+              <p><strong>Employment Type:</strong> ${getEmploymentType()}</p>
+              <p><strong>Salary Range:</strong> ${getSalaryRange()}</p>
             </div>
 
             <div class="details">
@@ -290,11 +325,11 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const result = await this.transporter.sendMail(mailOptions);
       console.log(`✅ Approval request email sent to ${approverEmail}: ${result.messageId}`);
       
-      // Update approval with email status
+      // Update approval with email status (but don't save here - let the route handle it)
       currentLevel.emailSentAt = new Date();
       currentLevel.emailDeliveredAt = new Date();
       currentLevel.emailStatus = 'delivered';
-      await approval.save();
+      // Removed: await approval.save(); - This will be handled by the route
       
       return {
         success: true,
@@ -305,10 +340,10 @@ Please do not reply to this email. For inquiries, contact our HR team.
     } catch (error) {
       console.error(`❌ Failed to send approval request email:`, error.message);
       
-      // Update approval with failed status
+      // Update approval with failed status (but don't save here - let the route handle it)
       const currentLevel = approval.approvalLevels.find(l => l.level === level);
       currentLevel.emailStatus = 'failed';
-      await approval.save();
+      // Removed: await approval.save(); - This will be handled by the route
       
       return {
         success: false,
@@ -415,7 +450,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const result = await this.transporter.sendMail(mailOptions);
       console.log(`✅ Hiring confirmation email sent to ${approval.candidate.email}: ${result.messageId}`);
       
-      // Update approval with email notification
+      // Update approval with email notification (but don't save here - let the route handle it)
       approval.emailNotifications.push({
         type: 'hiring_confirmation',
         sentTo: approval.candidate.email,
@@ -424,7 +459,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
         status: 'delivered',
         messageId: result.messageId
       });
-      await approval.save();
+      // Removed: await approval.save(); - This will be handled by the route
       
       return {
         success: true,
@@ -451,7 +486,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const mailOptions = {
         from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
         to: approval.candidate.email,
-        subject: `🚀 Complete Your Employee Onboarding - ${approval.jobPosting.title}`,
+        subject: `🚀 Welcome to SGC! Employee Onboarding Complete - ${approval.jobPosting.title}`,
         html: htmlContent,
         text: textContent
       };
@@ -475,6 +510,94 @@ Please do not reply to this email. For inquiries, contact our HR team.
     }
   }
 
+  // Send joining document request email to hired candidate
+  async sendJoiningDocumentRequest(approval) {
+    try {
+      const htmlContent = this.generateJoiningDocumentRequestHTML(approval);
+      const textContent = this.generateJoiningDocumentRequestText(approval);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        to: approval.candidate.email,
+        subject: `📝 Action Required: Complete Your Joining Document - ${approval.jobPosting.title}`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Joining document request email sent to ${approval.candidate.email}: ${result.messageId}`);
+      
+      // Update approval with email notification (but don't save here - let the route handle it)
+      approval.emailNotifications.push({
+        type: 'joining_document_request',
+        sentTo: approval.candidate.email,
+        sentAt: new Date(),
+        deliveredAt: new Date(),
+        status: 'delivered',
+        messageId: result.messageId
+      });
+      // Removed: await approval.save(); - This will be handled by the route
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: approval.candidate.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send joining document request email:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
+  // Send employee onboarding request email to candidate
+  async sendEmployeeOnboardingRequest(approval) {
+    try {
+      const htmlContent = this.generateEmployeeOnboardingRequestHTML(approval);
+      const textContent = this.generateEmployeeOnboardingRequestText(approval);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        to: approval.candidate.email,
+        subject: `🚀 Welcome! Complete Your Employee Onboarding - ${approval.jobPosting.title}`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Employee onboarding request email sent to ${approval.candidate.email}: ${result.messageId}`);
+      
+      // Update approval with email notification (but don't save here - let the route handle it)
+      approval.emailNotifications.push({
+        type: 'employee_onboarding_request',
+        sentTo: approval.candidate.email,
+        sentAt: new Date(),
+        deliveredAt: new Date(),
+        status: 'delivered',
+        messageId: result.messageId
+      });
+      // Removed: await approval.save(); - This will be handled by the route
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: approval.candidate.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send employee onboarding request email:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
   // Generate approval request HTML
   generateApprovalRequestHTML(approval, level) {
     const currentLevel = approval.approvalLevels.find(l => l.level === level);
@@ -485,6 +608,13 @@ Please do not reply to this email. For inquiries, contact our HR team.
       4: 'Vice President',
       5: 'CEO'
     };
+
+    // Debug logging to see what data is received
+    console.log('📧 Generating approval request email with data:');
+    console.log('  - approval:', approval);
+    console.log('  - jobPosting:', approval.jobPosting);
+    console.log('  - department:', approval.jobPosting?.department);
+    console.log('  - department name:', approval.jobPosting?.department?.name);
     
     return `
       <!DOCTYPE html>
@@ -1489,6 +1619,230 @@ Please do not reply to this email. For inquiries, contact our HR team.
         message: 'Email service configuration error'
       };
     }
+  }
+
+  // Generate joining document request HTML
+  generateJoiningDocumentRequestHTML(approval) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Complete Your Joining Document</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px; }
+          .button { display: inline-block; background: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0; }
+          .status { background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; }
+          .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🎉 Congratulations! You're Hired!</h1>
+            <p>Complete Your Joining Document</p>
+          </div>
+          
+          <div class="content">
+            <h2>Dear ${approval.candidate.firstName} ${approval.candidate.lastName},</h2>
+            
+            <p>Congratulations! You have successfully completed all approval levels and are now officially hired for the position of <strong>${approval.jobPosting.title}</strong> at SGC.</p>
+            
+            <div class="status">
+              <h3>📋 Next Step: Complete Your Joining Document</h3>
+              <p>To proceed with your employment, you need to complete your joining document. This document contains essential information that we need to process your employment.</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>📝 What You Need to Do:</h3>
+              <p><strong>1. Complete Joining Document:</strong> Fill out all required information</p>
+              <p><strong>2. Submit Form:</strong> Click the button below to access the form</p>
+              <p><strong>3. HR Review:</strong> Our team will review your information</p>
+              <p><strong>4. Employee Onboarding:</strong> Complete final onboarding process</p>
+            </div>
+            
+            <div style="text-align: center;">
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-joining-document/${approval._id}" class="button">
+                📝 Complete Joining Document
+              </a>
+            </div>
+            
+            <div class="status">
+              <h3>📞 Need Help?</h3>
+              <p>If you have any questions about the joining document or need assistance, please contact our HR team.</p>
+              <p><strong>Email:</strong> hr@sgc.com</p>
+              <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>🎯 Important Note:</h3>
+              <p>Please complete your joining document within 48 hours to ensure a smooth onboarding process.</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our HR team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate joining document request text
+  generateJoiningDocumentRequestText(approval) {
+    return `
+Complete Your Joining Document
+
+Dear ${approval.candidate.firstName} ${approval.candidate.lastName},
+
+Congratulations! You have successfully completed all approval levels and are now officially hired for the position of ${approval.jobPosting.title} at SGC.
+
+NEXT STEP: COMPLETE YOUR JOINING DOCUMENT
+To proceed with your employment, you need to complete your joining document. This document contains essential information that we need to process your employment.
+
+WHAT YOU NEED TO DO:
+1. Complete Joining Document: Fill out all required information
+2. Submit Form: Access the form using the link below
+3. HR Review: Our team will review your information
+4. Employee Onboarding: Complete final onboarding process
+
+Please visit this link to complete your joining document:
+${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-joining-document/${approval._id}
+
+NEED HELP?
+If you have any questions about the joining document or need assistance, please contact our HR team.
+- Email: hr@sgc.com
+- Phone: +92-XXX-XXXXXXX
+
+IMPORTANT NOTE:
+Please complete your joining document within 48 hours to ensure a smooth onboarding process.
+
+---
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our HR team.
+    `;
+  }
+
+  // Generate employee onboarding request HTML
+  generateEmployeeOnboardingRequestHTML(approval) {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Complete Your Employee Onboarding</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #FF9800; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px; }
+          .button { display: inline-block; background: #2196F3; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0; }
+          .status { background: #fff3e0; padding: 15px; border-radius: 8px; margin: 15px 0; }
+          .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🚀 Welcome to SGC!</h1>
+            <p>Complete Your Employee Onboarding</p>
+          </div>
+          
+          <div class="content">
+            <h2>Dear ${approval.candidate.firstName} ${approval.candidate.lastName},</h2>
+            
+            <p>Great job! You have successfully completed your joining document. Now it's time to complete your employee onboarding process. This will create your official employee record in our system.</p>
+            
+            <div class="status">
+              <h3>📋 Current Status: JOINING DOCUMENT COMPLETED</h3>
+              <p>Your joining document has been submitted and reviewed. Now you need to complete your employee profile.</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>📝 What You Need to Do:</h3>
+              <p><strong>1. Complete Employee Profile:</strong> Fill out all required employee information</p>
+              <p><strong>2. Employment Details:</strong> Provide start date and employment terms</p>
+              <p><strong>3. Bank Information:</strong> Add your bank account details</p>
+              <p><strong>4. Emergency Contacts:</strong> Provide emergency contact information</p>
+              <p><strong>5. Required Documents:</strong> Upload necessary certificates and documents</p>
+            </div>
+            
+            <div style="text-align: center;">
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-employee-onboarding/${approval._id}" class="button">
+                🚀 Complete Employee Onboarding
+              </a>
+            </div>
+            
+            <div class="status">
+              <h3>📞 Need Help?</h3>
+              <p>If you have any questions about the onboarding process or need assistance, please contact our HR team.</p>
+              <p><strong>Email:</strong> hr@sgc.com</p>
+              <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
+            </div>
+            
+            <div class="next-steps">
+              <h3>🎯 What Happens Next?</h3>
+              <p><strong>1. HR Review:</strong> Our HR team will review your information</p>
+              <p><strong>2. Account Activation:</strong> Your employee account will be activated</p>
+              <p><strong>3. Welcome Package:</strong> You'll receive access to company systems and policies</p>
+              <p><strong>4. Start Date:</strong> You'll be contacted about your official start date</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our HR team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate employee onboarding request text
+  generateEmployeeOnboardingRequestText(approval) {
+    return `
+Complete Your Employee Onboarding
+
+Dear ${approval.candidate.firstName} ${approval.candidate.lastName},
+
+Great job! You have successfully completed your joining document. Now it's time to complete your employee onboarding process. This will create your official employee record in our system.
+
+CURRENT STATUS: JOINING DOCUMENT COMPLETED
+Your joining document has been submitted and reviewed. Now you need to complete your employee profile.
+
+WHAT YOU NEED TO DO:
+1. Complete Employee Profile: Fill out all required employee information
+2. Employment Details: Provide start date and employment terms
+3. Bank Information: Add your bank account details
+4. Emergency Contacts: Provide emergency contact information
+5. Required Documents: Upload necessary certificates and documents
+
+Please visit this link to complete your employee onboarding:
+${process.env.FRONTEND_URL || 'http://localhost:3000'}/public-employee-onboarding/${approval._id}
+
+NEED HELP?
+If you have any questions about the onboarding process or need assistance, please contact our HR team.
+- Email: hr@sgc.com
+- Phone: +92-XXX-XXXXXXX
+
+WHAT HAPPENS NEXT?
+1. HR Review: Our HR team will review your information
+2. Account Activation: Your employee account will be activated
+3. Welcome Package: You'll receive access to company systems and policies
+4. Start Date: You'll be contacted about your official start date
+
+---
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our HR team.
+    `;
   }
 }
 

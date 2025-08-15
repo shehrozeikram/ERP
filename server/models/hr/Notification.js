@@ -1,238 +1,119 @@
 const mongoose = require('mongoose');
-const mongoosePaginate = require('mongoose-paginate-v2');
 
 const notificationSchema = new mongoose.Schema({
-  // Notification Type
-  type: {
-    type: String,
-    required: true,
-    enum: [
-      'candidate_hired',
-      'employee_status_change',
-      'attendance_update',
-      'payroll_generated',
-      'loan_approved',
-      'leave_request',
-      'performance_review',
-      'training_assigned',
-      'system_alert',
-      'other'
-    ]
+  recipient: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   },
-  
-  // Title and Description
   title: {
     type: String,
     required: true,
-    trim: true,
-    maxlength: [200, 'Title cannot exceed 200 characters']
+    trim: true
   },
-  
   message: {
     type: String,
-    required: true,
-    trim: true,
-    maxlength: [1000, 'Message cannot exceed 1000 characters']
+    required: true
   },
-  
-  // Priority Level
+  type: {
+    type: String,
+    enum: ['info', 'success', 'warning', 'error', 'system'],
+    default: 'info'
+  },
+  category: {
+    type: String,
+    enum: ['attendance', 'payroll', 'leave', 'approval', 'system', 'other'],
+    default: 'other'
+  },
+  isRead: {
+    type: Boolean,
+    default: false
+  },
+  readAt: {
+    type: Date
+  },
   priority: {
     type: String,
     enum: ['low', 'medium', 'high', 'urgent'],
     default: 'medium'
   },
-  
-  // Status
-  status: {
-    type: String,
-    enum: ['unread', 'read', 'archived'],
-    default: 'unread'
+  actionUrl: {
+    type: String // URL to navigate to when notification is clicked
   },
-  
-  // Recipients
-  recipients: [{
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
-    },
-    readAt: Date,
-    archivedAt: Date
-  }],
-  
-  // Related Entities
-  relatedEntity: {
-    type: String,
-    enum: ['candidate', 'employee', 'attendance', 'payroll', 'loan', 'leave', 'performance', 'training', 'system'],
-    required: true
+  actionText: {
+    type: String // Text for the action button
   },
-  
-  relatedEntityId: {
-    type: mongoose.Schema.Types.ObjectId,
-    refPath: 'relatedEntityRef'
-  },
-  
-  relatedEntityRef: {
-    type: String,
-    enum: ['Candidate', 'Employee', 'Attendance', 'Payroll', 'Loan', 'Leave', 'Performance', 'Training'],
-    required: function() {
-      return this.relatedEntityId != null;
-    }
-  },
-  
-  // Action Required
-  actionRequired: {
-    type: Boolean,
-    default: false
-  },
-  
-  actionType: {
-    type: String,
-    enum: ['approve', 'review', 'complete', 'acknowledge', 'none'],
-    default: 'none'
-  },
-  
-  actionUrl: String, // URL to navigate to for action
-  
-  // Expiry
-  expiresAt: Date,
-  
-  // Metadata
   metadata: {
-    type: Map,
-    of: mongoose.Schema.Types.Mixed
+    type: mongoose.Schema.Types.Mixed // Additional data specific to notification type
   },
-  
-  // Audit Trail
+  expiresAt: {
+    type: Date // When the notification should expire
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
-  
-  readBy: [{
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    readAt: {
-      type: Date,
-      default: Date.now
-    }
-  }],
-  
-  archivedBy: [{
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    archivedAt: {
-      type: Date,
-      default: Date.now
-    }
-  }]
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
 }, {
   timestamps: true
 });
 
-// Indexes for better performance
-notificationSchema.index({ type: 1, status: 1 });
-notificationSchema.index({ 'recipients.user': 1, status: 1 });
-notificationSchema.index({ relatedEntity: 1, relatedEntityId: 1 });
-notificationSchema.index({ createdAt: -1 });
-notificationSchema.index({ priority: 1, createdAt: -1 });
+// Index for better query performance
+notificationSchema.index({ recipient: 1, isRead: 1 });
+notificationSchema.index({ recipient: 1, createdAt: -1 });
+notificationSchema.index({ type: 1, category: 1 });
 notificationSchema.index({ expiresAt: 1 });
 
-// Virtual for unread count per user
-notificationSchema.virtual('unreadCount').get(function() {
-  return this.recipients.filter(r => !r.readAt).length;
-});
+// Auto-expire notifications
+notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-// Virtual for is expired
-notificationSchema.virtual('isExpired').get(function() {
-  if (!this.expiresAt) return false;
-  return new Date() > this.expiresAt;
-});
-
-// Static method to get notifications for a user
+// Static methods for common queries
 notificationSchema.statics.getForUser = function(userId, options = {}) {
-  const {
-    status = 'unread',
-    type,
-    limit = 50,
-    skip = 0,
-    sort = { createdAt: -1 }
-  } = options;
+  const { type, status, limit = 50, skip = 0 } = options;
   
-  const query = {
-    'recipients.user': userId,
-    status: status
-  };
+  let query = { recipient: userId };
   
-  if (type) query.type = type;
+  if (type) {
+    query.type = type;
+  }
+  
+  if (status === 'unread') {
+    query.isRead = false;
+  } else if (status === 'read') {
+    query.isRead = true;
+  }
   
   return this.find(query)
-    .populate('recipients.user', 'firstName lastName email profileImage')
-    .populate('createdBy', 'firstName lastName email profileImage')
-    .populate('relatedEntityId')
-    .sort(sort)
+    .sort({ createdAt: -1 })
+    .skip(skip)
     .limit(limit)
-    .skip(skip);
+    .populate('recipient', 'name email')
+    .populate('createdBy', 'name email');
 };
 
-// Static method to get unread count for a user
 notificationSchema.statics.getUnreadCount = function(userId) {
-  return this.countDocuments({
-    'recipients.user': userId,
-    status: 'unread'
+  return this.countDocuments({ 
+    recipient: userId, 
+    isRead: false 
   });
 };
 
-// Static method to mark as read
-notificationSchema.statics.markAsRead = function(notificationId, userId) {
-  return this.updateOne(
+notificationSchema.statics.markAsRead = function(userId, notificationIds) {
+  return this.updateMany(
     { 
-      _id: notificationId,
-      'recipients.user': userId 
+      _id: { $in: notificationIds }, 
+      recipient: userId 
     },
     { 
       $set: { 
-        'recipients.$.readAt': new Date(),
-        status: 'read'
-      },
-      $push: {
-        readBy: {
-          user: userId,
-          readAt: new Date()
-        }
-      }
+        isRead: true, 
+        readAt: new Date() 
+      } 
     }
   );
 };
-
-// Static method to mark as archived
-notificationSchema.statics.markAsArchived = function(notificationId, userId) {
-  return this.updateOne(
-    { 
-      _id: notificationId,
-      'recipients.user': userId 
-    },
-    { 
-      $set: { 
-        'recipients.$.archivedAt': new Date(),
-        status: 'archived'
-      },
-      $push: {
-        archivedBy: {
-          user: userId,
-          archivedAt: new Date()
-        }
-      }
-    }
-  );
-};
-
-// Add pagination plugin
-notificationSchema.plugin(mongoosePaginate);
 
 module.exports = mongoose.model('Notification', notificationSchema);

@@ -1,55 +1,39 @@
 const express = require('express');
-const { asyncHandler } = require('../middleware/errorHandler');
-const Application = require('../models/hr/Application');
-const JobPosting = require('../models/hr/JobPosting');
-const ApplicationEvaluationService = require('../services/applicationEvaluationService');
-
 const router = express.Router();
+const Application = require('../models/hr/Application');
+const Candidate = require('../models/hr/Candidate');
+const JobPosting = require('../models/hr/JobPosting');
 
-// @route   POST /api/applications/public
-// @desc    Submit public job application (no authentication required)
-// @access  Public
-router.post('/submit', 
-  asyncHandler(async (req, res) => {
+// Submit a new job application (public)
+router.post('/submit', async (req, res) => {
+  try {
     const {
-      affiliateCode,
-      applicationType = 'standard',
-      personalInfo,
-      professionalInfo,
+      jobPostingId,
+      candidateName,
+      email,
+      phone,
+      resume,
+      coverLetter,
+      experience,
       education,
       skills,
-      additionalInfo,
-      documents
+      expectedSalary,
+      availability
     } = req.body;
 
-    // Validate required fields based on application type
-    if (!affiliateCode || !personalInfo) {
+    // Validate required fields
+    if (!jobPostingId || !candidateName || !email || !phone) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: affiliateCode and personalInfo'
+        message: 'Missing required fields'
       });
     }
 
-    // For standard applications, require professionalInfo
-    if (applicationType === 'standard' && !professionalInfo) {
-      return res.status(400).json({
-        success: false,
-        message: 'Professional information is required for standard applications'
-      });
-    }
-
-    // For easy apply, require CV
-    if (applicationType === 'easy_apply' && !documents?.cv) {
-      return res.status(400).json({
-        success: false,
-        message: 'CV is required for easy apply applications'
-      });
-    }
-
-    // Find the job posting by affiliate code
+    // Check if job posting exists and is active
     const jobPosting = await JobPosting.findOne({
-      affiliateCode: affiliateCode,
-      status: 'published'
+      _id: jobPostingId,
+      status: 'published',
+      isActive: true
     });
 
     if (!jobPosting) {
@@ -59,76 +43,98 @@ router.post('/submit',
       });
     }
 
-    // Check if application deadline has passed
-    if (new Date() > new Date(jobPosting.applicationDeadline)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Application deadline has passed'
+    // Create or update candidate
+    let candidate = await Candidate.findOne({ email });
+    
+    if (!candidate) {
+      candidate = new Candidate({
+        name: candidateName,
+        email,
+        phone,
+        experience,
+        education,
+        skills,
+        expectedSalary,
+        availability,
+        source: 'Public Application'
       });
+      await candidate.save();
+    } else {
+      // Update existing candidate
+      candidate.name = candidateName;
+      candidate.phone = phone;
+      candidate.experience = experience;
+      candidate.education = education;
+      candidate.skills = skills;
+      candidate.expectedSalary = expectedSalary;
+      candidate.availability = availability;
+      await candidate.save();
     }
 
-    // Check if user has already applied with this email
-    const existingApplication = await Application.findOne({
-      jobPosting: jobPosting._id,
-      'personalInfo.email': personalInfo.email.toLowerCase()
+    // Create application
+    const application = new Application({
+      jobPosting: jobPostingId,
+      candidate: candidate._id,
+      resume,
+      coverLetter,
+      status: 'Applied',
+      source: 'Public'
     });
-
-    if (existingApplication) {
-      return res.status(400).json({
-        success: false,
-        message: 'You have already applied for this position with this email address'
-      });
-    }
-
-    // Create the application with conditional fields
-    const applicationData = {
-      jobPosting: jobPosting._id,
-      affiliateCode: affiliateCode,
-      applicationType: applicationType,
-      personalInfo,
-      status: 'applied',
-      submittedAt: new Date()
-    };
-
-    // Add optional fields for standard applications
-    if (applicationType === 'standard') {
-      applicationData.professionalInfo = professionalInfo;
-      applicationData.education = education;
-      applicationData.skills = skills;
-      applicationData.additionalInfo = additionalInfo;
-    }
-
-    // Add documents
-    applicationData.documents = {
-      cv: documents?.cv || null,
-      coverLetter: documents?.coverLetter || null,
-      additionalDocuments: documents?.additionalDocuments || []
-    };
-
-    const application = new Application(applicationData);
 
     await application.save();
 
-    // Update job posting application count
-    jobPosting.applications = (jobPosting.applications || 0) + 1;
-    await jobPosting.save();
-
-    // Application submitted successfully - no automatic evaluation
-    console.log(`Application ${application._id} submitted successfully - awaiting manual review`);
-
     res.status(201).json({
       success: true,
-      message: applicationType === 'easy_apply' 
-        ? 'Easy application submitted successfully' 
-        : 'Application submitted successfully',
+      message: 'Application submitted successfully',
       data: {
         applicationId: application._id,
-        status: application.status,
-        submittedAt: application.submittedAt,
-        applicationType: application.applicationType
+        candidateId: candidate._id
       }
     });
-  })
-);
 
-module.exports = router; 
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error submitting application',
+      error: error.message
+    });
+  }
+});
+
+// Alias for backward compatibility
+router.post('/', async (req, res) => {
+  // Redirect to the submit endpoint
+  req.url = '/submit';
+  return router.handle(req, res);
+});
+
+// Get application status (public)
+router.get('/status/:applicationId', async (req, res) => {
+  try {
+    const application = await Application.findById(req.params.applicationId)
+      .populate('jobPosting', 'title company')
+      .populate('candidate', 'name email phone')
+      .select('-__v -internalNotes');
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: application
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching application status',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;

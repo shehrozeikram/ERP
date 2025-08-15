@@ -1,149 +1,288 @@
 const mongoose = require('mongoose');
-const Attendance = require('../models/hr/Attendance');
 
 class ChangeStreamService {
-  constructor(io) {
-    this.io = io;
-    this.changeStream = null;
-    this.isWatching = false;
+  constructor() {
+    this.changeStreams = new Map();
+    this.isRunning = false;
   }
 
-  // Start watching for changes in the attendance collection
-  async startWatching() {
+  async start() {
+    if (this.isRunning) {
+      console.log('Change Stream Service is already running');
+      return;
+    }
+
     try {
-      if (this.isWatching) {
-        console.log('🔄 Change stream already running');
-        return;
-      }
-
-      console.log('🚀 Starting MongoDB Change Streams for attendance collection...');
+      console.log('🚀 Starting Change Stream Service...');
       
-      // Get the native MongoDB collection
-      const collection = mongoose.connection.db.collection('attendances');
+      // Start change streams for different collections
+      await this.startAttendanceChangeStream();
+      await this.startEmployeeChangeStream();
+      await this.startPayrollChangeStream();
       
-      // Create change stream
-      this.changeStream = collection.watch([
-        {
-          $match: {
-            operationType: { $in: ['insert', 'update', 'replace', 'delete'] }
-          }
-        }
-      ]);
-
-      // Listen for changes
-      this.changeStream.on('change', (change) => {
-        console.log('📊 Change detected in attendance collection:', change.operationType);
-        this.handleChange(change);
-      });
-
-      this.changeStream.on('error', (error) => {
-        console.error('❌ Change stream error:', error);
-        this.isWatching = false;
-        // Attempt to restart after error
-        setTimeout(() => this.startWatching(), 5000);
-      });
-
-      this.isWatching = true;
-      console.log('✅ MongoDB Change Streams started successfully');
+      this.isRunning = true;
+      console.log('✅ Change Stream Service started successfully');
       
     } catch (error) {
-      console.error('❌ Failed to start change stream:', error);
-      this.isWatching = false;
+      console.error('❌ Error starting Change Stream Service:', error);
+      throw error;
     }
   }
 
-  // Handle changes and broadcast to connected clients
-  async handleChange(change) {
-    try {
-      let attendanceData = null;
-      let operation = change.operationType;
-
-      switch (operation) {
-        case 'insert':
-          // New attendance record
-          attendanceData = change.fullDocument;
-          if (attendanceData) {
-            // Populate employee details
-            attendanceData = await this.populateEmployeeDetails(attendanceData);
-            this.broadcastAttendanceUpdate('attendance_added', attendanceData);
-          }
-          break;
-
-        case 'update':
-        case 'replace':
-          // Updated attendance record
-          const documentId = change.documentKey._id;
-          if (documentId) {
-            attendanceData = await Attendance.findById(documentId)
-              .populate('employee', 'firstName lastName employeeId department position')
-              .lean();
-            if (attendanceData) {
-              this.broadcastAttendanceUpdate('attendance_updated', attendanceData);
-            }
-          }
-          break;
-
-        case 'delete':
-          // Deleted attendance record
-          this.broadcastAttendanceUpdate('attendance_deleted', { _id: change.documentKey._id });
-          break;
-      }
-
-    } catch (error) {
-      console.error('❌ Error handling change stream event:', error);
+  async stop() {
+    if (!this.isRunning) {
+      console.log('Change Stream Service is not running');
+      return;
     }
-  }
 
-  // Populate employee details for new records
-  async populateEmployeeDetails(attendanceData) {
     try {
-      if (attendanceData.employee) {
-        const Employee = require('../models/hr/Employee');
-        const employee = await Employee.findById(attendanceData.employee)
-          .select('firstName lastName employeeId department position')
-          .lean();
-        
-        if (employee) {
-          attendanceData.employee = employee;
+      console.log('🛑 Stopping Change Stream Service...');
+      
+      // Close all change streams
+      for (const [collection, stream] of this.changeStreams) {
+        if (stream) {
+          stream.close();
+          console.log(`📴 Closed change stream for ${collection}`);
         }
       }
-      return attendanceData;
+      
+      this.changeStreams.clear();
+      this.isRunning = false;
+      
+      console.log('✅ Change Stream Service stopped successfully');
+      
     } catch (error) {
-      console.error('❌ Error populating employee details:', error);
-      return attendanceData;
+      console.error('❌ Error stopping Change Stream Service:', error);
+      throw error;
     }
   }
 
-  // Broadcast attendance updates to all connected clients
-  broadcastAttendanceUpdate(eventType, data) {
-    if (this.io) {
-      console.log(`📡 Broadcasting ${eventType}:`, data._id || data.employee?.employeeId);
-      this.io.emit('attendance_update', {
-        type: eventType,
-        data: data,
-        timestamp: new Date()
+  async startAttendanceChangeStream() {
+    try {
+      const Attendance = mongoose.model('Attendance');
+      const changeStream = Attendance.watch();
+      
+      changeStream.on('change', async (change) => {
+        try {
+          console.log('📊 Attendance change detected:', change.operationType);
+          
+          switch (change.operationType) {
+            case 'insert':
+              await this.handleAttendanceInsert(change.fullDocument);
+              break;
+            case 'update':
+              await this.handleAttendanceUpdate(change.documentKey._id, change.updateDescription);
+              break;
+            case 'delete':
+              await this.handleAttendanceDelete(change.documentKey._id);
+              break;
+          }
+        } catch (error) {
+          console.error('❌ Error handling attendance change:', error);
+        }
       });
+
+      changeStream.on('error', (error) => {
+        console.error('❌ Attendance change stream error:', error);
+      });
+
+      this.changeStreams.set('attendance', changeStream);
+      console.log('📡 Attendance change stream started');
+      
+    } catch (error) {
+      console.error('❌ Error starting attendance change stream:', error);
     }
   }
 
-  // Stop watching for changes
-  stopWatching() {
-    if (this.changeStream) {
-      console.log('🛑 Stopping MongoDB Change Streams...');
-      this.changeStream.close();
-      this.changeStream = null;
-      this.isWatching = false;
-      console.log('✅ MongoDB Change Streams stopped');
+  async startEmployeeChangeStream() {
+    try {
+      const Employee = mongoose.model('Employee');
+      const changeStream = Employee.watch();
+      
+      changeStream.on('change', async (change) => {
+        try {
+          console.log('👤 Employee change detected:', change.operationType);
+          
+          switch (change.operationType) {
+            case 'insert':
+              await this.handleEmployeeInsert(change.fullDocument);
+              break;
+            case 'update':
+              await this.handleEmployeeUpdate(change.documentKey._id, change.updateDescription);
+              break;
+            case 'delete':
+              await this.handleEmployeeDelete(change.documentKey._id);
+              break;
+          }
+        } catch (error) {
+          console.error('❌ Error handling employee change:', error);
+        }
+      });
+
+      changeStream.on('error', (error) => {
+        console.error('❌ Employee change stream error:', error);
+      });
+
+      this.changeStreams.set('employee', changeStream);
+      console.log('📡 Employee change stream started');
+      
+    } catch (error) {
+      console.error('❌ Error starting employee change stream:', error);
     }
   }
 
-  // Get current status
+  async startPayrollChangeStream() {
+    try {
+      const Payroll = mongoose.model('Payroll');
+      const changeStream = Payroll.watch();
+      
+      changeStream.on('change', async (change) => {
+        try {
+          console.log('💰 Payroll change detected:', change.operationType);
+          
+          switch (change.operationType) {
+            case 'insert':
+              await this.handlePayrollInsert(change.fullDocument);
+              break;
+            case 'update':
+              await this.handlePayrollUpdate(change.documentKey._id, change.updateDescription);
+              break;
+            case 'delete':
+              await this.handlePayrollDelete(change.documentKey._id);
+              break;
+          }
+        } catch (error) {
+          console.error('❌ Error handling payroll change:', error);
+        }
+      });
+
+      changeStream.on('error', (error) => {
+        console.error('❌ Payroll change stream error:', error);
+      });
+
+      this.changeStreams.set('payroll', changeStream);
+      console.log('📡 Payroll change stream started');
+      
+    } catch (error) {
+      console.error('❌ Error starting payroll change stream:', error);
+    }
+  }
+
+  async handleAttendanceInsert(attendance) {
+    try {
+      console.log('✅ New attendance record:', attendance.employeeId, attendance.date);
+      
+      // Handle new attendance record
+      // This could involve notifications, real-time updates, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling attendance insert:', error);
+    }
+  }
+
+  async handleAttendanceUpdate(attendanceId, updateDescription) {
+    try {
+      console.log('📝 Attendance updated:', attendanceId);
+      
+      // Handle attendance update
+      // This could involve notifications, real-time updates, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling attendance update:', error);
+    }
+  }
+
+  async handleAttendanceDelete(attendanceId) {
+    try {
+      console.log('🗑️ Attendance deleted:', attendanceId);
+      
+      // Handle attendance deletion
+      // This could involve cleanup, notifications, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling attendance delete:', error);
+    }
+  }
+
+  async handleEmployeeInsert(employee) {
+    try {
+      console.log('✅ New employee:', employee.employeeId, employee.name);
+      
+      // Handle new employee
+      // This could involve onboarding tasks, notifications, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling employee insert:', error);
+    }
+  }
+
+  async handleEmployeeUpdate(employeeId, updateDescription) {
+    try {
+      console.log('📝 Employee updated:', employeeId);
+      
+      // Handle employee update
+      // This could involve notifications, real-time updates, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling employee update:', error);
+    }
+  }
+
+  async handleEmployeeDelete(employeeId) {
+    try {
+      console.log('🗑️ Employee deleted:', employeeId);
+      
+      // Handle employee deletion
+      // This could involve cleanup, notifications, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling employee delete:', error);
+    }
+  }
+
+  async handlePayrollInsert(payroll) {
+    try {
+      console.log('✅ New payroll record:', payroll.employeeId, payroll.month);
+      
+      // Handle new payroll record
+      // This could involve notifications, real-time updates, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling payroll insert:', error);
+    }
+  }
+
+  async handlePayrollUpdate(payrollId, updateDescription) {
+    try {
+      console.log('📝 Payroll updated:', payrollId);
+      
+      // Handle payroll update
+      // This could involve notifications, real-time updates, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling payroll update:', error);
+    }
+  }
+
+  async handlePayrollDelete(payrollId) {
+    try {
+      console.log('🗑️ Payroll deleted:', payrollId);
+      
+      // Handle payroll deletion
+      // This could involve cleanup, notifications, etc.
+      
+    } catch (error) {
+      console.error('❌ Error handling payroll delete:', error);
+    }
+  }
+
   getStatus() {
     return {
-      isWatching: this.isWatching,
-      hasIO: !!this.io
+      isRunning: this.isRunning,
+      activeStreams: Array.from(this.changeStreams.keys()),
+      streamsCount: this.changeStreams.size
     };
   }
 }
 
-module.exports = ChangeStreamService;
+module.exports = new ChangeStreamService();

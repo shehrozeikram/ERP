@@ -6,295 +6,380 @@ import {
   Typography,
   TextField,
   Button,
-  Alert,
-  Divider,
   Grid,
+  Switch,
+  FormControlLabel,
+  Alert,
+  CircularProgress,
+  Divider,
   Chip,
   IconButton,
   Tooltip
 } from '@mui/material';
-import { Refresh, Settings, CheckCircle, Error } from '@mui/icons-material';
-import { useAuth } from '../contexts/AuthContext';
+import {
+  Settings as SettingsIcon,
+  Save as SaveIcon,
+  Refresh as RefreshIcon,
+  Test as TestIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Warning as WarningIcon
+} from '@mui/icons-material';
+import api from '../services/api';
 
 const ZKTecoConfig = () => {
-  const { user } = useAuth();
-  const [config, setConfig] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [cookies, setCookies] = useState({
-    account_info: '',
-    csrftoken: '',
-    django_language: 'en',
-    sessionid: ''
+  const [config, setConfig] = useState({
+    deviceIP: '',
+    devicePort: 4370,
+    username: 'admin',
+    password: '',
+    enableRealTime: false,
+    enableKeepAlive: false,
+    keepAliveInterval: 30,
+    enableLogging: true,
+    logLevel: 'info'
   });
 
-  // Check if user is admin
-  const isAdmin = user?.role === 'admin';
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const [deviceStatus, setDeviceStatus] = useState('unknown');
+  const [lastSync, setLastSync] = useState(null);
 
   useEffect(() => {
-    if (isAdmin) {
-      fetchConfig();
-    }
-  }, [isAdmin]);
+    loadConfiguration();
+    checkDeviceStatus();
+  }, []);
 
-  const fetchConfig = async () => {
+  const loadConfiguration = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/zkteco/config', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setConfig(data.data);
-        
-        // Pre-fill cookies form
-        if (data.data.cookies) {
-          setCookies({
-            account_info: data.data.cookies.account_info || '',
-            csrftoken: data.data.cookies.csrftoken || '',
-            django_language: data.data.cookies.django_language || 'en',
-            sessionid: data.data.cookies.sessionid || ''
-          });
-        }
-      } else {
-        setMessage({ type: 'error', text: 'Failed to fetch configuration' });
+      const response = await api.get('/zkteco/config');
+      if (response.data.success) {
+        setConfig(response.data.data);
       }
     } catch (error) {
-      console.error('Error fetching config:', error);
-      setMessage({ type: 'error', text: 'Error fetching configuration' });
+      console.error('Error loading configuration:', error);
+      setMessage({ type: 'error', text: 'Failed to load configuration' });
     } finally {
       setLoading(false);
     }
   };
 
-  const updateCookies = async () => {
+  const saveConfiguration = async () => {
     try {
-      setLoading(true);
-      setMessage(null);
-
-      const response = await fetch('/api/zkteco/cookies', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ cookies })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setMessage({ type: 'success', text: data.message });
-        fetchConfig(); // Refresh config
-      } else {
-        const errorData = await response.json();
-        setMessage({ type: 'error', text: errorData.message || 'Failed to update cookies' });
+      setSaving(true);
+      const response = await api.post('/zkteco/config', config);
+      if (response.data.success) {
+        setMessage({ type: 'success', text: 'Configuration saved successfully' });
+        setLastSync(new Date());
       }
     } catch (error) {
-      console.error('Error updating cookies:', error);
-      setMessage({ type: 'error', text: 'Error updating cookies' });
+      console.error('Error saving configuration:', error);
+      setMessage({ type: 'error', text: 'Failed to save configuration' });
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   const testConnection = async () => {
     try {
-      setLoading(true);
-      setMessage(null);
-
-      const response = await fetch('/api/zkteco/test-connection', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setMessage({ type: 'success', text: 'Connection test initiated successfully' });
+      setTesting(true);
+      const response = await api.post('/zkteco/test-connection', config);
+      if (response.data.success) {
+        setMessage({ type: 'success', text: 'Connection test successful' });
+        setDeviceStatus('online');
       } else {
-        const errorData = await response.json();
-        setMessage({ type: 'error', text: errorData.message || 'Failed to test connection' });
+        setMessage({ type: 'error', text: response.data.message || 'Connection test failed' });
+        setDeviceStatus('offline');
       }
     } catch (error) {
       console.error('Error testing connection:', error);
-      setMessage({ type: 'error', text: 'Error testing connection' });
+      setMessage({ type: 'error', text: 'Connection test failed' });
+      setDeviceStatus('offline');
     } finally {
-      setLoading(false);
+      setTesting(false);
     }
   };
 
-  if (!isAdmin) {
+  const checkDeviceStatus = async () => {
+    try {
+      const response = await api.get('/zkteco/status');
+      if (response.data.success) {
+        setDeviceStatus(response.data.data.status);
+        setLastSync(response.data.data.lastSync);
+      }
+    } catch (error) {
+      console.error('Error checking device status:', error);
+      setDeviceStatus('unknown');
+    }
+  };
+
+  const handleInputChange = (field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'online': return 'success';
+      case 'offline': return 'error';
+      case 'warning': return 'warning';
+      default: return 'default';
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'online': return <CheckCircleIcon />;
+      case 'offline': return <ErrorIcon />;
+      case 'warning': return <WarningIcon />;
+      default: return <WarningIcon />;
+    }
+  };
+
+  if (loading) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="warning">
-          Access denied. Admin privileges required to manage ZKTeco configuration.
-        </Alert>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+        <CircularProgress />
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box p={3}>
       <Typography variant="h4" gutterBottom>
+        <SettingsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
         ZKTeco Device Configuration
       </Typography>
-      
-      {message && (
-        <Alert severity={message.type} sx={{ mb: 2 }}>
+
+      {message.text && (
+        <Alert severity={message.type} sx={{ mb: 3 }} onClose={() => setMessage({ type: '', text: '' })}>
           {message.text}
         </Alert>
       )}
 
       <Grid container spacing={3}>
-        {/* Current Configuration */}
-        <Grid item xs={12} md={6}>
+        {/* Device Configuration */}
+        <Grid item xs={12} md={8}>
           <Card>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Settings sx={{ mr: 1 }} />
-                <Typography variant="h6">Current Configuration</Typography>
-                <Tooltip title="Refresh Configuration">
-                  <IconButton onClick={fetchConfig} disabled={loading} sx={{ ml: 'auto' }}>
-                    <Refresh />
-                  </IconButton>
-                </Tooltip>
-              </Box>
+              <Typography variant="h6" gutterBottom>
+                Device Settings
+              </Typography>
               
-              {config ? (
-                <Box>
-                  <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                    Device Settings
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <Chip 
-                      label={`Host: ${config.device?.host}`} 
-                      variant="outlined" 
-                      size="small" 
-                      sx={{ mr: 1, mb: 1 }} 
-                    />
-                    <Chip 
-                      label={`Port: ${config.device?.port}`} 
-                      variant="outlined" 
-                      size="small" 
-                      sx={{ mr: 1, mb: 1 }} 
-                    />
-                  </Box>
-                  
-                  <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                    Connection Status
-                  </Typography>
-                  <Box sx={{ mb: 2 }}>
-                    <Chip 
-                      label={`Max Reconnect: ${config.connection?.maxReconnectAttempts}`} 
-                      variant="outlined" 
-                      size="small" 
-                      sx={{ mr: 1, mb: 1 }} 
-                    />
-                    <Chip 
-                      label={`Interval: ${config.connection?.reconnectInterval}ms`} 
-                      variant="outlined" 
-                      size="small" 
-                      sx={{ mr: 1, mb: 1 }} 
-                    />
-                  </Box>
-                  
-                  <Button
-                    variant="outlined"
-                    onClick={testConnection}
-                    disabled={loading}
-                    startIcon={<CheckCircle />}
-                    sx={{ mt: 1 }}
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Device IP Address"
+                    value={config.deviceIP}
+                    onChange={(e) => handleInputChange('deviceIP', e.target.value)}
+                    placeholder="192.168.1.100"
+                    margin="normal"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Device Port"
+                    type="number"
+                    value={config.devicePort}
+                    onChange={(e) => handleInputChange('devicePort', parseInt(e.target.value))}
+                    margin="normal"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Username"
+                    value={config.username}
+                    onChange={(e) => handleInputChange('username', e.target.value)}
+                    margin="normal"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Password"
+                    type="password"
+                    value={config.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    margin="normal"
+                  />
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Feature Settings
+              </Typography>
+              
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={config.enableRealTime}
+                        onChange={(e) => handleInputChange('enableRealTime', e.target.checked)}
+                      />
+                    }
+                    label="Enable Real-time Attendance"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={config.enableKeepAlive}
+                        onChange={(e) => handleInputChange('enableKeepAlive', e.target.checked)}
+                      />
+                    }
+                    label="Enable Keep Alive"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={config.enableLogging}
+                        onChange={(e) => handleInputChange('enableLogging', e.target.checked)}
+                      />
+                    }
+                    label="Enable Logging"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Keep Alive Interval (seconds)"
+                    type="number"
+                    value={config.keepAliveInterval}
+                    onChange={(e) => handleInputChange('keepAliveInterval', parseInt(e.target.value))}
+                    disabled={!config.enableKeepAlive}
+                    margin="normal"
+                  />
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    select
+                    label="Log Level"
+                    value={config.logLevel}
+                    onChange={(e) => handleInputChange('logLevel', e.target.value)}
+                    disabled={!config.enableLogging}
+                    margin="normal"
                   >
-                    Test Connection
-                  </Button>
-                </Box>
-              ) : (
-                <Typography color="textSecondary">
-                  {loading ? 'Loading configuration...' : 'No configuration available'}
-                </Typography>
-              )}
+                    <option value="debug">Debug</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warning</option>
+                    <option value="error">Error</option>
+                  </TextField>
+                </Grid>
+              </Grid>
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Cookie Management */}
-        <Grid item xs={12} md={6}>
+        {/* Status and Actions */}
+        <Grid item xs={12} md={4}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Update Cookies
-              </Typography>
-              <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                Update ZKTeco device authentication cookies when they expire
+                Device Status
               </Typography>
               
-              <Box sx={{ mb: 2 }}>
-                <TextField
-                  fullWidth
-                  label="Account Info"
-                  value={cookies.account_info}
-                  onChange={(e) => setCookies({ ...cookies, account_info: e.target.value })}
-                  size="small"
-                  sx={{ mb: 2 }}
-                  helperText="Base64 encoded account information"
-                />
-                
-                <TextField
-                  fullWidth
-                  label="CSRF Token"
-                  value={cookies.csrftoken}
-                  onChange={(e) => setCookies({ ...cookies, csrftoken: e.target.value })}
-                  size="small"
-                  sx={{ mb: 2 }}
-                  helperText="Cross-site request forgery token"
-                />
-                
-                <TextField
-                  fullWidth
-                  label="Django Language"
-                  value={cookies.django_language}
-                  onChange={(e) => setCookies({ ...cookies, django_language: e.target.value })}
-                  size="small"
-                  sx={{ mb: 2 }}
-                  helperText="Language preference (usually 'en')"
-                />
-                
-                <TextField
-                  fullWidth
-                  label="Session ID"
-                  value={cookies.sessionid}
-                  onChange={(e) => setCookies({ ...cookies, sessionid: e.target.value })}
-                  size="small"
-                  sx={{ mb: 2 }}
-                  helperText="Django session identifier"
+              <Box display="flex" alignItems="center" mb={2}>
+                <Chip
+                  icon={getStatusIcon(deviceStatus)}
+                  label={deviceStatus.toUpperCase()}
+                  color={getStatusColor(deviceStatus)}
+                  variant="outlined"
                 />
               </Box>
               
-              <Button
-                variant="contained"
-                onClick={updateCookies}
-                disabled={loading || !cookies.account_info || !cookies.csrftoken || !cookies.sessionid}
-                fullWidth
-              >
-                {loading ? 'Updating...' : 'Update Cookies'}
-              </Button>
+              {lastSync && (
+                <Typography variant="body2" color="textSecondary" gutterBottom>
+                  Last Sync: {new Date(lastSync).toLocaleString()}
+                </Typography>
+              )}
+              
+              <Divider sx={{ my: 2 }} />
+              
+              <Box display="flex" flexDirection="column" gap={2}>
+                <Button
+                  variant="contained"
+                  startIcon={<TestIcon />}
+                  onClick={testConnection}
+                  disabled={testing}
+                  fullWidth
+                >
+                  {testing ? 'Testing...' : 'Test Connection'}
+                </Button>
+                
+                <Button
+                  variant="outlined"
+                  startIcon={<RefreshIcon />}
+                  onClick={checkDeviceStatus}
+                  fullWidth
+                >
+                  Refresh Status
+                </Button>
+                
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<SaveIcon />}
+                  onClick={saveConfiguration}
+                  disabled={saving}
+                  fullWidth
+                >
+                  {saving ? 'Saving...' : 'Save Configuration'}
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Quick Actions
+              </Typography>
+              
+              <Box display="flex" flexDirection="column" gap={2}>
+                <Button
+                  variant="outlined"
+                  onClick={() => window.open('/zkteco/health', '_blank')}
+                  fullWidth
+                >
+                  Health Check
+                </Button>
+                
+                <Button
+                  variant="outlined"
+                  onClick={() => window.open('/zkteco/logs', '_blank')}
+                  fullWidth
+                >
+                  View Logs
+                </Button>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
-
-      <Box sx={{ mt: 3 }}>
-        <Alert severity="info">
-          <Typography variant="body2">
-            <strong>Note:</strong> After updating cookies, the ZKTeco WebSocket connection will automatically 
-            use the new values. If you continue to experience connection issues, restart the server.
-          </Typography>
-        </Alert>
-      </Box>
     </Box>
   );
 };

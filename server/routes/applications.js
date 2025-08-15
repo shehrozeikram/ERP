@@ -161,7 +161,13 @@ router.get('/:id',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const application = await Application.findById(req.params.id)
-      .populate('jobPosting')
+      .populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' },
+          { path: 'location', select: 'name' }
+        ]
+      })
       .populate('candidate')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName')
@@ -333,7 +339,13 @@ router.put('/:id/status',
           }
         },
         { new: true }
-      ).populate('jobPosting').populate('candidate');
+      ).populate({
+        path: 'jobPosting',
+        populate: [
+          { path: 'department', select: 'name' },
+          { path: 'location', select: 'name' }
+        ]
+      }).populate('candidate');
 
       if (!application) {
         return res.status(404).json({
@@ -472,7 +484,13 @@ router.post('/send-shortlist-emails',
       const shortlistedApplications = await Application.find({
         'evaluation.isShortlisted': true
       })
-        .populate('jobPosting')
+        .populate({
+          path: 'jobPosting',
+          populate: [
+            { path: 'department', select: 'name' },
+            { path: 'location', select: 'name' }
+          ]
+        })
         .populate('candidate');
 
       if (shortlistedApplications.length === 0) {

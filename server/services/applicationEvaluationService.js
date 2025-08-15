@@ -8,7 +8,13 @@ class ApplicationEvaluationService {
   async evaluateApplication(applicationId) {
     try {
       const application = await Application.findById(applicationId)
-        .populate('jobPosting')
+        .populate({
+          path: 'jobPosting',
+          populate: [
+            { path: 'department', select: 'name' },
+            { path: 'location', select: 'name' }
+          ]
+        })
         .populate('evaluation.evaluatedBy');
 
       if (!application || !application.jobPosting) {

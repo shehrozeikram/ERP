@@ -31,43 +31,105 @@ class NotificationService {
         return null;
       }
 
-      // Create notification
-      const notification = new Notification({
-        type: 'candidate_hired',
-        title: '🎉 New Employee Hired',
-        message: `Candidate ${candidate.firstName} ${candidate.lastName} has been successfully hired for the position of ${jobPosting.title} in ${jobPosting.department} department.`,
-        priority: 'high',
-        relatedEntity: 'candidate',
-        relatedEntityId: candidate._id,
-        relatedEntityRef: 'Candidate',
-        actionRequired: true,
-        actionType: 'review',
-        actionUrl: `/hr/employees/new-employee-onboarding/${candidate._id}`,
-        metadata: {
-          candidateId: candidate._id,
-          candidateName: `${candidate.firstName} ${candidate.lastName}`,
-          candidateEmail: candidate.email,
-          candidatePhone: candidate.phone,
-          jobTitle: jobPosting.title,
-          department: jobPosting.department,
-          hireDate: new Date(),
-          salary: candidate.offer?.offeredSalary || 'Not specified'
-        },
-        recipients: uniqueRecipients.map(user => ({
-          user: user._id,
-          readAt: null,
-          archivedAt: null
-        })),
-        createdBy: createdBy._id
-      });
+      // Create a notification for each recipient
+      const notifications = [];
+      for (const recipient of uniqueRecipients) {
+        const notification = new Notification({
+          recipient: recipient._id,
+          title: '🎉 New Employee Hired',
+          message: `Candidate ${candidate.firstName} ${candidate.lastName} has been successfully hired for the position of ${jobPosting.title} in ${jobPosting.department} department.`,
+          type: 'success',
+          category: 'approval',
+          priority: 'high',
+          actionUrl: `/hr/employees/new-employee-onboarding/${candidate._id}`,
+          metadata: {
+            candidateId: candidate._id,
+            candidateName: `${candidate.firstName} ${candidate.lastName}`,
+            candidateEmail: candidate.email,
+            candidatePhone: candidate.phone,
+            jobTitle: jobPosting.title,
+            department: jobPosting.department,
+            hireDate: new Date(),
+            salary: candidate.offer?.offeredSalary || 'Not specified'
+          },
+          createdBy: createdBy._id
+        });
 
-      await notification.save();
+        await notification.save();
+        notifications.push(notification);
+      }
       
-      console.log(`✅ Candidate hired notification created for ${uniqueRecipients.length} users (HR + Admin)`);
+      console.log(`✅ Candidate hired notifications created for ${uniqueRecipients.length} users (HR + Admin)`);
       
-      return notification;
+      return notifications;
     } catch (error) {
       console.error('❌ Error creating candidate hired notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a notification for employee onboarding completion
+   */
+  static async createEmployeeOnboardingNotification(employee, jobPosting, approval) {
+    try {
+      // Get all HR users AND admin users who should receive this notification
+      const hrUsers = await User.find({
+        role: { $in: ['admin', 'hr_manager'] },
+        department: 'HR',
+        isActive: true
+      });
+
+      // Also get admin users from any department
+      const adminUsers = await User.find({
+        role: 'admin',
+        isActive: true
+      });
+
+      // Combine both sets of users, removing duplicates
+      const allRecipients = [...hrUsers, ...adminUsers];
+      const uniqueRecipients = allRecipients.filter((user, index, self) => 
+        index === self.findIndex(u => u._id.toString() === user._id.toString())
+      );
+
+      if (uniqueRecipients.length === 0) {
+        console.log('⚠️ No HR users or admin users found to send onboarding completion notification');
+        return null;
+      }
+
+      // Create a notification for each recipient
+      const notifications = [];
+      for (const recipient of uniqueRecipients) {
+        const notification = new Notification({
+          recipient: recipient._id,
+          title: '📋 Employee Onboarding Completed',
+          message: `Employee ${employee.firstName} ${employee.lastName} has completed their onboarding form for the position of ${jobPosting?.title || 'N/A'} in ${jobPosting?.department?.name || 'N/A'} department.`,
+          type: 'info',
+          category: 'approval',
+          priority: 'medium',
+          actionUrl: `/hr/employees/${employee._id}`,
+          metadata: {
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            employeeEmail: employee.email,
+            employeePhone: employee.phone,
+            jobTitle: jobPosting?.title || 'N/A',
+            department: jobPosting?.department?.name || 'N/A',
+            onboardingDate: new Date(),
+            employeeStatus: employee.status
+          },
+          createdBy: approval.createdBy || uniqueRecipients[0]._id // Use first recipient as creator if no approval creator
+        });
+
+        await notification.save();
+        notifications.push(notification);
+      }
+      
+      console.log(`✅ Employee onboarding notifications created for ${uniqueRecipients.length} users (HR + Admin)`);
+      
+      return notifications;
+    } catch (error) {
+      console.error('❌ Error creating employee onboarding notification:', error);
       throw error;
     }
   }
@@ -98,36 +160,34 @@ class NotificationService {
 
       if (uniqueRecipients.length === 0) return null;
 
-      const notification = new Notification({
-        type: 'employee_status_change',
-        title: '👤 Employee Status Updated',
-        message: `Employee ${employee.firstName} ${employee.lastName} status changed from ${oldStatus} to ${newStatus}.`,
-        priority: 'medium',
-        relatedEntity: 'employee',
-        relatedEntityId: employee._id,
-        relatedEntityRef: 'Employee',
-        actionRequired: false,
-        actionType: 'none',
-        actionUrl: `/hr/employees/${employee._id}`,
-        metadata: {
-          employeeId: employee._id,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
-          oldStatus,
-          newStatus,
-          changeDate: new Date()
-        },
-        recipients: uniqueRecipients.map(user => ({
-          user: user._id,
-          readAt: null,
-          archivedAt: null
-        })),
-        createdBy: createdBy._id
-      });
+      // Create a notification for each recipient
+      const notifications = [];
+      for (const recipient of uniqueRecipients) {
+        const notification = new Notification({
+          recipient: recipient._id,
+          title: '👤 Employee Status Updated',
+          message: `Employee ${employee.firstName} ${employee.lastName} status changed from ${oldStatus} to ${newStatus}.`,
+          type: 'info',
+          category: 'other',
+          priority: 'medium',
+          actionUrl: `/hr/employees/${employee._id}`,
+          metadata: {
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            oldStatus,
+            newStatus,
+            changeDate: new Date()
+          },
+          createdBy: createdBy._id
+        });
 
-      await notification.save();
-      console.log(`✅ Employee status change notification created for ${uniqueRecipients.length} users (HR + Admin)`);
+        await notification.save();
+        notifications.push(notification);
+      }
       
-      return notification;
+      console.log(`✅ Employee status change notifications created for ${uniqueRecipients.length} users (HR + Admin)`);
+      
+      return notifications;
     } catch (error) {
       console.error('❌ Error creating employee status change notification:', error);
       throw error;
@@ -151,36 +211,34 @@ class NotificationService {
       const time = attendance.checkIn?.time || attendance.checkOut?.time;
       const timeStr = time ? new Date(time).toLocaleTimeString() : 'now';
 
-      const notification = new Notification({
-        type: 'attendance_update',
-        title: '⏰ Attendance Update',
-        message: `${employee.firstName} ${employee.lastName} ${action} at ${timeStr}.`,
-        priority: 'low',
-        relatedEntity: 'attendance',
-        relatedEntityId: attendance._id,
-        relatedEntityRef: 'Attendance',
-        actionRequired: false,
-        actionType: 'none',
-        actionUrl: `/hr/attendance`,
-        metadata: {
-          employeeId: employee._id,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
-          action,
-          timestamp: time,
-          deviceId: attendance.deviceId || 'Unknown'
-        },
-        recipients: hrUsers.map(user => ({
-          user: user._id,
-          readAt: null,
-          archivedAt: null
-        })),
-        createdBy: createdBy._id
-      });
+      // Create a notification for each HR user
+      const notifications = [];
+      for (const hrUser of hrUsers) {
+        const notification = new Notification({
+          recipient: hrUser._id,
+          title: '⏰ Attendance Update',
+          message: `${employee.firstName} ${employee.lastName} ${action} at ${timeStr}.`,
+          type: 'info',
+          category: 'attendance',
+          priority: 'low',
+          actionUrl: `/hr/attendance`,
+          metadata: {
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            action,
+            timestamp: time,
+            deviceId: attendance.deviceId || 'Unknown'
+          },
+          createdBy: createdBy._id
+        });
 
-      await notification.save();
-      console.log(`✅ Attendance notification created`);
+        await notification.save();
+        notifications.push(notification);
+      }
       
-      return notification;
+      console.log(`✅ Attendance notifications created for ${hrUsers.length} HR users`);
+      
+      return notifications;
     } catch (error) {
       console.error('❌ Error creating attendance notification:', error);
       throw error;
@@ -200,37 +258,35 @@ class NotificationService {
 
       if (hrUsers.length === 0) return null;
 
-      const notification = new Notification({
-        type: 'payroll_generated',
-        title: '💰 Payroll Generated',
-        message: `Payroll for ${employee.firstName} ${employee.lastName} has been generated for ${payroll.month}/${payroll.year}.`,
-        priority: 'medium',
-        relatedEntity: 'payroll',
-        relatedEntityId: payroll._id,
-        relatedEntityRef: 'Payroll',
-        actionRequired: true,
-        actionType: 'review',
-        actionUrl: `/hr/payroll/${payroll._id}`,
-        metadata: {
-          employeeId: employee._id,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
-          month: payroll.month,
-          year: payroll.year,
-          netSalary: payroll.netSalary,
-          generatedDate: new Date()
-        },
-        recipients: hrUsers.map(user => ({
-          user: user._id,
-          readAt: null,
-          archivedAt: null
-        })),
-        createdBy: createdBy._id
-      });
+      // Create a notification for each HR user
+      const notifications = [];
+      for (const hrUser of hrUsers) {
+        const notification = new Notification({
+          recipient: hrUser._id,
+          title: '💰 Payroll Generated',
+          message: `Payroll for ${employee.firstName} ${employee.lastName} has been generated for ${payroll.month}/${payroll.year}.`,
+          type: 'info',
+          category: 'payroll',
+          priority: 'medium',
+          actionUrl: `/hr/payroll/${payroll._id}`,
+          metadata: {
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            month: payroll.month,
+            year: payroll.year,
+            netSalary: payroll.netSalary,
+            generatedDate: new Date()
+          },
+          createdBy: createdBy._id
+        });
 
-      await notification.save();
-      console.log(`✅ Payroll notification created`);
+        await notification.save();
+        notifications.push(notification);
+      }
       
-      return notification;
+      console.log(`✅ Payroll notifications created for ${hrUsers.length} HR users`);
+      
+      return notifications;
     } catch (error) {
       console.error('❌ Error creating payroll notification:', error);
       throw error;
@@ -250,37 +306,35 @@ class NotificationService {
 
       if (hrUsers.length === 0) return null;
 
-      const notification = new Notification({
-        type: 'loan_approved',
-        title: '🏦 Loan Application Processed',
-        message: `Loan application for ${employee.firstName} ${employee.lastName} has been ${loan.status}. Amount: ${loan.amount} ${loan.currency}.`,
-        priority: 'medium',
-        relatedEntity: 'loan',
-        relatedEntityId: loan._id,
-        relatedEntityRef: 'Loan',
-        actionRequired: loan.status === 'pending',
-        actionType: loan.status === 'pending' ? 'approve' : 'none',
-        actionUrl: `/hr/loans/${loan._id}`,
-        metadata: {
-          employeeId: employee._id,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
-          loanAmount: loan.amount,
-          currency: loan.currency,
-          status: loan.status,
-          processedDate: new Date()
-        },
-        recipients: hrUsers.map(user => ({
-          user: user._id,
-          readAt: null,
-          archivedAt: null
-        })),
-        createdBy: createdBy._id
-      });
+      // Create a notification for each HR user
+      const notifications = [];
+      for (const hrUser of hrUsers) {
+        const notification = new Notification({
+          recipient: hrUser._id,
+          title: '🏦 Loan Application Processed',
+          message: `Loan application for ${employee.firstName} ${employee.lastName} has been ${loan.status}. Amount: ${loan.amount} ${loan.currency}.`,
+          type: 'info',
+          category: 'other',
+          priority: 'medium',
+          actionUrl: `/hr/loans/${loan._id}`,
+          metadata: {
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            loanAmount: loan.amount,
+            currency: loan.currency,
+            status: loan.status,
+            processedDate: new Date()
+          },
+          createdBy: createdBy._id
+        });
 
-      await notification.save();
-      console.log(`✅ Loan notification created`);
+        await notification.save();
+        notifications.push(notification);
+      }
       
-      return notification;
+      console.log(`✅ Loan notifications created for ${hrUsers.length} HR users`);
+      
+      return notifications;
     } catch (error) {
       console.error('❌ Error creating loan notification:', error);
       throw error;
@@ -369,27 +423,27 @@ class NotificationService {
         recipients = adminUsers.map(user => user._id);
       }
 
-      const notification = new Notification({
-        type: 'system_alert',
-        title,
-        message,
-        priority,
-        relatedEntity: 'system',
-        actionRequired: false,
-        actionType: 'none',
-        metadata,
-        recipients: recipients.map(userId => ({
-          user: userId,
-          readAt: null,
-          archivedAt: null
-        })),
-        createdBy: recipients[0] // Use first recipient as creator for system alerts
-      });
+      // Create a notification for each recipient
+      const notifications = [];
+      for (const recipientId of recipients) {
+        const notification = new Notification({
+          recipient: recipientId,
+          title,
+          message,
+          type: 'system',
+          category: 'system',
+          priority,
+          metadata,
+          createdBy: recipients[0] // Use first recipient as creator for system alerts
+        });
 
-      await notification.save();
-      console.log(`✅ System alert notification created: ${title}`);
+        await notification.save();
+        notifications.push(notification);
+      }
       
-      return notification;
+      console.log(`✅ System alert notifications created for ${recipients.length} users: ${title}`);
+      
+      return notifications;
     } catch (error) {
       console.error('❌ Error creating system alert notification:', error);
       throw error;

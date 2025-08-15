@@ -72,6 +72,10 @@ const ApprovalDetail = () => {
     try {
       setLoading(true);
       const response = await candidateApprovalService.getApprovalById(id);
+      console.log('📋 Approval data loaded:', response.data);
+      console.log('👤 Candidate data:', response.data.candidate);
+      console.log('💼 Job posting data:', response.data.jobPosting);
+      console.log('📄 Application data:', response.data.application);
       setApproval(response.data);
     } catch (error) {
       setError(error.message || 'Failed to load approval details');
@@ -269,7 +273,15 @@ const ApprovalDetail = () => {
                 </Typography>
               </Box>
               
-              <Typography><strong>Name:</strong> {approval.candidate?.firstName} {approval.candidate?.lastName}</Typography>
+              <Typography><strong>Name:</strong> {approval.candidate?.firstName || 'N/A'} {approval.candidate?.lastName || ''}</Typography>
+              {console.log('🎯 Rendering candidate name:', {
+                firstName: approval.candidate?.firstName,
+                lastName: approval.candidate?.lastName,
+                fullName: `${approval.candidate?.firstName || 'N/A'} ${approval.candidate?.lastName || ''}`,
+                candidateField: approval.candidate,
+                candidateType: typeof approval.candidate,
+                candidateKeys: approval.candidate ? Object.keys(approval.candidate) : 'No candidate'
+              })}
               <Typography><strong>Email:</strong> {approval.candidate?.email}</Typography>
               <Typography><strong>Phone:</strong> {approval.candidate?.phone}</Typography>
               <Typography><strong>Date of Birth:</strong> {new Date(approval.candidate?.dateOfBirth).toLocaleDateString()}</Typography>

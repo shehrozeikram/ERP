@@ -49,14 +49,14 @@ const finalSettlementRoutes = require('./routes/finalSettlements');
 const hrReportsRoutes = require('./routes/hrReports');
 const payslipRoutes = require('./routes/payslips');
 const jobPostingRoutes = require('./routes/jobPostings');
-const publicJobPostingRoutes = require('./routes/publicJobPostings');
+// const publicJobPostingRoutes = require('./routes/publicJobPostings');
 const candidateRoutes = require('./routes/candidates');
-const publicCandidateRoutes = require('./routes/publicCandidates');
+// const publicCandidateRoutes = require('./routes/publicCandidates');
 const candidateApprovalRoutes = require('./routes/candidateApprovals');
 const publicApprovalRoutes = require('./routes/publicApprovals');
 const applicationRoutes = require('./routes/applications');
 const notificationRoutes = require('./routes/notifications');
-const publicApplicationRoutes = require('./routes/publicApplications');
+// const publicApplicationRoutes = require('./routes/publicApplications');
 const easyApplyRoutes = require('./routes/easyApply');
 const courseRoutes = require('./routes/courses');
 const enrollmentRoutes = require('./routes/enrollments');
@@ -73,6 +73,7 @@ const ChangeStreamService = require('./services/changeStreamService');
 
 // Initialize services
 let zktecoWebSocketService;
+let changeStreamService;
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -118,7 +119,6 @@ io.on('connection', (socket) => {
 });
 
 // Initialize Change Stream service
-let changeStreamService = null;
 
 // Security middleware
 app.use(helmet());
@@ -192,10 +192,10 @@ app.use('/api/final-settlements', authMiddleware, finalSettlementRoutes);
 app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
 app.use('/api/payslips', authMiddleware, payslipRoutes);
 // Public routes (no authentication required)
-app.use('/api/job-postings/apply', publicJobPostingRoutes);
-app.use('/api/applications/public', publicApplicationRoutes);
+app.use('/api/job-postings/apply', require('./routes/publicJobPostings'));
+app.use('/api/applications/public', require('./routes/publicApplications'));
 app.use('/api/applications/easy-apply', easyApplyRoutes);
-app.use('/api/public-approvals', publicApprovalRoutes); // Public approval endpoints
+app.use('/api/public-approvals', require('./routes/publicApprovals')); // Public approval endpoints
 app.use('/api/hiring', hiringRoutes); // Hiring system endpoints (includes public routes)
 app.use('/api/employee-onboarding', employeeOnboardingRoutes); // Employee onboarding endpoints
 
@@ -203,7 +203,7 @@ app.use('/api/employee-onboarding', employeeOnboardingRoutes); // Employee onboa
 app.use('/api/job-postings', authMiddleware, jobPostingRoutes);
 // Mount candidate routes with authentication
 app.use('/api/candidates', authMiddleware, candidateRoutes);
-app.use('/api/public/candidates', publicCandidateRoutes);
+app.use('/api/public/candidates', require('./routes/publicCandidates')); // Public candidate routes
 app.use('/api/candidate-approvals', authMiddleware, candidateApprovalRoutes);
 app.use('/api/applications', authMiddleware, applicationRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
@@ -230,8 +230,8 @@ const PORT = process.env.PORT || 5001;
 mongoose.connection.once('open', async () => {
   try {
     console.log('🚀 Initializing Change Stream service...');
-    changeStreamService = new ChangeStreamService(io);
-    await changeStreamService.startWatching();
+    const changeStreamService = new ChangeStreamService();
+    await changeStreamService.start();
     console.log('✅ Change Stream service initialized successfully');
   } catch (error) {
     console.error('❌ Failed to initialize Change Stream service:', error);
@@ -286,7 +286,7 @@ process.on('SIGTERM', async () => {
   
   // Stop Change Stream service
   if (changeStreamService) {
-    changeStreamService.stopWatching();
+    changeStreamService.stop();
     console.log('✅ Change Stream service stopped');
   }
   
@@ -309,7 +309,7 @@ process.on('SIGINT', async () => {
   
   // Stop Change Stream service
   if (changeStreamService) {
-    changeStreamService.stopWatching();
+    changeStreamService.stop();
     console.log('✅ Change Stream service stopped');
   }
   

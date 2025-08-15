@@ -61,6 +61,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import candidateService from '../../services/candidateService';
 import candidateApprovalService from '../../services/candidateApprovalService';
 import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
+import api from '../../services/api';
 
 const Candidates = () => {
   const theme = useTheme();
@@ -70,6 +71,8 @@ const Candidates = () => {
   // State
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [filters, setFilters] = useState({
     status: '',
@@ -113,9 +116,41 @@ const Candidates = () => {
     }
   };
 
+  // Load departments and positions
+  const loadDepartmentsAndPositions = async () => {
+    try {
+      console.log('🔄 Loading departments and positions...');
+      
+      // Load departments using the existing API service
+      const deptResponse = await api.get('/hr/departments');
+      
+      console.log('📊 Departments API response:', deptResponse);
+      if (deptResponse.data && deptResponse.data.success) {
+        console.log('📊 Departments loaded:', deptResponse.data.data);
+        setDepartments(deptResponse.data.data || []);
+      } else {
+        console.error('❌ Failed to load departments:', deptResponse);
+      }
+
+      // Load positions using the existing API service
+      const posResponse = await api.get('/positions');
+      
+      console.log('📊 Positions API response:', posResponse);
+      if (posResponse.data && posResponse.data.success) {
+        console.log('📊 Positions loaded:', posResponse.data.data);
+        setPositions(posResponse.data.data || []);
+      } else {
+        console.error('❌ Failed to load positions:', posResponse);
+      }
+    } catch (error) {
+      console.error('❌ Error loading departments and positions:', error);
+    }
+  };
+
   // Load data on mount and when filters change
   useEffect(() => {
     loadCandidates();
+    loadDepartmentsAndPositions();
   }, [filters.status, filters.source, filters.availability]);
 
   // Debounced search effect
@@ -134,10 +169,15 @@ const Candidates = () => {
     try {
       // If status is changed to "offered", show offer details dialog
       if (newStatus === 'offered') {
+        console.log('🎯 Opening offer dialog for candidate:', candidate);
+        console.log('📊 Available departments:', departments);
+        console.log('📊 Available positions:', positions);
+        console.log('💼 Candidate job posting:', candidate.jobPosting);
+        
         setOfferDialog({ open: true, candidate });
         setOfferData({
           salary: candidate.expectedSalary || '',
-          position: candidate.currentPosition || '',
+          position: candidate.jobPosting?.position?.title || candidate.currentPosition || '',
           department: candidate.jobPosting?.department?.name || '',
           notes: ''
         });
@@ -751,7 +791,7 @@ const Candidates = () => {
         <DialogTitle>Send Job Offer</DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ mb: 2 }}>
-            You are about to send a job offer to "{offerDialog.candidate?.firstName} {offerDialog.candidate?.lastName}" for the position of "{offerDialog.candidate?.currentPosition || 'N/A'}". 
+            You are about to send a job offer to "{offerDialog.candidate?.firstName} {offerDialog.candidate?.lastName}" for the position of "{offerDialog.candidate?.jobPosting?.position?.title || offerDialog.candidate?.currentPosition || 'Not Specified'}". 
             Please review and confirm the offer details below.
           </DialogContentText>
           
@@ -768,24 +808,38 @@ const Candidates = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Position"
-                value={offerData.position}
-                onChange={(e) => setOfferData({ ...offerData, position: e.target.value })}
-                placeholder="Software Engineer"
-                required
-              />
+              <FormControl fullWidth required>
+                <InputLabel>Position</InputLabel>
+                <Select
+                  value={offerData.position}
+                  onChange={(e) => setOfferData({ ...offerData, position: e.target.value })}
+                  label="Position"
+                >
+                  {console.log('🎯 Rendering positions dropdown with:', positions)}
+                  {positions.map((pos) => (
+                    <MenuItem key={pos._id} value={pos.title}>
+                      {pos.title}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Department"
-                value={offerData.department}
-                onChange={(e) => setOfferData({ ...offerData, department: e.target.value })}
-                placeholder="IT Department"
-                required
-              />
+              <FormControl fullWidth required>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={offerData.department}
+                  onChange={(e) => setOfferData({ ...offerData, department: e.target.value })}
+                  label="Department"
+                >
+                  {console.log('🎯 Rendering departments dropdown with:', departments)}
+                  {departments.map((dept) => (
+                    <MenuItem key={dept._id} value={dept.name}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12}>
               <TextField

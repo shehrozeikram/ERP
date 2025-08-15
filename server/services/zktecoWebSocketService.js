@@ -29,14 +29,12 @@ class ZKTecoWebSocketService {
       console.log('🔌 Starting ZKTeco WebSocket connection...');
       
       // Initialize and start keep-alive service first
-      console.log('🔄 Initializing keep-alive service...');
-      const keepAliveInit = await this.keepAliveService.initialize();
-      
-      if (keepAliveInit) {
-        console.log('✅ Keep-alive service initialized, starting...');
+      console.log('🔄 Starting keep-alive service...');
+      try {
         await this.keepAliveService.start();
-      } else {
-        console.log('⚠️ Keep-alive service initialization failed, proceeding anyway...');
+        console.log('✅ Keep-alive service started successfully');
+      } catch (error) {
+        console.log('⚠️ Keep-alive service failed to start, proceeding anyway...');
       }
       
       // Get device configuration and cookies from centralized config

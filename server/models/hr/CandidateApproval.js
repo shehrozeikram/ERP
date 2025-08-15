@@ -111,7 +111,14 @@ const candidateApprovalSchema = new mongoose.Schema({
   emailNotifications: [{
     type: {
       type: String,
-      enum: ['approval_request', 'approval_decision', 'hiring_confirmation'],
+      enum: [
+        'approval_request', 
+        'approval_decision', 
+        'hiring_confirmation',
+        'joining_document_request',
+        'employee_onboarding_request',
+        'appointment_letter'
+      ],
       required: true
     },
     sentTo: {
@@ -206,7 +213,12 @@ candidateApprovalSchema.virtual('isCompleted').get(function() {
 candidateApprovalSchema.statics.findByCandidate = function(candidateId) {
   return this.findOne({ candidate: candidateId })
     .populate('candidate', 'firstName lastName email phone')
-    .populate('jobPosting', 'title department')
+    .populate({
+      path: 'jobPosting',
+      populate: [
+        { path: 'department', select: 'name' }
+      ]
+    })
     .populate('application', 'applicationId')
     .populate('approvalLevels.approver', 'firstName lastName email')
     .populate('createdBy', 'firstName lastName')
@@ -221,7 +233,12 @@ candidateApprovalSchema.statics.findPendingForUser = function(userEmail) {
     status: { $in: ['pending', 'in_progress'] }
   })
     .populate('candidate', 'firstName lastName email phone')
-    .populate('jobPosting', 'title department')
+    .populate({
+      path: 'jobPosting',
+      populate: [
+        { path: 'department', select: 'name' }
+      ]
+    })
     .populate('application', 'applicationId')
     .populate('approvalLevels.approver', 'firstName lastName email')
     .populate('createdBy', 'firstName lastName');

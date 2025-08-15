@@ -58,9 +58,30 @@ export const updateCandidateStatus = async (id, status, offerDetails = null) => 
 // Accept job offer (for candidates)
 export const acceptJobOffer = async (id) => {
   try {
-    const response = await api.post(`/public/candidates/${id}/accept-offer`);
+    console.log('Attempting to accept job offer for candidate:', id);
+    const response = await api.post(`/public/candidates/${id}/accept-offer`, {
+      termsAccepted: true
+    });
+    console.log('Job offer accepted successfully:', response.data);
     return response.data;
   } catch (error) {
+    console.error('Error accepting job offer:', error);
+    
+    // Provide more user-friendly error messages
+    if (error.response?.status === 409) {
+      const customError = new Error('This job offer has already been accepted. You cannot accept it again.');
+      customError.status = 409;
+      customError.data = error.response.data;
+      throw customError;
+    }
+    
+    if (error.response?.status === 404) {
+      const customError = new Error('Job offer not found or already processed. Please contact HR for assistance.');
+      customError.status = 404;
+      customError.data = error.response.data;
+      throw customError;
+    }
+    
     throw error;
   }
 };
