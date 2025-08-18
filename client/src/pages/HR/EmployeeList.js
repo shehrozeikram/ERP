@@ -9,6 +9,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Button,
   IconButton,
   TextField,
@@ -27,7 +28,8 @@ import {
   Card,
   CardContent,
   Alert,
-  Snackbar
+  Snackbar,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -44,6 +46,7 @@ import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
 const EmployeeList = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [paginationLoading, setPaginationLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -51,6 +54,13 @@ const EmployeeList = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [paginatedEmployees, setPaginatedEmployees] = useState([]);
+  
   const navigate = useNavigate();
 
   // Fetch employees
@@ -60,6 +70,8 @@ const EmployeeList = () => {
       // Request all employees by setting a high limit
       const response = await api.get('/hr/employees?limit=1000');
       setEmployees(response.data.data || []);
+      // Reset pagination when fetching new data
+      setPage(0);
     } catch (error) {
       console.error('Error fetching employees:', error);
       setSnackbar({
@@ -82,12 +94,49 @@ const EmployeeList = () => {
     }
   };
 
+  // Pagination handlers
+  const handleChangePage = (event, newPage) => {
+    setPaginationLoading(true);
+    setPage(newPage);
+    // Small delay to show loading state
+    setTimeout(() => setPaginationLoading(false), 300);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setPaginationLoading(true);
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0); // Reset to first page when changing rows per page
+    // Small delay to show loading state
+    setTimeout(() => setPaginationLoading(false), 300);
+  };
+
+  // Handle filter changes and reset pagination
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setPage(0); // Reset to first page when search changes
+  };
+
+  const handleDepartmentFilterChange = (value) => {
+    setDepartmentFilter(value);
+    setPage(0); // Reset to first page when department filter changes
+  };
+
+  const handleStatusFilterChange = (value) => {
+    setStatusFilter(value);
+    setPage(0); // Reset to first page when status filter changes
+  };
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setDepartmentFilter('');
+    setStatusFilter('');
+    setPage(0); // Reset to first page when clearing filters
+  };
+
   useEffect(() => {
     fetchEmployees();
     fetchDepartments();
   }, []);
-
-
 
   // Filter employees
   const filteredEmployees = employees.filter(employee => {
@@ -111,10 +160,25 @@ const EmployeeList = () => {
       }
     }
 
-
-
     return matchesSearch && matchesDepartment && matchesStatus;
   });
+
+  // Sort filtered employees by Employee ID in ascending order
+  const sortedEmployees = [...filteredEmployees].sort((a, b) => {
+    // Convert Employee ID to number for proper numerical sorting
+    const idA = parseInt(a.employeeId) || 0;
+    const idB = parseInt(b.employeeId) || 0;
+    return idA - idB; // Ascending order (1, 2, 3, ...)
+  });
+
+  // Handle pagination for sorted employees
+  useEffect(() => {
+    const startIndex = page * rowsPerPage;
+    const endIndex = startIndex + rowsPerPage;
+    const paginated = sortedEmployees.slice(startIndex, endIndex);
+    setPaginatedEmployees(paginated);
+    setTotalItems(sortedEmployees.length);
+  }, [sortedEmployees, page, rowsPerPage]);
 
   // Handle delete
   const handleDelete = async () => {
@@ -143,6 +207,22 @@ const EmployeeList = () => {
 
   const getStatusText = (isActive) => {
     return isActive ? 'Active' : 'Inactive';
+  };
+
+  const formatPKR = (amount) => {
+    if (amount === null || amount === undefined) return 'PKR 0';
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Format employee ID to 5 digits with leading zeros
+  const formatEmployeeId = (employeeId) => {
+    if (!employeeId) return '';
+    return employeeId.toString().padStart(5, '0');
   };
 
   if (loading) {
@@ -242,7 +322,7 @@ const EmployeeList = () => {
               fullWidth
               placeholder="Search employees..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -257,7 +337,7 @@ const EmployeeList = () => {
               <InputLabel>Department</InputLabel>
               <Select
                 value={departmentFilter}
-                onChange={(e) => setDepartmentFilter(e.target.value)}
+                onChange={(e) => handleDepartmentFilterChange(e.target.value)}
                 label="Department"
                 sx={{
                   '& .MuiSelect-select': {
@@ -282,146 +362,267 @@ const EmployeeList = () => {
               <InputLabel>Status</InputLabel>
               <Select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => handleStatusFilterChange(e.target.value)}
                 label="Status"
                 sx={{
                   '& .MuiSelect-select': {
-                    paddingRight: '32px', // Ensure space for dropdown icon
+                    paddingRight: '32px',
                   },
                   '& .MuiSelect-icon': {
-                    right: '8px', // Position icon properly
+                    right: '8px',
                   }
                 }}
               >
-                <MenuItem value="">All Status</MenuItem>
-                <MenuItem value="active" sx={{ color: 'success.main' }}>Active</MenuItem>
-                <MenuItem value="inactive" sx={{ color: 'error.main', fontWeight: 'bold' }}>Inactive</MenuItem>
+                <MenuItem value="">All Statuses</MenuItem>
+                <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="inactive">Inactive</MenuItem>
               </Select>
             </FormControl>
           </Grid>
           <Grid item xs={12} md={2}>
             <Button
-              fullWidth
               variant="outlined"
-              startIcon={<FilterIcon />}
-              onClick={() => {
-                setSearchTerm('');
-                setDepartmentFilter('');
-                setStatusFilter('');
-              }}
+              onClick={clearAllFilters}
+              fullWidth
+              sx={{ height: 56 }}
             >
               Clear Filters
             </Button>
           </Grid>
         </Grid>
+        
+        {/* Search Results Summary */}
+        {(searchTerm || departmentFilter || statusFilter) && (
+          <Box sx={{ mt: 2, p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
+            <Typography variant="body2" color="info.main" sx={{ fontWeight: 500 }}>
+              🔍 Filtered Results: Found {totalItems} employee(s)
+              {totalItems > rowsPerPage && (
+                <span> • Use pagination below to navigate through all results</span>
+              )}
+            </Typography>
+            <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
+              {searchTerm && `Search: "${searchTerm}"`}
+              {departmentFilter && ` • Department: ${departmentFilter}`}
+              {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : 'Inactive'}`}
+            </Typography>
+          </Box>
+        )}
       </Paper>
 
       {/* Employee Table */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Employee</TableCell>
-              <TableCell>Employee ID</TableCell>
-              <TableCell>ID Card</TableCell>
-              <TableCell>Religion</TableCell>
-              <TableCell>Marital Status</TableCell>
-              <TableCell>Qualification</TableCell>
-              <TableCell>Bank Name</TableCell>
-              <TableCell>Spouse Name</TableCell>
-              <TableCell>Appointment Date</TableCell>
-              <TableCell>Probation Period</TableCell>
-              <TableCell>End of Probation</TableCell>
-              <TableCell>Confirmation Date</TableCell>
-              <TableCell>Placement Info</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Phone</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredEmployees.map((employee) => (
-              <TableRow key={employee._id}>
+      <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+        {/* Pagination Info */}
+        <Box sx={{ 
+          p: 2, 
+          bgcolor: 'grey.50', 
+          borderBottom: '1px solid',
+          borderColor: 'grey.200',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 2
+        }}>
+          <Box>
+            <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+              👥 Employee List
+            </Typography>
+            <Typography variant="body2" color="textSecondary">
+              Showing {page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, totalItems)} of {totalItems} employees
+            </Typography>
+            <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              📊 Sorted by Employee ID (1, 2, 3...)
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2" color="textSecondary">
+              Page {page + 1} of {Math.ceil(totalItems / rowsPerPage)}
+            </Typography>
+            {totalItems > 0 && (
+              <Chip 
+                label={`${Math.ceil(totalItems / rowsPerPage)} pages`} 
+                size="small" 
+                color="primary" 
+                variant="outlined"
+              />
+            )}
+          </Box>
+        </Box>
+        
+        <TableContainer>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Employee</TableCell>
                 <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Avatar sx={{ mr: 2 }}>
-                      {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="subtitle2">
-                        {employee.firstName} {employee.lastName}
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {employee.employeeId}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    Employee ID
+                    <Chip 
+                      label="↑ Sorted" 
+                      size="small" 
+                      color="primary" 
+                      variant="outlined"
+                      sx={{ fontSize: '0.7rem', height: 20 }}
+                    />
+                  </Box>
+                </TableCell>
+                <TableCell>ID Card</TableCell>
+                <TableCell>Religion</TableCell>
+                <TableCell>Marital Status</TableCell>
+                <TableCell>Qualification</TableCell>
+                <TableCell>Bank Name</TableCell>
+                <TableCell>Spouse Name</TableCell>
+                <TableCell>Appointment Date</TableCell>
+                <TableCell>Probation Period</TableCell>
+                <TableCell>End of Probation</TableCell>
+                <TableCell>Confirmation Date</TableCell>
+                <TableCell>Placement Info</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Phone</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginationLoading ? (
+                <TableRow>
+                  <TableCell colSpan={17} align="center" sx={{ py: 4 }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <CircularProgress size={24} sx={{ mb: 2 }} />
+                      <Typography variant="body2" color="textSecondary">
+                        Loading page {page + 1}...
                       </Typography>
                     </Box>
-                  </Box>
-                </TableCell>
-                <TableCell>{employee.employeeId}</TableCell>
-                <TableCell>{employee.idCard || 'N/A'}</TableCell>
-                <TableCell>{employee.religion || 'N/A'}</TableCell>
-                <TableCell>{employee.maritalStatus || 'N/A'}</TableCell>
-                <TableCell>{employee.qualification || 'N/A'}</TableCell>
-                <TableCell>{typeof employee.bankName === 'object' ? employee.bankName?.name : employee.bankName || 'N/A'}</TableCell>
-                <TableCell>{employee.spouseName || 'N/A'}</TableCell>
-                <TableCell>{employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}</TableCell>
-                <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>
-                <TableCell>{employee.endOfProbationDate ? new Date(employee.endOfProbationDate).toLocaleDateString() : 'N/A'}</TableCell>
-                <TableCell>{employee.confirmationDate ? new Date(employee.confirmationDate).toLocaleDateString() : 'N/A'}</TableCell>
-                <TableCell>
-                  <Box>
-                    <Typography variant="caption" display="block">
-                      {employee.placementCompany?.name ? `Company: ${employee.placementCompany.name}` : 'Company: N/A'}
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      {employee.placementDepartment?.name ? `Dept: ${employee.placementDepartment.name}` : 'Dept: N/A'}
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      {employee.placementDesignation?.title ? `Designation: ${employee.placementDesignation.title}` : 'Designation: N/A'}
-                    </Typography>
-                  </Box>
-                </TableCell>
-                <TableCell>{employee.email}</TableCell>
-                <TableCell>{employee.phone}</TableCell>
-                <TableCell>
-                  <Chip
-                    label={getStatusText(employee.isActive)}
-                    color={getStatusColor(employee.isActive)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>
-                  <IconButton
-                    size="small"
-                    onClick={() => navigate(`/hr/employees/${employee._id}`)}
-                    title="View Details"
-                  >
-                    <ViewIcon />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={() => navigate(`/hr/employees/${employee._id}/edit`)}
-                    title="Edit Employee"
-                  >
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => {
-                      setSelectedEmployee(employee);
-                      setDeleteDialogOpen(true);
-                    }}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedEmployees.length > 0 ? (
+                paginatedEmployees.map((employee) => (
+                  <TableRow key={employee._id}>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Avatar sx={{ mr: 2 }}>
+                          {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+                        </Avatar>
+                        <Box>
+                          <Typography variant="subtitle2">
+                            {employee.firstName} {employee.lastName}
+                          </Typography>
+                          <Typography variant="caption" color="textSecondary">
+                            {formatEmployeeId(employee.employeeId)}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell>{formatEmployeeId(employee.employeeId)}</TableCell>
+                    <TableCell>{employee.idCard || 'N/A'}</TableCell>
+                    <TableCell>{employee.religion || 'N/A'}</TableCell>
+                    <TableCell>{employee.maritalStatus || 'N/A'}</TableCell>
+                    <TableCell>{employee.qualification || 'N/A'}</TableCell>
+                    <TableCell>{typeof employee.bankName === 'object' ? employee.bankName?.name : employee.bankName || 'N/A'}</TableCell>
+                    <TableCell>{employee.spouseName || 'N/A'}</TableCell>
+                    <TableCell>{employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}</TableCell>
+                    <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>
+                    <TableCell>{employee.endOfProbationDate ? new Date(employee.endOfProbationDate).toLocaleDateString() : 'N/A'}</TableCell>
+                    <TableCell>{employee.confirmationDate ? new Date(employee.confirmationDate).toLocaleDateString() : 'N/A'}</TableCell>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="caption" display="block">
+                          {employee.placementCompany?.name ? `Company: ${employee.placementCompany.name}` : 'Company: N/A'}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          {employee.placementDepartment?.name ? `Dept: ${employee.placementDepartment.name}` : 'Dept: N/A'}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          {employee.placementDesignation?.title ? `Designation: ${employee.placementDesignation.title}` : 'Designation: N/A'}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>{employee.email}</TableCell>
+                    <TableCell>{employee.phone}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={getStatusText(employee.isActive)}
+                        color={getStatusColor(employee.isActive)}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <IconButton
+                        size="small"
+                        onClick={() => navigate(`/hr/employees/${employee._id}`)}
+                        title="View Details"
+                      >
+                        <ViewIcon />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => navigate(`/hr/employees/${employee._id}/edit`)}
+                        title="Edit Employee"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => {
+                          setSelectedEmployee(employee);
+                          setDeleteDialogOpen(true);
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={17} align="center" sx={{ py: 4 }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6" color="textSecondary" gutterBottom>
+                        {loading ? 'Loading employees...' : 'No employees found'}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        {loading 
+                          ? 'Please wait while we fetch your employee data...' 
+                          : searchTerm || departmentFilter || statusFilter
+                            ? 'Try adjusting your search criteria or filters'
+                            : 'No employees in the system yet'
+                        }
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        
+        {/* Table Pagination */}
+        <TablePagination
+          rowsPerPageOptions={[5, 10, 25, 50, 100]}
+          component="div"
+          count={totalItems}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          labelRowsPerPage="Employees per page:"
+          labelDisplayedRows={({ from, to, count }) => 
+            `${from}-${to} of ${count !== -1 ? count : `more than ${to}`} employees`
+          }
+          sx={{
+            bgcolor: 'background.paper',
+            borderTop: '1px solid',
+            borderColor: 'grey.200',
+            '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': {
+              fontWeight: 500,
+            },
+            '& .MuiTablePagination-select': {
+              borderRadius: 1,
+            }
+          }}
+        />
+      </Paper>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>

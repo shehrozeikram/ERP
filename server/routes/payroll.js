@@ -5,7 +5,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
-const { calculateMonthlyTax, calculateTaxableIncome } = require('../utils/taxCalculator');
+const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 
 const router = express.Router();
@@ -166,6 +166,9 @@ router.post('/', [
     });
   }
 
+  // Get employee allowances to copy to payroll
+  const employeeAllowances = employee.allowances || {};
+  
   const payrollData = {
     employee: req.body.employee,
     month: new Date(req.body.payPeriod.startDate).getMonth() + 1, // Extract month from start date
@@ -176,6 +179,33 @@ router.post('/', [
     conveyanceAllowance: parseFloat(req.body.allowances?.transport) || 0, // Keep exact value, no rounding
     specialAllowance: parseFloat(req.body.allowances?.meal) || 0,
     otherAllowance: parseFloat(req.body.allowances?.other) || 0,
+    // Copy employee allowances to payroll allowances structure
+    allowances: {
+      conveyance: {
+        isActive: employeeAllowances.conveyance?.isActive || false,
+        amount: employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0
+      },
+      food: {
+        isActive: employeeAllowances.food?.isActive || false,
+        amount: employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0
+      },
+      vehicleFuel: {
+        isActive: employeeAllowances.vehicleFuel?.isActive || false,
+        amount: employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0
+      },
+      medical: {
+        isActive: employeeAllowances.medical?.isActive || false,
+        amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
+      },
+      special: {
+        isActive: employeeAllowances.special?.isActive || false,
+        amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
+      },
+      other: {
+        isActive: employeeAllowances.other?.isActive || false,
+        amount: employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0
+      }
+    },
     overtimeHours: parseFloat(req.body.overtime?.hours) || 0,
     overtimeRate: parseFloat(req.body.overtime?.rate) || 0,
     overtimeAmount: parseFloat(req.body.overtime?.amount) || 0,
@@ -213,7 +243,7 @@ router.post('/', [
 
   // Auto-calculate tax if not provided
   if (!payrollData.incomeTax) {
-    const taxableIncome = calculateTaxableIncome({
+    const taxableIncome = calculateTaxableIncomeCorrected({
       basic: payrollData.basicSalary,
       allowances: {
         housing: payrollData.houseRentAllowance,
@@ -349,6 +379,36 @@ router.put('/:id', [
     updateData.conveyanceAllowance = parseFloat(req.body.allowances.transport) || 0;
     updateData.specialAllowance = parseFloat(req.body.allowances.meal) || 0;
     updateData.otherAllowance = parseFloat(req.body.allowances.other) || 0;
+    
+    // Also update the new allowances structure if employee allowances are provided
+    if (req.body.employeeAllowances) {
+      updateData.allowances = {
+        conveyance: {
+          isActive: req.body.employeeAllowances.conveyance?.isActive || false,
+          amount: req.body.employeeAllowances.conveyance?.isActive ? req.body.employeeAllowances.conveyance.amount : 0
+        },
+        food: {
+          isActive: req.body.employeeAllowances.food?.isActive || false,
+          amount: req.body.employeeAllowances.food?.isActive ? req.body.employeeAllowances.food.amount : 0
+        },
+        vehicleFuel: {
+          isActive: req.body.employeeAllowances.vehicleFuel?.isActive || false,
+          amount: req.body.employeeAllowances.vehicleFuel?.isActive ? req.body.employeeAllowances.vehicleFuel.amount : 0
+        },
+        medical: {
+          isActive: req.body.employeeAllowances.medical?.isActive || false,
+          amount: req.body.employeeAllowances.medical?.isActive ? req.body.employeeAllowances.medical.amount : 0
+        },
+        special: {
+          isActive: req.body.employeeAllowances.special?.isActive || false,
+          amount: req.body.employeeAllowances.special?.isActive ? req.body.employeeAllowances.special.amount : 0
+        },
+        other: {
+          isActive: req.body.employeeAllowances.other?.isActive || false,
+          amount: req.body.employeeAllowances.other?.isActive ? req.body.employeeAllowances.other.amount : 0
+        }
+      };
+    }
   }
 
   // Map deduction fields if provided
@@ -899,6 +959,103 @@ router.get('/:id/download',
 
     // Finalize PDF
     doc.end();
+  })
+);
+
+// @route   DELETE /api/payroll/delete-all
+// @desc    Delete all payroll records
+// @access  Private (Admin only)
+router.delete('/delete-all',
+  authorize('admin'),
+  asyncHandler(async (req, res) => {
+    // Get count before deletion
+    const totalPayrolls = await Payroll.countDocuments({});
+    
+    if (totalPayrolls === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No payroll records found to delete'
+      });
+    }
+
+    // Delete all payrolls
+    const result = await Payroll.deleteMany({});
+    
+    res.json({
+      success: true,
+      message: `Successfully deleted ${result.deletedCount} payroll records`,
+      data: {
+        deletedCount: result.deletedCount,
+        totalPayrolls: totalPayrolls
+      }
+    });
+  })
+);
+
+// @route   POST /api/payroll/:id/calculate-tax
+// @desc    Calculate and update tax for a specific payroll
+// @access  Private (HR and Admin)
+router.post('/:id/calculate-tax',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payroll ID'
+      });
+    }
+
+    try {
+      const tax = await Payroll.calculateTaxForPayroll(req.params.id);
+      
+      res.json({
+        success: true,
+        message: 'Tax calculated and updated successfully',
+        data: { tax }
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  })
+);
+
+// @route   POST /api/payroll/calculate-tax-month
+// @desc    Calculate and update tax for all payrolls in a specific month/year
+// @access  Private (HR and Admin)
+router.post('/calculate-tax-month',
+  authorize('admin', 'hr_manager'),
+  [
+    body('month').isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
+    body('year').isInt({ min: 2020 }).withMessage('Year must be 2020 or later')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors.array()
+      });
+    }
+
+    try {
+      const { month, year } = req.body;
+      const results = await Payroll.calculateTaxForMonth(month, year);
+      
+      res.json({
+        success: true,
+        message: `Tax calculated for ${results.length} payrolls in ${month}/${year}`,
+        data: { results }
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
   })
 );
 

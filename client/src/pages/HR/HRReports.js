@@ -153,10 +153,35 @@ const HRReports = () => {
   const [salaryRangeFilter, setSalaryRangeFilter] = useState('');
   const [employmentTypeFilter, setEmploymentTypeFilter] = useState('');
   
+  // Payroll-specific filters
+  const [payrollMonth, setPayrollMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
+  const [payrollYear, setPayrollYear] = useState(new Date().getFullYear().toString());
+  const [compareMonth, setCompareMonth] = useState('');
+  const [compareYear, setCompareYear] = useState('');
+  const [salaryRangeMin, setSalaryRangeMin] = useState('');
+  const [salaryRangeMax, setSalaryRangeMax] = useState('');
+  const [deductionType, setDeductionType] = useState('');
+  
   // Data states
   const [departments, setDepartments] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [employees, setEmployees] = useState([]);
+
+  // Months array for payroll reports
+  const months = [
+    { value: '01', label: 'January' },
+    { value: '02', label: 'February' },
+    { value: '03', label: 'March' },
+    { value: '04', label: 'April' },
+    { value: '05', label: 'May' },
+    { value: '06', label: 'June' },
+    { value: '07', label: 'July' },
+    { value: '08', label: 'August' },
+    { value: '09', label: 'September' },
+    { value: '10', label: 'October' },
+    { value: '11', label: 'November' },
+    { value: '12', label: 'December' }
+  ];
 
   // Report types with light colors
   const reportTypes = [
@@ -195,6 +220,51 @@ const HRReports = () => {
       category: 'Financial',
       color: '#f57c00',
       bgColor: '#fff3e0'
+    },
+    {
+      id: 'department_payroll_report',
+      name: 'Department Payroll Report',
+      description: 'Payroll analysis by specific department with cost breakdown',
+      icon: <Business />,
+      category: 'Financial',
+      color: '#7b1fa2',
+      bgColor: '#f3e5f5'
+    },
+    {
+      id: 'monthly_comparison_report',
+      name: 'Monthly Comparison Report',
+      description: 'Compare payroll costs across different months and years',
+      icon: <Timeline />,
+      category: 'Financial',
+      color: '#d32f2f',
+      bgColor: '#ffebee'
+    },
+    {
+      id: 'salary_range_report',
+      name: 'Salary Range Analysis',
+      description: 'Analyze employee distribution across salary ranges',
+      icon: <BarChart />,
+      category: 'Analytics',
+      color: '#388e3c',
+      bgColor: '#e8f5e8'
+    },
+    {
+      id: 'deduction_analysis_report',
+      name: 'Deduction Analysis Report',
+      description: 'Detailed breakdown of all deductions and taxes',
+      icon: <Receipt />,
+      category: 'Financial',
+      color: '#ff9800',
+      bgColor: '#fff8e1'
+    },
+    {
+      id: 'executive_payroll_summary',
+      name: 'Executive Payroll Summary',
+      description: 'High-level payroll summary for management review',
+      icon: <SupervisorAccount />,
+      category: 'Analytics',
+      color: '#1976d2',
+      bgColor: '#e3f2fd'
     },
     {
       id: 'loan_report',
@@ -418,13 +488,18 @@ const HRReports = () => {
         reportType: selectedReport,
         startDate,
         endDate,
-        month,
-        year,
+        month: payrollMonth,
+        year: payrollYear,
+        compareMonth,
+        compareYear,
         department: departmentFilter,
         designation: designationFilter,
         status: statusFilter,
         salaryRange: salaryRangeFilter,
         employmentType: employmentTypeFilter,
+        salaryRangeMin,
+        salaryRangeMax,
+        deductionType,
         format
       };
 
@@ -441,7 +516,7 @@ const HRReports = () => {
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `${selectedReport}-${startDate || 'all'}-${endDate || 'data'}.${format}`);
+        link.setAttribute('download', `${selectedReport}-${payrollMonth || 'all'}-${payrollYear || 'data'}.${format}`);
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -455,6 +530,7 @@ const HRReports = () => {
       } else {
         // Handle JSON response
         setReportData(response.data);
+        console.log('Report Data Received:', response.data); // Debug log
         setSnackbar({
           open: true,
           message: 'Report generated successfully',
@@ -501,6 +577,15 @@ const HRReports = () => {
     setStatusFilter('');
     setSalaryRangeFilter('');
     setEmploymentTypeFilter('');
+    
+    // Clear payroll-specific filters
+    setPayrollMonth((new Date().getMonth() + 1).toString().padStart(2, '0'));
+    setPayrollYear(new Date().getFullYear().toString());
+    setCompareMonth('');
+    setCompareYear('');
+    setSalaryRangeMin('');
+    setSalaryRangeMax('');
+    setDeductionType('');
   };
 
   // Open download dialog
@@ -539,6 +624,24 @@ const HRReports = () => {
   // Get selected report info
   const getSelectedReportInfo = () => {
     return reportTypes.find(report => report.id === selectedReport);
+  };
+
+  // Check if selected report is payroll-related
+  const isPayrollReport = () => {
+    const payrollReportIds = [
+      'payroll_report',
+      'department_payroll_report',
+      'monthly_comparison_report',
+      'salary_range_report',
+      'deduction_analysis_report',
+      'executive_payroll_summary'
+    ];
+    return payrollReportIds.includes(selectedReport);
+  };
+
+  // Check if selected report needs comparison dates
+  const needsComparisonDates = () => {
+    return selectedReport === 'monthly_comparison_report';
   };
 
   // Show loading state for initial data loading
@@ -597,6 +700,104 @@ const HRReports = () => {
               )}
             </Box>
           </Box>
+        </CardContent>
+      </Card>
+
+      {/* Quick Access Payroll Reports */}
+      <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)', border: '1px solid', borderColor: '#ffb74d' }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ color: '#f57c00', fontWeight: 600 }}>
+            🚀 Quick Access - Payroll Reports
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#f57c00', mb: 2, opacity: 0.9 }}>
+            Generate common payroll reports quickly for management review
+          </Typography>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<Payment />}
+                onClick={() => {
+                  setSelectedReport('payroll_report');
+                  setPayrollMonth((new Date().getMonth() + 1).toString().padStart(2, '0'));
+                  setPayrollYear(new Date().getFullYear().toString());
+                  generateReport();
+                }}
+                sx={{ 
+                  borderColor: '#f57c00', 
+                  color: '#f57c00',
+                  '&:hover': { borderColor: '#e65100', backgroundColor: 'rgba(245,124,0,0.1)' }
+                }}
+              >
+                Current Month Payroll
+              </Button>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<Business />}
+                onClick={() => {
+                  setSelectedReport('department_payroll_report');
+                  setPayrollMonth((new Date().getMonth() + 1).toString().padStart(2, '0'));
+                  setPayrollYear(new Date().getFullYear().toString());
+                  generateReport();
+                }}
+                sx={{ 
+                  borderColor: '#7b1fa2', 
+                  color: '#7b1fa2',
+                  '&:hover': { borderColor: '#4a148c', backgroundColor: 'rgba(123,31,162,0.1)' }
+                }}
+              >
+                Department Analysis
+              </Button>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<Timeline />}
+                onClick={() => {
+                  setSelectedReport('monthly_comparison_report');
+                  setPayrollMonth((new Date().getMonth() + 1).toString().padStart(2, '0'));
+                  setPayrollYear(new Date().getFullYear().toString());
+                  generateReport();
+                }}
+                sx={{ 
+                  borderColor: '#d32f2f', 
+                  color: '#d32f2f',
+                  '&:hover': { borderColor: '#b71c1c', backgroundColor: 'rgba(211,47,47,0.1)' }
+                }}
+              >
+                Monthly Comparison
+              </Button>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<SupervisorAccount />}
+                onClick={() => {
+                  setSelectedReport('executive_payroll_summary');
+                  setPayrollMonth((new Date().getMonth() + 1).toString().padStart(2, '0'));
+                  setPayrollYear(new Date().getFullYear().toString());
+                  generateReport();
+                }}
+                sx={{ 
+                  borderColor: '#1976d2', 
+                  color: '#1976d2',
+                  '&:hover': { borderColor: '#0d47a1', backgroundColor: 'rgba(25,118,210,0.1)' }
+                }}
+              >
+                Executive Summary
+              </Button>
+            </Grid>
+          </Grid>
         </CardContent>
       </Card>
 
@@ -829,7 +1030,7 @@ const HRReports = () => {
                   </FormControl>
                 </Grid>
                 
-                <Grid item xs={12}>
+                <Grid item xs={12} md={3}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Status</InputLabel>
                     <Select
@@ -844,6 +1045,121 @@ const HRReports = () => {
                     </Select>
                   </FormControl>
                 </Grid>
+                
+                {/* Payroll-specific filters */}
+                {isPayrollReport() && (
+                  <>
+                    <Grid item xs={12} md={3}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Payroll Month</InputLabel>
+                        <Select
+                          value={payrollMonth}
+                          onChange={(e) => setPayrollMonth(e.target.value)}
+                          label="Payroll Month"
+                        >
+                          {months.map((month) => (
+                            <MenuItem key={month.value} value={month.value}>
+                              {month.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    
+                    <Grid item xs={12} md={3}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        label="Payroll Year"
+                        value={payrollYear}
+                        onChange={(e) => setPayrollYear(e.target.value)}
+                        inputProps={{ min: 2020, max: 2030 }}
+                      />
+                    </Grid>
+                    
+                    {needsComparisonDates() && (
+                      <>
+                        <Grid item xs={12} md={3}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Compare Month</InputLabel>
+                            <Select
+                              value={compareMonth}
+                              onChange={(e) => setCompareMonth(e.target.value)}
+                              label="Compare Month"
+                            >
+                              <MenuItem value="">Select Month</MenuItem>
+                              {months.map((month) => (
+                                <MenuItem key={month.value} value={month.value}>
+                                  {month.label}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            label="Compare Year"
+                            value={compareYear}
+                            onChange={(e) => setCompareYear(e.target.value)}
+                            inputProps={{ min: 2020, max: 2030 }}
+                          />
+                        </Grid>
+                      </>
+                    )}
+                    
+                    {selectedReport === 'salary_range_report' && (
+                      <>
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            label="Min Salary"
+                            value={salaryRangeMin}
+                            onChange={(e) => setSalaryRangeMin(e.target.value)}
+                            placeholder="0"
+                          />
+                        </Grid>
+                        
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            label="Max Salary"
+                            value={salaryRangeMax}
+                            onChange={(e) => setSalaryRangeMax(e.target.value)}
+                            placeholder="1000000"
+                          />
+                        </Grid>
+                      </>
+                    )}
+                    
+                    {selectedReport === 'deduction_analysis_report' && (
+                      <Grid item xs={12} md={3}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Deduction Type</InputLabel>
+                          <Select
+                            value={deductionType}
+                            onChange={(e) => setDeductionType(e.target.value)}
+                            label="Deduction Type"
+                          >
+                            <MenuItem value="">All Deductions</MenuItem>
+                            <MenuItem value="providentFund">Provident Fund</MenuItem>
+                            <MenuItem value="eobi">EOBI</MenuItem>
+                            <MenuItem value="incomeTax">Income Tax</MenuItem>
+                            <MenuItem value="other">Other Deductions</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                    )}
+                  </>
+                )}
                 
                 <Grid item xs={12}>
                   <Button
@@ -906,6 +1222,106 @@ const HRReports = () => {
             />
             
             <CardContent>
+              {/* Payroll Report Summary for Management */}
+              {isPayrollReport() && reportData.summary && (
+                <Box sx={{ mb: 4, p: 3, bgcolor: 'primary.50', borderRadius: 2, border: '1px solid', borderColor: 'primary.200' }}>
+                  <Typography variant="h6" color="primary.main" gutterBottom sx={{ fontWeight: 600 }}>
+                    📊 Executive Summary - {months.find(m => m.value === payrollMonth)?.label} {payrollYear}
+                  </Typography>
+                  
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'primary.300' }}>
+                        <Typography variant="h4" color="primary.main" sx={{ fontWeight: 'bold' }}>
+                          {reportData.summary.totalEmployees || 0}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Total Employees
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'success.300' }}>
+                        <Typography variant="h4" color="success.main" sx={{ fontWeight: 'bold' }}>
+                          {formatPKR(reportData.summary.totalGrossSalary || 0)}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Total Gross Payroll
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'warning.300' }}>
+                        <Typography variant="h4" color="warning.main" sx={{ fontWeight: 'bold' }}>
+                          {formatPKR(reportData.summary.totalDeductions || 0)}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Total Deductions
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'white', borderRadius: 1, border: '1px solid', borderColor: 'info.300' }}>
+                        <Typography variant="h4" color="info.main" sx={{ fontWeight: 'bold' }}>
+                          {formatPKR(reportData.summary.totalNetSalary || 0)}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Total Net Payroll
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                  
+                  {/* Additional Payroll Insights */}
+                  <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                    <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                      💡 Key Insights:
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="body2">
+                          <strong>Employees with Payroll:</strong> {reportData.summary.employeesWithPayroll || 0}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="body2">
+                          <strong>Average Gross Salary:</strong> {formatPKR(reportData.summary.averageGrossSalary || 0)}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="body2">
+                          <strong>Average Net Salary:</strong> {formatPKR(reportData.summary.averageNetSalary || 0)}
+                        </Typography>
+                      </Grid>
+                      {reportData.summary.totalProvidentFund && (
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Typography variant="body2">
+                            <strong>Provident Fund:</strong> {formatPKR(reportData.summary.totalProvidentFund)}
+                          </Typography>
+                        </Grid>
+                      )}
+                      {reportData.summary.totalEOBI && (
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Typography variant="body2">
+                            <strong>EOBI:</strong> {formatPKR(reportData.summary.totalEOBI)}
+                          </Typography>
+                        </Grid>
+                      )}
+                      {reportData.summary.totalIncomeTax && (
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Typography variant="body2">
+                            <strong>Income Tax:</strong> {formatPKR(reportData.summary.totalIncomeTax)}
+                          </Typography>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Box>
+                </Box>
+              )}
+              
               {/* View Mode Toggle */}
               <Box sx={{ mb: 3 }}>
                 <FormControl component="fieldset">
@@ -933,21 +1349,21 @@ const HRReports = () => {
                 <Grid container spacing={3} sx={{ mb: 3 }}>
                   {Object.entries(reportData.summary).map(([key, value]) => (
                     <Grid item xs={12} sm={6} md={3} key={key}>
-                                             <Card 
-                         variant="outlined" 
-                         sx={{ 
-                           p: 2,
-                           textAlign: 'center',
-                           transition: 'all 0.3s ease',
-                           backgroundColor: '#fafafa',
-                           borderColor: '#e0e0e0',
-                           '&:hover': {
-                             transform: 'translateY(-2px)',
-                             boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                             backgroundColor: '#f5f5f5'
-                           }
-                         }}
-                       >
+                      <Card 
+                        variant="outlined" 
+                        sx={{ 
+                          p: 2,
+                          textAlign: 'center',
+                          transition: 'all 0.3s ease',
+                          backgroundColor: '#fafafa',
+                          borderColor: '#e0e0e0',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                            backgroundColor: '#f5f5f5'
+                          }
+                        }}
+                      >
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                           {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
                         </Typography>
@@ -968,6 +1384,89 @@ const HRReports = () => {
                     </Grid>
                   ))}
                 </Grid>
+              )}
+
+              {/* Payroll Management Recommendations */}
+              {isPayrollReport() && reportData.summary && (
+                <Box sx={{ mb: 4, p: 3, bgcolor: 'warning.50', borderRadius: 2, border: '1px solid', borderColor: 'warning.200' }}>
+                  <Typography variant="h6" color="warning.main" gutterBottom sx={{ fontWeight: 600 }}>
+                    🎯 Management Insights & Recommendations
+                  </Typography>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                        📈 Cost Analysis:
+                      </Typography>
+                      <List dense>
+                        <ListItem>
+                          <ListItemIcon>
+                            <TrendingUpIcon color="success" />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary="Payroll Cost per Employee" 
+                            secondary={`${formatPKR((reportData.summary.totalGrossSalary || 0) / (reportData.summary.totalEmployees || 1))}`}
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemIcon>
+                            <TrendingDownIcon color="warning" />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary="Deduction Rate" 
+                            secondary={`${((reportData.summary.totalDeductions || 0) / (reportData.summary.totalGrossSalary || 1) * 100).toFixed(1)}%`}
+                          />
+                        </ListItem>
+                      </List>
+                    </Grid>
+                    
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                        💡 Recommendations:
+                      </Typography>
+                      <List dense>
+                        <ListItem>
+                          <ListItemIcon>
+                            <Info color="info" />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary="Review high-salary outliers" 
+                            secondary="Consider salary benchmarking"
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemIcon>
+                            <Info color="info" />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary="Optimize deduction structure" 
+                            secondary="Maximize tax benefits"
+                          />
+                        </ListItem>
+                      </List>
+                    </Grid>
+                  </Grid>
+                </Box>
+              )}
+
+              {/* Debug Information for Payroll Reports */}
+              {isPayrollReport() && reportData && (
+                <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1, border: '1px solid', borderColor: 'grey.300' }}>
+                  <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                    🔍 Debug Information:
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                    Summary Keys: {Object.keys(reportData.summary || {}).join(', ')}
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                    Data Length: {reportData.data ? reportData.data.length : 'No data array'}
+                  </Typography>
+                  {reportData.data && reportData.data.length > 0 && (
+                    <Typography variant="body2" color="textSecondary" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                      First Row Keys: {Object.keys(reportData.data[0]).join(', ')}
+                    </Typography>
+                  )}
+                </Box>
               )}
 
               {/* Enhanced Report Data Table */}

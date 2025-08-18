@@ -153,10 +153,13 @@ const EmployeeForm = () => {
     hireDate: Yup.date().required('Hire date is required'),
     // Placement fields
     placementCompany: Yup.string(),
+    placementSector: Yup.string(),
     placementProject: Yup.string(),
+    placementDepartment: Yup.string(),
     placementSection: Yup.string(),
-    oldDesignation: Yup.string(),
+    placementDesignation: Yup.string(),
     placementLocation: Yup.string(),
+    oldDesignation: Yup.string(),
     salary: Yup.object({
       gross: Yup.number().nullable().optional().min(0, 'Gross salary must be positive'),
       basic: Yup.number().min(0, 'Basic salary must be positive')
@@ -724,6 +727,52 @@ const EmployeeForm = () => {
           delete cleanedValues.oldDesignation;
         }
         
+        // Clean up empty placement fields (convert empty strings to undefined)
+        const placementFields = [
+          'placementCompany', 'placementSector', 'placementProject', 
+          'placementDepartment', 'placementSection', 'placementDesignation', 'placementLocation'
+        ];
+        
+        console.log('🧹 Cleaning up placement fields...');
+        placementFields.forEach(field => {
+          console.log(`🧹 Field ${field}:`, cleanedValues[field]);
+          if (cleanedValues[field] === '' || cleanedValues[field] === null || cleanedValues[field] === undefined) {
+            console.log(`🧹 Deleting empty field: ${field}`);
+            delete cleanedValues[field];
+          }
+        });
+        
+        // Clean up other ObjectId fields that might be empty strings
+        const objectIdFields = [
+          'user', 'city', 'state', 'country', 'department', 'position', 'manager'
+        ];
+        
+        console.log('🧹 Cleaning up other ObjectId fields...');
+        objectIdFields.forEach(field => {
+          console.log(`🧹 Field ${field}:`, cleanedValues[field]);
+          if (cleanedValues[field] === '' || cleanedValues[field] === null || cleanedValues[field] === undefined) {
+            console.log(`🧹 Deleting empty field: ${field}`);
+            delete cleanedValues[field];
+          }
+        });
+        
+        // Handle address ObjectId fields
+        if (cleanedValues.address) {
+          console.log('🧹 Cleaning up address ObjectId fields...');
+          if (cleanedValues.address.city === '' || cleanedValues.address.city === null || cleanedValues.address.city === undefined) {
+            console.log('🧹 Deleting empty address.city field');
+            delete cleanedValues.address.city;
+          }
+          if (cleanedValues.address.state === '' || cleanedValues.address.state === null || cleanedValues.address.state === undefined) {
+            console.log('🧹 Deleting empty address.state field');
+            delete cleanedValues.address.state;
+          }
+          if (cleanedValues.address.country === '' || cleanedValues.address.country === null || cleanedValues.address.country === undefined) {
+            console.log('🧹 Deleting empty address.country field');
+            delete cleanedValues.address.country;
+          }
+        }
+        
         // Ensure salary.gross is a number
         console.log('🎯 Original salary value:', cleanedValues.salary);
         if (cleanedValues.salary?.gross !== undefined && cleanedValues.salary?.gross !== null && cleanedValues.salary?.gross !== '') {
@@ -733,6 +782,8 @@ const EmployeeForm = () => {
           console.log('🎯 Salary.gross is empty, removing salary object');
           delete cleanedValues.salary;
         }
+        
+        console.log('🧹 Final cleaned values to send:', cleanedValues);
         
         if (id && id !== 'add') {
           console.log('🔄 Updating existing employee...');
@@ -2530,23 +2581,113 @@ const EmployeeForm = () => {
                   </Typography>
                   <Divider sx={{ my: 1 }} />
                   <Typography variant="body2" color="textSecondary">
-                    <strong>Auto-Calculated Breakdown:</strong>
+                    <strong>Salary Distribution (Total: {formatPKR(formik.values.salary?.gross || 0)}):</strong>
                   </Typography>
-                  <Typography variant="body2">
-                    Basic Salary (66.66%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6666))}
-                  </Typography>
-                  <Typography variant="body2">
-                    House Rent (23.34%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.2334))}
-                  </Typography>
-                  <Typography variant="body2">
-                    Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
-                  </Typography>
+                  
+                  {/* Calculate the actual distribution based on current allowances */}
+                  {(() => {
+                    const grossSalary = formik.values.salary?.gross || 0;
+                    const vehicleFuelAllowance = formik.values.allowances?.vehicleFuel?.isActive ? (formik.values.allowances.vehicleFuel.amount || 0) : 0;
+                    const houseRent = Math.round(grossSalary * 0.2334); // 23.34% of gross
+                    const medical = Math.round(grossSalary * 0.1); // 10% of gross
+                    const basicSalary = grossSalary - houseRent - medical - vehicleFuelAllowance;
+                    
+                    return (
+                      <>
+                        <Typography variant="body2" color="primary.main">
+                          💰 Basic Salary: {formatPKR(basicSalary)} (Adjusted to accommodate allowances)
+                        </Typography>
+                        <Typography variant="body2">
+                          🏠 House Rent (23.34%): {formatPKR(houseRent)}
+                        </Typography>
+                        <Typography variant="body2">
+                          🏥 Medical (10%): {formatPKR(medical)}
+                        </Typography>
+                        
+                        {/* Show Vehicle & Fuel allowance as included in gross */}
+                        {vehicleFuelAllowance > 0 && (
+                          <Typography variant="body2" color="success.main">
+                            🚗 Vehicle & Fuel: {formatPKR(vehicleFuelAllowance)} (Included in Gross)
+                          </Typography>
+                        )}
+                        
+                        {/* Show other allowances if active */}
+                        {formik.values.allowances?.food?.isActive && (
+                          <Typography variant="body2" color="success.main">
+                            🍽️ Food Allowance: {formatPKR(formik.values.allowances.food.amount || 0)}
+                          </Typography>
+                        )}
+                        {formik.values.allowances?.conveyance?.isActive && (
+                          <Typography variant="body2" color="success.main">
+                            🚌 Conveyance: {formatPKR(formik.values.allowances.conveyance.amount || 0)}
+                          </Typography>
+                        )}
+                        {formik.values.allowances?.medical?.isActive && (
+                          <Typography variant="body2" color="success.main">
+                            🏥 Medical Allowance: {formatPKR(formik.values.allowances.medical.amount || 0)}
+                          </Typography>
+                        )}
+                        {formik.values.allowances?.special?.isActive && (
+                          <Typography variant="body2" color="success.main">
+                            ⭐ Special: {formatPKR(formik.values.allowances.special.amount || 0)}
+                          </Typography>
+                        )}
+                        {formik.values.allowances?.other?.isActive && (
+                          <Typography variant="body2" color="success.main">
+                            📋 Other: {formatPKR(formik.values.allowances.other.amount || 0)}
+                          </Typography>
+                        )}
+                        
+                        {/* Show total breakdown */}
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="body2" color="info.main">
+                          <strong>Breakdown Total:</strong> {formatPKR(basicSalary + houseRent + medical + vehicleFuelAllowance)}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          This equals your Gross Salary of {formatPKR(grossSalary)}
+                        </Typography>
+                      </>
+                    );
+                  })()}
+                  
                   <Divider sx={{ my: 1 }} />
                   <Typography variant="h6" color="primary">
-                    <strong>Total:</strong> {formatPKR(formik.values.salary?.gross || 0)}
+                    <strong>Total Monthly Compensation:</strong> {formatPKR(formik.values.salary?.gross || 0)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Monthly compensation
+                    Monthly compensation (Gross Salary - includes all allowances)
+                  </Typography>
+                  
+                  {/* Salary Calculation Formula */}
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="body2" color="textSecondary">
+                    <strong>📊 Salary Calculation Formula:</strong>
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
+                    <strong>Step 1:</strong> Fixed Components (from Gross Salary)
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
+                    • House Rent = 23.34% of Gross Salary (Fixed)
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
+                    • Medical = 10% of Gross Salary (Fixed)
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
+                    • Vehicle & Fuel = Fixed Amount (if active)
+                  </Typography>
+                  
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
+                    <strong>Step 2:</strong> Calculate Basic Salary
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
+                    • Basic Salary = Gross Salary - House Rent - Medical - Vehicle & Fuel
+                  </Typography>
+                  
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
+                    <strong>Step 3:</strong> Total Monthly Compensation
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 2, mb: 1 }}>
+                    • Total = Gross Salary (includes all components)
                   </Typography>
                   {formik.values.eobi?.isActive && (
                     <>
@@ -2570,6 +2711,33 @@ const EmployeeForm = () => {
                       </Typography>
                     </>
                   )}
+                  
+                  {/* Net Salary Calculation */}
+                  {(() => {
+                    const grossSalary = formik.values.salary?.gross || 0;
+                    const vehicleFuelAllowance = formik.values.allowances?.vehicleFuel?.isActive ? (formik.values.allowances.vehicleFuel.amount || 0) : 0;
+                    const houseRent = Math.round(grossSalary * 0.2334);
+                    const medical = Math.round(grossSalary * 0.1);
+                    const basicSalary = grossSalary - houseRent - medical - vehicleFuelAllowance;
+                    
+                    const totalDeductions = (formik.values.eobi?.isActive ? (formik.values.eobi?.amount || 370) : 0);
+                    // Provident Fund excluded from total deductions (Coming Soon)
+                    // + (formik.values.providentFund?.isActive ? Math.round(basicSalary * 0.0834) : 0);
+                    
+                    const netSalary = grossSalary - totalDeductions;
+                    
+                    return totalDeductions > 0 ? (
+                      <>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="h6" color="success.main">
+                          <strong>Net Monthly Salary:</strong> {formatPKR(netSalary)}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          Net = Gross Salary - Total Deductions
+                        </Typography>
+                      </>
+                    ) : null;
+                  })()}
                 </CardContent>
               </Card>
             </Grid>

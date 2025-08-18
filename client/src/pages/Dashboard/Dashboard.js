@@ -57,6 +57,22 @@ const Dashboard = () => {
     return iconMap[iconName] || <DashboardIcon />;
   };
 
+  const formatPKR = (amount) => {
+    if (amount === null || amount === undefined) return 'PKR 0';
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Format employee ID to 5 digits with leading zeros
+  const formatEmployeeId = (employeeId) => {
+    if (!employeeId) return '';
+    return employeeId.toString().padStart(5, '0');
+  };
+
   const accessibleModules = getAccessibleModules();
 
   return (
@@ -93,7 +109,7 @@ const Dashboard = () => {
                   {user?.email}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Employee ID: {user?.employeeId}
+                  Employee ID: {formatEmployeeId(user?.employeeId)}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>

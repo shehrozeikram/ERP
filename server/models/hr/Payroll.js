@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { calculateMonthlyTax, calculateTaxableIncome, getTaxSlabInfo } = require('../../utils/taxCalculator');
+const { calculateMonthlyTax, calculateMonthlyTaxImage, calculateTaxableIncome, calculateTax } = require('../../utils/taxCalculator');
 
 const payrollSchema = new mongoose.Schema({
   employee: {
@@ -305,36 +305,50 @@ payrollSchema.pre('save', function(next) {
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
   this.eobi = 370;
   
-  // Calculate total deductions
-  this.totalDeductions = (this.providentFund || 0) + 
-                        (this.incomeTax || 0) + 
-                        (this.healthInsurance || 0) + 
-                        (this.vehicleLoanDeduction || 0) +
-                        (this.companyLoanDeduction || 0) +
-                        (this.eobi || 0) + 
-                        (this.otherDeductions || 0);
+  // Auto-calculate income tax if not provided
+  if (!this.incomeTax && this.grossSalary) {
+    // Calculate tax using FBR 2025-2026 rules:
+    // Medical allowance is 10% of gross salary and is tax-exempt
+    const taxCalculation = calculateTax(this.grossSalary);
+    
+    // Use the image calculation to match exactly what's shown in the image
+    this.incomeTax = calculateMonthlyTaxImage(taxCalculation.taxableIncome);
+  }
+  
+  // Calculate total deductions (excluding Provident Fund for now - Coming Soon)
+  this.totalDeductions = 
+    // (this.providentFund || 0) + // Excluded - Coming Soon
+    (this.incomeTax || 0) + 
+    (this.healthInsurance || 0) + 
+    (this.vehicleLoanDeduction || 0) +
+    (this.companyLoanDeduction || 0) +
+    (this.eobi || 0) + 
+    (this.otherDeductions || 0);
   
   // Calculate net salary
   this.netSalary = this.grossSalary - this.totalDeductions;
   
-  // Auto-calculate income tax if not provided
-  if (!this.incomeTax && this.basicSalary) {
-    const taxableIncome = calculateTaxableIncome({
-      basic: this.basicSalary,
-      allowances: {
-        transport: this.allowances?.conveyance?.isActive ? this.allowances.conveyance.amount : 0,
-        meal: this.allowances?.food?.isActive ? this.allowances.food.amount : 0,
-        vehicleFuel: this.allowances?.vehicleFuel?.isActive ? this.allowances.vehicleFuel.amount : 0,
-        other: this.allowances?.other?.isActive ? this.allowances.other.amount : 0,
-        medical: this.allowances?.medical?.isActive ? this.allowances.medical.amount : 0
-      }
-    });
-    
-    this.incomeTax = calculateMonthlyTax(taxableIncome);
-  }
-  
   next();
 });
+
+// Method to calculate and update tax after payroll creation
+payrollSchema.methods.calculateAndUpdateTax = async function() {
+  if (this.grossSalary) {
+    // Calculate tax using FBR 2025-2026 rules
+    const taxCalculation = calculateTax(this.grossSalary);
+    
+    // Use the image calculation to match exactly what's shown in the image
+    this.incomeTax = calculateMonthlyTaxImage(taxCalculation.taxableIncome);
+    
+    console.log(`💰 Tax Calculation for Employee: Gross: ${this.grossSalary}, Medical (10%): ${taxCalculation.medicalAllowance}, Taxable: ${taxCalculation.taxableIncome}, Tax: ${this.incomeTax}`);
+    
+    // Save the updated tax
+    await this.save();
+    
+    return this.incomeTax;
+  }
+  return 0;
+};
 
 // Static method to generate payroll for an employee
 payrollSchema.statics.generatePayroll = async function(employeeId, month, year, attendanceData = {}) {
@@ -523,6 +537,42 @@ payrollSchema.statics.getPayrollStats = async function(filters = {}) {
     totalTax: 0,
     totalProvidentFund: 0
   };
+};
+
+// Static method to calculate tax for a payroll
+payrollSchema.statics.calculateTaxForPayroll = async function(payrollId) {
+  const payroll = await this.findById(payrollId);
+  if (!payroll) {
+    throw new Error('Payroll not found');
+  }
+  
+  return await payroll.calculateAndUpdateTax();
+};
+
+// Static method to calculate tax for all payrolls in a month/year
+payrollSchema.statics.calculateTaxForMonth = async function(month, year) {
+  const payrolls = await this.find({ month, year });
+  const results = [];
+  
+  for (const payroll of payrolls) {
+    try {
+      const tax = await payroll.calculateAndUpdateTax();
+      results.push({
+        payrollId: payroll._id,
+        employeeId: payroll.employee,
+        tax: tax
+      });
+    } catch (error) {
+      console.error(`Error calculating tax for payroll ${payroll._id}:`, error);
+      results.push({
+        payrollId: payroll._id,
+        employeeId: payroll.employee,
+        error: error.message
+      });
+    }
+  }
+  
+  return results;
 };
 
 // Instance method to approve payroll

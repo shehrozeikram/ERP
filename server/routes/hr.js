@@ -659,10 +659,23 @@ router.put('/employees/:id', [
     // Clean up empty placement fields (convert empty strings to undefined)
     const placementFields = [
       'placementCompany', 'placementProject', 'placementDepartment', 
-      'placementSection', 'placementDesignation', 'placementLocation'
+      'placementSection', 'placementDesignation', 'placementLocation', 'placementSector'
     ];
     
     placementFields.forEach(field => {
+      if (employeeData[field] === '' || employeeData[field] === null) {
+        delete employeeData[field];
+      }
+    });
+
+    // Clean up all ObjectId fields that might be sent as empty strings
+    const objectIdFields = [
+      'user', 'city', 'state', 'country', 'department', 'position', 'manager',
+      'placementCompany', 'placementSector', 'placementProject', 'placementDepartment',
+      'placementSection', 'placementDesignation', 'placementLocation', 'oldDesignation'
+    ];
+    
+    objectIdFields.forEach(field => {
       if (employeeData[field] === '' || employeeData[field] === null) {
         delete employeeData[field];
       }
@@ -1288,8 +1301,7 @@ router.get('/sectors',
     }
 
     const sectors = await Sector.find(query)
-      .populate('company', 'name code')
-      .populate('manager', 'firstName lastName employeeId')
+      .populate('companies', 'name code')
       .sort({ name: 1 });
 
     res.json({
@@ -1336,8 +1348,7 @@ router.get('/sectors/:id',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const sector = await Sector.findById(req.params.id)
-      .populate('company', 'name code')
-      .populate('manager', 'firstName lastName employeeId');
+      .populate('companies', 'name code');
 
     if (!sector) {
       return res.status(404).json({
@@ -1363,8 +1374,7 @@ router.put('/sectors/:id',
       req.params.id,
       req.body,
       { new: true, runValidators: true }
-    ).populate('company', 'name code')
-     .populate('manager', 'firstName lastName employeeId');
+    ).populate('companies', 'name code');
 
     if (!sector) {
       return res.status(404).json({
@@ -1563,7 +1573,7 @@ router.get('/projects',
     }
 
     const projects = await Project.find(query)
-      .populate('company', 'name code')
+      .populate('projectManager', 'firstName lastName employeeId')
       .sort({ name: 1 });
 
     res.json({
@@ -1580,7 +1590,7 @@ router.post('/projects', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Project name is required'),
   body('code').trim().notEmpty().withMessage('Project code is required'),
-  body('company').notEmpty().withMessage('Company is required')
+  body('client').notEmpty().withMessage('Client is required')
 ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -1602,7 +1612,7 @@ router.post('/projects', [
     await project.save();
 
     const populatedProject = await Project.findById(project._id)
-      .populate('company', 'name code');
+      .populate('projectManager', 'firstName lastName employeeId');
 
     res.status(201).json({
       success: true,

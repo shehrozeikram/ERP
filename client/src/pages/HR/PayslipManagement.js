@@ -71,7 +71,7 @@ const PayslipManagement = () => {
   
   // State
   const [payslips, setPayslips] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start with loading true
   const [stats, setStats] = useState({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [filters, setFilters] = useState({
@@ -101,15 +101,30 @@ const PayslipManagement = () => {
       };
       
       const response = await payslipService.getPayslips(params);
-      setPayslips(response.data.docs || []);
-      setPagination(prev => ({
-        ...prev,
-        total: response.data.totalDocs || 0
-      }));
+      
+      // Ensure we always set an array
+      const payslipsArray = response?.data?.docs || [];
+      
+      // Additional safety check
+      if (!Array.isArray(payslipsArray)) {
+        console.error('Invalid payslips response format:', response);
+        setPayslips([]);
+        setSnackbar({
+          open: true,
+          message: 'Invalid response format from server',
+          severity: 'error'
+        });
+        return;
+      }
+      
+      setPayslips(payslipsArray);
+      setPagination(prev => ({ ...prev, total: response?.data?.totalDocs || 0 }));
     } catch (error) {
+      console.error('Error loading payslips:', error);
+      setPayslips([]); // Ensure we set empty array on error
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Error loading payslips',
+        message: 'Failed to load payslips',
         severity: 'error'
       });
     } finally {
@@ -117,167 +132,127 @@ const PayslipManagement = () => {
     }
   };
 
-  // Load statistics
+  // Load stats
   const loadStats = async () => {
     try {
-      const response = await payslipService.getPayslipStats({
-        month: filters.month,
-        year: filters.year
-      });
-      setStats(response.data);
+      const response = await payslipService.getPayslipStats();
+      setStats(response.data || {});
     } catch (error) {
       console.error('Error loading stats:', error);
     }
   };
 
-  // Load data on mount and filter change
   useEffect(() => {
     loadPayslips();
     loadStats();
-  }, [pagination.page, filters]);
+  }, [pagination.page, pagination.limit]);
 
-  // Handle filter change
+  // Separate effect for filters to avoid infinite re-renders
+  useEffect(() => {
+    if (pagination.page === 1) {
+      loadPayslips();
+    } else {
+      // Reset to first page when filters change
+      setPagination(prev => ({ ...prev, page: 1 }));
+    }
+  }, [filters.month, filters.year, filters.employeeId, filters.department, filters.status, filters.search]);
+
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
-    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
-  // Handle search
-  const handleSearch = (event) => {
-    handleFilterChange('search', event.target.value);
+  const handlePageChange = (event, newPage) => {
+    setPagination(prev => ({ ...prev, page: newPage + 1 }));
   };
 
-  // Clear filters
-  const clearFilters = () => {
-    setFilters({
-      month: '',
-      year: new Date().getFullYear().toString(),
-      employeeId: '',
-      department: '',
-      status: '',
-      search: ''
-    });
-    setPagination(prev => ({ ...prev, page: 1 }));
+  const handleRowsPerPageChange = (event) => {
+    setPagination(prev => ({ 
+      ...prev, 
+      limit: parseInt(event.target.value, 10),
+      page: 1 
+    }));
   };
 
-  // Handle delete
-  const handleDelete = async () => {
-    if (!deleteDialog.payslip) return;
-    
+  const handleDelete = async (payslipId) => {
     try {
-      await payslipService.deletePayslip(deleteDialog.payslip._id);
+      await payslipService.deletePayslip(payslipId);
       setSnackbar({
         open: true,
         message: 'Payslip deleted successfully',
         severity: 'success'
       });
+      loadPayslips();
       setDeleteDialog({ open: false, payslip: null });
-      loadPayslips();
     } catch (error) {
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Error deleting payslip',
+        message: 'Failed to delete payslip',
         severity: 'error'
       });
     }
   };
 
-  // Handle generate
-  const handleGenerate = async (payslip) => {
-    try {
-      await payslipService.generatePayslip(payslip._id);
-      setSnackbar({
-        open: true,
-        message: 'Payslip generated successfully',
-        severity: 'success'
-      });
-      loadPayslips();
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Error generating payslip',
-        severity: 'error'
-      });
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'approved': return 'success';
+      case 'pending': return 'warning';
+      case 'rejected': return 'error';
+      case 'paid': return 'info';
+      default: return 'default';
     }
   };
 
-  // Handle approve
-  const handleApprove = async (payslip) => {
-    try {
-      await payslipService.approvePayslip(payslip._id);
-      setSnackbar({
-        open: true,
-        message: 'Payslip approved successfully',
-        severity: 'success'
-      });
-      loadPayslips();
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Error approving payslip',
-        severity: 'error'
-      });
-    }
-  };
+  const getStatusChip = (status) => (
+    <Chip
+      label={status.charAt(0).toUpperCase() + status.slice(1)}
+      color={getStatusColor(status)}
+      size="small"
+      variant="outlined"
+    />
+  );
 
-  // Handle mark as paid
-  const handleMarkAsPaid = async (payslip) => {
-    try {
-      await payslipService.markPayslipAsPaid(payslip._id, {
-        paymentMethod: 'bank_transfer',
-        paymentDate: new Date()
-      });
-      setSnackbar({
-        open: true,
-        message: 'Payslip marked as paid successfully',
-        severity: 'success'
-      });
-      loadPayslips();
-    } catch (error) {
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Error marking payslip as paid',
-        severity: 'error'
-      });
-    }
-  };
-
-  // Format payslip data
-  const formattedPayslips = payslips.map(formatPayslipData);
+  // Show loading state while initial data is being fetched
+  if (loading || !Array.isArray(payslips) || payslips === undefined || payslips === null) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
-    <Container maxWidth="xl">
-      {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ color: theme.palette.primary.main, fontWeight: 'bold' }}>
+    <Container maxWidth="xl" sx={{ py: 3 }}>
+      {/* Header Section */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
           Payslip Management
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Manage employee payslips, generate new payslips, and track payment status
+          Manage employee payslips, approvals, and payments
         </Typography>
       </Box>
 
-      {/* Statistics Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
+      {/* Stats Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ 
             background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.primary.main, 0.05)} 100%)`,
             border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`
           }}>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <Avatar sx={{ bgcolor: theme.palette.primary.main, width: 56, height: 56 }}>
+                  <Receipt />
+                </Avatar>
                 <Box>
-                  <Typography variant="h4" sx={{ color: theme.palette.primary.main, fontWeight: 'bold' }}>
+                  <Typography variant="h4" component="div" sx={{ fontWeight: 600 }}>
                     {stats.totalPayslips || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Total Payslips
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: alpha(theme.palette.primary.main, 0.1) }}>
-                  <Receipt sx={{ color: theme.palette.primary.main }} />
-                </Avatar>
-              </Box>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>
@@ -288,19 +263,19 @@ const PayslipManagement = () => {
             border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`
           }}>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <Avatar sx={{ bgcolor: theme.palette.success.main, width: 56, height: 56 }}>
+                  <TrendingUp />
+                </Avatar>
                 <Box>
-                  <Typography variant="h4" sx={{ color: theme.palette.success.main, fontWeight: 'bold' }}>
-                    {formatPKR(stats.totalNetSalary || 0)}
+                  <Typography variant="h4" component="div" sx={{ fontWeight: 600 }}>
+                    {stats.approvedCount || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Total Net Salary
+                    Approved
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: alpha(theme.palette.success.main, 0.1) }}>
-                  <AttachMoney sx={{ color: theme.palette.success.main }} />
-                </Avatar>
-              </Box>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>
@@ -311,19 +286,19 @@ const PayslipManagement = () => {
             border: `1px solid ${alpha(theme.palette.warning.main, 0.2)}`
           }}>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <Avatar sx={{ bgcolor: theme.palette.warning.main, width: 56, height: 56 }}>
+                  <Assessment />
+                </Avatar>
                 <Box>
-                  <Typography variant="h4" sx={{ color: theme.palette.warning.main, fontWeight: 'bold' }}>
-                    {stats.paidCount || 0}
+                  <Typography variant="h4" component="div" sx={{ fontWeight: 600 }}>
+                    {stats.generatedCount || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Paid Payslips
+                    Generated
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: alpha(theme.palette.warning.main, 0.1) }}>
-                  <TrendingUp sx={{ color: theme.palette.warning.main }} />
-                </Avatar>
-              </Box>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>
@@ -334,60 +309,35 @@ const PayslipManagement = () => {
             border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`
           }}>
             <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <Avatar sx={{ bgcolor: theme.palette.info.main, width: 56, height: 56 }}>
+                  <AttachMoney />
+                </Avatar>
                 <Box>
-                  <Typography variant="h4" sx={{ color: theme.palette.info.main, fontWeight: 'bold' }}>
-                    {formatPKR(stats.averageSalary || 0)}
+                  <Typography variant="h4" component="div" sx={{ fontWeight: 600 }}>
+                    {formatPKR(stats.totalNetSalary || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Average Salary
+                    Total Net Salary
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: alpha(theme.palette.info.main, 0.1) }}>
-                  <Assessment sx={{ color: theme.palette.info.main }} />
-                </Avatar>
-              </Box>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Status Workflow Guide */}
-      <Card sx={{ mb: 3, bgcolor: alpha(theme.palette.info.main, 0.05) }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom sx={{ color: theme.palette.info.main }}>
-            📋 Payslip Status Workflow
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            <Chip label="Draft" color="default" variant="outlined" />
-            <Typography variant="body2">→</Typography>
-            <Chip label="Generated" color="info" variant="outlined" />
-            <Typography variant="body2">→</Typography>
-            <Chip label="Approved" color="warning" variant="outlined" />
-            <Typography variant="body2">→</Typography>
-            <Chip label="Paid" color="success" variant="outlined" />
-          </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            <strong>Draft:</strong> Initial creation, can be edited • 
-            <strong>Generated:</strong> Ready for approval • 
-            <strong>Approved:</strong> Ready for payment • 
-            <strong>Paid:</strong> Payment completed
-          </Typography>
-        </CardContent>
-      </Card>
-
-      {/* Actions and Filters */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Typography variant="h6" sx={{ color: theme.palette.primary.main }}>
-              Payslips
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+      {/* Main Content Card */}
+      <Card sx={{ boxShadow: theme.shadows[4], borderRadius: 2 }}>
+        <CardHeader
+          title="Payslip Records"
+          action={
+            <Stack direction="row" spacing={2}>
               <Button
                 variant="outlined"
                 startIcon={<FilterList />}
                 onClick={() => setShowFilters(!showFilters)}
+                sx={{ borderRadius: 2 }}
               >
                 Filters
               </Button>
@@ -395,7 +345,7 @@ const PayslipManagement = () => {
                 variant="outlined"
                 startIcon={<Refresh />}
                 onClick={loadPayslips}
-                disabled={loading}
+                sx={{ borderRadius: 2 }}
               >
                 Refresh
               </Button>
@@ -403,290 +353,288 @@ const PayslipManagement = () => {
                 variant="contained"
                 startIcon={<Add />}
                 onClick={() => navigate('/hr/payslips/new')}
+                sx={{ borderRadius: 2 }}
               >
-                New Payslip
+                Add Payslip
               </Button>
-            </Box>
-          </Box>
+            </Stack>
+          }
+        />
 
-          {/* Search */}
-          <TextField
-            fullWidth
-            placeholder="Search by employee name, ID, or payslip number..."
-            value={filters.search}
-            onChange={handleSearch}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search />
-                </InputAdornment>
-              )
-            }}
-            sx={{ mb: 2 }}
-          />
-
-          {/* Filters */}
-          {showFilters && (
-            <Accordion expanded={showFilters} sx={{ mb: 2 }}>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Typography variant="subtitle1">Advanced Filters</Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <FormControl fullWidth>
-                      <InputLabel>Month</InputLabel>
-                      <Select
-                        value={filters.month}
-                        onChange={(e) => handleFilterChange('month', e.target.value)}
-                        label="Month"
-                        sx={{
-                          '& .MuiSelect-select': {
-                            paddingRight: '32px', // Ensure space for dropdown icon
-                          },
-                          '& .MuiSelect-icon': {
-                            right: '8px', // Position icon properly
-                          }
-                        }}
-                      >
-                        <MenuItem value="">All Months</MenuItem>
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
-                          <MenuItem key={month} value={month}>
-                            {new Date(2024, month - 1).toLocaleDateString('en-US', { month: 'long' })}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                      fullWidth
-                      label="Year"
-                      value={filters.year}
-                      onChange={(e) => handleFilterChange('year', e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                      fullWidth
-                      label="Employee ID"
-                      value={filters.employeeId}
-                      onChange={(e) => handleFilterChange('employeeId', e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <FormControl fullWidth>
-                      <InputLabel>Status</InputLabel>
-                      <Select
-                        value={filters.status}
-                        onChange={(e) => handleFilterChange('status', e.target.value)}
-                        label="Status"
-                        sx={{
-                          '& .MuiSelect-select': {
-                            paddingRight: '32px', // Ensure space for dropdown icon
-                          },
-                          '& .MuiSelect-icon': {
-                            right: '8px', // Position icon properly
-                          }
-                        }}
-                      >
-                        <MenuItem value="">All Status</MenuItem>
-                        <MenuItem value="draft">Draft</MenuItem>
-                        <MenuItem value="generated">Generated</MenuItem>
-                        <MenuItem value="approved">Approved</MenuItem>
-                        <MenuItem value="paid">Paid</MenuItem>
-                        <MenuItem value="cancelled">Cancelled</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
+        {/* Filters Section */}
+        {showFilters && (
+          <Accordion expanded={showFilters} sx={{ border: 'none', boxShadow: 'none' }}>
+            <AccordionDetails>
+              <Grid container spacing={3} sx={{ px: 3, pb: 2 }}>
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Search"
+                    value={filters.search}
+                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Search />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
                 </Grid>
-                <Box sx={{ mt: 2 }}>
-                  <Button variant="outlined" onClick={clearFilters}>
-                    Clear Filters
-                  </Button>
-                </Box>
-              </AccordionDetails>
-            </Accordion>
-          )}
-        </CardContent>
-      </Card>
+                <Grid item xs={12} sm={6} md={3}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Month</InputLabel>
+                    <Select
+                      value={filters.month}
+                      label="Month"
+                      onChange={(e) => handleFilterChange('month', e.target.value)}
+                    >
+                      <MenuItem value="">All Months</MenuItem>
+                      <MenuItem value="01">January</MenuItem>
+                      <MenuItem value="02">February</MenuItem>
+                      <MenuItem value="03">March</MenuItem>
+                      <MenuItem value="04">April</MenuItem>
+                      <MenuItem value="05">May</MenuItem>
+                      <MenuItem value="06">June</MenuItem>
+                      <MenuItem value="07">July</MenuItem>
+                      <MenuItem value="08">August</MenuItem>
+                      <MenuItem value="09">September</MenuItem>
+                      <MenuItem value="10">October</MenuItem>
+                      <MenuItem value="11">November</MenuItem>
+                      <MenuItem value="12">December</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Year"
+                    value={filters.year}
+                    onChange={(e) => handleFilterChange('year', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Status</InputLabel>
+                    <Select
+                      value={filters.status}
+                      label="Status"
+                      onChange={(e) => handleFilterChange('status', e.target.value)}
+                    >
+                      <MenuItem value="">All Statuses</MenuItem>
+                      <MenuItem value="pending">Pending</MenuItem>
+                      <MenuItem value="approved">Approved</MenuItem>
+                      <MenuItem value="rejected">Rejected</MenuItem>
+                      <MenuItem value="paid">Paid</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
+            </AccordionDetails>
+          </Accordion>
+        )}
 
-      {/* Payslips Table */}
-      <Card>
-        <CardContent>
+        {/* Table Section */}
+        <CardContent sx={{ p: 0 }}>
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-              <CircularProgress />
+            <Box sx={{ p: 3 }}>
+              <LinearProgress />
             </Box>
           ) : (
-            <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.05) }}>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Employee</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Payslip #</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Period</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Gross Salary</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Net Salary</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {formattedPayslips.map((payslip) => (
-                    <TableRow key={payslip._id} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar sx={{ width: 32, height: 32, bgcolor: alpha(theme.palette.primary.main, 0.1) }}>
-                            <Person sx={{ fontSize: 16, color: theme.palette.primary.main }} />
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                              {payslip.employeeName}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {payslip.employeeId}
+            <>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.05) }}>
+                      <TableCell sx={{ fontWeight: 600 }}>Employee</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Pay Period</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Basic Salary</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Allowances</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Deductions</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Net Pay</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 600 }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {!Array.isArray(payslips) || payslips === null || payslips === undefined ? (
+                      <TableRow>
+                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                          <Box sx={{ textAlign: 'center' }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Loading payslips...
                             </Typography>
                           </Box>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                          {payslip.payslipNumber}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {payslip.period}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                          {payslip.formattedTotals.grossSalary}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: theme.palette.success.main }}>
-                          {payslip.formattedTotals.netSalary}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={payslip.statusLabel}
-                          color={payslip.statusColor}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Tooltip title="View Details">
-                            <IconButton
-                              size="small"
-                              onClick={() => navigate(`/hr/payslips/${payslip._id}`)}
-                            >
-                              <Visibility fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          
-                          {payslip.status === 'draft' && (
-                            <>
+                        </TableCell>
+                      </TableRow>
+                    ) : payslips.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                          <Box sx={{ textAlign: 'center' }}>
+                            <Typography variant="body2" color="text.secondary">
+                              No payslips found
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      payslips.map((payslip) => (
+                        <TableRow key={payslip._id} hover>
+                          <TableCell>
+                            <Stack direction="row" alignItems="center" spacing={2}>
+                              <Avatar sx={{ width: 32, height: 32, bgcolor: theme.palette.primary.main }}>
+                                <Person />
+                              </Avatar>
+                              <Box>
+                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                  {payslip.employee?.firstName} {payslip.employee?.lastName}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {payslip.employee?.employeeId}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {payslip.payPeriodMonth} {payslip.payPeriodYear}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              {formatPKR(payslip.basicSalary || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" color="success.main">
+                              +{formatPKR(payslip.totalAllowances || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" color="error.main">
+                              -{formatPKR(payslip.totalDeductions || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
+                              {formatPKR(payslip.netPay || 0)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            {getStatusChip(payslip.status)}
+                          </TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={1}>
+                              <Tooltip title="View Details">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => navigate(`/hr/payslips/${payslip._id}`)}
+                                  sx={{ color: theme.palette.primary.main }}
+                                >
+                                  <Visibility />
+                                </IconButton>
+                              </Tooltip>
                               <Tooltip title="Edit">
                                 <IconButton
                                   size="small"
                                   onClick={() => navigate(`/hr/payslips/${payslip._id}/edit`)}
+                                  sx={{ color: theme.palette.info.main }}
                                 >
-                                  <Edit fontSize="small" />
+                                  <Edit />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title="Generate">
+                              <Tooltip title="Download">
                                 <IconButton
                                   size="small"
-                                  color="primary"
-                                  onClick={() => handleGenerate(payslip)}
+                                  onClick={() => {/* Download logic */}}
+                                  sx={{ color: theme.palette.success.main }}
                                 >
-                                  <TrendingUp fontSize="small" />
+                                  <Download />
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title="Delete">
                                 <IconButton
                                   size="small"
-                                  color="error"
                                   onClick={() => setDeleteDialog({ open: true, payslip })}
+                                  sx={{ color: theme.palette.error.main }}
                                 >
-                                  <Delete fontSize="small" />
+                                  <Delete />
                                 </IconButton>
                               </Tooltip>
-                            </>
-                          )}
-                          
-                          {payslip.status === 'generated' && (
-                            <Tooltip title="Approve">
-                              <IconButton
-                                size="small"
-                                color="success"
-                                onClick={() => handleApprove(payslip)}
-                              >
-                                <TrendingUp fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                          
-                          {payslip.status === 'approved' && (
-                            <Tooltip title="Mark as Paid">
-                              <IconButton
-                                size="small"
-                                color="success"
-                                onClick={() => handleMarkAsPaid(payslip)}
-                              >
-                                <AttachMoney fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-          
-          {formattedPayslips.length === 0 && !loading && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <Typography variant="body1" color="text.secondary">
-                No payslips found
-              </Typography>
-            </Box>
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Pagination */}
+              <Box sx={{ p: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
+                <Grid container justifyContent="space-between" alignItems="center">
+                  <Grid item>
+                    <Typography variant="body2" color="text.secondary">
+                      Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} entries
+                    </Typography>
+                  </Grid>
+                  <Grid item>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        size="small"
+                        onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                        disabled={pagination.page === 1}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                        disabled={pagination.page * pagination.limit >= pagination.total}
+                      >
+                        Next
+                      </Button>
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </Box>
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, payslip: null })}>
-        <DialogTitle>Delete Payslip</DialogTitle>
+      <Dialog
+        open={deleteDialog.open}
+        onClose={() => setDeleteDialog({ open: false, payslip: null })}
+      >
+        <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete the payslip for {deleteDialog.payslip?.employeeName}?
-            This action cannot be undone.
+            Are you sure you want to delete this payslip? This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialog({ open: false, payslip: null })}>
             Cancel
           </Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
+          <Button 
+            onClick={() => handleDelete(deleteDialog.payslip?._id)} 
+            color="error" 
+            variant="contained"
+          >
             Delete
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
+      {/* Snackbar for notifications */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <Alert
           onClose={() => setSnackbar({ ...snackbar, open: false })}
@@ -700,4 +648,4 @@ const PayslipManagement = () => {
   );
 };
 
-export default PayslipManagement; 
+export default PayslipManagement;

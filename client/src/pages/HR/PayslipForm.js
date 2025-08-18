@@ -25,7 +25,8 @@ import {
   TableCell,
   TableContainer,
   TableRow,
-  Autocomplete
+  Autocomplete,
+  Chip
 } from '@mui/material';
 import {
   Save,
@@ -328,7 +329,14 @@ const PayslipForm = () => {
     const deductions = formik.values.deductions;
     
     const totalEarnings = Object.values(earnings).reduce((sum, value) => sum + (value || 0), 0);
-    const totalDeductions = Object.values(deductions).reduce((sum, value) => sum + (value || 0), 0);
+    
+    // Calculate total deductions excluding Provident Fund (Coming Soon)
+    const totalDeductions = Object.entries(deductions).reduce((sum, [key, value]) => {
+      // Exclude providentFund from total deductions
+      if (key === 'providentFund') return sum;
+      return sum + (value || 0);
+    }, 0);
+    
     const netSalary = totalEarnings - totalDeductions;
     
     return { totalEarnings, totalDeductions, netSalary };
@@ -367,6 +375,22 @@ const PayslipForm = () => {
       />
     );
   }
+
+  const formatPKR = (amount) => {
+    if (amount === null || amount === undefined) return 'PKR 0';
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Format employee ID to 5 digits with leading zeros
+  const formatEmployeeId = (employeeId) => {
+    if (!employeeId) return '';
+    return employeeId.toString().padStart(5, '0');
+  };
 
   return (
     <Container maxWidth="lg">
@@ -408,7 +432,7 @@ const PayslipForm = () => {
                   <Grid item xs={12} md={6}>
                    <Autocomplete
                      options={employees}
-                     getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.employeeId})`}
+                     getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${formatEmployeeId(option.employeeId)})`}
                      filterOptions={(options, { inputValue }) => {
                        const searchTerm = inputValue.toLowerCase();
                        return options.filter(option => 
@@ -526,7 +550,7 @@ const PayslipForm = () => {
                         <strong>Name:</strong> {selectedEmployee.firstName} {selectedEmployee.lastName}
                       </Typography>
                       <Typography variant="body2">
-                        <strong>ID:</strong> {selectedEmployee.employeeId}
+                        <strong>ID:</strong> {formatEmployeeId(selectedEmployee.employeeId)}
                       </Typography>
                     </Grid>
                     <Grid item xs={12} md={6}>
@@ -690,14 +714,38 @@ const PayslipForm = () => {
                   <TextField
                     fullWidth
                     name="deductions.providentFund"
-                    label="Provident Fund"
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        Provident Fund
+                        <Chip 
+                          label="Coming Soon" 
+                          size="small" 
+                          color="warning" 
+                          variant="outlined"
+                          sx={{ fontSize: '0.7rem', height: 20 }}
+                        />
+                      </Box>
+                    }
                     type="number"
                     value={formik.values.deductions.providentFund}
                     onChange={formik.handleChange}
                     InputProps={{
                       startAdornment: <InputAdornment position="start">₨</InputAdornment>,
+                      readOnly: true,
+                      sx: { 
+                        bgcolor: 'grey.100',
+                        '& .MuiInputBase-input': { color: 'text.secondary' }
+                      }
                     }}
-                    sx={{ mb: 2 }}
+                    helperText="Provident Fund - Not included in total deductions (Coming Soon)"
+                    sx={{ 
+                      mb: 2,
+                      '& .MuiInputLabel-root': { color: 'text.secondary' },
+                      '& .MuiOutlinedInput-root': {
+                        borderColor: 'warning.main',
+                        '&:hover fieldset': { borderColor: 'warning.main' }
+                      }
+                    }}
                   />
                   <TextField
                     fullWidth
@@ -821,7 +869,7 @@ const PayslipForm = () => {
                       <strong>Name:</strong> {selectedEmployee?.firstName} {selectedEmployee?.lastName}
                     </Typography>
                     <Typography variant="body2">
-                      <strong>ID:</strong> {selectedEmployee?.employeeId}
+                      <strong>ID:</strong> {formatEmployeeId(selectedEmployee?.employeeId)}
                     </Typography>
                     <Typography variant="body2">
                       <strong>Department:</strong> {selectedEmployee?.department?.name}

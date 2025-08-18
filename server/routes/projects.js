@@ -4,7 +4,6 @@ const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Project = require('../models/hr/Project');
-const Company = require('../models/hr/Company');
 
 const router = express.Router();
 
@@ -31,8 +30,7 @@ router.get('/',
     }
 
     const projects = await Project.find(query)
-      .populate('company', 'name code')
-      .populate('manager', 'firstName lastName employeeId')
+      .populate('projectManager', 'firstName lastName employeeId')
       .sort({ name: 1 });
 
     res.json({
@@ -56,8 +54,7 @@ router.get('/:id',
     }
 
     const project = await Project.findById(req.params.id)
-      .populate('company', 'name code')
-      .populate('manager', 'firstName lastName employeeId');
+      .populate('projectManager', 'firstName lastName employeeId');
 
     if (!project) {
       return res.status(404).json({
@@ -80,7 +77,6 @@ router.post('/', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Project name is required'),
   body('code').trim().notEmpty().withMessage('Project code is required'),
-  body('company').isMongoId().withMessage('Valid company ID is required'),
   body('startDate').notEmpty().withMessage('Start date is required'),
   body('status').optional().isIn(['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled']).withMessage('Valid status is required')
 ], asyncHandler(async (req, res) => {
@@ -93,21 +89,11 @@ router.post('/', [
     });
   }
 
-  // Check if company exists
-  const company = await Company.findById(req.body.company);
-  if (!company) {
-    return res.status(400).json({
-      success: false,
-      message: 'Company not found'
-    });
-  }
-
   const project = new Project(req.body);
   await project.save();
 
   const populatedProject = await Project.findById(project._id)
-    .populate('company', 'name code')
-    .populate('manager', 'firstName lastName employeeId');
+    .populate('projectManager', 'firstName lastName employeeId');
 
   res.status(201).json({
     success: true,
@@ -123,7 +109,7 @@ router.put('/:id', [
   authorize('admin', 'hr_manager'),
   body('name').optional().trim().notEmpty().withMessage('Project name is required'),
   body('code').optional().trim().notEmpty().withMessage('Project code is required'),
-  body('company').optional().isMongoId().withMessage('Valid company ID is required'),
+  body('client').optional().trim().notEmpty().withMessage('Client is required'),
   body('status').optional().isIn(['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled']).withMessage('Valid status is required')
 ], asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -142,23 +128,11 @@ router.put('/:id', [
     });
   }
 
-  // Check if company exists if being updated
-  if (req.body.company) {
-    const company = await Company.findById(req.body.company);
-    if (!company) {
-      return res.status(400).json({
-        success: false,
-        message: 'Company not found'
-      });
-    }
-  }
-
   const project = await Project.findByIdAndUpdate(
     req.params.id,
     req.body,
     { new: true, runValidators: true }
-  ).populate('company', 'name code')
-   .populate('manager', 'firstName lastName employeeId');
+  ).populate('projectManager', 'firstName lastName employeeId');
 
   if (!project) {
     return res.status(404).json({

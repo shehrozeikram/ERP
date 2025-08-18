@@ -744,7 +744,7 @@ employeeSchema.pre('save', async function(next) {
     if (!this.isNew) {
       try {
         const Payroll = this.constructor.model('Payroll');
-        const { calculateMonthlyTax, calculateTaxableIncome } = require('../../utils/taxCalculator');
+        const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../../utils/taxCalculator');
         const FBRTaxSlab = require('./FBRTaxSlab');
         
         // Find all payrolls for this employee
@@ -790,7 +790,7 @@ employeeSchema.pre('save', async function(next) {
           } catch (error) {
             console.error('Error recalculating tax for payroll:', payroll._id, error);
             // Fallback to old calculation
-            const taxableIncome = calculateTaxableIncome({
+            const taxableIncome = calculateTaxableIncomeCorrected({
               basic: payroll.basicSalary,
               allowances: {
                 housing: payroll.houseRentAllowance,
@@ -900,7 +900,7 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
   }
 
   const Payroll = this.model('Payroll');
-  const { calculateMonthlyTax, calculateTaxableIncome } = require('../../utils/taxCalculator');
+  const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../../utils/taxCalculator');
   const FBRTaxSlab = require('./FBRTaxSlab');
   
   // Find all payrolls for this employee
@@ -948,7 +948,7 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
     } catch (error) {
       console.error('Error recalculating tax for payroll:', payroll._id, error);
       // Fallback to old calculation
-      const taxableIncome = calculateTaxableIncome({
+      const taxableIncome = calculateTaxableIncomeCorrected({
         basic: payroll.basicSalary,
         allowances: {
           housing: payroll.houseRentAllowance,

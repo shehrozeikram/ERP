@@ -258,6 +258,22 @@ const RealTimeAttendance = () => {
     return isCheckIn ? 'success' : 'error';
   };
 
+  const formatPKR = (amount) => {
+    if (amount === null || amount === undefined) return 'PKR 0';
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Format employee ID to 5 digits with leading zeros
+  const formatEmployeeId = (employeeId) => {
+    if (!employeeId) return '';
+    return employeeId.toString().padStart(5, '0');
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -422,7 +438,7 @@ const RealTimeAttendance = () => {
                     secondary={
                       <Box>
                         <Typography variant="body2" color="text.secondary">
-                          Employee ID: {record.employeeId}
+                          Employee ID: {formatEmployeeId(record.employeeId)}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
                           Time: {record.timestamp}

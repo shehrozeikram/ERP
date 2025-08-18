@@ -26,11 +26,16 @@ router.get('/',
       endDate,
       month,
       year,
+      compareMonth,
+      compareYear,
       department,
       designation,
       status,
       salaryRange,
       employmentType,
+      salaryRangeMin,
+      salaryRangeMax,
+      deductionType,
       format = 'json'
     } = req.query;
 
@@ -66,6 +71,26 @@ router.get('/',
       
       case 'payroll_report':
         reportData = await generatePayrollReport(baseFilter, month, year);
+        break;
+      
+      case 'department_payroll_report':
+        reportData = await generateDepartmentPayrollReport(baseFilter, month, year);
+        break;
+      
+      case 'monthly_comparison_report':
+        reportData = await generateMonthlyComparisonReport(baseFilter, month, year, compareMonth, compareYear);
+        break;
+      
+      case 'salary_range_report':
+        reportData = await generateSalaryRangeReport(baseFilter, month, year, salaryRangeMin, salaryRangeMax);
+        break;
+      
+      case 'deduction_analysis_report':
+        reportData = await generateDeductionAnalysisReport(baseFilter, month, year, deductionType);
+        break;
+      
+      case 'executive_payroll_summary':
+        reportData = await generateExecutivePayrollSummary(baseFilter, month, year);
         break;
       
       case 'loan_report':
@@ -273,7 +298,7 @@ async function generateAttendanceReport(filter, startDate, endDate) {
 // Payroll Report
 async function generatePayrollReport(filter, month, year) {
   const employees = await Employee.find(filter)
-    .populate('department', 'name')
+    .populate('placementDepartment', 'name')
     .lean();
 
   const payrollData = await Payroll.aggregate([
@@ -294,19 +319,25 @@ async function generatePayrollReport(filter, month, year) {
         totalDeductions: { $first: '$totalDeductions' },
         providentFund: { $first: '$deductions.providentFund' },
         eobi: { $first: '$deductions.eobi' },
-        incomeTax: { $first: '$deductions.incomeTax' }
+        incomeTax: { $first: '$deductions.incomeTax' },
+        status: { $first: '$status' }
       }
     }
   ]);
 
   const summary = {
-    totalEmployees: payrollData.length,
+    totalEmployees: employees.length,
+    employeesWithPayroll: payrollData.length,
     totalGrossSalary: payrollData.reduce((sum, payroll) => sum + (payroll.grossSalary || 0), 0),
     totalNetSalary: payrollData.reduce((sum, payroll) => sum + (payroll.netSalary || 0), 0),
     totalDeductions: payrollData.reduce((sum, payroll) => sum + (payroll.totalDeductions || 0), 0),
     totalProvidentFund: payrollData.reduce((sum, payroll) => sum + (payroll.providentFund || 0), 0),
     totalEOBI: payrollData.reduce((sum, payroll) => sum + (payroll.eobi || 0), 0),
-    totalIncomeTax: payrollData.reduce((sum, payroll) => sum + (payroll.incomeTax || 0), 0)
+    totalIncomeTax: payrollData.reduce((sum, payroll) => sum + (payroll.incomeTax || 0), 0),
+    averageGrossSalary: employees.length > 0 ? 
+      payrollData.reduce((sum, payroll) => sum + (payroll.grossSalary || 0), 0) / employees.length : 0,
+    averageNetSalary: employees.length > 0 ? 
+      payrollData.reduce((sum, payroll) => sum + (payroll.netSalary || 0), 0) / employees.length : 0
   };
 
   const data = employees.map(emp => {
@@ -314,7 +345,7 @@ async function generatePayrollReport(filter, month, year) {
     return {
       employeeId: emp.employeeId,
       name: `${emp.firstName} ${emp.lastName}`,
-      department: emp.department?.name || 'N/A',
+      department: emp.placementDepartment?.name || 'N/A',
       basicSalary: payroll?.basicSalary || 0,
       grossSalary: payroll?.grossSalary || 0,
       netSalary: payroll?.netSalary || 0,
@@ -322,7 +353,9 @@ async function generatePayrollReport(filter, month, year) {
       totalDeductions: payroll?.totalDeductions || 0,
       providentFund: payroll?.providentFund || 0,
       eobi: payroll?.eobi || 0,
-      incomeTax: payroll?.incomeTax || 0
+      incomeTax: payroll?.incomeTax || 0,
+      status: payroll?.status || 'No Payroll',
+      hasPayroll: !!payroll
     };
   });
 
@@ -719,6 +752,366 @@ async function generateDemographicsReport(filter) {
       dateOfBirth: emp.dateOfBirth
     };
   });
+
+  return { summary, data };
+}
+
+// Department Payroll Report
+async function generateDepartmentPayrollReport(filter, month, year) {
+  const employees = await Employee.find(filter)
+    .populate('placementDepartment', 'name')
+    .populate('placementDesignation', 'title')
+    .lean();
+
+  const payrollData = await Payroll.aggregate([
+    {
+      $match: {
+        employee: { $in: employees.map(emp => emp._id) },
+        month: parseInt(month || new Date().getMonth() + 1),
+        year: parseInt(year || new Date().getFullYear())
+      }
+    },
+    {
+      $lookup: {
+        from: 'employees',
+        localField: 'employee',
+        foreignField: '_id',
+        as: 'employeeInfo'
+      }
+    },
+    {
+      $unwind: '$employeeInfo'
+    },
+    {
+      $group: {
+        _id: {
+          department: '$employeeInfo.placementDepartment',
+          designation: '$employeeInfo.placementDesignation'
+        },
+        employeeCount: { $sum: 1 },
+        totalBasicSalary: { $sum: '$basicSalary' },
+        totalGrossSalary: { $sum: '$grossSalary' },
+        totalNetSalary: { $sum: '$netSalary' },
+        totalDeductions: { $sum: '$totalDeductions' },
+        averageSalary: { $avg: '$grossSalary' }
+      }
+    }
+  ]);
+
+  const summary = {
+    totalDepartments: new Set(payrollData.map(p => p._id.department?.toString())).size,
+    totalEmployees: payrollData.reduce((sum, dept) => sum + dept.employeeCount, 0),
+    totalGrossPayroll: payrollData.reduce((sum, dept) => sum + dept.totalGrossSalary, 0),
+    totalNetPayroll: payrollData.reduce((sum, dept) => sum + dept.totalNetSalary, 0),
+    totalDeductions: payrollData.reduce((sum, dept) => sum + dept.totalDeductions, 0)
+  };
+
+  const data = payrollData.map(dept => ({
+    department: dept._id.department?.name || 'N/A',
+    designation: dept._id.designation?.title || 'N/A',
+    employeeCount: dept.employeeCount,
+    totalBasicSalary: dept.totalBasicSalary,
+    totalGrossSalary: dept.totalGrossSalary,
+    totalNetSalary: dept.totalNetSalary,
+    totalDeductions: dept.totalDeductions,
+    averageSalary: Math.round(dept.averageSalary)
+  }));
+
+  return { summary, data };
+}
+
+// Monthly Comparison Report
+async function generateMonthlyComparisonReport(filter, month, year, compareMonth, compareYear) {
+  const employees = await Employee.find(filter)
+    .populate('placementDepartment', 'name')
+    .lean();
+
+  const currentMonthData = await Payroll.aggregate([
+    {
+      $match: {
+        employee: { $in: employees.map(emp => emp._id) },
+        month: parseInt(month || new Date().getMonth() + 1),
+        year: parseInt(year || new Date().getFullYear())
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalGrossSalary: { $sum: '$grossSalary' },
+        totalNetSalary: { $sum: '$netSalary' },
+        totalDeductions: { $sum: '$totalDeductions' },
+        employeeCount: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const compareMonthData = compareMonth && compareYear ? await Payroll.aggregate([
+    {
+      $match: {
+        employee: { $in: employees.map(emp => emp._id) },
+        month: parseInt(compareMonth),
+        year: parseInt(compareYear)
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalGrossSalary: { $sum: '$grossSalary' },
+        totalNetSalary: { $sum: '$netSalary' },
+        totalDeductions: { $sum: '$totalDeductions' },
+        employeeCount: { $sum: 1 }
+      }
+    }
+  ]) : [];
+
+  const current = currentMonthData[0] || { totalGrossSalary: 0, totalNetSalary: 0, totalDeductions: 0, employeeCount: 0 };
+  const compare = compareMonthData[0] || { totalGrossSalary: 0, totalNetSalary: 0, totalDeductions: 0, employeeCount: 0 };
+
+  const summary = {
+    currentMonth: {
+      month: month,
+      year: year,
+      totalGrossSalary: current.totalGrossSalary,
+      totalNetSalary: current.totalNetSalary,
+      totalDeductions: current.totalDeductions,
+      employeeCount: current.employeeCount
+    },
+    compareMonth: compareMonth && compareYear ? {
+      month: compareMonth,
+      year: compareYear,
+      totalGrossSalary: compare.totalGrossSalary,
+      totalNetSalary: compare.totalNetSalary,
+      totalDeductions: compare.totalDeductions,
+      employeeCount: compare.employeeCount
+    } : null,
+    changes: {
+      grossSalaryChange: compare.totalGrossSalary ? ((current.totalGrossSalary - compare.totalGrossSalary) / compare.totalGrossSalary * 100).toFixed(2) : 0,
+      netSalaryChange: compare.totalNetSalary ? ((current.totalNetSalary - compare.totalNetSalary) / compare.totalNetSalary * 100).toFixed(2) : 0,
+      deductionChange: compare.totalDeductions ? ((current.totalDeductions - compare.totalDeductions) / compare.totalDeductions * 100).toFixed(2) : 0
+    }
+  };
+
+  const data = [
+    {
+      period: `${month}/${year}`,
+      totalGrossSalary: current.totalGrossSalary,
+      totalNetSalary: current.totalNetSalary,
+      totalDeductions: current.totalDeductions,
+      employeeCount: current.employeeCount
+    }
+  ];
+
+  if (compareMonth && compareYear) {
+    data.push({
+      period: `${compareMonth}/${compareYear}`,
+      totalGrossSalary: compare.totalGrossSalary,
+      totalNetSalary: compare.totalNetSalary,
+      totalDeductions: compare.totalDeductions,
+      employeeCount: compare.employeeCount
+    });
+  }
+
+  return { summary, data };
+}
+
+// Salary Range Analysis Report
+async function generateSalaryRangeReport(filter, month, year, salaryRangeMin, salaryRangeMax) {
+  const employees = await Employee.find(filter)
+    .populate('placementDepartment', 'name')
+    .lean();
+
+  const payrollData = await Payroll.aggregate([
+    {
+      $match: {
+        employee: { $in: employees.map(emp => emp._id) },
+        month: parseInt(month || new Date().getMonth() + 1),
+        year: parseInt(year || new Date().getFullYear())
+      }
+    },
+    {
+      $group: {
+        _id: '$employee',
+        grossSalary: { $first: '$grossSalary' }
+      }
+    }
+  ]);
+
+  // Define salary ranges
+  const salaryRanges = [
+    { min: 0, max: 50000, label: '0 - 50,000' },
+    { min: 50001, max: 100000, label: '50,001 - 100,000' },
+    { min: 100001, max: 200000, label: '100,001 - 200,000' },
+    { min: 200001, max: 500000, label: '200,001 - 500,000' },
+    { min: 500001, max: 1000000, label: '500,001 - 1,000,000' },
+    { min: 1000001, max: Infinity, label: '1,000,000+' }
+  ];
+
+  const rangeAnalysis = salaryRanges.map(range => {
+    const employeesInRange = payrollData.filter(p => 
+      p.grossSalary >= range.min && p.grossSalary <= range.max
+    );
+    
+    return {
+      range: range.label,
+      employeeCount: employeesInRange.length,
+      percentage: payrollData.length > 0 ? (employeesInRange.length / payrollData.length * 100).toFixed(1) : 0,
+      totalSalary: employeesInRange.reduce((sum, p) => sum + p.grossSalary, 0),
+      averageSalary: employeesInRange.length > 0 ? 
+        employeesInRange.reduce((sum, p) => sum + p.grossSalary, 0) / employeesInRange.length : 0
+    };
+  });
+
+  const summary = {
+    totalEmployees: payrollData.length,
+    totalSalary: payrollData.reduce((sum, p) => sum + p.grossSalary, 0),
+    averageSalary: payrollData.length > 0 ? 
+      payrollData.reduce((sum, p) => sum + p.grossSalary, 0) / payrollData.length : 0,
+    highestSalary: Math.max(...payrollData.map(p => p.grossSalary)),
+    lowestSalary: Math.min(...payrollData.map(p => p.grossSalary))
+  };
+
+  return { summary, data: rangeAnalysis };
+}
+
+// Deduction Analysis Report
+async function generateDeductionAnalysisReport(filter, month, year, deductionType) {
+  const employees = await Employee.find(filter)
+    .populate('placementDepartment', 'name')
+    .lean();
+
+  const payrollData = await Payroll.aggregate([
+    {
+      $match: {
+        employee: { $in: employees.map(emp => emp._id) },
+        month: parseInt(month || new Date().getMonth() + 1),
+        year: parseInt(year || new Date().getFullYear())
+      }
+    },
+    {
+      $group: {
+        _id: '$employee',
+        basicSalary: { $first: '$basicSalary' },
+        grossSalary: { $first: '$grossSalary' },
+        providentFund: { $first: '$deductions.providentFund' },
+        eobi: { $first: '$deductions.eobi' },
+        incomeTax: { $first: '$deductions.incomeTax' },
+        otherDeductions: { $first: '$deductions.other' }
+      }
+    }
+  ]);
+
+  const summary = {
+    totalEmployees: payrollData.length,
+    totalBasicSalary: payrollData.reduce((sum, p) => sum + (p.basicSalary || 0), 0),
+    totalGrossSalary: payrollData.reduce((sum, p) => sum + (p.grossSalary || 0), 0),
+    totalProvidentFund: payrollData.reduce((sum, p) => sum + (p.providentFund || 0), 0),
+    totalEOBI: payrollData.reduce((sum, p) => sum + (p.eobi || 0), 0),
+    totalIncomeTax: payrollData.reduce((sum, p) => sum + (p.incomeTax || 0), 0),
+    totalOtherDeductions: payrollData.reduce((sum, p) => sum + (p.otherDeductions || 0), 0),
+    totalDeductions: payrollData.reduce((sum, p) => 
+      sum + (p.providentFund || 0) + (p.eobi || 0) + (p.incomeTax || 0) + (p.otherDeductions || 0), 0
+    )
+  };
+
+  let filteredData = payrollData;
+  if (deductionType) {
+    filteredData = payrollData.filter(p => {
+      switch (deductionType) {
+        case 'providentFund': return p.providentFund > 0;
+        case 'eobi': return p.eobi > 0;
+        case 'incomeTax': return p.incomeTax > 0;
+        case 'other': return p.otherDeductions > 0;
+        default: return true;
+      }
+    });
+  }
+
+  const data = filteredData.map(p => ({
+    employeeId: employees.find(e => e._id.toString() === p._id.toString())?.employeeId || 'N/A',
+    name: employees.find(e => e._id.toString() === p._id.toString()) ? 
+      `${employees.find(e => e._id.toString() === p._id.toString()).firstName} ${employees.find(e => e._id.toString() === p._id.toString()).lastName}` : 'N/A',
+    department: employees.find(e => e._id.toString() === p._id.toString())?.placementDepartment?.name || 'N/A',
+    basicSalary: p.basicSalary || 0,
+    grossSalary: p.grossSalary || 0,
+    providentFund: p.providentFund || 0,
+    eobi: p.eobi || 0,
+    incomeTax: p.incomeTax || 0,
+    otherDeductions: p.otherDeductions || 0,
+    totalDeductions: (p.providentFund || 0) + (p.eobi || 0) + (p.incomeTax || 0) + (p.otherDeductions || 0),
+    deductionRate: p.grossSalary > 0 ? 
+      (((p.providentFund || 0) + (p.eobi || 0) + (p.incomeTax || 0) + (p.otherDeductions || 0)) / p.grossSalary * 100).toFixed(2) : 0
+  }));
+
+  return { summary, data };
+}
+
+// Executive Payroll Summary
+async function generateExecutivePayrollSummary(filter, month, year) {
+  const employees = await Employee.find(filter)
+    .populate('placementDepartment', 'name')
+    .lean();
+
+  const payrollData = await Payroll.aggregate([
+    {
+      $match: {
+        employee: { $in: employees.map(emp => emp._id) },
+        month: parseInt(month || new Date().getMonth() + 1),
+        year: parseInt(year || new Date().getFullYear())
+      }
+    },
+    {
+      $group: {
+        _id: '$employee',
+        basicSalary: { $first: '$basicSalary' },
+        grossSalary: { $first: '$grossSalary' },
+        netSalary: { $first: '$netSalary' },
+        totalDeductions: { $first: '$totalDeductions' }
+      }
+    }
+  ]);
+
+  const summary = {
+    totalEmployees: payrollData.length,
+    totalGrossSalary: payrollData.reduce((sum, p) => sum + (p.grossSalary || 0), 0),
+    totalNetSalary: payrollData.reduce((sum, p) => sum + (p.netSalary || 0), 0),
+    totalDeductions: payrollData.reduce((sum, p) => sum + (p.totalDeductions || 0), 0),
+    averageGrossSalary: payrollData.length > 0 ? 
+      payrollData.reduce((sum, p) => sum + (p.grossSalary || 0), 0) / payrollData.length : 0,
+    averageNetSalary: payrollData.length > 0 ? 
+      payrollData.reduce((sum, p) => sum + (p.netSalary || 0), 0) / payrollData.length : 0,
+    costPerEmployee: payrollData.length > 0 ? 
+      payrollData.reduce((sum, p) => sum + (p.grossSalary || 0), 0) / payrollData.length : 0,
+    deductionRate: payrollData.reduce((sum, p) => sum + (p.grossSalary || 0), 0) > 0 ? 
+      (payrollData.reduce((sum, p) => sum + (p.totalDeductions || 0), 0) / 
+       payrollData.reduce((sum, p) => sum + (p.grossSalary || 0), 0) * 100).toFixed(2) : 0
+  };
+
+  const data = [
+    {
+      metric: 'Total Payroll Cost',
+      value: summary.totalGrossSalary,
+      percentage: 100,
+      trend: 'Current Month'
+    },
+    {
+      metric: 'Net Payroll Cost',
+      value: summary.totalNetSalary,
+      percentage: summary.totalGrossSalary > 0 ? (summary.totalNetSalary / summary.totalGrossSalary * 100).toFixed(1) : 0,
+      trend: 'After Deductions'
+    },
+    {
+      metric: 'Total Deductions',
+      value: summary.totalDeductions,
+      percentage: summary.totalGrossSalary > 0 ? (summary.totalDeductions / summary.totalGrossSalary * 100).toFixed(1) : 0,
+      trend: 'Taxes & Benefits'
+    },
+    {
+      metric: 'Cost per Employee',
+      value: summary.costPerEmployee,
+      percentage: 'N/A',
+      trend: 'Average'
+    }
+  ];
 
   return { summary, data };
 }

@@ -234,9 +234,43 @@ const PayrollForm = () => {
         // Calculate start and end dates from selected month and year
         const { startDate, endDate } = getMonthDates(values.payPeriod.month, values.payPeriod.year);
         
-        // Create the payload with calculated dates
+        // Map allowances to backend format
+        const mappedAllowances = {
+          conveyance: {
+            isActive: values.allowances?.conveyance?.isActive || false,
+            amount: values.allowances?.conveyance?.isActive ? (values.allowances.conveyance.amount || 0) : 0
+          },
+          food: {
+            isActive: values.allowances?.food?.isActive || false,
+            amount: values.allowances?.food?.isActive ? (values.allowances.food.amount || 0) : 0
+          },
+          vehicleFuel: {
+            isActive: values.allowances?.vehicleFuel?.isActive || false,
+            amount: values.allowances?.vehicleFuel?.isActive ? (values.allowances.vehicleFuel.amount || 0) : 0
+          },
+          medical: {
+            isActive: values.allowances?.medical?.isActive || false,
+            amount: values.allowances?.medical?.isActive ? (values.allowances.medical.amount || 0) : 0
+          },
+          special: {
+            isActive: values.allowances?.special?.isActive || false,
+            amount: values.allowances?.special?.isActive ? (values.allowances.special.amount || 0) : 0
+          },
+          other: {
+            isActive: values.allowances?.other?.isActive || false,
+            amount: values.allowances?.other?.isActive ? (values.allowances.other.amount || 0) : 0
+          }
+        };
+        
+        // Create the payload with calculated dates and mapped allowances
         const payrollData = {
           ...values,
+          allowances: mappedAllowances,
+          deductions: {
+            ...values.deductions,
+            incomeTax: values.deductions.incomeTax || 0,
+            eobi: 370 // Fixed EOBI amount for Pakistan
+          },
           payPeriod: {
             ...values.payPeriod,
             startDate,
@@ -365,11 +399,30 @@ const PayrollForm = () => {
         },
         basicSalary: payroll.basicSalary,
         allowances: {
-          housing: payroll.houseRentAllowance || 0,
-          transport: payroll.conveyanceAllowance || 0,
-          meal: payroll.specialAllowance || 0,
-          medical: payroll.medicalAllowance || 0,
-          other: payroll.otherAllowance || 0
+          conveyance: {
+            isActive: payroll.allowances?.conveyance?.isActive || false,
+            amount: payroll.allowances?.conveyance?.amount || payroll.conveyanceAllowance || 0
+          },
+          food: {
+            isActive: payroll.allowances?.food?.isActive || false,
+            amount: payroll.allowances?.food?.amount || 0
+          },
+          vehicleFuel: {
+            isActive: payroll.allowances?.vehicleFuel?.isActive || false,
+            amount: payroll.allowances?.vehicleFuel?.amount || 0
+          },
+          medical: {
+            isActive: payroll.allowances?.medical?.isActive || false,
+            amount: payroll.allowances?.medical?.amount || payroll.medicalAllowance || 0
+          },
+          special: {
+            isActive: payroll.allowances?.special?.isActive || false,
+            amount: payroll.allowances?.special?.amount || payroll.specialAllowance || 0
+          },
+          other: {
+            isActive: payroll.allowances?.other?.isActive || false,
+            amount: payroll.allowances?.other?.amount || payroll.otherAllowance || 0
+          }
         },
         overtime: {
           hours: payroll.overtimeHours || 0,
@@ -430,15 +483,29 @@ const PayrollForm = () => {
       
       // Set calculated values
       formik.setFieldValue('basicSalary', basicSalary);
-      formik.setFieldValue('allowances.housing', houseRentAllowance);
-      formik.setFieldValue('allowances.medical', medicalAllowance);
-      // Don't reset conveyance allowance - let user enter their own value
-      // formik.setFieldValue('allowances.transport', 0); // Removed - user should enter their own value
-      formik.setFieldValue('allowances.other', 0); // Not used in new structure
+      
+      // Set allowances from employee record (only if they are active)
+      formik.setFieldValue('allowances.conveyance.isActive', employee.allowances?.conveyance?.isActive || false);
+      formik.setFieldValue('allowances.conveyance.amount', employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0);
+      
+      formik.setFieldValue('allowances.food.isActive', employee.allowances?.food?.isActive || false);
+      formik.setFieldValue('allowances.food.amount', employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0);
+      
+      formik.setFieldValue('allowances.vehicleFuel.isActive', employee.allowances?.vehicleFuel?.isActive || false);
+      formik.setFieldValue('allowances.vehicleFuel.amount', employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0);
+      
+      formik.setFieldValue('allowances.medical.isActive', employee.allowances?.medical?.isActive || false);
+      formik.setFieldValue('allowances.medical.amount', employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : medicalAllowance);
+      
+      formik.setFieldValue('allowances.special.isActive', employee.allowances?.special?.isActive || false);
+      formik.setFieldValue('allowances.special.amount', employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0);
+      
+      formik.setFieldValue('allowances.other.isActive', employee.allowances?.other?.isActive || false);
+      formik.setFieldValue('allowances.other.amount', employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
       
       // Set EOBI if employee has it active
-              // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
-        formik.setFieldValue('deductions.eobi', 370);
+      // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
+      formik.setFieldValue('deductions.eobi', 370);
       
       // Set Provident Fund if employee has it active (8.34% of basic salary)
       if (employee.providentFund?.isActive) {
@@ -469,15 +536,10 @@ const PayrollForm = () => {
           // Ensure deduction doesn't exceed outstanding balance
           loanDeduction = Math.min(loanDeduction, activeLoan.outstandingBalance);
           formik.setFieldValue('deductions.loan', loanDeduction);
-        } else {
-          formik.setFieldValue('deductions.loan', 0);
         }
       } else {
         formik.setFieldValue('deductions.loan', 0);
       }
-      
-      // Set currency
-      formik.setFieldValue('currency', employee.currency || 'PKR');
     }
   };
 
@@ -510,11 +572,12 @@ const PayrollForm = () => {
     
     // Calculate total allowances with safe defaults
     const totalAllowances = 
-      (values.allowances?.housing || 0) + 
-      (values.allowances?.transport || 0) + 
-      (values.allowances?.meal || 0) + 
-      (values.allowances?.medical || 0) + 
-      (values.allowances?.other || 0);
+      (values.allowances?.conveyance?.isActive ? (values.allowances.conveyance.amount || 0) : 0) + 
+      (values.allowances?.food?.isActive ? (values.allowances.food.amount || 0) : 0) + 
+      (values.allowances?.vehicleFuel?.isActive ? (values.allowances.vehicleFuel.amount || 0) : 0) + 
+      (values.allowances?.medical?.isActive ? (values.allowances.medical.amount || 0) : 0) + 
+      (values.allowances?.special?.isActive ? (values.allowances.special.amount || 0) : 0) + 
+      (values.allowances?.other?.isActive ? (values.allowances.other.amount || 0) : 0);
 
     // Calculate overtime amount with safe defaults
     const overtimeAmount = (values.overtime?.hours || 0) * (values.overtime?.rate || 0);
@@ -546,13 +609,13 @@ const PayrollForm = () => {
     // Use tax info from state (calculated by useEffect)
     const autoCalculatedTax = taxInfo ? (taxInfo.monthlyTax || 0) : 0;
 
-    // Calculate total deductions (including auto-calculated tax)
+    // Calculate total deductions (excluding Provident Fund for now - Coming Soon)
     const totalDeductions = 
       autoCalculatedTax + // Use auto-calculated tax
       (values.deductions?.insurance || 0) + 
       (values.deductions?.pension || 0) + 
       (values.deductions?.eobi || 0) + 
-      (values.deductions?.providentFund || 0) + 
+      // (values.deductions?.providentFund || 0) + // Excluded - Coming Soon
       (values.deductions?.loan || 0) + 
       (values.deductions?.other || 0) + 
       leaveDeductionAmount;
@@ -580,6 +643,12 @@ const PayrollForm = () => {
   };
 
   const formatCurrency = formatPKR;
+
+  // Format employee ID to 5 digits with leading zeros
+  const formatEmployeeId = (employeeId) => {
+    if (!employeeId) return '';
+    return employeeId.toString().padStart(5, '0');
+  };
 
   // Add tax calculation display
   const calculateTaxInfo = async (basicSalary, allowances) => {
@@ -693,7 +762,7 @@ const PayrollForm = () => {
                 >
                   {employees.map((employee) => (
                     <MenuItem key={employee._id} value={employee._id}>
-                      {employee.firstName} {employee.lastName} - {employee.employeeId}
+                      {employee.firstName} {employee.lastName} - {formatEmployeeId(employee.employeeId)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -770,7 +839,7 @@ const PayrollForm = () => {
                       </Grid>
                       <Grid item xs={12} sm={6}>
                         <Typography variant="body2" color="textSecondary">
-                          Employee ID: {selectedEmployee.employeeId}
+                          Employee ID: {formatEmployeeId(selectedEmployee.employeeId)}
                         </Typography>
                       </Grid>
                       <Grid item xs={12} sm={6}>
@@ -825,75 +894,197 @@ const PayrollForm = () => {
                 </AccordionSummary>
                 <AccordionDetails>
                   <Grid container spacing={2}>
+                    {/* Conveyance Allowance */}
                     <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.housing"
-                        label="House Rent Allowance"
-                        value={formik.values.allowances.housing}
-                        onChange={formik.handleChange}
-                        InputProps={{
-                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                        }}
-                      />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={formik.values.allowances?.conveyance?.isActive || false}
+                            onChange={(e) => formik.setFieldValue('allowances.conveyance.isActive', e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <Typography variant="subtitle2">Conveyance Allowance</Typography>
+                        </Box>
+                        {formik.values.allowances?.conveyance?.isActive && (
+                          <TextField
+                            fullWidth
+                            type="number"
+                            name="allowances.conveyance.amount"
+                            label="Amount"
+                            value={formik.values.allowances?.conveyance?.amount || ''}
+                            onChange={formik.handleChange}
+                            inputProps={{
+                              step: "1",
+                              min: "0"
+                            }}
+                            InputProps={{
+                              startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                            }}
+                            helperText="Enter exact amount (no rounding)"
+                          />
+                        )}
+                      </Box>
                     </Grid>
+
+                    {/* Food Allowance */}
                     <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.medical"
-                        label="Medical Allowance"
-                        value={formik.values.allowances.medical}
-                        onChange={formik.handleChange}
-                        InputProps={{
-                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                        }}
-                      />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={formik.values.allowances?.food?.isActive || false}
+                            onChange={(e) => formik.setFieldValue('allowances.food.isActive', e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <Typography variant="subtitle2">Food Allowance</Typography>
+                        </Box>
+                        {formik.values.allowances?.food?.isActive && (
+                          <TextField
+                            fullWidth
+                            type="number"
+                            name="allowances.food.amount"
+                            label="Amount"
+                            value={formik.values.allowances?.food?.amount || ''}
+                            onChange={formik.handleChange}
+                            inputProps={{
+                              step: "1",
+                              min: "0"
+                            }}
+                            InputProps={{
+                              startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                            }}
+                          />
+                        )}
+                      </Box>
                     </Grid>
+
+                    {/* Vehicle Fuel Allowance */}
                     <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.transport"
-                        label="Conveyance Allowance"
-                        value={formik.values.allowances.transport}
-                        onChange={formik.handleChange}
-                        inputProps={{
-                          step: "1",
-                          min: "0"
-                        }}
-                        InputProps={{
-                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                        }}
-                        helperText="Enter exact amount (no rounding)"
-                      />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={formik.values.allowances?.vehicleFuel?.isActive || false}
+                            onChange={(e) => formik.setFieldValue('allowances.vehicleFuel.isActive', e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <Typography variant="subtitle2">Vehicle & Fuel Allowance</Typography>
+                        </Box>
+                        {formik.values.allowances?.vehicleFuel?.isActive && (
+                          <TextField
+                            fullWidth
+                            type="number"
+                            name="allowances.vehicleFuel.amount"
+                            label="Amount"
+                            value={formik.values.allowances?.vehicleFuel?.amount || ''}
+                            onChange={formik.handleChange}
+                            inputProps={{
+                              step: "1",
+                              min: "0"
+                            }}
+                            InputProps={{
+                              startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                            }}
+                          />
+                        )}
+                      </Box>
                     </Grid>
+
+                    {/* Medical Allowance */}
                     <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.other"
-                        label="Special Allowance"
-                        value={formik.values.allowances.other}
-                        onChange={formik.handleChange}
-                        InputProps={{
-                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                        }}
-                      />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={formik.values.allowances?.medical?.isActive || false}
+                            onChange={(e) => formik.setFieldValue('allowances.medical.isActive', e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <Typography variant="subtitle2">Medical Allowance</Typography>
+                        </Box>
+                        {formik.values.allowances?.medical?.isActive && (
+                          <TextField
+                            fullWidth
+                            type="number"
+                            name="allowances.medical.amount"
+                            label="Amount"
+                            value={formik.values.allowances?.medical?.amount || ''}
+                            onChange={formik.handleChange}
+                            inputProps={{
+                              step: "1",
+                              min: "0"
+                            }}
+                            InputProps={{
+                              startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                            }}
+                          />
+                        )}
+                      </Box>
                     </Grid>
+
+                    {/* Special Allowance */}
                     <Grid item xs={12} sm={6} md={4}>
-                      <TextField
-                        fullWidth
-                        type="number"
-                        name="allowances.meal"
-                        label="Other Allowance"
-                        value={formik.values.allowances.meal}
-                        onChange={formik.handleChange}
-                        InputProps={{
-                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                        }}
-                      />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={formik.values.allowances?.special?.isActive || false}
+                            onChange={(e) => formik.setFieldValue('allowances.special.isActive', e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <Typography variant="subtitle2">Special Allowance</Typography>
+                        </Box>
+                        {formik.values.allowances?.special?.isActive && (
+                          <TextField
+                            fullWidth
+                            type="number"
+                            name="allowances.special.amount"
+                            label="Amount"
+                            value={formik.values.allowances?.special?.amount || ''}
+                            onChange={formik.handleChange}
+                            inputProps={{
+                              step: "1",
+                              min: "0"
+                            }}
+                            InputProps={{
+                              startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                            }}
+                          />
+                        )}
+                      </Box>
+                    </Grid>
+
+                    {/* Other Allowance */}
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={formik.values.allowances?.other?.isActive || false}
+                            onChange={(e) => formik.setFieldValue('allowances.other.isActive', e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <Typography variant="subtitle2">Other Allowance</Typography>
+                        </Box>
+                        {formik.values.allowances?.other?.isActive && (
+                          <TextField
+                            fullWidth
+                            type="number"
+                            name="allowances.other.amount"
+                            label="Amount"
+                            value={formik.values.allowances?.other?.amount || ''}
+                            onChange={formik.handleChange}
+                            inputProps={{
+                              step: "1",
+                              min: "0"
+                            }}
+                            InputProps={{
+                              startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                            }}
+                          />
+                        )}
+                      </Box>
                     </Grid>
                   </Grid>
                 </AccordionDetails>
@@ -996,6 +1187,20 @@ const PayrollForm = () => {
                       <TextField
                         fullWidth
                         type="number"
+                        name="deductions.incomeTax"
+                        label="Income Tax"
+                        value={formik.values.deductions.incomeTax || 0}
+                        onChange={formik.handleChange}
+                        helperText="Auto-calculated based on salary and allowances"
+                        InputProps={{
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <TextField
+                        fullWidth
+                        type="number"
                         name="deductions.tax"
                         label="Tax"
                         value={formik.values.deductions.tax}
@@ -1042,10 +1247,36 @@ const PayrollForm = () => {
                         fullWidth
                         type="number"
                         name="deductions.providentFund"
-                        label="Provident Fund"
+                        label={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            Provident Fund
+                            <Chip 
+                              label="Coming Soon" 
+                              size="small" 
+                              color="warning" 
+                              variant="outlined"
+                              sx={{ fontSize: '0.7rem', height: 20 }}
+                            />
+                          </Box>
+                        }
                         value={formik.values.deductions.providentFund}
                         onChange={formik.handleChange}
-                        helperText="Provident Fund (8.34% of basic salary)"
+                        InputProps={{
+                          readOnly: true,
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>,
+                          sx: { 
+                            bgcolor: 'grey.100',
+                            '& .MuiInputBase-input': { color: 'text.secondary' }
+                          }
+                        }}
+                        helperText="Provident Fund (8.34% of basic salary) - Not yet active in calculations"
+                        sx={{
+                          '& .MuiInputLabel-root': { color: 'text.secondary' },
+                          '& .MuiOutlinedInput-root': {
+                            borderColor: 'warning.main',
+                            '&:hover fieldset': { borderColor: 'warning.main' }
+                          }
+                        }}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
@@ -1280,13 +1511,25 @@ const PayrollForm = () => {
                         <Typography>Insurance: {formatCurrency(formik.values.deductions.insurance)}</Typography>
                         <Typography>Pension: {formatCurrency(formik.values.deductions.pension)}</Typography>
                         <Typography>EOBI: {formatCurrency(formik.values.deductions.eobi)}</Typography>
-                        <Typography>Provident Fund: {formatCurrency(formik.values.deductions.providentFund)}</Typography>
+                        <Typography>
+                          Provident Fund: {formatCurrency(formik.values.deductions.providentFund)}
+                          <Chip 
+                            label="Coming Soon" 
+                            size="small" 
+                            color="warning" 
+                            variant="outlined"
+                            sx={{ ml: 1, fontSize: '0.7rem', height: 20 }}
+                          />
+                        </Typography>
                         <Typography>Loan: {formatCurrency(formik.values.deductions.loan)}</Typography>
                         <Typography>Other: {formatCurrency(formik.values.deductions.other)}</Typography>
                         <Typography color="warning.main">Leave Deduction: {formatCurrency(totals.leaveDeductionAmount)}</Typography>
                         <Divider sx={{ my: 1 }} />
                         <Typography variant="h6" color="error">
                           Total Deductions: {formatCurrency(totals.totalDeductions)}
+                        </Typography>
+                        <Typography variant="caption" color="warning.main" sx={{ fontStyle: 'italic' }}>
+                          Note: Provident Fund is excluded from total deductions (Coming Soon)
                         </Typography>
                       </Box>
                     </Grid>
@@ -1336,6 +1579,13 @@ const PayrollForm = () => {
                             </Typography>
                             <Typography variant="body2" sx={{ mb: 1 }}>
                               <strong>PF:</strong> {formatCurrency(formik.values.deductions.providentFund || 0)}
+                              <Chip 
+                                label="Coming Soon" 
+                                size="small" 
+                                color="warning" 
+                                variant="outlined"
+                                sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
+                              />
                             </Typography>
                             <Typography variant="body2" sx={{ mb: 1 }}>
                               <strong>Other:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
