@@ -216,8 +216,8 @@ const Payroll = () => {
 
   const fetchEmployees = async () => {
     try {
-      // Fetch ALL employees without limit
-      const response = await api.get('/hr/employees?limit=0');
+      // Fetch ALL employees using the new getAll parameter
+      const response = await api.get('/hr/employees?getAll=true');
       setEmployees(response.data.data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);

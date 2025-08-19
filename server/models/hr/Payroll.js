@@ -189,6 +189,11 @@ const payrollSchema = new mongoose.Schema({
     required: [true, 'Gross salary is required'],
     min: [0, 'Gross salary cannot be negative']
   },
+  totalEarnings: {
+    type: Number,
+    default: 0,
+    min: [0, 'Total earnings cannot be negative']
+  },
   totalDeductions: {
     type: Number,
     default: 0,
@@ -290,11 +295,6 @@ payrollSchema.virtual('totalBonuses').get(function() {
   return this.performanceBonus + this.otherBonus;
 });
 
-// Virtual for total earnings
-payrollSchema.virtual('totalEarnings').get(function() {
-  return this.grossSalary + this.overtimeAmount + this.totalBonuses;
-});
-
 // Pre-save middleware to calculate totals
 payrollSchema.pre('save', function(next) {
   // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
@@ -305,14 +305,77 @@ payrollSchema.pre('save', function(next) {
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
   this.eobi = 370;
   
-  // Auto-calculate income tax if not provided
-  if (!this.incomeTax && this.grossSalary) {
-    // Calculate tax using FBR 2025-2026 rules:
-    // Medical allowance is 10% of gross salary and is tax-exempt
-    const taxCalculation = calculateTax(this.grossSalary);
-    
-    // Use the image calculation to match exactly what's shown in the image
-    this.incomeTax = calculateMonthlyTaxImage(taxCalculation.taxableIncome);
+  // Recalculate gross salary (Base only - Basic + Medical + House Rent)
+  this.grossSalary = this.basicSalary + 
+    (this.houseRentAllowance || 0) + 
+    (this.medicalAllowance || 0);
+  
+  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
+  const additionalAllowances = 
+    (this.allowances?.conveyance?.isActive ? this.allowances.conveyance.amount : 0) +
+    (this.allowances?.food?.isActive ? this.allowances.food.amount : 0) +
+    (this.allowances?.vehicleFuel?.isActive ? this.allowances.vehicleFuel.amount : 0) +
+    (this.allowances?.special?.isActive ? this.allowances.special.amount : 0) +
+    (this.allowances?.other?.isActive ? this.allowances.other.amount : 0);
+  
+  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
+  this.totalEarnings = this.grossSalary + additionalAllowances + 
+    (this.overtimeAmount || 0) + 
+    (this.performanceBonus || 0) + 
+    (this.otherBonus || 0);
+  
+  // Auto-calculate income tax if not provided (same as September 688 employees)
+  if (!this.incomeTax && this.totalEarnings) {
+    try {
+      // Medical allowance for tax calculation is 10% of total earnings (tax-exempt)
+      const medicalAllowanceForTax = Math.round(this.totalEarnings * 0.10);
+      
+      // Taxable Income = Total Earnings - Medical Allowance
+      const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
+      
+      // Calculate tax using FBR 2025-2026 rules
+      const annualTaxableIncome = taxableIncome * 12;
+      
+      // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
+      let annualTax = 0;
+      
+      if (annualTaxableIncome <= 600000) {
+        // No tax for income up to 600,000
+        annualTax = 0;
+      } else if (annualTaxableIncome <= 1200000) {
+        // 1% on income from 600,001 to 1,200,000
+        annualTax = (annualTaxableIncome - 600000) * 0.01;
+      } else if (annualTaxableIncome <= 2200000) {
+        // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
+        annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+      } else if (annualTaxableIncome <= 3200000) {
+        // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
+        annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+      } else if (annualTaxableIncome <= 4100000) {
+        // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
+        annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+      } else {
+        // Rs. 616,000 + 35% on income above 4,100,000
+        annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+      }
+      
+      // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
+      if (annualTaxableIncome > 10000000) {
+        const surcharge = annualTax * 0.09;
+        annualTax += surcharge;
+      }
+      
+      // Convert to monthly tax
+      this.incomeTax = Math.round(annualTax / 12);
+      
+      console.log(`💰 Pre-save Tax Calculation: Total Earnings: ${this.totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${this.incomeTax}`);
+      
+    } catch (error) {
+      console.error('Error calculating tax in pre-save:', error);
+      // Fallback to old calculation
+      const taxCalculation = calculateTax(this.grossSalary);
+      this.incomeTax = calculateMonthlyTaxImage(taxCalculation.taxableIncome);
+    }
   }
   
   // Calculate total deductions (excluding Provident Fund for now - Coming Soon)
@@ -333,19 +396,59 @@ payrollSchema.pre('save', function(next) {
 
 // Method to calculate and update tax after payroll creation
 payrollSchema.methods.calculateAndUpdateTax = async function() {
-  if (this.grossSalary) {
-    // Calculate tax using FBR 2025-2026 rules
-    const taxCalculation = calculateTax(this.grossSalary);
-    
-    // Use the image calculation to match exactly what's shown in the image
-    this.incomeTax = calculateMonthlyTaxImage(taxCalculation.taxableIncome);
-    
-    console.log(`💰 Tax Calculation for Employee: Gross: ${this.grossSalary}, Medical (10%): ${taxCalculation.medicalAllowance}, Taxable: ${taxCalculation.taxableIncome}, Tax: ${this.incomeTax}`);
-    
-    // Save the updated tax
-    await this.save();
-    
-    return this.incomeTax;
+  if (this.totalEarnings) {
+    try {
+      // Medical allowance is 10% of total earnings (tax-exempt)
+      const medicalAllowanceForTax = Math.round(this.totalEarnings * 0.10);
+      
+      // Taxable Income = Total Earnings - Medical Allowance
+      const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
+      
+      // Calculate tax using FBR 2025-2026 rules
+      const annualTaxableIncome = taxableIncome * 12;
+      
+      // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
+      let annualTax = 0;
+      
+      if (annualTaxableIncome <= 600000) {
+        // No tax for income up to 600,000
+        annualTax = 0;
+      } else if (annualTaxableIncome <= 1200000) {
+        // 1% on income from 600,001 to 1,200,000
+        annualTax = (annualTaxableIncome - 600000) * 0.01;
+      } else if (annualTaxableIncome <= 2200000) {
+        // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
+        annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+      } else if (annualTaxableIncome <= 3200000) {
+        // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
+        annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+      } else if (annualTaxableIncome <= 4100000) {
+        // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
+        annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+      } else {
+        // Rs. 616,000 + 35% on income above 4,100,000
+        annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+      }
+      
+      // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
+      if (annualTaxableIncome > 10000000) {
+        const surcharge = annualTax * 0.09;
+        annualTax += surcharge;
+      }
+      
+      // Convert to monthly tax
+      this.incomeTax = Math.round(annualTax / 12);
+      
+      console.log(`💰 Tax Calculation for Employee: Total Earnings: ${this.totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${this.incomeTax}`);
+      
+      // Save the updated tax
+      await this.save();
+      
+      return this.incomeTax;
+    } catch (error) {
+      console.error('Error calculating tax:', error);
+      return 0;
+    }
   }
   return 0;
 };
@@ -415,6 +518,17 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   
   const grossSalary = basicSalary + totalAllowances;
 
+  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
+  const additionalAllowances = 
+    (payrollAllowances.conveyance.isActive ? payrollAllowances.conveyance.amount : 0) +
+    (payrollAllowances.food.isActive ? payrollAllowances.food.amount : 0) +
+    (payrollAllowances.vehicleFuel.isActive ? payrollAllowances.vehicleFuel.amount : 0) +
+    (payrollAllowances.special.isActive ? payrollAllowances.special.amount : 0) +
+    (payrollAllowances.other.isActive ? payrollAllowances.other.amount : 0);
+  
+  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
+  const totalEarnings = grossSalary + additionalAllowances;
+
   // Calculate overtime (if any)
   const overtimeHours = attendanceData.overtimeHours || 0;
   const overtimeRate = (basicSalary / 176); // Assuming 176 working hours per month
@@ -448,6 +562,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     absentDays: absentDays,
     leaveDays: leaveDays,
     grossSalary: grossSalary,
+    totalEarnings: totalEarnings,
     currency: employee.currency || 'PKR',
     status: 'Draft',
     createdBy: attendanceData.createdBy || 'system'

@@ -690,19 +690,29 @@ employeeSchema.pre('save', async function(next) {
   // Auto-generate Employee ID if not provided
   if (!this.employeeId || this.isNew) {
     try {
-      const lastEmployee = await this.constructor.findOne({}, {}, { sort: { 'employeeId': -1 } });
-      let nextId = 1;
+      // Find all employees and sort by numeric ID to get the highest one
+      const allEmployees = await this.constructor.find({}, { employeeId: 1 }).lean();
       
-      if (lastEmployee && lastEmployee.employeeId) {
-        // Extract number from existing employee ID (assuming format like "EMP001", "EMP002", etc.)
-        const match = lastEmployee.employeeId.match(/(\d+)$/);
-        if (match) {
-          nextId = parseInt(match[1]) + 1;
+      let highestId = 0;
+      
+      // Convert all employee IDs to numbers and find the highest
+      allEmployees.forEach(emp => {
+        if (emp.employeeId) {
+          // Remove leading zeros and convert to number
+          const numericId = parseInt(emp.employeeId.replace(/^0+/, ''));
+          if (!isNaN(numericId) && numericId > highestId) {
+            highestId = numericId;
+          }
         }
-      }
+      });
       
-      // Format: 1, 2, 3, etc.
+      // Next ID is the highest + 1
+      const nextId = highestId + 1;
+      
+      // Format: 1, 2, 3, etc. (no leading zeros)
       this.employeeId = nextId.toString();
+      
+      console.log(`Generated new Employee ID: ${this.employeeId} (previous highest: ${highestId})`);
     } catch (error) {
       console.error('Error generating Employee ID:', error);
       // Fallback to timestamp-based ID

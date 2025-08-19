@@ -70,8 +70,19 @@ const PayrollForm = () => {
 
   // Helper function to get start and end dates for a month
   const getMonthDates = (monthValue, year = new Date().getFullYear()) => {
-    const startDate = new Date(year, parseInt(monthValue) - 1, 1);
-    const endDate = new Date(year, parseInt(monthValue), 0); // Last day of the month
+    // monthValue is 1-indexed (01, 02, ..., 12)
+    const month = parseInt(monthValue);
+    
+    // Create dates using UTC to avoid timezone issues
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0)); // Last day of the month
+    
+    console.log('🐛 DEBUG: getMonthDates function:');
+    console.log('🐛 DEBUG: Input monthValue:', monthValue, 'year:', year);
+    console.log('🐛 DEBUG: Calculated month (0-indexed):', month - 1);
+    console.log('🐛 DEBUG: UTC startDate:', startDate.toISOString());
+    console.log('🐛 DEBUG: UTC endDate:', endDate.toISOString());
+    
     return {
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0]
@@ -222,7 +233,11 @@ const PayrollForm = () => {
         totalLeaveDays: 0,
         leaveDeductionAmount: 0
       },
-      notes: ''
+      notes: '',
+      grossSalaryBase: 0, // Added for auto-calculation
+      houseRentAllowance: 0, // Added for auto-calculation
+      medicalAllowance: 0, // Added for auto-calculation
+      autoCalculateSalary: true // Added for auto-calculation
     },
     validationSchema,
     onSubmit: async (values) => {
@@ -232,7 +247,12 @@ const PayrollForm = () => {
         setError(null);
 
         // Calculate start and end dates from selected month and year
+        console.log('🐛 DEBUG: values.payPeriod.month:', values.payPeriod.month);
+        console.log('🐛 DEBUG: values.payPeriod.year:', values.payPeriod.year);
         const { startDate, endDate } = getMonthDates(values.payPeriod.month, values.payPeriod.year);
+        console.log('🐛 DEBUG: Calculated startDate:', startDate, 'endDate:', endDate);
+        
+
         
         // Map allowances to backend format
         const mappedAllowances = {
@@ -284,6 +304,7 @@ const PayrollForm = () => {
           savedPayroll = await api.put(`/payroll/${id}`, payrollData);
         } else {
           console.log('Creating new payroll');
+          console.log('🐛 DEBUG: Sending payrollData:', payrollData);
           savedPayroll = await api.post('/payroll', payrollData);
         }
 
@@ -316,6 +337,7 @@ const PayrollForm = () => {
       } catch (error) {
         console.error('Error saving payroll:', error);
         console.error('Error response:', error.response);
+        console.log('🐛 DEBUG: Full error details:', error.response?.data);
         setError(error.response?.data?.message || 'Failed to save payroll');
       } finally {
         setLoading(false);
@@ -458,7 +480,11 @@ const PayrollForm = () => {
           totalLeaveDays: payroll.leaveDays || 0,
           leaveDeductionAmount: 0
         },
-        notes: payroll.remarks || ''
+        notes: payroll.remarks || '',
+        grossSalaryBase: payroll.grossSalaryBase || 0, // Set grossSalaryBase
+        houseRentAllowance: payroll.houseRentAllowance || 0, // Set houseRentAllowance
+        medicalAllowance: payroll.medicalAllowance || 0, // Set medicalAllowance
+        autoCalculateSalary: true // Ensure auto-calculation is true on load
       });
       
       setSelectedEmployee(payroll.employee);
@@ -483,6 +509,9 @@ const PayrollForm = () => {
       
       // Set calculated values
       formik.setFieldValue('basicSalary', basicSalary);
+      formik.setFieldValue('grossSalaryBase', grossSalary); // Set grossSalaryBase
+      formik.setFieldValue('houseRentAllowance', houseRentAllowance); // Set houseRentAllowance
+      formik.setFieldValue('medicalAllowance', medicalAllowance); // Set medicalAllowance
       
       // Set allowances from employee record (only if they are active)
       formik.setFieldValue('allowances.conveyance.isActive', employee.allowances?.conveyance?.isActive || false);
@@ -562,6 +591,7 @@ const PayrollForm = () => {
         totalBonuses: 0,
         totalDeductions: 0,
         grossPay: 0,
+        totalEarnings: 0,
         netPay: 0,
         leaveDeductionAmount: 0,
         totalLeaveDays: 0,
@@ -623,6 +653,9 @@ const PayrollForm = () => {
     // Calculate gross pay
     const grossPay = values.basicSalary + totalAllowances + overtimeAmount + totalBonuses;
 
+    // Calculate Total Earnings (same as September employees)
+    const totalEarnings = (values.grossSalaryBase || grossPay) + totalAllowances + overtimeAmount + totalBonuses;
+
     // Calculate net pay (after all deductions including tax)
     const netPay = grossPay - totalDeductions;
 
@@ -632,6 +665,7 @@ const PayrollForm = () => {
       totalBonuses: totalBonuses || 0,
       totalDeductions: totalDeductions || 0,
       grossPay: grossPay || 0,
+      totalEarnings: totalEarnings || 0,
       netPay: netPay || 0,
       leaveDeductionAmount: leaveDeductionAmount || 0,
       totalLeaveDays: totalLeaveDays || 0,
@@ -654,40 +688,23 @@ const PayrollForm = () => {
   const calculateTaxInfo = async (basicSalary, allowances) => {
     if (!basicSalary) return null;
 
-    // Calculate taxable income based on Pakistan FBR 2025-2026 rules:
-    // - Calculate total gross amount (basic + all active allowances)
-    // - Deduct 10% of total gross as medical allowance (tax-exempt)
-    // - Calculate tax on remaining amount
-    let totalGrossAmount = basicSalary;
+    // Calculate Total Earnings (same as September employees)
+    const grossSalaryBase = formik.values.grossSalaryBase || 0;
+    const additionalAllowances = 
+      (allowances?.conveyance?.isActive ? allowances.conveyance.amount : 0) +
+      (allowances?.food?.isActive ? allowances.food.amount : 0) +
+      (allowances?.vehicleFuel?.isActive ? allowances.vehicleFuel.amount : 0) +
+      (allowances?.special?.isActive ? allowances.special.amount : 0) +
+      (allowances?.other?.isActive ? allowances.other.amount : 0);
     
-    // Add all active allowances
-    if (allowances) {
-      if (allowances.conveyance?.isActive) {
-        totalGrossAmount += allowances.conveyance.amount || 0;
-      }
-      if (allowances.food?.isActive) {
-        totalGrossAmount += allowances.food.amount || 0;
-      }
-      if (allowances.vehicleFuel?.isActive) {
-        totalGrossAmount += allowances.vehicleFuel.amount || 0;
-      }
-      if (allowances.medical?.isActive) {
-        totalGrossAmount += allowances.medical.amount || 0;
-      }
-      if (allowances.special?.isActive) {
-        totalGrossAmount += allowances.special.amount || 0;
-      }
-      if (allowances.other?.isActive) {
-        totalGrossAmount += allowances.other.amount || 0;
-      }
-    }
+    const totalEarnings = grossSalaryBase + additionalAllowances;
     
-    // Calculate medical allowance as 10% of total gross amount
-    const medicalAllowance = totalGrossAmount * 0.10; // 10% of total gross (tax-exempt)
+    // Medical allowance is 10% of total earnings (tax-exempt)
+    const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
     
-    // Calculate taxable income by deducting medical allowance
-    const taxableIncome = totalGrossAmount - medicalAllowance;
-
+    // Taxable Income = Total Earnings - Medical Allowance
+    const taxableIncome = totalEarnings - medicalAllowanceForTax;
+    
     const annualTaxableIncome = taxableIncome * 12;
     
     try {
@@ -703,7 +720,9 @@ const PayrollForm = () => {
         annualTaxableIncome: Math.round(annualTaxableIncome),
         taxSlab: result.taxInfo.slab,
         taxRate: result.taxInfo.rate,
-        taxableIncome: Math.round(taxableIncome)
+        taxableIncome: Math.round(taxableIncome),
+        totalEarnings: totalEarnings,
+        medicalAllowanceForTax: medicalAllowanceForTax
       };
     } catch (error) {
       console.error('Error calculating tax:', error);
@@ -714,7 +733,7 @@ const PayrollForm = () => {
   // Update tax info when salary changes
   useEffect(() => {
     const updateTaxInfo = async () => {
-      if (formik.values.basicSalary) {
+      if (formik.values.basicSalary || formik.values.grossSalaryBase) {
         const taxInfo = await calculateTaxInfo(
           formik.values.basicSalary,
           formik.values.allowances
@@ -723,13 +742,13 @@ const PayrollForm = () => {
         
         // Auto-update income tax field
         if (taxInfo) {
-          formik.setFieldValue('incomeTax', taxInfo.monthlyTax);
+          formik.setFieldValue('deductions.incomeTax', taxInfo.monthlyTax);
         }
       }
     };
 
     updateTaxInfo();
-  }, [formik.values.basicSalary, formik.values.allowances]);
+  }, [formik.values.basicSalary, formik.values.grossSalaryBase, formik.values.allowances]);
 
   // Helper function to safely render populated object properties
   const safeRenderText = (value) => {
@@ -868,31 +887,119 @@ const PayrollForm = () => {
       case 1:
         return (
           <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                type="number"
-                name="basicSalary"
-                label="Basic Salary"
-                value={formik.values.basicSalary}
-                onChange={(e) => {
-                  formik.handleChange(e);
-                  formik.setFieldTouched('basicSalary', true);
-                }}
-                onBlur={() => formik.setFieldTouched('basicSalary', true)}
-                error={formik.touched.basicSalary && Boolean(formik.errors.basicSalary)}
-                helperText={formik.touched.basicSalary && formik.errors.basicSalary}
-                InputProps={{
-                  startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                }}
-              />
+            {/* Salary Structure Section */}
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom color="primary">
+                    💰 Salary Structure (Auto-Calculated)
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                    Based on employee's gross salary, automatically distributed as per company policy
+                  </Typography>
+                  
+                  <Grid container spacing={2}>
+                    {/* Gross Salary (Base) - Read Only */}
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="grossSalaryBase"
+                        label="Gross Salary (Base)"
+                        value={formik.values.grossSalaryBase || 0}
+                        InputProps={{ 
+                          readOnly: true,
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                        helperText="Basic + Medical + House Rent (Auto-calculated)"
+                        sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                      />
+                    </Grid>
+                    
+                    {/* Basic Salary (66.66%) - Read Only */}
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="basicSalary"
+                        label="Basic Salary (66.66%)"
+                        value={formik.values.basicSalary || 0}
+                        InputProps={{ 
+                          readOnly: true,
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                        helperText="66.66% of Gross Salary (Auto-calculated)"
+                        sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                      />
+                    </Grid>
+                    
+                    {/* House Rent Allowance (23.34%) - Read Only */}
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="houseRentAllowance"
+                        label="House Rent Allowance (23.34%)"
+                        value={formik.values.houseRentAllowance || 0}
+                        InputProps={{ 
+                          readOnly: true,
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                        helperText="23.34% of Gross Salary (Auto-calculated)"
+                        sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                      />
+                    </Grid>
+                    
+                    {/* Medical Allowance (10%) - Read Only */}
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        name="medicalAllowance"
+                        label="Medical Allowance (10%)"
+                        value={formik.values.medicalAllowance || 0}
+                        InputProps={{ 
+                          readOnly: true,
+                          startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                        }}
+                        helperText="10% of Gross Salary (Auto-calculated)"
+                        sx={{ '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                      />
+                    </Grid>
+                  </Grid>
+                  
+                  {/* Manual Override Option */}
+                  <Box sx={{ mt: 2, p: 2, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffb74d' }}>
+                    <Typography variant="body2" color="warning.dark" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>⚠️</span>
+                      <strong>Manual Override:</strong> If you need to adjust individual components, uncheck the auto-calculation below
+                    </Typography>
+                    <Box sx={{ mt: 1 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={formik.values.autoCalculateSalary || true}
+                          onChange={(e) => formik.setFieldValue('autoCalculateSalary', e.target.checked)}
+                          style={{ margin: 0 }}
+                        />
+                        <Typography variant="body2">Auto-calculate salary structure</Typography>
+                      </label>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
+            
+            {/* Additional Allowances Section */}
             <Grid item xs={12}>
               <Accordion>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="h6">Allowances</Typography>
+                  <Typography variant="h6">Additional Allowances</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
+                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                    These allowances are added to Gross Salary (Base) to calculate Total Earnings
+                  </Typography>
                   <Grid container spacing={2}>
                     {/* Conveyance Allowance */}
                     <Grid item xs={12} sm={6} md={4}>
@@ -1470,6 +1577,8 @@ const PayrollForm = () => {
                   <Typography variant="h6" gutterBottom>
                     Payroll Summary
                   </Typography>
+                  
+                  {/* Pay Period Information */}
                   <Grid container spacing={2}>
                     <Grid item xs={12}>
                       <Box sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
@@ -1487,56 +1596,171 @@ const PayrollForm = () => {
                         </Typography>
                       </Box>
                     </Grid>
+                  </Grid>
+                  
+                  {/* Earnings Breakdown */}
+                  <Grid container spacing={3} sx={{ mb: 3 }}>
                     <Grid item xs={12} md={6}>
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="subtitle1" color="primary">
-                          Earnings
-                        </Typography>
-                        <Typography>Basic Salary: {formatCurrency(formik.values.basicSalary)}</Typography>
-                        <Typography>Total Allowances: {formatCurrency(totals.totalAllowances)}</Typography>
-                        <Typography>Overtime: {formatCurrency(totals.overtimeAmount)}</Typography>
-                        <Typography>Total Bonuses: {formatCurrency(totals.totalBonuses)}</Typography>
-                        <Divider sx={{ my: 1 }} />
-                        <Typography variant="h6" color="success.main">
-                          Gross Pay: {formatCurrency(totals.grossPay)}
-                        </Typography>
-                      </Box>
+                      <Card variant="outlined" sx={{ height: '100%' }}>
+                        <CardContent>
+                          <Typography variant="h6" color="primary" gutterBottom>
+                            📈 Earnings Breakdown
+                          </Typography>
+                          
+                          {/* Gross Salary (Base) */}
+                          <Box sx={{ mb: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                            <Typography variant="subtitle2" color="primary" gutterBottom>
+                              Gross Salary (Base)
+                            </Typography>
+                            <Typography variant="h6" color="primary">
+                              {formatPKR(formik.values.grossSalaryBase || 0)}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              66.66% Basic + 10% Medical + 23.34% House Rent
+                            </Typography>
+                          </Box>
+                          
+                          {/* Basic Salary */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Basic Salary (66.66%):</strong> {formatPKR(formik.values.basicSalary || 0)}
+                          </Typography>
+                          
+                          {/* House Rent Allowance */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>House Rent Allowance (23.34%):</strong> {formatPKR(formik.values.houseRentAllowance || 0)}
+                          </Typography>
+                          
+                          {/* Medical Allowance */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Medical Allowance (10%):</strong> {formatPKR(formik.values.medicalAllowance || 0)}
+                          </Typography>
+                          
+                          <Divider sx={{ my: 2 }} />
+                          
+                          {/* Additional Allowances */}
+                          <Typography variant="subtitle2" color="primary" gutterBottom>
+                            Additional Allowances
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Conveyance:</strong> {formatPKR(formik.values.allowances?.conveyance?.isActive ? formik.values.allowances.conveyance.amount : 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Food:</strong> {formatPKR(formik.values.allowances?.food?.isActive ? formik.values.allowances.food.amount : 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Vehicle & Fuel:</strong> {formatPKR(formik.values.allowances?.vehicleFuel?.isActive ? formik.values.allowances.vehicleFuel.amount : 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Special:</strong> {formatPKR(formik.values.allowances?.special?.isActive ? formik.values.allowances.special.amount : 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Other:</strong> {formatPKR(formik.values.allowances?.other?.isActive ? formik.values.allowances.other.amount : 0)}
+                          </Typography>
+                          
+                          <Divider sx={{ my: 2 }} />
+                          
+                          {/* Other Earnings */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Overtime:</strong> {formatPKR(formik.values.overtime?.amount || 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Performance Bonus:</strong> {formatPKR(formik.values.bonuses?.performance || 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Other Bonus:</strong> {formatPKR(formik.values.bonuses?.other || 0)}
+                          </Typography>
+                          
+                          <Divider sx={{ my: 2 }} />
+                          
+                          {/* Total Earnings */}
+                          <Box sx={{ p: 2, bgcolor: 'primary.main', color: 'white', borderRadius: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                              💰 Total Earnings
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                              {formatPKR(totals.totalEarnings || totals.grossPay)}
+                            </Typography>
+                            <Typography variant="caption">
+                              Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
                     </Grid>
+                    
+                    {/* Deductions Breakdown */}
                     <Grid item xs={12} md={6}>
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="subtitle1" color="error">
-                          Deductions
-                        </Typography>
-                        <Typography>Tax: {formatCurrency(totals.autoCalculatedTax)}</Typography>
-                        <Typography>Insurance: {formatCurrency(formik.values.deductions.insurance)}</Typography>
-                        <Typography>Pension: {formatCurrency(formik.values.deductions.pension)}</Typography>
-                        <Typography>EOBI: {formatCurrency(formik.values.deductions.eobi)}</Typography>
-                        <Typography>
-                          Provident Fund: {formatCurrency(formik.values.deductions.providentFund)}
-                          <Chip 
-                            label="Coming Soon" 
-                            size="small" 
-                            color="warning" 
-                            variant="outlined"
-                            sx={{ ml: 1, fontSize: '0.7rem', height: 20 }}
-                          />
-                        </Typography>
-                        <Typography>Loan: {formatCurrency(formik.values.deductions.loan)}</Typography>
-                        <Typography>Other: {formatCurrency(formik.values.deductions.other)}</Typography>
-                        <Typography color="warning.main">Leave Deduction: {formatCurrency(totals.leaveDeductionAmount)}</Typography>
-                        <Divider sx={{ my: 1 }} />
-                        <Typography variant="h6" color="error">
-                          Total Deductions: {formatCurrency(totals.totalDeductions)}
-                        </Typography>
-                        <Typography variant="caption" color="warning.main" sx={{ fontStyle: 'italic' }}>
-                          Note: Provident Fund is excluded from total deductions (Coming Soon)
-                        </Typography>
-                      </Box>
+                      <Card variant="outlined" sx={{ height: '100%' }}>
+                        <CardContent>
+                          <Typography variant="h6" color="error" gutterBottom>
+                            💸 Deductions Breakdown
+                          </Typography>
+                          
+                          {/* Tax Calculation */}
+                          <Box sx={{ mb: 2, p: 2, bgcolor: '#ffebee', borderRadius: 1 }}>
+                            <Typography variant="subtitle2" color="error" gutterBottom>
+                              Income Tax
+                            </Typography>
+                            <Typography variant="h6" color="error">
+                              {formatPKR(totals.autoCalculatedTax || 0)}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              Calculated on (Total Earnings - 10% Medical Allowance) per FBR 2025-2026
+                            </Typography>
+                          </Box>
+                          
+                          {/* Other Deductions */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Health Insurance:</strong> {formatPKR(formik.values.deductions.insurance || 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>EOBI:</strong> {formatPKR(formik.values.deductions.eobi || 370)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Loan Deduction:</strong> {formatPKR(formik.values.deductions.loan || 0)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Other Deductions:</strong> {formatPKR(formik.values.deductions.other || 0)}
+                          </Typography>
+                          
+                          {/* Provident Fund */}
+                          <Box sx={{ mb: 2, p: 2, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffb74d' }}>
+                            <Typography variant="subtitle2" color="warning.dark" gutterBottom>
+                              Provident Fund
+                            </Typography>
+                            <Typography variant="h6" color="warning.dark">
+                              {formatPKR(formik.values.deductions.providentFund || 0)}
+                            </Typography>
+                            <Typography variant="caption" color="warning.dark">
+                              8.34% of Basic Salary - Not included in total deductions (Coming Soon)
+                            </Typography>
+                          </Box>
+                          
+                          {/* Leave Deductions */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Leave Deduction:</strong> {formatPKR(totals.leaveDeductionAmount || 0)}
+                          </Typography>
+                          
+                          <Divider sx={{ my: 2 }} />
+                          
+                          {/* Total Deductions */}
+                          <Box sx={{ p: 2, bgcolor: 'error.main', color: 'white', borderRadius: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                              💸 Total Deductions
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                              {formatPKR(totals.totalDeductions || 0)}
+                            </Typography>
+                            <Typography variant="caption">
+                              Tax + Insurance + EOBI + Loan + Other + Leave (Excluding PF)
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
                     </Grid>
                   </Grid>
-                  <Divider sx={{ my: 2 }} />
                   
-                  {/* Beautiful Net Salary Display */}
+                  {/* Net Salary Display */}
                   <Grid container spacing={3} sx={{ mb: 3 }}>
                     {/* Net Salary WITH Deductions */}
                     <Grid item xs={12} md={6}>
@@ -1562,43 +1786,16 @@ const PayrollForm = () => {
                             💰 Net Salary (With Deductions)
                           </Typography>
                           <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
-                            {formatCurrency(totals.netPay)}
+                            {formatPKR(totals.netPay)}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.8 }}>
                             Take-Home Amount
                           </Typography>
-                          <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Gross:</strong> {formatCurrency(totals.grossPay)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Tax:</strong> {formatCurrency(totals.autoCalculatedTax)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>EOBI:</strong> {formatCurrency(370)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>PF:</strong> {formatCurrency(formik.values.deductions.providentFund || 0)}
-                              <Chip 
-                                label="Coming Soon" 
-                                size="small" 
-                                color="warning" 
-                                variant="outlined"
-                                sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
-                              />
-                            </Typography>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Other:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'warning.light' }}>
-                              <strong>Total Deductions:</strong> {formatCurrency(totals.totalDeductions)}
-                            </Typography>
-                          </Box>
                         </CardContent>
                       </Card>
                     </Grid>
 
-                    {/* Net Salary WITHOUT Deductions */}
+                    {/* Net Salary WITHOUT PF & EOBI */}
                     <Grid item xs={12} md={6}>
                       <Card sx={{ 
                         bgcolor: 'success.main', 
@@ -1619,79 +1816,66 @@ const PayrollForm = () => {
                       }}>
                         <CardContent sx={{ textAlign: 'center', py: 4 }}>
                           <Typography variant="h6" sx={{ mb: 2, opacity: 0.9 }}>
-                            🎯 Net Salary (Without PF & EOBI)
+                            💰 Net Salary (Without PF & EOBI)
                           </Typography>
                           <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
-                            {formatCurrency(totals.grossPay - totals.autoCalculatedTax - (formik.values.deductions.other || 0) - (formik.values.deductions.loan || 0))}
+                            {formatPKR((totals.totalEarnings || totals.grossPay) - (totals.totalDeductions - (formik.values.deductions.eobi || 370)))}
                           </Typography>
                           <Typography variant="body2" sx={{ opacity: 0.8 }}>
                             Excluding PF & EOBI Deductions
                           </Typography>
-                          <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Gross:</strong> {formatCurrency(totals.grossPay)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Tax:</strong> {formatCurrency(totals.autoCalculatedTax)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Other Deductions:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'warning.light' }}>
-                              <strong>PF + EOBI Saved:</strong> {formatCurrency((formik.values.deductions.providentFund || 0) + 370)}
-                            </Typography>
-                          </Box>
                         </CardContent>
                       </Card>
                     </Grid>
                   </Grid>
-
-                  {/* Detailed Breakdown */}
-                  <Card sx={{ bgcolor: '#f8f9fa', mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', display: 'flex', alignItems: 'center' }}>
-                        📊 Detailed Salary Breakdown
-                      </Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} md={6}>
-                          <Typography variant="body2" color="textSecondary">
-                            <strong>Gross Salary:</strong> {formatCurrency(totals.grossPay)}
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            <strong>Income Tax:</strong> {formatCurrency(totals.autoCalculatedTax)}
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            <strong>EOBI (Fixed):</strong> {formatCurrency(370)} (Pakistan EOBI - Fixed Amount for All Employees)
-                          </Typography>
+                  
+                  {/* Tax Calculation Details */}
+                  <Grid item xs={12}>
+                    <Card variant="outlined" sx={{ bgcolor: '#f8f9fa' }}>
+                      <CardContent>
+                        <Typography variant="h6" gutterBottom color="primary">
+                          🧮 Pakistan FBR Tax Calculation (FY 2025-26)
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Total Earnings:</strong> {formatPKR(totals.totalEarnings || totals.grossPay)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Medical Allowance (10%):</strong> {formatPKR(Math.round((totals.totalEarnings || totals.grossPay) * 0.1))} (tax-exempt)
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Taxable Income (Monthly):</strong> {formatPKR((totals.totalEarnings || totals.grossPay) - Math.round((totals.totalEarnings || totals.grossPay) * 0.1))}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Taxable Income (Annual):</strong> {formatPKR(((totals.totalEarnings || totals.grossPay) - Math.round((totals.totalEarnings || totals.grossPay) * 0.1)) * 12)}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Tax Slab:</strong> Based on annual taxable income
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Tax Rate:</strong> Per FBR 2025-2026 rules
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Monthly Tax:</strong> {formatPKR(totals.autoCalculatedTax || 0)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Annual Tax:</strong> {formatPKR((totals.autoCalculatedTax || 0) * 12)}
+                            </Typography>
+                          </Grid>
                         </Grid>
-                        <Grid item xs={12} md={6}>
-                          <Typography variant="body2" color="textSecondary">
-                            <strong>Provident Fund:</strong> {formatCurrency(formik.values.deductions.providentFund || 0)} (8.34% of basic salary)
+                        <Box sx={{ mt: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                          <Typography variant="body2" color="primary">
+                            <strong>Note:</strong> Tax is calculated on Total Gross Amount (Basic + All Allowances) minus 10% Medical Allowance (tax-exempt)
                           </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            <strong>Other Deductions:</strong> {formatCurrency((formik.values.deductions.other || 0) + (formik.values.deductions.loan || 0))}
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary">
-                            <strong>Total Deductions:</strong> {formatCurrency(totals.totalDeductions)}
-                          </Typography>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
                 </CardContent>
               </Card>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                multiline
-                rows={4}
-                name="notes"
-                label="Notes"
-                value={formik.values.notes}
-                onChange={formik.handleChange}
-                placeholder="Add any additional notes or comments..."
-              />
             </Grid>
           </Grid>
         );
@@ -1778,6 +1962,54 @@ const PayrollForm = () => {
                 </Alert>
               </CardContent>
             </Card>
+          )}
+
+          {/* Pakistan FBR Tax Calculation Display */}
+          {taxInfo && (
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ bgcolor: '#f8f9fa' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    🧮 Pakistan FBR Tax Calculation (FY 2025-26)
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Total Earnings:</strong> {formatPKR(taxInfo.totalEarnings || 0)}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Medical Allowance (10%):</strong> {formatPKR(taxInfo.medicalAllowanceForTax || 0)} (tax-exempt)
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Taxable Income (Monthly):</strong> {formatPKR(taxInfo.taxableIncome || 0)}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Taxable Income (Annual):</strong> {formatPKR(taxInfo.annualTaxableIncome || 0)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Tax Slab:</strong> {taxInfo.taxSlab || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Tax Rate:</strong> {taxInfo.taxRate || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Monthly Tax:</strong> {formatPKR(taxInfo.monthlyTax || 0)}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Annual Tax:</strong> {formatPKR((taxInfo.monthlyTax || 0) * 12)}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  <Box sx={{ mt: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                    <Typography variant="body2" color="primary">
+                      <strong>Note:</strong> Tax is calculated on Total Gross Amount (Basic + All Allowances) minus 10% Medical Allowance (tax-exempt)
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
           )}
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>

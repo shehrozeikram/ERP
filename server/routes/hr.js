@@ -135,7 +135,8 @@ router.get('/employees',
       position, 
       status,
       search,
-      active 
+      active,
+      getAll = false // New parameter to get all employees without pagination
     } = req.query;
 
     const query = { isDeleted: false }; // Return all non-deleted employees (both active and inactive)
@@ -176,21 +177,41 @@ router.get('/employees',
       ];
     }
 
-    const employees = await Employee.find(query)
-      .populate('bankName', 'name type')
-      .populate('placementCompany', 'name code type')
-      .populate('placementSector', 'name code')
-      .populate('placementProject', 'name company')
-      .populate('placementDepartment', 'name code')
-      .populate('placementSection', 'name department')
-      .populate('placementDesignation', 'title level')
-      .populate('oldDesignation', 'title level')
-      .populate('placementLocation', 'name type')
-      .populate('manager', 'firstName lastName employeeId')
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .sort({ createdAt: -1 })
-      .lean(); // Convert to plain objects to include virtual fields
+    let employees;
+    
+    if (getAll === 'true' || getAll === true) {
+      // Get all employees without pagination for dropdowns and forms
+      employees = await Employee.find(query)
+        .populate('bankName', 'name type')
+        .populate('placementCompany', 'name code type')
+        .populate('placementSector', 'name code')
+        .populate('placementProject', 'name company')
+        .populate('placementDepartment', 'name code')
+        .populate('placementSection', 'name department')
+        .populate('placementDesignation', 'title level')
+        .populate('oldDesignation', 'title level')
+        .populate('placementLocation', 'name type')
+        .populate('manager', 'firstName lastName employeeId')
+        .sort({ createdAt: -1 })
+        .lean();
+    } else {
+      // Apply pagination for regular list views
+      employees = await Employee.find(query)
+        .populate('bankName', 'name type')
+        .populate('placementCompany', 'name code type')
+        .populate('placementSector', 'name code')
+        .populate('placementProject', 'name company')
+        .populate('placementDepartment', 'name code')
+        .populate('placementSection', 'name department')
+        .populate('placementDesignation', 'title level')
+        .populate('oldDesignation', 'title level')
+        .populate('placementLocation', 'name type')
+        .populate('manager', 'firstName lastName employeeId')
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .sort({ createdAt: -1 })
+        .lean();
+    }
 
     // Add virtual fields manually since lean() doesn't include them
     const employeesWithVirtuals = employees.map(employee => ({
@@ -1288,7 +1309,7 @@ router.post('/fbr-tax-slabs/calculate', [
 router.get('/sectors', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const { company, search } = req.query;
+    const { company, search, exact } = req.query;
     
     const query = { isActive: true };
     
@@ -1297,7 +1318,13 @@ router.get('/sectors',
     }
     
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      if (exact === 'true') {
+        // Exact match for checking existence
+        query.name = { $regex: `^${search}$`, $options: 'i' };
+      } else {
+        // Partial match for search
+        query.name = { $regex: search, $options: 'i' };
+      }
     }
 
     const sectors = await Sector.find(query)
@@ -1318,7 +1345,8 @@ router.post('/sectors', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Sector name is required'),
   body('code').trim().notEmpty().withMessage('Sector code is required'),
-  body('company').notEmpty().withMessage('Company is required')
+  body('description').trim().notEmpty().withMessage('Sector description is required'),
+  body('industry').trim().notEmpty().withMessage('Industry is required')
 ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -1330,7 +1358,13 @@ router.post('/sectors', [
       });
     }
 
-    const sector = new Sector(req.body);
+    // Add the required createdBy field from the authenticated user
+    const sectorData = {
+      ...req.body,
+      createdBy: req.user._id
+    };
+
+    const sector = new Sector(sectorData);
     await sector.save();
 
     res.status(201).json({
@@ -1370,9 +1404,15 @@ router.get('/sectors/:id',
 router.put('/sectors/:id', 
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
+    // Add the updatedBy field
+    const updateData = {
+      ...req.body,
+      updatedBy: req.user._id
+    };
+
     const sector = await Sector.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       { new: true, runValidators: true }
     ).populate('companies', 'name code');
 

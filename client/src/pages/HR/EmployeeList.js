@@ -67,8 +67,8 @@ const EmployeeList = () => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      // Request all employees by setting a high limit
-      const response = await api.get('/hr/employees?limit=1000');
+      // Request all employees using the new getAll parameter
+      const response = await api.get('/hr/employees?getAll=true');
       setEmployees(response.data.data || []);
       // Reset pagination when fetching new data
       setPage(0);

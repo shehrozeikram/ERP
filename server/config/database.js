@@ -11,7 +11,6 @@ const connectDB = async () => {
       maxIdleTimeMS: 30000,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      bufferMaxEntries: 0,
       // SSL/TLS options
       ssl: true,
       sslValidate: true,

@@ -26,7 +26,11 @@ import {
   TableContainer,
   TableRow,
   Autocomplete,
-  Chip
+  Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   Save,
@@ -35,7 +39,8 @@ import {
   Person,
   AttachMoney,
   Receipt,
-  CheckCircle
+  CheckCircle,
+  Refresh
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useFormik } from 'formik';
@@ -46,6 +51,22 @@ import api from '../../services/authService';
 import { PageLoading, LoadingSpinner } from '../../components/LoadingSpinner';
 
 const steps = ['Employee Selection', 'Salary & Earnings', 'Deductions & Attendance', 'Review & Submit'];
+
+// Months array for the form
+const months = [
+  { value: '01', label: 'January' },
+  { value: '02', label: 'February' },
+  { value: '03', label: 'March' },
+  { value: '04', label: 'April' },
+  { value: '05', label: 'May' },
+  { value: '06', label: 'June' },
+  { value: '07', label: 'July' },
+  { value: '08', label: 'August' },
+  { value: '09', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' }
+];
 
 const PayslipForm = () => {
   const theme = useTheme();
@@ -174,8 +195,21 @@ const PayslipForm = () => {
   const loadEmployees = async () => {
     setEmployeesLoading(true);
     try {
-      const response = await api.get('/hr/employees?limit=100');
-      setEmployees(response.data.data || []);
+      // Fetch all employees using the new getAll parameter to avoid pagination issues
+      const response = await api.get('/hr/employees?getAll=true');
+      const employeesData = response.data.data || [];
+      setEmployees(employeesData);
+      
+      // Log the number of employees fetched for debugging
+      console.log(`Loaded ${employeesData.length} employees for payslip form`);
+      
+      if (employeesData.length === 0) {
+        setSnackbar({
+          open: true,
+          message: 'No employees found. Please check if there are employees in the system.',
+          severity: 'warning'
+        });
+      }
     } catch (error) {
       console.error('Error loading employees:', error);
       setSnackbar({
@@ -432,14 +466,15 @@ const PayslipForm = () => {
                   <Grid item xs={12} md={6}>
                    <Autocomplete
                      options={employees}
-                     getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${formatEmployeeId(option.employeeId)})`}
+                     getOptionLabel={(option) => `${option.firstName || ''} ${option.lastName || ''} (${formatEmployeeId(option.employeeId || '')})`}
                      filterOptions={(options, { inputValue }) => {
                        const searchTerm = inputValue.toLowerCase();
                        return options.filter(option => 
-                         option.employeeId.toLowerCase().includes(searchTerm) ||
-                         option.firstName.toLowerCase().includes(searchTerm) ||
-                         option.lastName.toLowerCase().includes(searchTerm) ||
-                         option.department?.name.toLowerCase().includes(searchTerm)
+                         (option.employeeId && option.employeeId.toString().toLowerCase().includes(searchTerm)) ||
+                         (option.firstName && option.firstName.toLowerCase().includes(searchTerm)) ||
+                         (option.lastName && option.lastName.toLowerCase().includes(searchTerm)) ||
+                         (option.placementDepartment?.name && option.placementDepartment.name.toLowerCase().includes(searchTerm)) ||
+                         (option.placementDesignation?.title && option.placementDesignation.title.toLowerCase().includes(searchTerm))
                        );
                      }}
                      value={selectedEmployee}
@@ -455,11 +490,12 @@ const PayslipForm = () => {
                      }}
                      loading={employeesLoading}
                      disabled={employeesLoading}
+                     noOptionsText={employeesLoading ? "Loading employees..." : employees.length === 0 ? "No employees found" : "No matching employees"}
                      renderInput={(params) => (
                        <TextField
                          {...params}
                          label="Employee"
-                         placeholder="Search by employee ID, name, or department..."
+                         placeholder={employeesLoading ? "Loading employees..." : "Search by employee ID, name, department, or position..."}
                          error={formik.touched.employeeId && Boolean(formik.errors.employeeId)}
                          InputProps={{
                            ...params.InputProps,
@@ -480,16 +516,15 @@ const PayslipForm = () => {
                            </Avatar>
                            <Box sx={{ flex: 1 }}>
                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                               {option.firstName} {option.lastName}
+                               {option.firstName || ''} {option.lastName || ''}
                              </Typography>
                              <Typography variant="caption" color="text.secondary">
-                               {option.employeeId} • {option.department?.name}
+                               {option.employeeId || ''} • {option.placementDepartment?.name || ''} • {option.placementDesignation?.title || ''}
                              </Typography>
                            </Box>
                          </Box>
                        </Box>
                      )}
-                     noOptionsText="No employees found"
                      loadingText="Loading employees..."
                      sx={{
                        '& .MuiAutocomplete-input': {
@@ -547,18 +582,18 @@ const PayslipForm = () => {
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={6}>
                       <Typography variant="body2">
-                        <strong>Name:</strong> {selectedEmployee.firstName} {selectedEmployee.lastName}
+                        <strong>Name:</strong> {selectedEmployee.firstName || ''} {selectedEmployee.lastName || ''}
                       </Typography>
                       <Typography variant="body2">
-                        <strong>ID:</strong> {formatEmployeeId(selectedEmployee.employeeId)}
+                        <strong>ID:</strong> {formatEmployeeId(selectedEmployee.employeeId || '')}
                       </Typography>
                     </Grid>
                     <Grid item xs={12} md={6}>
                       <Typography variant="body2">
-                        <strong>Department:</strong> {selectedEmployee.department?.name}
+                        <strong>Department:</strong> {selectedEmployee.placementDepartment?.name}
                       </Typography>
                       <Typography variant="body2">
-                        <strong>Position:</strong> {selectedEmployee.position?.title}
+                        <strong>Position:</strong> {selectedEmployee.placementDesignation?.title}
                       </Typography>
                     </Grid>
                   </Grid>
@@ -872,10 +907,10 @@ const PayslipForm = () => {
                       <strong>ID:</strong> {formatEmployeeId(selectedEmployee?.employeeId)}
                     </Typography>
                     <Typography variant="body2">
-                      <strong>Department:</strong> {selectedEmployee?.department?.name}
+                      <strong>Department:</strong> {selectedEmployee?.placementDepartment?.name}
                     </Typography>
                     <Typography variant="body2">
-                      <strong>Position:</strong> {selectedEmployee?.position?.title}
+                      <strong>Position:</strong> {selectedEmployee?.placementDesignation?.title}
                     </Typography>
                     <Typography variant="body2">
                       <strong>Period:</strong> {new Date(formik.values.year, formik.values.month - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
