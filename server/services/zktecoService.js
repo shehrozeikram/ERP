@@ -14,15 +14,12 @@ class ZKTecoService {
       const targetHost = host || deviceConfig.host;
       const targetPort = port || deviceConfig.port;
       
-      console.log(`🔌 Connecting to ZKTeco device at ${targetHost}:${targetPort}...`);
-      
       // Using the exact format you provided: new ZKLib(IP, port, timeout, inMsgDelay)
       this.device = new ZKLib(targetHost, targetPort, deviceConfig.timeout, deviceConfig.inMsgDelay);
 
       await this.device.createSocket();
       this.isConnected = true;
       
-      console.log('✅ Connected to ZKTeco device successfully!');
       return { success: true, message: 'Connected to ZKTeco device' };
       
     } catch (error) {
@@ -255,8 +252,6 @@ class ZKTecoService {
   // Fetch attendance from device on-demand
   async fetchAttendanceFromDevice(integrationConfig, startDate = null, endDate = null) {
     try {
-      console.log('🔄 Fetching attendance from ZKTeco device on-demand...');
-      
       // Connect to the device using integration config
       const host = integrationConfig.apiConfig?.endpoints?.attendance?.split(':')[0] || 'splaza.nayatel.net';
       const port = parseInt(integrationConfig.apiConfig?.endpoints?.attendance?.split(':')[1]) || 4370;
@@ -267,7 +262,6 @@ class ZKTecoService {
       const attendanceData = await this.getAttendanceData();
       
       if (!attendanceData.success || !attendanceData.data || attendanceData.data.length === 0) {
-        console.log('ℹ️ No attendance data found on device');
         await this.disconnect();
         return {
           recordsProcessed: 0,
@@ -276,8 +270,6 @@ class ZKTecoService {
           message: 'No attendance data found on device'
         };
       }
-      
-      console.log(`📊 Found ${attendanceData.data.length} attendance records on device`);
       
       // Filter by date range if provided
       let filteredData = attendanceData.data;
@@ -288,7 +280,6 @@ class ZKTecoService {
           const recordDate = new Date(record.recordTime || record.timestamp);
           return recordDate >= start && recordDate <= end;
         });
-        console.log(`📅 Filtered to ${filteredData.length} records within date range`);
       }
       
       // Process and sync the attendance data
@@ -301,27 +292,10 @@ class ZKTecoService {
         recordsProcessed: filteredData.length,
         recordsCreated: syncResult.syncedRecords || 0,
         recordsUpdated: 0, // We're not updating existing records in this method
-        message: `Successfully processed ${filteredData.length} attendance records`,
-        deviceInfo: {
-          host,
-          port,
-          totalRecordsOnDevice: attendanceData.data.length,
-          filteredRecords: filteredData.length
-        }
+        message: `Successfully processed ${filteredData.length} records`
       };
-      
     } catch (error) {
-      console.error('❌ Error fetching attendance from device:', error.message);
-      
-      // Make sure we disconnect on error
-      if (this.isConnected) {
-        try {
-          await this.disconnect();
-        } catch (disconnectError) {
-          console.error('❌ Error disconnecting:', disconnectError.message);
-        }
-      }
-      
+      console.error('❌ Error fetching attendance from device:', error);
       throw error;
     }
   }
@@ -332,7 +306,6 @@ class ZKTecoService {
       try {
         await this.device.disconnect();
         this.isConnected = false;
-        console.log('🔌 Disconnected from ZKTeco device');
         return { success: true, message: 'Disconnected from ZKTeco device' };
       } catch (error) {
         console.error('❌ Disconnect error:', error.message);
@@ -347,8 +320,6 @@ class ZKTecoService {
 
     for (const port of ports) {
       try {
-        console.log(`\n🔍 Testing port ${port}...`);
-        
         // Try to connect
         await this.connect(host, port);
         
@@ -368,11 +339,6 @@ class ZKTecoService {
         // Disconnect and try next port
         await this.disconnect();
         
-        console.log(`✅ Port ${port} works!`);
-        console.log(`   Users: ${result.usersCount}`);
-        console.log(`   Attendance records: ${result.attendanceCount}`);
-        
-        // If we found a working port, return early
         return result;
         
       } catch (error) {

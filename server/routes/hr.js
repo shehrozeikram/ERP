@@ -192,7 +192,13 @@ router.get('/employees',
         .populate('oldDesignation', 'title level')
         .populate('placementLocation', 'name type')
         .populate('manager', 'firstName lastName employeeId')
-        .sort({ createdAt: -1 })
+        .sort({ 
+          // First priority: Status (inactive/draft employees come first)
+          isActive: 1, // false (inactive) comes before true (active)
+          employmentStatus: 1, // 'Draft' comes before 'Active'
+          // Second priority: Creation date (newest first)
+          createdAt: -1 
+        })
         .lean();
     } else {
       // Apply pagination for regular list views
@@ -209,7 +215,13 @@ router.get('/employees',
         .populate('manager', 'firstName lastName employeeId')
         .limit(limit * 1)
         .skip((page - 1) * limit)
-        .sort({ createdAt: -1 })
+        .sort({ 
+          // First priority: Status (inactive/draft employees come first)
+          isActive: 1, // false (inactive) comes before true (active)
+          employmentStatus: 1, // 'Draft' comes before 'Active'
+          // Second priority: Creation date (newest first)
+          createdAt: -1 
+        })
         .lean();
     }
 

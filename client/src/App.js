@@ -21,6 +21,7 @@ import Departments from './pages/HR/Departments';
 import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
 import PayrollDetail from './pages/HR/PayrollDetail';
+import EmployeePayrollDetails from './pages/HR/EmployeePayrollDetails';
 import AttendanceList from './pages/HR/AttendanceList';
 import AttendanceDetail from './pages/HR/AttendanceDetail';
 import AttendanceForm from './pages/HR/AttendanceForm';
@@ -52,9 +53,6 @@ import FinalSettlementManagement from './pages/HR/FinalSettlementManagement';
 import FinalSettlementForm from './pages/HR/FinalSettlementForm';
 import FinalSettlementStatistics from './pages/HR/FinalSettlementStatistics';
 import FinalSettlementDetail from './pages/HR/FinalSettlementDetail';
-import PayslipManagement from './pages/HR/PayslipManagement';
-import PayslipForm from './pages/HR/PayslipForm';
-import PayslipDetail from './pages/HR/PayslipDetail';
 import TalentAcquisition from './pages/HR/TalentAcquisition';
 import JobPostings from './pages/HR/JobPostings';
 import JobPostingForm from './pages/HR/JobPostingForm';
@@ -216,6 +214,10 @@ function App() {
               path="/hr/payroll/view/:id"
               element={<ProtectedRoute><PayrollDetail /></ProtectedRoute>}
             />
+            <Route
+              path="/hr/payroll/view/employee/:employeeId"
+              element={<ProtectedRoute><EmployeePayrollDetails /></ProtectedRoute>}
+            />
 
             {/* Attendance Routes */}
             <Route
@@ -297,24 +299,6 @@ function App() {
             <Route
               path="/hr/settlements/statistics"
               element={<ProtectedRoute><FinalSettlementStatistics /></ProtectedRoute>}
-            />
-
-            {/* Payslip Management Routes */}
-            <Route
-              path="/hr/payslips"
-              element={<ProtectedRoute><PayslipManagement /></ProtectedRoute>}
-            />
-            <Route
-              path="/hr/payslips/new"
-              element={<ProtectedRoute><PayslipForm /></ProtectedRoute>}
-            />
-            <Route
-              path="/hr/payslips/:id/edit"
-              element={<ProtectedRoute><PayslipForm /></ProtectedRoute>}
-            />
-            <Route
-              path="/hr/payslips/:id"
-              element={<ProtectedRoute><PayslipDetail /></ProtectedRoute>}
             />
 
             {/* Talent Acquisition Routes */}

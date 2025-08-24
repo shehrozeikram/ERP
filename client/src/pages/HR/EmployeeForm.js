@@ -56,7 +56,6 @@ const EmployeeForm = () => {
 
   const [banks, setBanks] = useState([]);
   const [companies, setCompanies] = useState([]);
-  const [sectors, setSectors] = useState([]);
   const [projects, setProjects] = useState([]);
   const [sections, setSections] = useState([]);
   const [designations, setDesignations] = useState([]);
@@ -72,7 +71,6 @@ const EmployeeForm = () => {
   const [employee, setEmployee] = useState(null);
 
   const [showAddCompanyDialog, setShowAddCompanyDialog] = useState(false);
-  const [showAddSectorDialog, setShowAddSectorDialog] = useState(false);
   const [showAddProjectDialog, setShowAddProjectDialog] = useState(false);
   const [showAddDepartmentDialog, setShowAddDepartmentDialog] = useState(false);
   const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
@@ -86,13 +84,6 @@ const EmployeeForm = () => {
     code: '',
     type: 'Private Limited',
     description: ''
-  });
-
-  const [newSectorData, setNewSectorData] = useState({
-    name: '',
-    code: '',
-    description: '',
-    industry: ''
   });
 
   const [newProjectData, setNewProjectData] = useState({
@@ -125,9 +116,15 @@ const EmployeeForm = () => {
     description: ''
   });
 
-  // State for sector search suggestions
-  const [sectorSuggestions, setSectorSuggestions] = useState([]);
-  const [showSectorSuggestions, setShowSectorSuggestions] = useState(false);
+
+
+  // State for company search suggestions
+  const [companySuggestions, setCompanySuggestions] = useState([]);
+  const [showCompanySuggestions, setShowCompanySuggestions] = useState(false);
+
+  // State for project search suggestions
+  const [projectSuggestions, setProjectSuggestions] = useState([]);
+  const [showProjectSuggestions, setShowProjectSuggestions] = useState(false);
 
   // Validation schema
   const validationSchema = Yup.object({
@@ -156,9 +153,10 @@ const EmployeeForm = () => {
       .min(0, 'Probation period cannot be negative')
       .max(24, 'Probation period cannot exceed 24 months'),
     hireDate: Yup.date().required('Hire date is required'),
+    // Employment status
+    employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'], 'Invalid employment status'),
     // Placement fields
     placementCompany: Yup.string(),
-    placementSector: Yup.string(),
     placementProject: Yup.string(),
     placementDepartment: Yup.string(),
     placementSection: Yup.string(),
@@ -259,76 +257,7 @@ const EmployeeForm = () => {
     }
   };
 
-  // Search for existing sectors
-  const searchExistingSectors = async (searchTerm) => {
-    if (!searchTerm || searchTerm.length < 2) return [];
-    
-    try {
-      const response = await api.get(`/hr/sectors?search=${encodeURIComponent(searchTerm)}`);
-      return response.data.data || [];
-    } catch (error) {
-      console.error('Error searching sectors:', error);
-      return [];
-    }
-  };
 
-  // Check if sector already exists
-  const checkSectorExists = async (sectorName) => {
-    try {
-      const response = await api.get(`/hr/sectors?search=${encodeURIComponent(sectorName)}&exact=true`);
-      return response.data.data && response.data.data.length > 0 ? response.data.data[0] : null;
-    } catch (error) {
-      console.error('Error checking sector existence:', error);
-      return null;
-    }
-  };
-
-  // Search for sectors as user types
-  const handleSectorNameChange = async (value) => {
-    handleNewSectorChange('name', value);
-    
-    if (value && value.length >= 2) {
-      const suggestions = await searchExistingSectors(value);
-      setSectorSuggestions(suggestions);
-      setShowSectorSuggestions(suggestions.length > 0);
-    } else {
-      setSectorSuggestions([]);
-      setShowSectorSuggestions(false);
-    }
-  };
-
-  // Select existing sector from suggestions
-  const handleSelectExistingSector = (sector) => {
-    setSnackbar({
-      open: true,
-      message: `Using existing sector: ${sector.name}`,
-      severity: 'info'
-    });
-    
-    setShowAddSectorDialog(false);
-    setNewSectorData({ name: '', code: '', description: '', industry: '' });
-    setSectorSuggestions([]);
-    setShowSectorSuggestions(false);
-    
-    // Set the existing sector as selected
-    formik.setFieldValue('placementSector', sector._id);
-  };
-
-  // Fetch sectors
-  const fetchSectors = async (companyId = null) => {
-    try {
-      const url = companyId ? `/hr/sectors?company=${companyId}` : '/hr/sectors';
-      const response = await api.get(url);
-      setSectors(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching sectors:', error);
-      // Fallback: set some default sectors for testing
-      setSectors([
-        { _id: '1', name: 'Services', code: '0001' },
-        { _id: '2', name: 'marketing', code: '0004' }
-      ]);
-    }
-  };
 
   // Fetch projects
   const fetchProjects = async () => {
@@ -488,6 +417,17 @@ const EmployeeForm = () => {
     input.click();
   };
 
+  // Handle employment status change
+  const handleEmploymentStatusChange = (newStatus) => {
+    // Auto-sync isActive when employment status changes
+    if (newStatus === 'Active') {
+      formik.setFieldValue('isActive', true);
+    } else if (newStatus === 'Draft') {
+      formik.setFieldValue('isActive', false);
+    }
+    formik.setFieldValue('employmentStatus', newStatus);
+  };
+
   // Fetch employee for editing
   const fetchEmployee = async () => {
     if (!id || id === 'add') return;
@@ -535,7 +475,6 @@ const EmployeeForm = () => {
         ...employeeData,
         bankName: employeeData.bankName?._id || employeeData.bankName || '',
         placementCompany: employeeData.placementCompany?._id || employeeData.placementCompany || '',
-        placementSector: employeeData.placementSector?._id || employeeData.placementSector || '',
         placementProject: employeeData.placementProject?._id || employeeData.placementProject || '',
         placementDepartment: employeeData.placementDepartment?._id || employeeData.placementDepartment || '',
         placementSection: employeeData.placementSection?._id || employeeData.placementSection || '',
@@ -606,16 +545,15 @@ const EmployeeForm = () => {
         hireDate: employeeData.hireDate ? new Date(employeeData.hireDate).toISOString().split('T')[0] : '',
         appointmentDate: employeeData.appointmentDate ? new Date(employeeData.appointmentDate).toISOString().split('T')[0] : '',
         endOfProbationDate: employeeData.endOfProbationDate ? new Date(employeeData.endOfProbationDate).toISOString().split('T')[0] : '',
-        confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : ''
+        confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : '',
+        isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
+        employmentStatus: employeeData.employmentStatus || 'Draft'
       };
       
       console.log('🔍 Form Data prepared:', formData);
       formik.setValues(formData);
       
       // Fetch dependent data if needed
-      if (formData.placementCompany) {
-        fetchSectors(formData.placementCompany);
-      }
       if (formData.address.country) {
         fetchProvinces(formData.address.country);
       }
@@ -683,7 +621,6 @@ const EmployeeForm = () => {
     fetchDepartments();
     fetchBanks();
     fetchCompanies();
-    fetchSectors();
     fetchProjects();
     fetchSections();
     fetchDesignations();
@@ -730,7 +667,6 @@ const EmployeeForm = () => {
       },
       // Placement fields
       placementCompany: '',
-      placementSector: '',
       placementProject: '',
       placementDepartment: '',
       placementSection: '',
@@ -738,6 +674,7 @@ const EmployeeForm = () => {
       placementLocation: '',
       oldDesignation: undefined,
       isActive: true,
+      employmentStatus: 'Draft', // Default to Draft for new employees
       address: {
         street: '',
         city: '',
@@ -794,7 +731,7 @@ const EmployeeForm = () => {
         
         // Clean up empty placement fields (convert empty strings to undefined)
         const placementFields = [
-          'placementCompany', 'placementSector', 'placementProject', 
+          'placementCompany', 'placementProject', 
           'placementDepartment', 'placementSection', 'placementDesignation', 'placementLocation'
         ];
         
@@ -916,12 +853,7 @@ const EmployeeForm = () => {
     }));
   };
 
-  const handleNewSectorChange = (field, value) => {
-    setNewSectorData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
+
 
   const handleNewProjectChange = (field, value) => {
     setNewProjectData(prev => ({
@@ -997,81 +929,7 @@ const EmployeeForm = () => {
     }
   };
 
-  const handleSaveNewSector = async () => {
-    try {
-      if (!newSectorData.name || !newSectorData.code || !newSectorData.industry) {
-        setSnackbar({
-          open: true,
-          message: 'Please fill in all required fields (Name, Code, and Industry)',
-          severity: 'error'
-        });
-        return;
-      }
 
-      // Check if sector already exists
-      const existingSector = await checkSectorExists(newSectorData.name);
-      
-      if (existingSector) {
-        // Sector already exists, use it instead of creating new one
-        setSnackbar({
-          open: true,
-          message: `Sector "${existingSector.name}" already exists. Using existing sector.`,
-          severity: 'info'
-        });
-
-        setShowAddSectorDialog(false);
-        setNewSectorData({ name: '', code: '', description: '', industry: '' });
-        
-        // Refresh sectors to ensure we have the latest data
-        await fetchSectors(formik.values.placementCompany);
-        
-        // Set the existing sector as selected
-        formik.setFieldValue('placementSector', existingSector._id);
-        return;
-      }
-
-      // Create new sector if it doesn't exist
-      const sectorData = {
-        ...newSectorData,
-        company: formik.values.placementCompany
-      };
-
-      const response = await api.post('/hr/sectors', sectorData);
-      
-      setSnackbar({
-        open: true,
-        message: 'Sector added successfully',
-        severity: 'success'
-      });
-
-      setShowAddSectorDialog(false);
-      setNewSectorData({ name: '', code: '', description: '', industry: '' });
-      
-      // Refresh sectors
-      await fetchSectors(formik.values.placementCompany);
-      
-      // Set the newly created sector as selected
-      formik.setFieldValue('placementSector', response.data.data._id);
-      
-    } catch (error) {
-      console.error('Error adding sector:', error);
-      
-      // Handle duplicate key error specifically
-      if (error.response?.data?.message?.includes('duplicate key error')) {
-        setSnackbar({
-          open: true,
-          message: 'A sector with this name already exists. Please use the existing sector or choose a different name.',
-          severity: 'warning'
-        });
-      } else {
-        setSnackbar({
-          open: true,
-          message: error.response?.data?.message || 'Error adding sector',
-          severity: 'error'
-        });
-      }
-    }
-  };
 
   const handleSaveNewProject = async () => {
     try {
@@ -1350,6 +1208,46 @@ const EmployeeForm = () => {
       case 0:
         return (
           <Grid container spacing={3}>
+            {/* Status Indicator */}
+            {id && id !== 'add' && (
+              <Grid item xs={12}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: 'grey.50', 
+                  borderRadius: 2, 
+                  border: '1px solid', 
+                  borderColor: 'grey.200',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2
+                }}>
+                  <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+                    📋 Current Status:
+                  </Typography>
+                  <Chip 
+                    label={formik.values.employmentStatus || 'Draft'} 
+                    color={
+                      formik.values.employmentStatus === 'Active' ? 'success' : 
+                      formik.values.employmentStatus === 'Draft' ? 'warning' : 'error'
+                    }
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                  <Chip 
+                    label={formik.values.isActive ? 'Active' : 'Inactive'} 
+                    color={formik.values.isActive ? 'success' : 'error'}
+                    variant="outlined"
+                    size="small"
+                  />
+                </Box>
+              </Grid>
+            )}
+            
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Basic Information
+              </Typography>
+            </Grid>
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -2055,22 +1953,17 @@ const EmployeeForm = () => {
                   </Grid>
                 </Grid>
                 <Grid container spacing={2} sx={{ mt: 1 }}>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Sector:</strong> {safeRenderText(sectors.find(s => s._id === formik.values.placementSector)?.name) || 'Not Selected'}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={4}>
                     <Typography variant="body2" color="text.secondary">
                       <strong>Project:</strong> {safeRenderText(projects.find(p => p._id === formik.values.placementProject)?.name) || 'Not Selected'}
                     </Typography>
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={4}>
                     <Typography variant="body2" color="text.secondary">
                       <strong>Section:</strong> {safeRenderText(sections.find(s => s._id === formik.values.placementSection)?.name) || 'Not Selected'}
                     </Typography>
                   </Grid>
-                  <Grid item xs={12} md={3}>
+                  <Grid item xs={12} md={4}>
                     <Typography variant="body2" color="text.secondary">
                       <strong>Status:</strong> {formik.values.placementCompany && formik.values.placementDepartment && formik.values.placementDesignation ? 'Complete' : 'Incomplete'}
                     </Typography>
@@ -2128,14 +2021,10 @@ const EmployeeForm = () => {
                       return;
                     }
                     formik.setFieldValue('placementCompany', e.target.value);
-                    formik.setFieldValue('placementSector', '');
                     formik.setFieldValue('placementProject', '');
                     formik.setFieldValue('placementDepartment', '');
                     formik.setFieldValue('placementSection', '');
                     formik.setFieldValue('placementDesignation', '');
-                    if (e.target.value) {
-                      fetchSectors(e.target.value);
-                    }
                   }}
                   error={formik.touched.placementCompany && Boolean(formik.errors.placementCompany)}
                   label="Company"
@@ -2164,86 +2053,7 @@ const EmployeeForm = () => {
               </FormControl>
             </Grid>
 
-            {/* Sector */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Sector</InputLabel>
-                <Select
-                  name="placementSector"
-                  value={safeFormValue(formik.values.placementSector)}
-                  onChange={(e) => {
-                    if (e.target.value === 'add_new') {
-                      setShowAddSectorDialog(true);
-                      return;
-                    }
-                    formik.setFieldValue('placementSector', e.target.value);
-                    formik.setFieldValue('placementProject', '');
-                    formik.setFieldValue('placementDepartment', '');
-                    formik.setFieldValue('placementSection', '');
-                    formik.setFieldValue('placementDesignation', '');
-                  }}
-                  error={formik.touched.placementSector && Boolean(formik.errors.placementSector)}
-                  label="Sector"
-                  MenuProps={{
-                    PaperProps: {
-                      style: {
-                        maxHeight: 300
-                      }
-                    }
-                  }}
-                >
-                  {/* Existing Sectors */}
-                  {sectors.length > 0 ? (
-                    <>
-                      <MenuItem disabled sx={{ 
-                        backgroundColor: '#f5f5f5', 
-                        fontWeight: 'bold',
-                        fontSize: '0.875rem'
-                      }}>
-                        Existing Sectors
-                      </MenuItem>
-                      {sectors.map((sector) => (
-                        <MenuItem key={sector._id} value={sector._id}>
-                          {safeRenderText(sector.name)} ({safeRenderText(sector.code)})
-                        </MenuItem>
-                      ))}
-                    </>
-                  ) : (
-                    <MenuItem disabled sx={{ 
-                      backgroundColor: '#fff3e0', 
-                      color: '#e65100',
-                      fontStyle: 'italic'
-                    }}>
-                      No sectors found. Create a new one below.
-                    </MenuItem>
-                  )}
-                  
-                  {/* Add New Option */}
-                  <MenuItem disabled sx={{ 
-                    backgroundColor: '#f5f5f5', 
-                    fontWeight: 'bold',
-                    fontSize: '0.875rem'
-                  }}>
-                    Actions
-                  </MenuItem>
-                  <MenuItem 
-                    value="add_new" 
-                    onClick={() => setShowAddSectorDialog(true)}
-                    sx={{ 
-                      backgroundColor: '#e3f2fd',
-                      '&:hover': {
-                        backgroundColor: '#bbdefb'
-                      }
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <AddIcon fontSize="small" />
-                      Add New Sector
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
+
 
             {/* Project */}
             <Grid item xs={12} md={6}>
@@ -2568,6 +2378,28 @@ const EmployeeForm = () => {
                 }
                 label="Active Employee"
               />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Employment Status</InputLabel>
+                <Select
+                  name="employmentStatus"
+                  value={formik.values.employmentStatus}
+                  onChange={(e) => handleEmploymentStatusChange(e.target.value)}
+                  error={formik.touched.employmentStatus && Boolean(formik.errors.employmentStatus)}
+                  label="Employment Status"
+                >
+                  <MenuItem value="Draft">Draft (Completed Onboarding)</MenuItem>
+                  <MenuItem value="Active">Active</MenuItem>
+                  <MenuItem value="Inactive">Inactive</MenuItem>
+                  <MenuItem value="Terminated">Terminated</MenuItem>
+                  <MenuItem value="Resigned">Resigned</MenuItem>
+                  <MenuItem value="Retired">Retired</MenuItem>
+                </Select>
+                {formik.touched.employmentStatus && formik.errors.employmentStatus && (
+                  <FormHelperText error>{formik.errors.employmentStatus}</FormHelperText>
+                )}
+              </FormControl>
             </Grid>
           </Grid>
         );
@@ -3055,114 +2887,7 @@ const EmployeeForm = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Add New Sector Dialog */}
-      <Dialog open={showAddSectorDialog} onClose={() => {
-        setShowAddSectorDialog(false);
-        setSectorSuggestions([]);
-        setShowSectorSuggestions(false);
-      }} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Sector</DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            {/* Helpful message */}
-            <Box sx={{ 
-              mb: 2, 
-              p: 2, 
-              backgroundColor: '#e3f2fd', 
-              borderRadius: 1,
-              border: '1px solid #bbdefb'
-            }}>
-              <Typography variant="body2" color="text.secondary">
-                💡 <strong>Tip:</strong> Before creating a new sector, check if it already exists in the dropdown above. 
-                This helps avoid duplicates and keeps the system organized.
-              </Typography>
-            </Box>
-            
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Sector Name"
-                  value={newSectorData.name}
-                  onChange={(e) => handleSectorNameChange(e.target.value)}
-                  required
-                  helperText="Start typing to see if a similar sector already exists"
-                />
-                {/* Show existing sector suggestions */}
-                {showSectorSuggestions && sectorSuggestions.length > 0 && (
-                  <Box sx={{ 
-                    mt: 1, 
-                    p: 2, 
-                    backgroundColor: '#fff3e0', 
-                    borderRadius: 1,
-                    border: '1px solid #ffb74d'
-                  }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      💡 <strong>Similar sectors found:</strong>
-                    </Typography>
-                    {sectorSuggestions.map((sector) => (
-                      <Box 
-                        key={sector._id} 
-                        sx={{ 
-                          p: 1, 
-                          mb: 1, 
-                          backgroundColor: '#fff8e1', 
-                          borderRadius: 1,
-                          cursor: 'pointer',
-                          '&:hover': { backgroundColor: '#ffecb3' }
-                        }}
-                        onClick={() => handleSelectExistingSector(sector)}
-                      >
-                        <Typography variant="body2">
-                          <strong>{sector.name}</strong> ({sector.code})
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Click to use this existing sector
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Sector Code"
-                  value={newSectorData.code}
-                  onChange={(e) => handleNewSectorChange('code', e.target.value)}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Description"
-                  value={newSectorData.description}
-                  onChange={(e) => handleNewSectorChange('description', e.target.value)}
-                  multiline
-                  rows={3}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Industry"
-                  value={newSectorData.industry}
-                  onChange={(e) => handleNewSectorChange('industry', e.target.value)}
-                  multiline
-                  rows={3}
-                />
-              </Grid>
-            </Grid>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowAddSectorDialog(false)}>Cancel</Button>
-          <Button onClick={handleSaveNewSector} variant="contained">
-            Add Sector
-          </Button>
-        </DialogActions>
-      </Dialog>
+
 
       {/* Add New Project Dialog */}
       <Dialog open={showAddProjectDialog} onClose={() => setShowAddProjectDialog(false)} maxWidth="sm" fullWidth>

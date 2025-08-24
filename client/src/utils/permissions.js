@@ -76,7 +76,6 @@ export const MODULES = {
       { name: 'Payroll', path: '/hr/payroll' },
       { name: 'Loan Management', path: '/hr/loans' },
       { name: 'Final Settlement', path: '/hr/settlements' },
-      { name: 'Payslip Management', path: '/hr/payslips' },
       { 
         name: 'Talent Acquisition', 
         path: '/hr/talent-acquisition',

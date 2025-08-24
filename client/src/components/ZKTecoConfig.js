@@ -33,7 +33,7 @@ const ZKTecoConfig = () => {
     devicePort: 4370,
     username: 'admin',
     password: '',
-    enableRealTime: false,
+    // enableRealTime removed as requested
     enableKeepAlive: false,
     keepAliveInterval: 30,
     enableLogging: true,
@@ -225,17 +225,7 @@ const ZKTecoConfig = () => {
               </Typography>
               
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={config.enableRealTime}
-                        onChange={(e) => handleInputChange('enableRealTime', e.target.checked)}
-                      />
-                    }
-                    label="Enable Real-time Attendance"
-                  />
-                </Grid>
+                {/* Real-time attendance setting removed as requested */}
                 
                 <Grid item xs={12} sm={6}>
                   <FormControlLabel

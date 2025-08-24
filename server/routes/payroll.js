@@ -89,6 +89,316 @@ router.get('/stats',
   })
 );
 
+// @route   GET /api/payroll/current-overview
+// @desc    Get current payroll overview for all active employees
+// @access  Private (HR and Admin)
+router.get('/current-overview',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      // Get all active employees with salary information
+      const activeEmployees = await Employee.find({
+        employmentStatus: 'Active',
+        'salary.gross': { $exists: true, $gt: 0 }
+      }).select('firstName lastName employeeId salary allowances department position');
+
+      if (activeEmployees.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            totalEmployees: 0,
+            totalBasicSalary: 0,
+            totalGrossSalary: 0,
+            totalNetSalary: 0,
+            totalMedicalAllowance: 0,
+            totalTaxableIncome: 0,
+            totalTax: 0,
+            employees: []
+          }
+        });
+      }
+
+      let totalBasicSalary = 0;
+      let totalGrossSalary = 0;
+      let totalMedicalAllowance = 0;
+      let totalTaxableIncome = 0;
+      let totalTax = 0;
+      let totalNetSalary = 0;
+
+      const employeeDetails = [];
+
+      for (const employee of activeEmployees) {
+        const gross = employee.salary.gross;
+        
+        // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
+        const basic = gross * 0.6666;
+        const medical = gross * 0.1;
+        const houseRent = gross * 0.2334;
+        
+        // Calculate additional allowances beyond basic salary breakdown
+        const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
+                                   (employee.allowances?.food?.amount || 0) +
+                                   (employee.allowances?.vehicleFuel?.amount || 0) +
+                                   (employee.allowances?.special?.amount || 0) +
+                                   (employee.allowances?.other?.amount || 0);
+        
+        // Total earnings = Gross salary + additional allowances
+        const totalEarnings = gross + additionalAllowances;
+        
+        // Taxable income = Total earnings - Medical allowance (10% of total earnings)
+        const taxableIncome = totalEarnings - (totalEarnings * 0.1);
+        
+        // Calculate monthly tax using FBR 2025-2026 tax slabs
+        // Tax is calculated on taxable income (90% of total earnings)
+        const monthlyTax = calculateMonthlyTax(taxableIncome);
+        
+        // Net salary = Total earnings - tax
+        const netSalary = totalEarnings - monthlyTax;
+        
+        // Accumulate totals
+        totalBasicSalary += basic;
+        totalGrossSalary += totalEarnings;
+        totalMedicalAllowance += medical;
+        totalTaxableIncome += taxableIncome;
+        totalTax += monthlyTax;
+        totalNetSalary += netSalary;
+        
+        // Add employee details
+        employeeDetails.push({
+          _id: employee._id,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          employeeId: employee.employeeId,
+          basicSalary: Math.round(basic),
+          grossSalary: Math.round(gross),
+          additionalAllowances: Math.round(additionalAllowances),
+          totalEarnings: Math.round(totalEarnings),
+          medicalAllowance: Math.round(medical),
+          taxableIncome: Math.round(taxableIncome),
+          monthlyTax: Math.round(monthlyTax),
+          netSalary: Math.round(netSalary),
+          department: employee.department,
+          position: employee.position
+        });
+      }
+
+      // Sort employees by Employee ID
+      employeeDetails.sort((a, b) => {
+        const idA = parseInt(a.employeeId) || 0;
+        const idB = parseInt(b.employeeId) || 0;
+        return idA - idB;
+      });
+
+      res.json({
+        success: true,
+        data: {
+          totalEmployees: activeEmployees.length,
+          totalBasicSalary: Math.round(totalBasicSalary),
+          totalGrossSalary: Math.round(totalGrossSalary),
+          totalMedicalAllowance: Math.round(totalMedicalAllowance),
+          totalTaxableIncome: Math.round(totalTaxableIncome),
+          totalTax: Math.round(totalTax),
+          totalNetSalary: Math.round(totalNetSalary),
+          employees: employeeDetails
+        }
+      });
+    } catch (error) {
+      console.error('Error in current-overview:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch current payroll overview',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   GET /api/payroll/employee/:employeeId
+// @desc    Get payroll details for a specific employee
+// @access  Private (HR and Admin)
+router.get('/employee/:employeeId',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(req.params.employeeId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid employee ID format'
+        });
+      }
+
+      // Get employee details
+      const employee = await Employee.findById(req.params.employeeId)
+        .select('firstName lastName employeeId department position salary allowances');
+
+      if (!employee) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      // Calculate current payroll details for this employee
+      const gross = employee.salary?.gross || 0;
+      
+      // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
+      const basic = gross * 0.6666;
+      const medical = gross * 0.1;
+      const houseRent = gross * 0.2334;
+      
+      // Calculate additional allowances beyond basic salary breakdown
+      const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
+                                 (employee.allowances?.food?.amount || 0) +
+                                 (employee.allowances?.vehicleFuel?.amount || 0) +
+                                 (employee.allowances?.special?.amount || 0) +
+                                 (employee.allowances?.other?.amount || 0);
+      
+      // Total earnings = Gross salary + additional allowances
+      const totalEarnings = gross + additionalAllowances;
+      
+      // Taxable income = Total earnings - Medical allowance (10% of total earnings)
+      const taxableIncome = totalEarnings - (totalEarnings * 0.1);
+      
+      // Calculate monthly tax using FBR 2025-2026 tax slabs
+      const monthlyTax = calculateMonthlyTax(taxableIncome);
+      
+      // Net salary = Total earnings - tax
+      const netSalary = totalEarnings - monthlyTax;
+
+      // Get existing payrolls for this employee
+      const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
+        .sort({ year: -1, month: -1 })
+        .limit(12); // Last 12 months
+
+      res.json({
+        success: true,
+        data: {
+          employee: {
+            _id: employee._id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            employeeId: employee.employeeId,
+            department: employee.department,
+            position: employee.position
+          },
+          currentPayroll: {
+            basicSalary: Math.round(basic),
+            grossSalary: Math.round(gross),
+            additionalAllowances: Math.round(additionalAllowances),
+            totalEarnings: Math.round(totalEarnings),
+            medicalAllowance: Math.round(medical),
+            houseRentAllowance: Math.round(houseRent),
+            taxableIncome: Math.round(taxableIncome),
+            monthlyTax: Math.round(monthlyTax),
+            netSalary: Math.round(netSalary)
+          },
+          existingPayrolls: existingPayrolls
+        }
+      });
+    } catch (error) {
+      console.error('Error in employee payroll details:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch employee payroll details',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   GET /api/payroll/view/employee/:employeeId
+// @desc    Get payroll details for viewing (same as employee/:employeeId but for view route)
+// @access  Private (HR and Admin)
+router.get('/view/employee/:employeeId',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      if (!mongoose.Types.ObjectId.isValid(req.params.employeeId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid employee ID format'
+        });
+      }
+
+      // Get employee details
+      const employee = await Employee.findById(req.params.employeeId)
+        .select('firstName lastName employeeId department position salary allowances');
+
+      if (!employee) {
+        return res.status(404).json({
+          success: false,
+          message: 'Employee not found'
+        });
+      }
+
+      // Calculate current payroll details for this employee
+      const gross = employee.salary?.gross || 0;
+      
+      // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
+      const basic = gross * 0.6666;
+      const medical = gross * 0.1;
+      const houseRent = gross * 0.2334;
+      
+      // Calculate additional allowances beyond basic salary breakdown
+      const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
+                                 (employee.allowances?.food?.amount || 0) +
+                                 (employee.allowances?.vehicleFuel?.amount || 0) +
+                                 (employee.allowances?.special?.amount || 0) +
+                                 (employee.allowances?.other?.amount || 0);
+      
+      // Total earnings = Gross salary + additional allowances
+      const totalEarnings = gross + additionalAllowances;
+      
+      // Taxable income = Total earnings - Medical allowance (10% of total earnings)
+      const taxableIncome = totalEarnings - (totalEarnings * 0.1);
+      
+      // Calculate monthly tax using FBR 2025-2026 tax slabs
+      const monthlyTax = calculateMonthlyTax(taxableIncome);
+      
+      // Net salary = Total earnings - tax
+      const netSalary = totalEarnings - monthlyTax;
+
+      // Get existing payrolls for this employee
+      const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
+        .sort({ year: -1, month: -1 })
+        .limit(12); // Last 12 months
+
+      res.json({
+        success: true,
+        data: {
+          employee: {
+            _id: employee._id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            employeeId: employee.employeeId,
+            department: employee.department,
+            position: employee.position
+          },
+          currentPayroll: {
+            basicSalary: Math.round(basic),
+            grossSalary: Math.round(gross),
+            additionalAllowances: Math.round(additionalAllowances),
+            totalEarnings: Math.round(totalEarnings),
+            medicalAllowance: Math.round(medical),
+            houseRentAllowance: Math.round(houseRent),
+            taxableIncome: Math.round(taxableIncome),
+            monthlyTax: Math.round(monthlyTax),
+            netSalary: Math.round(netSalary)
+          },
+          existingPayrolls: existingPayrolls
+        }
+      });
+    } catch (error) {
+      console.error('Error in employee payroll details:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch employee payroll details',
+        error: error.message
+      });
+    }
+  })
+);
+
 // @route   GET /api/payroll/:id
 // @desc    Get payroll by ID
 // @access  Private (HR and Admin)
@@ -113,6 +423,12 @@ router.get('/:id',
         message: 'Payroll not found'
       });
     }
+
+    // 🔧 CALCULATE ATTENDANCE DEDUCTION FOR DISPLAY
+    // This ensures the attendance deduction is always calculated correctly when viewing
+    payroll.calculateAttendanceDeduction();
+    
+    console.log(`📊 Payroll ${payroll._id} fetched with calculated attendance deduction: Rs. ${payroll.attendanceDeduction?.toFixed(2) || 0}`);
 
     res.json({
       success: true,
@@ -152,17 +468,36 @@ router.post('/', [
     });
   }
 
-  // Check for duplicate payroll for the same employee and period
+  // Check for duplicate payroll for the same employee and month/year (matches database unique index)
+  const payrollMonth = new Date(req.body.payPeriod.startDate).getMonth() + 1;
+  const payrollYear = new Date(req.body.payPeriod.startDate).getFullYear();
+  
   const existingPayroll = await Payroll.findOne({
     employee: req.body.employee,
-    'payPeriod.startDate': new Date(req.body.payPeriod.startDate),
-    'payPeriod.endDate': new Date(req.body.payPeriod.endDate)
+    month: payrollMonth,
+    year: payrollYear
   });
 
   if (existingPayroll) {
+    // Check if user wants to update existing payroll
+    if (req.query.updateExisting === 'true') {
+      // Update existing payroll instead of creating new one
+      const updatedPayroll = await Payroll.findByIdAndUpdate(
+        existingPayroll._id,
+        { $set: payrollData },
+        { new: true, runValidators: true }
+      );
+      
+      return res.json({
+        success: true,
+        message: `Payroll updated successfully for ${payrollMonth}/${payrollYear}`,
+        data: updatedPayroll
+      });
+    }
+    
     return res.status(400).json({
       success: false,
-      message: 'Payroll already exists for this employee and pay period'
+      message: `Payroll already exists for this employee for ${payrollMonth}/${payrollYear}. Add ?updateExisting=true to update the existing payroll, or delete it first.`
     });
   }
 
@@ -174,36 +509,37 @@ router.post('/', [
     month: new Date(req.body.payPeriod.startDate).getMonth() + 1, // Extract month from start date
     year: new Date(req.body.payPeriod.startDate).getFullYear(), // Extract year from start date
     basicSalary: parseFloat(req.body.basicSalary) || 0,
-    houseRentAllowance: parseFloat(req.body.allowances?.housing) || 0,
-    medicalAllowance: parseFloat(req.body.allowances?.medical) || 0,
-    conveyanceAllowance: parseFloat(req.body.allowances?.transport) || 0, // Keep exact value, no rounding
-    specialAllowance: parseFloat(req.body.allowances?.meal) || 0,
-    otherAllowance: parseFloat(req.body.allowances?.other) || 0,
+    houseRentAllowance: 0, // Frontend doesn't send housing allowance separately
+    medicalAllowance: parseFloat(req.body.allowances?.medical?.amount) || 0,
+    conveyanceAllowance: parseFloat(req.body.allowances?.conveyance?.amount) || 0, // Keep exact value, no rounding
+    specialAllowance: parseFloat(req.body.allowances?.special?.amount) || 0,
+    otherAllowance: parseFloat(req.body.allowances?.other?.amount) || 0,
     // Copy employee allowances to payroll allowances structure
+    // Use frontend allowances when provided, otherwise fall back to employee master allowances
     allowances: {
       conveyance: {
-        isActive: employeeAllowances.conveyance?.isActive || false,
-        amount: employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0
+        isActive: req.body.allowances?.conveyance?.isActive ?? employeeAllowances.conveyance?.isActive ?? false,
+        amount: parseFloat(req.body.allowances?.conveyance?.amount) || (employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0)
       },
       food: {
-        isActive: employeeAllowances.food?.isActive || false,
-        amount: employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0
+        isActive: req.body.allowances?.food?.isActive ?? employeeAllowances.food?.isActive ?? false,
+        amount: parseFloat(req.body.allowances?.food?.amount) || (employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0)
       },
       vehicleFuel: {
-        isActive: employeeAllowances.vehicleFuel?.isActive || false,
-        amount: employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0
+        isActive: req.body.allowances?.vehicleFuel?.isActive ?? employeeAllowances.vehicleFuel?.isActive ?? false,
+        amount: parseFloat(req.body.allowances?.vehicleFuel?.amount) || (employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0)
       },
       medical: {
-        isActive: employeeAllowances.medical?.isActive || false,
-        amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
+        isActive: req.body.allowances?.medical?.isActive ?? employeeAllowances.medical?.isActive ?? false,
+        amount: parseFloat(req.body.allowances?.medical?.amount) || (employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0)
       },
       special: {
-        isActive: employeeAllowances.special?.isActive || false,
-        amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
+        isActive: req.body.allowances?.special?.isActive ?? employeeAllowances.special?.isActive ?? false,
+        amount: parseFloat(req.body.allowances?.special?.amount) || (employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0)
       },
       other: {
-        isActive: employeeAllowances.other?.isActive || false,
-        amount: employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0
+        isActive: req.body.allowances?.other?.isActive ?? employeeAllowances.other?.isActive ?? false,
+        amount: parseFloat(req.body.allowances?.other?.amount) || (employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0)
       }
     },
     overtimeHours: parseFloat(req.body.overtime?.hours) || 0,
@@ -422,35 +758,46 @@ router.put('/:id', [
     updateData.specialAllowance = parseFloat(req.body.allowances.meal) || 0;
     updateData.otherAllowance = parseFloat(req.body.allowances.other) || 0;
     
-    // Also update the new allowances structure if employee allowances are provided
-    if (req.body.employeeAllowances) {
-      updateData.allowances = {
-        conveyance: {
-          isActive: req.body.employeeAllowances.conveyance?.isActive || false,
-          amount: req.body.employeeAllowances.conveyance?.isActive ? req.body.employeeAllowances.conveyance.amount : 0
-        },
-        food: {
-          isActive: req.body.employeeAllowances.food?.isActive || false,
-          amount: req.body.employeeAllowances.food?.isActive ? req.body.employeeAllowances.food.amount : 0
-        },
-        vehicleFuel: {
-          isActive: req.body.employeeAllowances.vehicleFuel?.isActive || false,
-          amount: req.body.employeeAllowances.vehicleFuel?.isActive ? req.body.employeeAllowances.vehicleFuel.amount : 0
-        },
-        medical: {
-          isActive: req.body.employeeAllowances.medical?.isActive || false,
-          amount: req.body.employeeAllowances.medical?.isActive ? req.body.employeeAllowances.medical.amount : 0
-        },
-        special: {
-          isActive: req.body.employeeAllowances.special?.isActive || false,
-          amount: req.body.employeeAllowances.special?.isActive ? req.body.employeeAllowances.special.amount : 0
-        },
-        other: {
-          isActive: req.body.employeeAllowances.other?.isActive || false,
-          amount: req.body.employeeAllowances.other?.isActive ? req.body.employeeAllowances.other.amount : 0
-        }
-      };
-    }
+    // Update the new allowances structure with frontend allowances
+    updateData.allowances = {
+      conveyance: {
+        isActive: req.body.allowances.conveyance?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.conveyance?.amount) || 0
+      },
+      food: {
+        isActive: req.body.allowances.food?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.food?.amount) || 0
+      },
+      vehicleFuel: {
+        isActive: req.body.allowances.vehicleFuel?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.vehicleFuel?.amount) || 0
+      },
+      medical: {
+        isActive: req.body.allowances.medical?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.medical?.amount) || 0
+      },
+      special: {
+        isActive: req.body.allowances.special?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.special?.amount) || 0
+      },
+      other: {
+        isActive: req.body.allowances.other?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.other?.amount) || 0
+      }
+    };
+  }
+
+  // Map overtime fields if provided
+  if (req.body.overtime) {
+    updateData.overtimeHours = parseFloat(req.body.overtime.hours) || 0;
+    updateData.overtimeRate = parseFloat(req.body.overtime.rate) || 0;
+    updateData.overtimeAmount = parseFloat(req.body.overtime.amount) || 0;
+  }
+
+  // Map bonus fields if provided
+  if (req.body.bonuses) {
+    updateData.performanceBonus = parseFloat(req.body.bonuses.performance) || 0;
+    updateData.otherBonus = parseFloat(req.body.bonuses.other) || 0;
   }
 
   // Map deduction fields if provided
@@ -460,6 +807,40 @@ router.put('/:id', [
     updateData.healthInsurance = parseFloat(req.body.deductions.insurance) || 0;
     updateData.eobi = parseFloat(req.body.deductions.eobi) || 0;
     updateData.otherDeductions = parseFloat(req.body.deductions.other) || 0;
+  }
+
+  // Map attendance fields if provided
+  if (req.body.attendance) {
+    updateData.totalWorkingDays = parseInt(req.body.attendance.totalDays) || payroll.totalWorkingDays;
+    updateData.presentDays = parseInt(req.body.attendance.presentDays) || payroll.presentDays;
+    
+    // 🔧 AUTOMATIC ABSENT DAYS CALCULATION
+    // If present days are provided, automatically calculate absent days
+    if (req.body.attendance.presentDays !== undefined) {
+      const totalWorkingDays = updateData.totalWorkingDays;
+      const presentDays = updateData.presentDays;
+      const leaveDays = parseInt(req.body.attendance.leaveDays) || payroll.leaveDays || 0;
+      
+      // Calculate absent days automatically: Total Working Days - Present Days - Leave Days
+      updateData.absentDays = Math.max(0, totalWorkingDays - presentDays - leaveDays);
+      
+      console.log(`🧮 Automatic Absent Days Calculation:`);
+      console.log(`   Total Working Days: ${totalWorkingDays}`);
+      console.log(`   Present Days: ${presentDays}`);
+      console.log(`   Leave Days: ${leaveDays}`);
+      console.log(`   Calculated Absent Days: ${updateData.absentDays}`);
+    } else {
+      // If present days not provided, use the value from request or existing
+      updateData.absentDays = parseInt(req.body.attendance.absentDays) || payroll.absentDays;
+    }
+    
+    updateData.leaveDays = parseInt(req.body.attendance.leaveDays) || payroll.leaveDays;
+    
+    // Force recalculation of daily rate and attendance deduction
+    updateData.dailyRate = undefined;
+    updateData.attendanceDeduction = undefined;
+    
+    console.log(`📊 Final Attendance Update: ${updateData.presentDays} present, ${updateData.absentDays} absent, ${updateData.totalWorkingDays} total working days`);
   }
 
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
@@ -573,6 +954,122 @@ router.put('/:id', [
   res.json({
     success: true,
     message: 'Payroll updated successfully',
+    data: updatedPayroll
+  });
+}));
+
+// @route   PATCH /api/payroll/:id/attendance
+// @desc    Update payroll attendance fields
+// @access  Private (HR and Admin)
+router.patch('/:id/attendance', [
+  authorize('admin', 'hr_manager'),
+  body('attendance.totalDays').optional().isInt({ min: 1, max: 31 }).withMessage('Total days must be between 1 and 31'),
+  body('attendance.presentDays').optional().isInt({ min: 0, max: 31 }).withMessage('Present days must be between 0 and 31'),
+  body('attendance.leaveDays').optional().isInt({ min: 0, max: 31 }).withMessage('Leave days must be between 0 and 31')
+  // Note: absentDays is calculated automatically based on presentDays, totalDays, and leaveDays
+], asyncHandler(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid payroll ID format'
+    });
+  }
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const payroll = await Payroll.findById(req.params.id);
+  if (!payroll) {
+    return res.status(404).json({
+      success: false,
+      message: 'Payroll not found'
+    });
+  }
+
+  // Don't allow updates if payroll is already paid
+  if (payroll.status === 'Paid') {
+    return res.status(400).json({
+      success: false,
+      message: 'Cannot update a paid payroll'
+    });
+  }
+
+  // Update attendance fields
+  if (req.body.attendance) {
+    const attendance = req.body.attendance;
+    
+    // Validate that present + leave doesn't exceed total working days
+    // Note: absentDays is calculated automatically, so we don't need to validate it here
+    const totalCalculated = (attendance.presentDays || payroll.presentDays) + 
+                           (attendance.leaveDays || payroll.leaveDays);
+    const totalWorkingDays = attendance.totalDays || payroll.totalWorkingDays;
+    
+    if (totalCalculated > totalWorkingDays) {
+      return res.status(400).json({
+        success: false,
+        message: `Present days (${attendance.presentDays || payroll.presentDays}) + Leave days (${attendance.leaveDays || payroll.leaveDays}) cannot exceed total working days (${totalWorkingDays})`
+      });
+    }
+
+    // Update the fields
+    payroll.totalWorkingDays = attendance.totalDays || payroll.totalWorkingDays;
+    payroll.presentDays = attendance.presentDays || payroll.presentDays;
+    
+    // 🔧 AUTOMATIC ABSENT DAYS CALCULATION
+    // If present days are provided, automatically calculate absent days
+    if (attendance.presentDays !== undefined) {
+      const totalWorkingDays = payroll.totalWorkingDays;
+      const presentDays = payroll.presentDays;
+      const leaveDays = attendance.leaveDays || payroll.leaveDays || 0;
+      
+      // Calculate absent days automatically: Total Working Days - Present Days - Leave Days
+      payroll.absentDays = Math.max(0, totalWorkingDays - presentDays - leaveDays);
+      
+      console.log(`🧮 Automatic Absent Days Calculation:`);
+      console.log(`   Total Working Days: ${totalWorkingDays}`);
+      console.log(`   Present Days: ${presentDays}`);
+      console.log(`   Leave Days: ${leaveDays}`);
+      console.log(`   Calculated Absent Days: ${payroll.absentDays}`);
+    } else {
+      // If present days not provided, use the value from request or existing
+      payroll.absentDays = attendance.absentDays || payroll.absentDays;
+    }
+    
+    payroll.leaveDays = attendance.leaveDays || payroll.leaveDays;
+    
+    // Force recalculation of daily rate and attendance deduction
+    payroll.dailyRate = undefined;
+    payroll.attendanceDeduction = undefined;
+    
+    console.log(`📊 Attendance Update for Payroll ${payroll._id}:`);
+    console.log(`   Total Working Days: ${payroll.totalWorkingDays}`);
+    console.log(`   Present Days: ${payroll.presentDays}`);
+    console.log(`   Absent Days: ${payroll.absentDays}`);
+    console.log(`   Leave Days: ${payroll.leaveDays}`);
+    
+    // Save to trigger pre-save middleware for recalculations
+    await payroll.save();
+    
+    console.log(`✅ Attendance updated successfully`);
+    console.log(`   New Daily Rate: ${payroll.dailyRate?.toFixed(2)}`);
+    console.log(`   New Attendance Deduction: ${payroll.attendanceDeduction?.toFixed(2)}`);
+    console.log(`   New Net Salary: ${payroll.netSalary?.toFixed(2)}`);
+  }
+
+  const updatedPayroll = await Payroll.findById(payroll._id)
+    .populate('employee', 'firstName lastName employeeId department position')
+    .populate('createdBy', 'firstName lastName')
+    .populate('approvedBy', 'firstName lastName');
+
+  res.json({
+    success: true,
+    message: 'Payroll attendance updated successfully',
     data: updatedPayroll
   });
 }));
@@ -796,6 +1293,9 @@ router.post('/bulk-generate', [
         continue;
       }
 
+      // Get employee allowances to copy to payroll
+      const employeeAllowances = employee.allowances || {};
+      
       // Create payroll
       const payrollData = {
         employee: employeeId,
@@ -804,7 +1304,36 @@ router.post('/bulk-generate', [
           endDate: new Date(payPeriod.endDate),
           type: payPeriod.type
         },
-        basicSalary: employee.salary || 0,
+        month: new Date(payPeriod.startDate).getMonth() + 1,
+        year: new Date(payPeriod.startDate).getFullYear(),
+        basicSalary: employee.salary?.gross || employee.salary || 0,
+        // Copy employee allowances to payroll allowances structure
+        allowances: {
+          conveyance: {
+            isActive: employeeAllowances.conveyance?.isActive || false,
+            amount: employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0
+          },
+          food: {
+            isActive: employeeAllowances.food?.isActive || false,
+            amount: employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0
+          },
+          vehicleFuel: {
+            isActive: employeeAllowances.vehicleFuel?.isActive || false,
+            amount: employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0
+          },
+          medical: {
+            isActive: employeeAllowances.medical?.isActive || false,
+            amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
+          },
+          special: {
+            isActive: employeeAllowances.special?.isActive || false,
+            amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
+          },
+          other: {
+            isActive: employeeAllowances.other?.isActive || false,
+            amount: employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0
+          }
+        },
         createdBy: req.user.id
       };
 
@@ -965,35 +1494,35 @@ router.get('/:id/download',
        .text('Basic Salary', 50, currentTableY)
        .text(formatCurrency(payroll.basicSalary), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('House Rent Allowance', 50, currentTableY)
        .text(formatCurrency(payroll.houseRentAllowance), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Medical Allowance', 50, currentTableY)
        .text(formatCurrency(payroll.medicalAllowance), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Conveyance Allowance', 50, currentTableY)
        .text(formatCurrency(payroll.conveyanceAllowance), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Special Allowance', 50, currentTableY)
        .text(formatCurrency(payroll.specialAllowance), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Other Allowance', 50, currentTableY)
        .text(formatCurrency(payroll.otherAllowance), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Overtime Amount', 50, currentTableY)
        .text(formatCurrency(payroll.overtimeAmount), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Performance Bonus', 50, currentTableY)
        .text(formatCurrency(payroll.performanceBonus), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Other Bonus', 50, currentTableY)
        .text(formatCurrency(payroll.otherBonus), 200, currentTableY);
 
@@ -1002,19 +1531,19 @@ router.get('/:id/download',
     doc.text('Provident Fund', 350, currentTableY)
        .text(formatCurrency(payroll.providentFund), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Income Tax', 350, currentTableY)
        .text(formatCurrency(payroll.incomeTax), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Health Insurance', 350, currentTableY)
        .text(formatCurrency(payroll.healthInsurance), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('EOBI', 350, currentTableY)
        .text(formatCurrency(payroll.eobi), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Other Deductions', 350, currentTableY)
        .text(formatCurrency(payroll.otherDeductions), 500, currentTableY);
 
@@ -1025,18 +1554,18 @@ router.get('/:id/download',
        .text('Gross Salary', 50, currentTableY)
        .text(formatCurrency(payroll.grossSalary), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.text('Total Deductions', 350, currentTableY)
        .text(formatCurrency(payroll.totalDeductions), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 25;
     doc.fontSize(12)
        .font('Helvetica-Bold')
        .text('Net Salary', 50, currentTableY)
        .text(formatCurrency(payroll.netSalary), 200, currentTableY);
 
     // Amount in words
-    currentTableY += 25;
+    currentTableY += 30;
     doc.fontSize(10)
        .font('Helvetica')
        .text(`[${numberToWords(Math.round(payroll.netSalary))} Only]`, 50, currentTableY);

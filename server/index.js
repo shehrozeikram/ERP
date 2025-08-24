@@ -210,7 +210,7 @@ app.use('/api/notifications', authMiddleware, notificationRoutes);
 app.use('/api/courses', authMiddleware, courseRoutes);
 app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
-app.use('/api/zkteco', authMiddleware, zktecoRoutes);
+app.use('/api/zkteco', zktecoRoutes);
 
 
 // Error handling middleware

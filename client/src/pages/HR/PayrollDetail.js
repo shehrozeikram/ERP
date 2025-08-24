@@ -32,6 +32,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/authService';
+import {
+  calculateTotalEarnings,
+  calculateTotalDeductions,
+  calculateNetSalary,
+  calculateTaxBreakdown,
+  getPayrollSummary,
+  formatCurrency
+} from '../../utils/payrollCalculations';
 
 const PayrollDetail = () => {
   const { id } = useParams();
@@ -46,6 +54,8 @@ const PayrollDetail = () => {
     fetchPayrollDetail();
   }, [id]);
 
+
+
   const fetchPayrollDetail = async () => {
     try {
       setLoading(true);
@@ -53,11 +63,34 @@ const PayrollDetail = () => {
       const payrollData = response.data.data;
       setPayroll(payrollData);
       
+      // Debug: Log payroll allowances data
+      console.log('🔍 Payroll Data Received:', {
+        id: payrollData._id,
+        month: payrollData.month,
+        year: payrollData.year,
+        allowances: payrollData.allowances,
+        foodAllowance: payrollData.allowances?.food,
+        totalEarnings: payrollData.totalEarnings,
+        basicSalary: payrollData.basicSalary,
+        houseRentAllowance: payrollData.houseRentAllowance,
+        medicalAllowance: payrollData.medicalAllowance,
+        overtimeAmount: payrollData.overtimeAmount,
+        performanceBonus: payrollData.performanceBonus,
+        otherBonus: payrollData.otherBonus
+      });
+      
       // Also fetch employee details to get current allowances
       if (payrollData.employee) {
         try {
           const employeeResponse = await api.get(`/hr/employees/${payrollData.employee._id || payrollData.employee}`);
           setEmployee(employeeResponse.data.data);
+          
+          // Debug: Log employee allowances data
+          console.log('🔍 Employee Data Received:', {
+            employeeId: employeeResponse.data.data.employeeId,
+            allowances: employeeResponse.data.data.allowances,
+            foodAllowance: employeeResponse.data.data.allowances?.food
+          });
         } catch (employeeError) {
           console.error('Error fetching employee details:', employeeError);
           // Don't fail if employee fetch fails
@@ -71,107 +104,51 @@ const PayrollDetail = () => {
     }
   };
 
-  // Calculate total earnings including employee allowances
-  const calculateTotalEarnings = () => {
-    if (!payroll || !employee) return 0;
-    
-    // Use employee's actual Gross Salary (this is the base salary)
-    const grossSalary = employee.salary?.gross || 0;
-    
-    // Calculate additional allowances that should be added to Gross Salary
-    const additionalAllowances = [
-      employee.allowances?.food?.isActive ? (employee.allowances.food.amount || 0) : 0,
-      employee.allowances?.vehicleFuel?.isActive ? (employee.allowances.vehicleFuel.amount || 0) : 0,
-      employee.allowances?.conveyance?.isActive ? (employee.allowances.conveyance.amount || 0) : 0,
-      employee.allowances?.special?.isActive ? (employee.allowances.special.amount || 0) : 0,
-      employee.allowances?.other?.isActive ? (employee.allowances.other.amount || 0) : 0
-    ];
-    
-    // Sum of all additional allowances
-    const totalAdditionalAllowances = additionalAllowances.reduce((sum, amount) => sum + amount, 0);
-    
-    // Total Earnings = Gross Salary + Additional Allowances
-    let total = grossSalary + totalAdditionalAllowances;
-    
-    // Add other earnings from payroll
-    total += (payroll.overtimeAmount || 0) + (payroll.performanceBonus || 0) + (payroll.otherBonus || 0);
-    
-    return total;
+  // 🧮 OPTIMIZED: Use reusable calculation utilities
+  // All calculations are now consistent and optimized
+  
+  // Get comprehensive payroll summary with all calculations
+  const getPayrollSummaryData = () => {
+    if (!payroll) return null;
+    return getPayrollSummary(payroll);
   };
 
-  // Calculate total deductions excluding Provident Fund (Coming Soon)
-  const calculateTotalDeductions = () => {
-    // Use calculated tax amount if available, otherwise fall back to stored amount
-    const taxAmount = calculateTaxBreakdown()?.monthlyTax || payroll.incomeTax || 0;
+  // Calculate total earnings using optimized utility
+  const calculateTotalEarningsOptimized = () => {
+    console.log('🔍 calculateTotalEarningsOptimized called with payroll:', {
+      id: payroll?._id,
+      basicSalary: payroll?.basicSalary,
+      houseRentAllowance: payroll?.houseRentAllowance,
+      medicalAllowance: payroll?.medicalAllowance,
+      allowances: payroll?.allowances,
+      overtimeAmount: payroll?.overtimeAmount,
+      performanceBonus: payroll?.performanceBonus,
+      otherBonus: payroll?.otherBonus,
+      totalEarnings: payroll?.totalEarnings
+    });
     
-    return taxAmount + 
-           (payroll.healthInsurance || 0) + 
-           (payroll.vehicleLoanDeduction || 0) +
-           (payroll.companyLoanDeduction || 0) +
-           (payroll.eobi || 370) + 
-           (payroll.otherDeductions || 0);
+    const result = calculateTotalEarnings(payroll);
+    console.log('🔍 calculateTotalEarnings result:', result);
+    
+    return result;
   };
 
-  // Calculate net salary based on recalculated deductions
-  const calculateNetSalary = () => {
-    return calculateTotalEarnings() - calculateTotalDeductions();
+  // Calculate total deductions using optimized utility
+  const calculateTotalDeductionsOptimized = () => {
+    const summary = getPayrollSummaryData();
+    return calculateTotalDeductions(payroll, summary?.taxBreakdown?.monthlyTax);
   };
 
-  // Calculate tax using Pakistan FBR 2025-2026 rules
-  const calculateTaxBreakdown = () => {
-    if (!employee || !employee.salary?.gross) return null;
-    
-    const totalEarnings = calculateTotalEarnings();
-    
-    // Medical allowance is 10% of total earnings (tax-exempt)
-    const medicalAllowance = Math.round(totalEarnings * 0.10);
-    
-    // Taxable income is total earnings minus medical allowance
-    const taxableIncome = totalEarnings - medicalAllowance;
-    
-    // Calculate annual taxable income
-    const annualTaxableIncome = taxableIncome * 12;
-    
-    // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
-    let annualTax = 0;
-    
-    if (annualTaxableIncome <= 600000) {
-      // No tax for income up to 600,000
-      annualTax = 0;
-    } else if (annualTaxableIncome <= 1200000) {
-      // 1% on income from 600,001 to 1,200,000
-      annualTax = (annualTaxableIncome - 600000) * 0.01;
-    } else if (annualTaxableIncome <= 2200000) {
-      // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
-      annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-    } else if (annualTaxableIncome <= 3200000) {
-      // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
-      annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-    } else if (annualTaxableIncome <= 4100000) {
-      // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
-      annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-    } else {
-      // Rs. 616,000 + 35% on income above 4,100,000
-      annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-    }
-    
-    // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-    if (annualTaxableIncome > 10000000) {
-      const surcharge = annualTax * 0.09;
-      annualTax += surcharge;
-    }
-    
-    // Convert to monthly tax
-    const monthlyTax = Math.round(annualTax / 12);
-    
-    return {
-      totalEarnings: calculateTotalEarnings(),
-      medicalAllowance,
-      taxableIncome,
-      annualTaxableIncome,
-      monthlyTax,
-      annualTax
-    };
+  // Calculate net salary using optimized utility
+  const calculateNetSalaryOptimized = () => {
+    const summary = getPayrollSummaryData();
+    return calculateNetSalary(summary?.totalEarnings || 0, summary?.totalDeductions || 0);
+  };
+
+  // Calculate tax breakdown using optimized utility
+  const calculateTaxBreakdownOptimized = () => {
+    const totalEarnings = calculateTotalEarningsOptimized();
+    return calculateTaxBreakdown(totalEarnings);
   };
 
   const handleApprove = async () => {
@@ -525,42 +502,42 @@ const PayrollDetail = () => {
                     <TableRow>
                       <TableCell>Conveyance Allowance</TableCell>
                       <TableCell align="right">{formatPKR(
-                        employee?.allowances?.conveyance?.isActive ? (employee.allowances.conveyance.amount || 0) : 0
+                        payroll?.allowances?.conveyance?.isActive ? (payroll.allowances.conveyance.amount || 0) : 0
                       )}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Food Allowance</TableCell>
                       <TableCell align="right">{formatPKR(
-                        employee?.allowances?.food?.isActive ? (employee.allowances.food.amount || 0) : 0
+                        payroll?.allowances?.food?.isActive ? (payroll.allowances.food.amount || 0) : 0
                       )}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Vehicle & Fuel Allowance</TableCell>
                       <TableCell align="right">{formatPKR(
-                        employee?.allowances?.vehicleFuel?.isActive ? (employee.allowances.vehicleFuel.amount || 0) : 0
+                        payroll?.allowances?.vehicleFuel?.isActive ? (payroll.allowances.vehicleFuel.amount || 0) : 0
                       )}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Special Allowance</TableCell>
                       <TableCell align="right">{formatPKR(
-                        employee?.allowances?.special?.isActive ? (employee.allowances.special.amount || 0) : 0
+                        payroll?.allowances?.special?.isActive ? (payroll.allowances.special.amount || 0) : 0
                       )}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Other Allowance</TableCell>
                       <TableCell align="right">{formatPKR(
-                        employee?.allowances?.other?.isActive ? (employee.allowances.other.amount || 0) : 0
+                        payroll?.allowances?.other?.isActive ? (payroll.allowances.other.amount || 0) : 0
                       )}</TableCell>
                     </TableRow>
                     <TableRow sx={{ backgroundColor: 'success.50', borderTop: '2px solid', borderColor: 'success.300' }}>
                       <TableCell colSpan={2}>
                         <Typography variant="subtitle2" color="success.main" sx={{ fontWeight: 600 }}>
                           💰 Total Additional Allowances: {formatPKR(
-                            (employee?.allowances?.conveyance?.isActive ? (employee.allowances.conveyance.amount || 0) : 0) +
-                            (employee?.allowances?.food?.isActive ? (employee.allowances.food.amount || 0) : 0) +
-                            (employee?.allowances?.vehicleFuel?.isActive ? (employee.allowances.vehicleFuel.amount || 0) : 0) +
-                            (employee?.allowances?.special?.isActive ? (employee.allowances.special.amount || 0) : 0) +
-                            (employee?.allowances?.other?.isActive ? (employee.allowances.other.amount || 0) : 0)
+                            (payroll?.allowances?.conveyance?.isActive ? (payroll.allowances.conveyance.amount || 0) : 0) +
+                            (payroll?.allowances?.food?.isActive ? (payroll.allowances.food.amount || 0) : 0) +
+                            (payroll?.allowances?.vehicleFuel?.isActive ? (payroll.allowances.vehicleFuel.amount || 0) : 0) +
+                            (payroll?.allowances?.special?.isActive ? (payroll.allowances.special.amount || 0) : 0) +
+                            (payroll?.allowances?.other?.isActive ? (payroll.allowances.other.amount || 0) : 0)
                           )}
                         </Typography>
                       </TableCell>
@@ -579,7 +556,7 @@ const PayrollDetail = () => {
                     </TableRow>
                     <TableRow sx={{ backgroundColor: 'primary.light', color: 'white' }}>
                       <TableCell><strong>Total Earnings</strong></TableCell>
-                      <TableCell align="right"><strong>{formatPKR(calculateTotalEarnings())}</strong></TableCell>
+                                              <TableCell align="right"><strong>{formatPKR(calculateTotalEarningsOptimized())}</strong></TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -621,14 +598,14 @@ const PayrollDetail = () => {
                       <TableCell>Income Tax</TableCell>
                       <TableCell align="right">
                         <Typography variant="body1" sx={{ fontWeight: 600, color: 'error.main' }}>
-                          {formatPKR(calculateTaxBreakdown()?.monthlyTax || payroll.incomeTax || 0)}
+                          {formatPKR(calculateTaxBreakdownOptimized()?.monthlyTax || payroll.incomeTax || 0)}
                         </Typography>
                         <Typography variant="caption" display="block" color="info.main">
                           💡 Tax calculated on (Gross Salary - 10% Medical Allowance) per FBR 2025-2026
                         </Typography>
-                        {calculateTaxBreakdown() && (
+                        {calculateTaxBreakdownOptimized() && (
                           <Typography variant="caption" display="block" color="success.main">
-                            ✅ Calculated: {formatPKR(calculateTaxBreakdown().monthlyTax)} | 
+                            ✅ Calculated: {formatPKR(calculateTaxBreakdownOptimized().monthlyTax)} | 
                             Stored: {formatPKR(payroll.incomeTax || 0)}
                           </Typography>
                         )}
@@ -643,22 +620,40 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR(payroll.healthInsurance)}</TableCell>
                     </TableRow>
                     <TableRow>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          Absents and Leaves Without Pay
+                          <Typography variant="caption" color="info.main">
+                            (Daily Rate: {formatPKR(payroll.dailyRate || 0)})
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body1" sx={{ fontWeight: 600, color: 'error.main' }}>
+                          {formatPKR(payroll.attendanceDeduction || 0)}
+                        </Typography>
+                        <Typography variant="caption" display="block" color="info.main">
+                          💡 {payroll.absentDays || 0} absent days × Daily Rate (Gross Salary ÷ 26)
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
                       <TableCell>Other Deductions</TableCell>
                       <TableCell align="right">{formatPKR(payroll.otherDeductions)}</TableCell>
                     </TableRow>
                     <TableRow sx={{ backgroundColor: 'error.light', color: 'white' }}>
                       <TableCell><strong>Total Deductions</strong></TableCell>
-                      <TableCell align="right"><strong>{formatPKR(calculateTotalDeductions())}</strong></TableCell>
+                      <TableCell align="right"><strong>{formatPKR(calculateTotalDeductionsOptimized())}</strong></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell colSpan={2}>
                         <Typography variant="caption" color="warning.main" sx={{ fontStyle: 'italic' }}>
                           💡 Note: Provident Fund is excluded from total deductions (Coming Soon)
                         </Typography>
-                        {payroll.totalDeductions !== calculateTotalDeductions() && (
+                        {payroll.totalDeductions !== calculateTotalDeductionsOptimized() && (
                           <Typography variant="caption" color="info.main" display="block" sx={{ mt: 1 }}>
                             📊 Stored Total Deductions: {formatPKR(payroll.totalDeductions)} | 
-                            Recalculated (without PF): {formatPKR(calculateTotalDeductions())}
+                            Recalculated (without PF): {formatPKR(calculateTotalDeductionsOptimized())}
                           </Typography>
                         )}
                       </TableCell>
@@ -687,13 +682,13 @@ const PayrollDetail = () => {
             <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
               🧮 <strong>Tax Calculation:</strong> Medical Allowance (10% of Total Earnings) is tax-exempt per FBR 2025-2026
             </Typography>
-            {calculateTaxBreakdown() && (
+            {calculateTaxBreakdownOptimized() && (
               <Typography variant="caption" color="primary.main" display="block" sx={{ mt: 0.5, fontWeight: 600 }}>
-                🧮 <strong>Calculated Tax:</strong> PKR {calculateTaxBreakdown().monthlyTax.toLocaleString()} monthly | 
-                PKR {calculateTaxBreakdown().annualTax.toLocaleString()} annually
+                🧮 <strong>Calculated Tax:</strong> PKR {calculateTaxBreakdownOptimized().monthlyTax.toLocaleString()} monthly | 
+                PKR {calculateTaxBreakdownOptimized().annualTax.toLocaleString()} annually
               </Typography>
             )}
-            {calculateTaxBreakdown() && (
+            {calculateTaxBreakdownOptimized() && (
               <Typography variant="caption" color="error.main" display="block" sx={{ mt: 0.5, fontWeight: 600 }}>
                 📊 <strong>Tax Applied:</strong> Using calculated tax amount in deductions and net salary
               </Typography>
@@ -702,7 +697,7 @@ const PayrollDetail = () => {
           <Grid container spacing={3}>
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: 'primary.light', color: 'white' }}>
-                <Typography variant="h4">{formatPKR(calculateTotalEarnings())}</Typography>
+                <Typography variant="h4">{formatPKR(calculateTotalEarningsOptimized())}</Typography>
                 <Typography variant="body2">Total Earnings</Typography>
                 <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1 }}>
                   Gross Salary + Allowances
@@ -711,25 +706,25 @@ const PayrollDetail = () => {
             </Grid>
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: 'error.light', color: 'white' }}>
-                <Typography variant="h4">{formatPKR(calculateTotalDeductions())}</Typography>
+                <Typography variant="h4">{formatPKR(calculateTotalDeductionsOptimized())}</Typography>
                 <Typography variant="body2">Total Deductions</Typography>
-                {payroll.totalDeductions !== calculateTotalDeductions() && (
+                {payroll.totalDeductions !== calculateTotalDeductionsOptimized() && (
                   <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1 }}>
                     Stored: {formatPKR(payroll.totalDeductions)}
                   </Typography>
                 )}
-                {calculateTaxBreakdown() && (
+                {calculateTaxBreakdownOptimized() && (
                   <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1 }}>
-                    ✅ Using calculated tax: {formatPKR(calculateTaxBreakdown().monthlyTax)}
+                    ✅ Using calculated tax: {formatPKR(calculateTaxBreakdownOptimized().monthlyTax)}
                   </Typography>
                 )}
               </Paper>
             </Grid>
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: 'success.light', color: 'white' }}>
-                <Typography variant="h4">{formatPKR(calculateNetSalary())}</Typography>
+                <Typography variant="h4">{formatPKR(calculateNetSalaryOptimized())}</Typography>
                 <Typography variant="body2">Net Salary</Typography>
-                {payroll.netSalary !== calculateNetSalary() && (
+                {payroll.netSalary !== calculateNetSalaryOptimized() && (
                   <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1 }}>
                     Stored: {formatPKR(payroll.netSalary)}
                   </Typography>
@@ -737,11 +732,55 @@ const PayrollDetail = () => {
               </Paper>
             </Grid>
           </Grid>
+          
+          {/* Attendance Summary */}
+          <Box sx={{ mt: 3, p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
+            <Typography variant="subtitle1" color="info.main" gutterBottom sx={{ fontWeight: 600 }}>
+              📅 Attendance Summary (26 Working Days)
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={6} md={3}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h6" color="primary.main">{payroll.totalWorkingDays || 26}</Typography>
+                  <Typography variant="caption">Total Working Days</Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h6" color="success.main">{payroll.presentDays || 26}</Typography>
+                  <Typography variant="caption">Present Days</Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h6" color="error.main">{payroll.absentDays || 0}</Typography>
+                  <Typography variant="caption">Absent Days</Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h6" color="warning.main">{formatPKR(payroll.dailyRate || 0)}</Typography>
+                  <Typography variant="caption">Daily Rate</Typography>
+                  <Typography variant="caption" color="info.main" display="block">
+                    (Gross ÷ 26)
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+            {payroll.absentDays > 0 && (
+              <Box sx={{ mt: 2, p: 2, bgcolor: 'error.50', borderRadius: 1, border: '1px solid', borderColor: 'error.200' }}>
+                <Typography variant="body2" color="error.main" sx={{ fontWeight: 600 }}>
+                  💰 Attendance Deduction: {formatPKR(payroll.attendanceDeduction || 0)} 
+                  ({payroll.absentDays} days × {formatPKR(payroll.dailyRate || 0)})
+                </Typography>
+              </Box>
+            )}
+          </Box>
         </CardContent>
       </Card>
 
       {/* Tax Calculation Breakdown */}
-      {calculateTaxBreakdown() && (
+      {calculateTaxBreakdownOptimized() && (
         <Card sx={{ mb: 3 }}>
           <CardContent>
             <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 600 }}>
@@ -789,11 +828,11 @@ const PayrollDetail = () => {
                         <TableCell>2. Additional Allowances</TableCell>
                         <TableCell align="right" sx={{ color: 'info.main', fontWeight: 600 }}>
                           + {formatPKR(
-                            (employee?.allowances?.conveyance?.isActive ? (employee.allowances.conveyance.amount || 0) : 0) +
-                            (employee?.allowances?.food?.isActive ? (employee.allowances.food.amount || 0) : 0) +
-                            (employee?.allowances?.vehicleFuel?.isActive ? (employee.allowances.vehicleFuel.amount || 0) : 0) +
-                            (employee?.allowances?.special?.isActive ? (employee.allowances.special.amount || 0) : 0) +
-                            (employee?.allowances?.other?.isActive ? (employee.allowances.other.amount || 0) : 0)
+                            (payroll?.allowances?.conveyance?.isActive ? (payroll.allowances.conveyance.amount || 0) : 0) +
+                            (payroll?.allowances?.food?.isActive ? (payroll.allowances.food.amount || 0) : 0) +
+                            (payroll?.allowances?.vehicleFuel?.isActive ? (payroll.allowances.vehicleFuel.amount || 0) : 0) +
+                            (payroll?.allowances?.special?.isActive ? (payroll.allowances.special.amount || 0) : 0) +
+                            (payroll?.allowances?.other?.isActive ? (payroll.allowances.other.amount || 0) : 0)
                           )}
                         </TableCell>
                       </TableRow>
@@ -802,13 +841,13 @@ const PayrollDetail = () => {
                           3. Total Earnings
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'success.main' }}>
-                          {formatPKR(calculateTotalEarnings())}
+                          {formatPKR(calculateTotalEarningsOptimized())}
                         </TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell>4. Medical Allowance (10%)</TableCell>
                         <TableCell align="right" sx={{ color: 'warning.main', fontWeight: 600 }}>
-                          - {formatPKR(calculateTaxBreakdown().medicalAllowance)}
+                          - {formatPKR(calculateTaxBreakdownOptimized().medicalAllowance)}
                         </TableCell>
                       </TableRow>
                       <TableRow sx={{ backgroundColor: 'info.50', borderTop: '2px solid', borderColor: 'info.300' }}>
@@ -816,7 +855,7 @@ const PayrollDetail = () => {
                           5. Taxable Income
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'info.main' }}>
-                          {formatPKR(calculateTaxBreakdown().taxableIncome)}
+                          {formatPKR(calculateTaxBreakdownOptimized().taxableIncome)}
                         </TableCell>
                       </TableRow>
                     </TableBody>
@@ -842,13 +881,13 @@ const PayrollDetail = () => {
                       <TableRow>
                         <TableCell>Total Earnings</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'success.main' }}>
-                          {formatPKR(calculateTotalEarnings())}
+                          {formatPKR(calculateTotalEarningsOptimized())}
                         </TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell>Medical Allowance (10%)</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'warning.main' }}>
-                          {formatPKR(calculateTaxBreakdown().medicalAllowance)}
+                          {formatPKR(calculateTaxBreakdownOptimized().medicalAllowance)}
                         </TableCell>
                       </TableRow>
                       <TableRow sx={{ backgroundColor: 'info.50' }}>
@@ -856,7 +895,7 @@ const PayrollDetail = () => {
                           Monthly Taxable Income
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'info.main' }}>
-                          {formatPKR(calculateTaxBreakdown().taxableIncome)}
+                          {formatPKR(calculateTaxBreakdownOptimized().taxableIncome)}
                         </TableCell>
                       </TableRow>
                       <TableRow sx={{ backgroundColor: 'info.100' }}>
@@ -864,7 +903,7 @@ const PayrollDetail = () => {
                           Annual Taxable Income
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'info.main' }}>
-                          {formatPKR(calculateTaxBreakdown().annualTaxableIncome)}
+                          {formatPKR(calculateTaxBreakdownOptimized().annualTaxableIncome)}
                         </TableCell>
                       </TableRow>
                       <TableRow sx={{ backgroundColor: 'error.50' }}>
@@ -872,7 +911,7 @@ const PayrollDetail = () => {
                           Monthly Tax
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'error.main' }}>
-                          {formatPKR(calculateTaxBreakdown().monthlyTax)}
+                          {formatPKR(calculateTaxBreakdownOptimized().monthlyTax)}
                         </TableCell>
                       </TableRow>
                       <TableRow sx={{ backgroundColor: 'error.100' }}>
@@ -880,7 +919,7 @@ const PayrollDetail = () => {
                           Annual Tax
                         </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 600, color: 'error.main' }}>
-                          {formatPKR(calculateTaxBreakdown().annualTax)}
+                          {formatPKR(calculateTaxBreakdownOptimized().annualTax)}
                         </TableCell>
                       </TableRow>
                     </TableBody>
@@ -891,7 +930,7 @@ const PayrollDetail = () => {
                 <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 2, border: '1px solid', borderColor: 'grey.300' }}>
                   <Typography variant="caption" color="textSecondary" sx={{ fontWeight: 600 }}>
                     📊 FBR Tax Slab Applied: {(() => {
-                      const annual = calculateTaxBreakdown().annualTaxableIncome;
+                      const annual = calculateTaxBreakdownOptimized().annualTaxableIncome;
                       if (annual <= 600000) return "0% (Up to 600,000)";
                       if (annual <= 1200000) return "1% (600,001 - 1,200,000)";
                       if (annual <= 2200000) return "11% (1,200,001 - 2,200,000)";

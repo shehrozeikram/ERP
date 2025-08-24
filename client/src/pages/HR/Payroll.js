@@ -113,8 +113,13 @@ const Payroll = () => {
     year: new Date().getFullYear()
   });
   const [expandedMonths, setExpandedMonths] = useState(new Set());
+  const [generalPayrollExpanded, setGeneralPayrollExpanded] = useState(false);
   const [employeeDetailsPage, setEmployeeDetailsPage] = useState({});
   const [employeeDetailsRowsPerPage, setEmployeeDetailsRowsPerPage] = useState(10);
+  const [generalPayrollPage, setGeneralPayrollPage] = useState(0);
+  const [generalPayrollRowsPerPage, setGeneralPayrollRowsPerPage] = useState(10);
+  const [currentOverview, setCurrentOverview] = useState(null);
+  const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
 
   useEffect(() => {
     fetchPayrolls();
@@ -123,6 +128,18 @@ const Payroll = () => {
     fetchDepartments();
     fetchPositions();
   }, [page, rowsPerPage, filters]);
+
+  // Fetch current overview when component mounts and when general payroll is expanded
+  useEffect(() => {
+    fetchCurrentOverview();
+  }, []);
+
+  useEffect(() => {
+    if (generalPayrollExpanded) {
+      // Data is already loaded, just ensure it's fresh
+      fetchCurrentOverview();
+    }
+  }, [generalPayrollExpanded]);
 
   // Group payrolls by month and year - fixed dependency array
   useEffect(() => {
@@ -135,7 +152,7 @@ const Payroll = () => {
           acc[key] = {
             month: payroll.month,
             year: payroll.year,
-            monthName: months.find(m => m.value === payroll.month.toString().padStart(2, '0'))?.label || payroll.month,
+            monthName: months.find(m => m.value === payroll.month.toString().padStart(2, '0'))?.label || `Month ${payroll.month}`,
             payrolls: [],
             totalEmployees: 0,
             totalGrossSalary: 0,
@@ -214,6 +231,53 @@ const Payroll = () => {
     }
   };
 
+  const fetchCurrentOverview = async () => {
+    try {
+      setCurrentOverviewLoading(true);
+      const response = await api.get('/payroll/current-overview');
+      setCurrentOverview(response.data.data);
+    } catch (error) {
+      console.error('Error fetching current overview:', error);
+      setError('Failed to load current payroll overview');
+    } finally {
+      setCurrentOverviewLoading(false);
+    }
+  };
+
+  // Calculate current overview from employees data
+  const calculateCurrentOverview = () => {
+    if (!employees || employees.length === 0) return {};
+    
+    const activeEmployees = employees.filter(emp => emp.employmentStatus === 'Active');
+    
+    let totalBasicSalary = 0;
+    let totalGrossSalary = 0;
+    let totalNetSalary = 0;
+    
+    activeEmployees.forEach(emp => {
+      if (emp.salary && emp.salary.gross) {
+        const gross = emp.salary.gross;
+        const basic = gross * 0.6666; // 66.66% of gross
+        const medical = gross * 0.1; // 10% of gross (tax exempt)
+        const houseRent = gross * 0.2334; // 23.34% of gross
+        
+        totalBasicSalary += basic;
+        totalGrossSalary += gross;
+        
+        // Calculate net salary (gross - deductions)
+        // For now, using gross as net (deductions will be calculated later)
+        totalNetSalary += gross;
+      }
+    });
+    
+    return {
+      totalEmployees: activeEmployees.length,
+      totalBasicSalary: Math.round(totalBasicSalary),
+      totalGrossSalary: Math.round(totalGrossSalary),
+      totalNetSalary: Math.round(totalNetSalary)
+    };
+  };
+
   const fetchEmployees = async () => {
     try {
       // Fetch ALL employees using the new getAll parameter
@@ -277,6 +341,15 @@ const Payroll = () => {
     }));
   };
 
+  const handleGeneralPayrollPageChange = (newPage) => {
+    setGeneralPayrollPage(newPage);
+  };
+
+  const handleGeneralPayrollRowsPerPageChange = (newRowsPerPage) => {
+    setGeneralPayrollRowsPerPage(parseInt(newRowsPerPage, 10));
+    setGeneralPayrollPage(0); // Reset to first page when changing rows per page
+  };
+
   const getPaginatedEmployeeDetails = (monthly) => {
     const monthKey = `${monthly.month}-${monthly.year}`;
     const currentPage = employeeDetailsPage[monthKey] || 0;
@@ -294,9 +367,42 @@ const Payroll = () => {
     };
   };
 
+  const getPaginatedGeneralPayrollEmployees = () => {
+    if (!currentOverview) {
+      return {
+        paginatedEmployees: [],
+        currentPage: generalPayrollPage,
+        currentRowsPerPage: generalPayrollRowsPerPage,
+        totalEmployees: 0,
+        totalPages: 0
+      };
+    }
+    
+    // Use filtered employees if search is active, otherwise use all employees
+    const employeesToShow = currentOverview.isSearchActive && currentOverview.filteredEmployees 
+      ? currentOverview.filteredEmployees 
+      : (currentOverview.employees || []);
+    
+    const startIndex = generalPayrollPage * generalPayrollRowsPerPage;
+    const endIndex = startIndex + generalPayrollRowsPerPage;
+    
+    return {
+      paginatedEmployees: employeesToShow.slice(startIndex, endIndex),
+      currentPage: generalPayrollPage,
+      currentRowsPerPage: generalPayrollRowsPerPage,
+      totalEmployees: employeesToShow.length,
+      totalPages: Math.ceil(employeesToShow.length / generalPayrollRowsPerPage)
+    };
+  };
+
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
     setPage(0); // Reset to first page when applying filters
+    
+    // Reset general payroll pagination when search query changes
+    if (field === 'searchQuery') {
+      setGeneralPayrollPage(0);
+    }
   };
 
   const clearFilters = () => {
@@ -310,6 +416,15 @@ const Payroll = () => {
       searchQuery: ''
     });
     setPage(0); // Reset to first page when clearing filters
+    
+    // Reset general payroll search state
+    if (currentOverview) {
+      setCurrentOverview(prev => ({
+        ...prev,
+        filteredEmployees: null,
+        isSearchActive: false
+      }));
+    }
   };
 
   const getFilteredPayrolls = () => {
@@ -335,14 +450,45 @@ const Payroll = () => {
       filtered = filtered.filter(p => p.employee?.position === filters.position);
     }
 
-    // Filter by search query
+    // Filter by search query - Updated to include both monthly and general payroll
     if (filters.searchQuery) {
       const query = filters.searchQuery.toLowerCase();
+      
+      // Filter monthly payrolls
       filtered = filtered.filter(p => 
         p.employee?.firstName?.toLowerCase().includes(query) ||
         p.employee?.lastName?.toLowerCase().includes(query) ||
-        p.employee?.employeeId?.toLowerCase().includes(query)
+        p.employee?.employeeId?.toLowerCase().includes(query) ||
+        p.employee?.department?.toLowerCase().includes(query) ||
+        p.employee?.position?.toLowerCase().includes(query)
       );
+      
+      // Also filter general payroll overview if it exists
+      if (currentOverview && currentOverview.employees) {
+        const filteredGeneralEmployees = currentOverview.employees.filter(emp => 
+          emp.firstName?.toLowerCase().includes(query) ||
+          emp.lastName?.toLowerCase().includes(query) ||
+          emp.employeeId?.toLowerCase().includes(query) ||
+          emp.placementDepartment?.name?.toLowerCase().includes(query) ||
+          emp.designation?.name?.toLowerCase().includes(query)
+        );
+        
+        // Update current overview with filtered results for search
+        if (filters.searchQuery) {
+          setCurrentOverview(prev => ({
+            ...prev,
+            filteredEmployees: filteredGeneralEmployees,
+            isSearchActive: true
+          }));
+        } else {
+          // Clear search state when query is empty
+          setCurrentOverview(prev => ({
+            ...prev,
+            filteredEmployees: null,
+            isSearchActive: false
+          }));
+        }
+      }
     }
 
     // Filter by date range
@@ -594,8 +740,8 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
             eobi: 370 // Fixed EOBI amount for Pakistan
           },
           attendance: {
-            totalDays: 22,
-            presentDays: 22,
+                    totalDays: 26,
+        presentDays: 26,
             absentDays: 0
           },
           leaveDeductions: {
@@ -647,6 +793,14 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
       }
       return newSet;
     });
+  };
+
+  const toggleGeneralPayrollExpansion = () => {
+    setGeneralPayrollExpanded(prev => !prev);
+    // Reset pagination when expanding
+    if (!generalPayrollExpanded) {
+      setGeneralPayrollPage(0);
+    }
   };
 
   const getMonthStatusColor = (statuses) => {
@@ -1073,12 +1227,307 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
         {filters.searchQuery && (
           <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
             💡 Searching for: "{filters.searchQuery}" • Found {monthlyPayrolls.length} month(s) with matching results
+            {currentOverview?.filteredEmployees && (
+              <span> • {currentOverview.filteredEmployees.length} employee(s) in General Payroll</span>
+            )}
             {monthlyPayrolls.length > rowsPerPage && (
               <span> • Use pagination below to navigate through all results</span>
             )}
           </Typography>
         )}
       </Box>
+
+      {/* General Payroll Overview Card */}
+      <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
+        <CardContent>
+          <Typography variant="h6" color="primary.main" sx={{ mb: 2, fontWeight: 600 }}>
+            📋 General Payroll
+            {filters.searchQuery && currentOverview?.isSearchActive && (
+              <Chip 
+                label={`🔍 ${currentOverview.filteredEmployees?.length || 0} results`}
+                size="small" 
+                color="primary" 
+                variant="outlined"
+                sx={{ ml: 2, fontSize: '0.75rem' }}
+              />
+            )}
+          </Typography>
+          
+          <Paper sx={{ width: '100%', overflow: 'hidden' }}>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Pay Period</TableCell>
+                    <TableCell>Employees</TableCell>
+                    <TableCell>Total Basic Salary</TableCell>
+                    <TableCell>Total Gross Pay</TableCell>
+                    <TableCell>Total Net Pay</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="center">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRow hover sx={{ bgcolor: 'background.paper' }}>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="subtitle2">
+                          Current Payroll
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          General
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                                              <TableCell>
+                            <Typography variant="body2">
+                              {currentOverviewLoading ? (
+                                <CircularProgress size={16} />
+                              ) : (
+                                `${currentOverview?.isSearchActive && currentOverview?.filteredEmployees 
+                                  ? currentOverview.filteredEmployees.length 
+                                  : currentOverview?.totalEmployees || 0} Employees`
+                              )}
+                              {filters.searchQuery && currentOverview?.filteredEmployees && (
+                                <Typography variant="caption" color="primary.main" sx={{ display: 'block', mt: 0.5 }}>
+                                  🔍 Filtered by search
+                                </Typography>
+                              )}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            {currentOverviewLoading ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              formatCurrency(currentOverview?.totalBasicSalary || 0)
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {currentOverviewLoading ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              formatCurrency(currentOverview?.totalGrossSalary || 0)
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {currentOverviewLoading ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              formatCurrency(currentOverview?.totalNetSalary || 0)
+                            )}
+                          </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label="Active" 
+                        size="small" 
+                        color="success" 
+                        variant="outlined"
+                      />
+                    </TableCell>
+                                            <TableCell align="center">
+                          <Tooltip title={generalPayrollExpanded ? "Hide Details" : "View Details"}>
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={toggleGeneralPayrollExpansion}
+                            >
+                              {generalPayrollExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+          
+          {/* Expanded Employee Details for General Payroll */}
+          <Collapse in={generalPayrollExpanded} timeout="auto" unmountOnExit>
+            <Box sx={{ margin: 1 }}>
+              <Typography variant="h6" gutterBottom component="div">
+                Employee Details - Current Payroll
+                <Chip 
+                  label="↑ Sorted by Employee ID" 
+                  size="small" 
+                  color="primary" 
+                  variant="outlined"
+                  sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
+                />
+              </Typography>
+              
+              {/* Employee Details Pagination Info */}
+              {(() => {
+                const paginationInfo = getPaginatedGeneralPayrollEmployees();
+                return (
+                  <Box sx={{ 
+                    mb: 2, 
+                    p: 2, 
+                    bgcolor: 'grey.50', 
+                    borderRadius: 2, 
+                    border: '1px solid',
+                    borderColor: 'grey.200'
+                  }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                      <Box>
+                        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+                          👥 Employee List
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of {paginationInfo.totalEmployees} employees
+                        </Typography>
+                        <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          📊 Sorted by Employee ID (1, 2, 3...)
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" color="textSecondary">
+                          Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                        </Typography>
+                        {paginationInfo.totalPages > 1 && (
+                          <Chip 
+                            label={`${paginationInfo.totalPages} pages`} 
+                            size="small" 
+                            color="primary" 
+                            variant="outlined"
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                  </Box>
+                );
+              })()}
+
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Employee</TableCell>
+                    <TableCell>Basic Salary</TableCell>
+                    <TableCell>Gross Pay</TableCell>
+                    <TableCell>Net Pay</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="center">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(() => {
+                    const paginationInfo = getPaginatedGeneralPayrollEmployees();
+                    if (paginationInfo.paginatedEmployees.length === 0) {
+                      return (
+                        <TableRow>
+                          <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                            <Box sx={{ textAlign: 'center' }}>
+                              <Typography variant="body2" color="textSecondary">
+                                No active employees found
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    
+                    return paginationInfo.paginatedEmployees.map((employee) => {
+                      return (
+                        <TableRow key={employee._id}>
+                          <TableCell>
+                            <Box>
+                              <Typography variant="subtitle2">
+                                {employee.firstName} {employee.lastName}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary">
+                                {employee.employeeId}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell>{formatCurrency(employee.basicSalary)}</TableCell>
+                          <TableCell>{formatCurrency(employee.totalEarnings)}</TableCell>
+                          <TableCell>{formatCurrency(employee.netSalary)}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label="Active"
+                              color="success"
+                              size="small"
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="View Payroll Details">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => navigate(`/hr/payroll/view/employee/${employee._id}`)}
+                              >
+                                <ViewIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                  })()}
+                </TableBody>
+              </Table>
+
+              {/* General Payroll Employee Details Pagination Controls */}
+              {(() => {
+                const paginationInfo = getPaginatedGeneralPayrollEmployees();
+                if (paginationInfo.totalPages <= 1) return null;
+                
+                return (
+                  <Box sx={{ 
+                    mt: 2, 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 2
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Typography variant="body2" color="textSecondary">
+                        Employees per page:
+                      </Typography>
+                      <FormControl size="small" sx={{ minWidth: 80 }}>
+                        <Select
+                          value={paginationInfo.currentRowsPerPage}
+                          onChange={(e) => handleGeneralPayrollRowsPerPageChange(e.target.value)}
+                          sx={{ height: 32 }}
+                        >
+                          <MenuItem value={5}>5</MenuItem>
+                          <MenuItem value={10}>10</MenuItem>
+                          <MenuItem value={25}>25</MenuItem>
+                          <MenuItem value={50}>50</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+                    
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Button
+                        size="small"
+                        onClick={() => handleGeneralPayrollPageChange(paginationInfo.currentPage - 1)}
+                        disabled={paginationInfo.currentPage === 0}
+                        variant="outlined"
+                      >
+                        Previous
+                      </Button>
+                      
+                      <Typography variant="body2" sx={{ px: 2 }}>
+                        {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                      </Typography>
+                      
+                      <Button
+                        size="small"
+                        onClick={() => handleGeneralPayrollPageChange(paginationInfo.currentPage + 1)}
+                        disabled={paginationInfo.currentPage === paginationInfo.totalPages - 1}
+                        variant="outlined"
+                      >
+                        Next
+                      </Button>
+                    </Box>
+                  </Box>
+                );
+              })()}
+            </Box>
+          </Collapse>
+        </CardContent>
+      </Card>
 
       {/* Monthly Payroll Summary Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden' }}>
@@ -1156,7 +1605,7 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
                               {monthly.monthName} {monthly.year}
                             </Typography>
                             <Typography variant="caption" color="textSecondary">
-                              Monthly
+                              Payroll Period
                             </Typography>
                           </Box>
                         </TableCell>

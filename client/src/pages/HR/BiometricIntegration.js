@@ -49,6 +49,7 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import api from '../../services/authService';
+import zktecoService from '../../services/zktecoService';
 
 const BiometricIntegration = () => {
   const [integrations, setIntegrations] = useState([]);
@@ -72,6 +73,13 @@ const BiometricIntegration = () => {
     open: false,
     message: '',
     severity: 'info'
+  });
+
+  // ZKTeco authentication state
+  const [zktecoAuth, setZktecoAuth] = useState({
+    isAuthenticated: false,
+    loading: false,
+    error: null
   });
 
   // Role mapping for ZKTeco devices
@@ -321,6 +329,81 @@ const BiometricIntegration = () => {
       case 'running': return 'warning';
       case 'failed': return 'error';
       default: return 'default';
+    }
+  };
+
+  // Test echo endpoint first
+  const testEchoEndpoint = async () => {
+    try {
+      console.log('🧪 Testing echo endpoint...');
+      const response = await api.post('/zkteco/echo', { 
+        username: 'test', 
+        password: 'test123' 
+      });
+      console.log('✅ Echo response:', response.data);
+      return true;
+    } catch (error) {
+      console.error('❌ Echo test failed:', error);
+      return false;
+    }
+  };
+
+  // ZKTeco authentication function
+  const authenticateZKTeco = async () => {
+    try {
+      setZktecoAuth(prev => ({ ...prev, loading: true, error: null }));
+      console.log('🔐 Starting ZKTeco authentication...');
+      
+      // First test the echo endpoint
+      const echoTest = await testEchoEndpoint();
+      if (!echoTest) {
+        throw new Error('Echo endpoint test failed - body parser issue');
+      }
+      
+      // Using provided ZKTeco credentials
+      console.log('🔑 Attempting authentication with:', { username: 'adil.aamir', password: 'Pak123456' });
+      const result = await zktecoService.authenticate('adil.aamir', 'Pak123456');
+      
+      if (result.success) {
+        setZktecoAuth({
+          isAuthenticated: true,
+          loading: false,
+          error: null
+        });
+        setSnackbar({
+          open: true,
+          message: '✅ Successfully connected to ZKTeco system!',
+          severity: 'success'
+        });
+        console.log('✅ ZKTeco authenticated successfully!');
+        return true;
+      } else {
+        setZktecoAuth({
+          isAuthenticated: false,
+          loading: false,
+          error: result.error
+        });
+        setSnackbar({
+          open: true,
+          message: `❌ ZKTeco authentication failed: ${result.error}`,
+          severity: 'error'
+        });
+        console.error('❌ ZKTeco authentication failed:', result.error);
+        return false;
+      }
+    } catch (error) {
+      setZktecoAuth({
+        isAuthenticated: false,
+        loading: false,
+        error: error.message
+      });
+      setSnackbar({
+        open: true,
+        message: `❌ ZKTeco authentication error: ${error.message}`,
+        severity: 'error'
+      });
+      console.error('❌ ZKTeco authentication error:', error);
+      return false;
     }
   };
 
@@ -640,10 +723,22 @@ const BiometricIntegration = () => {
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item>
             <Button
+              variant={zktecoAuth.isAuthenticated ? "contained" : "outlined"}
+              startIcon={zktecoAuth.isAuthenticated ? <SuccessIcon /> : <TestIcon />}
+              onClick={authenticateZKTeco}
+              disabled={zktecoAuth.loading}
+              color={zktecoAuth.isAuthenticated ? "success" : "primary"}
+            >
+              {zktecoAuth.loading ? <CircularProgress size={20} /> : 
+               zktecoAuth.isAuthenticated ? '✅ ZKTeco Connected' : '🔐 Connect ZKTeco'}
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
               variant="outlined"
               startIcon={<TestIcon />}
               onClick={testZktecoConnection}
-              disabled={zktecoLoading}
+              disabled={zktecoLoading || !zktecoAuth.isAuthenticated}
             >
               {zktecoLoading ? <CircularProgress size={20} /> : 'Test Connection'}
             </Button>
@@ -653,7 +748,7 @@ const BiometricIntegration = () => {
               variant="outlined"
               startIcon={<InfoIcon />}
               onClick={getZktecoDeviceInfo}
-              disabled={zktecoLoading}
+              disabled={zktecoLoading || !zktecoAuth.isAuthenticated}
             >
               {zktecoLoading ? <CircularProgress size={20} /> : 'Device Info'}
             </Button>
@@ -663,7 +758,7 @@ const BiometricIntegration = () => {
               variant="contained"
               startIcon={<SyncIcon />}
               onClick={getZktecoUsers}
-              disabled={zktecoUsersLoading}
+              disabled={zktecoUsersLoading || !zktecoAuth.isAuthenticated}
             >
               {zktecoUsersLoading ? <CircularProgress size={20} /> : 'Get All Users'}
             </Button>
@@ -673,7 +768,7 @@ const BiometricIntegration = () => {
               variant="outlined"
               startIcon={<SyncIcon />}
               onClick={getZktecoAttendance}
-              disabled={zktecoLoading}
+              disabled={zktecoLoading || !zktecoAuth.isAuthenticated}
             >
               {zktecoLoading ? <CircularProgress size={20} /> : 'Get Attendance'}
             </Button>
@@ -684,7 +779,7 @@ const BiometricIntegration = () => {
               color="secondary"
               startIcon={<SyncIcon />}
               onClick={syncZktecoAttendance}
-              disabled={zktecoLoading}
+              disabled={zktecoLoading || !zktecoAuth.isAuthenticated}
             >
               {zktecoLoading ? <CircularProgress size={20} /> : 'Sync to Database'}
             </Button>

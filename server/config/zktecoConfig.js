@@ -15,10 +15,10 @@ const ZKTECO_CONFIG = {
 
   // Authentication cookies (update these when they expire)
   cookies: {
-    account_info: 'eyJ1c2VybmFtZSI6ICJhZGlsLmFhbWlyIiwgInBhc3N3b3JkIjogIlBhazEyMzQ1NiIsICJlbXBOYW1lIjogIiIsICJlbXBQd2QiOiAiIiwgInJlbWVtYmVyX21lX2FkbWluIjogImNoZWNrZWQiLCAicmVtZW1iZXJfbWVfZW1wbG95ZWUiOiAiIn0=',
-    csrftoken: 'uDDCa94G3RHvqfrDjLTmFeJasm2gsM37',
+    account_info: 'eyJ1c2VybmFtZSI6ICIiLCAicGFzc3dvcmQiOiAiIiwgImVtcE5hbWUiOiAiIiwgImVtcFB3ZCI6ICIiLCAicmVtZW1iZXJfbWVfYWRtaW4iOiAiIiwgInJlbWVtYmVyX21lX2VtcGxveWVlIjogIiJ9',
+    csrftoken: '5HYMUICZU4NuFZVlCuCwIoOLYnrKDTSp',
     django_language: 'en',
-    sessionid: 'ontu4a7e8ez4kgveb9lzthjr0mekbd3p'
+    sessionid: '9iseou0t87g07grp2ivcpsnfzkgkw0mw'
   },
 
   // User agent for requests

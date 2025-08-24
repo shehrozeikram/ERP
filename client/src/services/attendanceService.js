@@ -14,18 +14,7 @@ class AttendanceService {
     }
   }
 
-  /**
-   * Get real-time attendance status
-   */
-  static async getRealTimeAttendance() {
-    try {
-      const response = await api.get('/attendance/realtime');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching real-time attendance:', error);
-      throw error;
-    }
-  }
+  // Real-time attendance method removed as requested
 
   /**
    * Get attendance statistics
@@ -71,15 +60,12 @@ class AttendanceService {
    */
   static async fetchZKTecoAttendance(startDate = null, endDate = null) {
     try {
-      console.log('🔄 Frontend: Fetching ZKTeco attendance on-demand...');
-      
       const params = {};
       if (startDate) params.startDate = startDate;
       if (endDate) params.endDate = endDate;
       
       const response = await api.post('/attendance/fetch-zkteco', null, { params });
       
-      console.log('✅ Frontend: ZKTeco attendance fetched successfully:', response.data);
       return response.data;
     } catch (error) {
       console.error('❌ Frontend: Error fetching ZKTeco attendance:', error);

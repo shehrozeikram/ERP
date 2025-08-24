@@ -154,7 +154,7 @@ const PayrollForm = () => {
     attendance: Yup.object({
       totalDays: Yup.number().min(0, 'Total days must be positive'),
       presentDays: Yup.number().min(0, 'Present days must be positive'),
-      absentDays: Yup.number().min(0, 'Absent days must be positive'),
+      // Note: absentDays is calculated automatically based on totalDays, presentDays, and leaveDays
       lateDays: Yup.number().min(0, 'Late days must be positive'),
       halfDays: Yup.number().min(0, 'Half days must be positive')
     }),
@@ -382,6 +382,26 @@ const PayrollForm = () => {
     }
   }, [employeeLoans, selectedEmployee]);
 
+  // 🔧 AUTOMATIC ABSENT DAYS CALCULATION
+  // Recalculate absent days whenever present days, total days, or leave days change
+  useEffect(() => {
+    const totalDays = formik.values.attendance?.totalDays || 26;
+    const presentDays = formik.values.attendance?.presentDays || 0;
+    const leaveDays = formik.values.leaveDeductions?.totalLeaveDays || 0;
+    
+    // Calculate absent days: Total Days - Present Days - Leave Days
+    const calculatedAbsentDays = Math.max(0, totalDays - presentDays - leaveDays);
+    
+    // Update the absent days field with calculated value
+    formik.setFieldValue('attendance.absentDays', calculatedAbsentDays);
+    
+    console.log(`🧮 Frontend: Auto-calculated absent days: ${totalDays} - ${presentDays} - ${leaveDays} = ${calculatedAbsentDays}`);
+  }, [
+    formik.values.attendance?.totalDays, 
+    formik.values.attendance?.presentDays, 
+    formik.values.leaveDeductions?.totalLeaveDays
+  ]);
+
   const fetchEmployees = async () => {
     try {
       const response = await api.get('/hr/employees?limit=1000');
@@ -465,8 +485,8 @@ const PayrollForm = () => {
           other: payroll.otherDeductions || 0
         },
         attendance: {
-          totalDays: payroll.totalWorkingDays || 22,
-          presentDays: payroll.presentDays || 22,
+                  totalDays: payroll.totalWorkingDays || 26,
+        presentDays: payroll.presentDays || 26,
           absentDays: payroll.absentDays || 0,
           lateDays: 0,
           halfDays: 0
@@ -619,7 +639,7 @@ const PayrollForm = () => {
       (values.bonuses?.other || 0);
 
     // Calculate leave deductions with safe defaults
-    const workingDaysPerMonth = 22; // Standard working days per month
+    const workingDaysPerMonth = 26; // Standard working days per month (excluding Sundays)
     const dailyRate = values.basicSalary / workingDaysPerMonth;
     
     // Ensure leaveDeductions exists with default values
@@ -1460,6 +1480,16 @@ const PayrollForm = () => {
                         label="Absent Days"
                         value={formik.values.attendance.absentDays}
                         onChange={formik.handleChange}
+                        InputProps={{
+                          readOnly: true,
+                        }}
+                        helperText="Calculated automatically: Total Days - Present Days - Leave Days"
+                        sx={{
+                          '& .MuiInputBase-input.Mui-readOnly': {
+                            backgroundColor: '#f5f5f5',
+                            cursor: 'not-allowed'
+                          }
+                        }}
                       />
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>

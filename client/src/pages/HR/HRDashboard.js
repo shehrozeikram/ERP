@@ -59,7 +59,8 @@ import {
   Schedule as AttendanceIcon,
   Biometric as BiometricIcon,
   ExitToApp as SettlementIcon,
-  Receipt
+  Receipt,
+  Assessment
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -733,15 +734,15 @@ const HRDashboard = () => {
               background: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
               color: 'white'
             }}
-            onClick={() => navigate('/hr/payslips')}
+            onClick={() => navigate('/hr/reports')}
           >
             <CardContent sx={{ textAlign: 'center', py: 3 }}>
-              <Receipt sx={{ fontSize: 48, color: 'white', mb: 2 }} />
+              <Assessment sx={{ fontSize: 48, color: 'white', mb: 2 }} />
               <Typography variant="h6" sx={{ color: 'white', mb: 1 }}>
-                Payslip Management
+                HR Reports
               </Typography>
               <Typography variant="body2" sx={{ color: 'white', opacity: 0.9 }}>
-                Generate payslips, manage salary details, and track payments
+                Comprehensive reports and analytics for HR insights
               </Typography>
             </CardContent>
           </Card>

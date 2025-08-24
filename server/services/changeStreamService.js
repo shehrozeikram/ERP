@@ -64,8 +64,6 @@ class ChangeStreamService {
       
       changeStream.on('change', async (change) => {
         try {
-          console.log('📊 Attendance change detected:', change.operationType);
-          
           switch (change.operationType) {
             case 'insert':
               await this.handleAttendanceInsert(change.fullDocument);
@@ -87,7 +85,6 @@ class ChangeStreamService {
       });
 
       this.changeStreams.set('attendance', changeStream);
-      console.log('📡 Attendance change stream started');
       
     } catch (error) {
       console.error('❌ Error starting attendance change stream:', error);

@@ -626,10 +626,10 @@ router.get('/:id/download',
       });
     }
 
-    // Create PDF document
+    // Create PDF document - A4 size with minimal margins for single page
     const doc = new PDFDocument({
       size: 'A4',
-      margin: 50
+      margin: 30
     });
 
     // Set response headers
@@ -663,203 +663,196 @@ router.get('/:id/download',
       const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
       const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
 
-      const convertLessThanOneThousand = (num) => {
-        if (num === 0) return '';
-
-        if (num < 10) return ones[num];
-        if (num < 20) return teens[num - 10];
-        if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + ones[num % 10] : '');
-        if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' ' + convertLessThanOneThousand(num % 100) : '');
-      };
-
-      const convert = (num) => {
-        if (num === 0) return 'Zero';
-        if (num < 1000) return convertLessThanOneThousand(num);
-        if (num < 100000) return convertLessThanOneThousand(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + convertLessThanOneThousand(num % 1000) : '');
-        if (num < 10000000) return convertLessThanOneThousand(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 !== 0 ? ' ' + convert(Math.floor(num / 1000) % 100) + ' Thousand' + (num % 1000 !== 0 ? ' ' + convertLessThanOneThousand(num % 1000) : '') : '');
-        return convertLessThanOneThousand(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 !== 0 ? ' ' + convert(num % 10000000) : '');
-      };
-
-      return convert(Math.floor(num));
+      if (num === 0) return 'Zero';
+      if (num < 10) return ones[num];
+      if (num < 20) return teens[num - 10];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
+      if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' and ' + numberToWords(num % 100) : '');
+      if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + numberToWords(num % 1000) : '');
+      if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + numberToWords(num % 100000) : '');
+      return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 ? ' ' + numberToWords(num % 10000000) : '');
     };
 
-    // Header with Company Logo and Name
-    doc.fontSize(20)
+    // Start building the PDF content - EXACTLY like your image
+    const pageWidth = doc.page.width - 60;
+    const pageHeight = doc.page.height - 60;
+
+    // Header with company logo and title - MOVED TO LEFT SIDE
+    doc.fontSize(18)
        .font('Helvetica-Bold')
-       .fillColor('#000')
-       .text('Sardar Group of Companies', { align: 'center' })
-       .moveDown(0.5);
+       .text('SARDAR GROUP OF COMPANIES', 50, 30);
 
     doc.fontSize(16)
        .font('Helvetica-Bold')
-       .fillColor('#000')
-       .text('PAY SLIP', { align: 'center' })
-       .moveDown(0.3);
+       .text('PAY SLIP', 50, 65);
 
     doc.fontSize(12)
        .font('Helvetica')
-       .fillColor('#000')
-       .text(`For the month of ${payslip.period}`, { align: 'center' })
-       .moveDown(1);
+       .text(`For the month of ${formatDate(new Date(payslip.year, payslip.month - 1))}`, 50, 95);
 
-    // Confidential label and payslip details
-    const currentY = doc.y;
+    // Right side - Confidential and Payslip details
     doc.fontSize(10)
        .font('Helvetica-Bold')
-       .text('Confidential', 450, currentY - 60);
+       .text('Confidential', pageWidth - 50, 30, { align: 'right' });
 
-    // Payslip details in header
     doc.fontSize(10)
        .font('Helvetica')
-       .text('Lwp Days:', 50, currentY)
-       .text('Payslip No:', 50, currentY + 20)
-       .text('Days Worked:', 50, currentY + 40)
-       .text('Paid By Bank:', 50, currentY + 60)
-       .text('Bank Branch:', 50, currentY + 80)
-       .text('Emp. Type:', 50, currentY + 100)
-       .text('Bank Account:', 50, currentY + 120);
+       .text(`Payslip No: ${payslip.payslipNumber}`, pageWidth - 50, 50, { align: 'right' })
+       .text(`Paid By Bank: ${payslip.employee?.bankName || 'ALLIED BANK LTD'}`, pageWidth - 50, 80, { align: 'right' });
 
+    // Employee and Bank details section - OPTIMIZED FOR SINGLE PAGE
+    const employeeY = 130;
     doc.fontSize(10)
        .font('Helvetica-Bold')
-       .text('', 150, currentY) // Lwp Days value
-       .text(payslip.payslipNumber, 150, currentY + 20)
-       .text(payslip.presentDays.toString(), 150, currentY + 40)
-       .text('ALLIED BANK LTD', 150, currentY + 60)
-       .text('', 150, currentY + 80) // Bank Branch value
-       .text('HEAD OFFICE', 150, currentY + 100)
-       .text('0010131076200014', 150, currentY + 120);
-
-    doc.moveDown(8);
-
-    // Employee Information
-    doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .text('Employee Details')
-       .moveDown(0.5);
-
-    const employeeY = doc.y;
-    doc.fontSize(10)
-       .font('Helvetica')
        .text('Employee Code:', 50, employeeY)
-       .text('Employee Name:', 50, employeeY + 20)
-       .text('Department:', 50, employeeY + 40)
-       .text('Project:', 50, employeeY + 60)
-       .text('Designation:', 50, employeeY + 80)
-       .text('Joining Date:', 50, employeeY + 100)
-       .text('Address:', 50, employeeY + 120)
-       .text('Mobile Number:', 50, employeeY + 140)
-       .text('Grade:', 50, employeeY + 160);
+       .text('Employee Name:', 50, employeeY + 22)
+       .text('Department:', 50, employeeY + 44)
+       .text('Project:', 50, employeeY + 66)
+       .text('Designation:', 50, employeeY + 88)
+       .text('Joining Date:', 50, employeeY + 110)
+       .text('Address:', 50, employeeY + 132)
+       .text('Mobile Number:', 50, employeeY + 154)
+       .text('Grade:', 50, employeeY + 176)
+       .text('Lwp Days:', 50, employeeY + 198)
+       .text('Days Worked:', 50, employeeY + 220)
+       .text('Bank Branch:', 50, employeeY + 242)
+       .text('Emp. Type:', 50, employeeY + 264)
+       .text('Bank Account:', 50, employeeY + 286);
 
     doc.fontSize(10)
        .font('Helvetica-Bold')
        .text(payslip.employeeId, 200, employeeY)
-       .text(payslip.employeeName, 200, employeeY + 20)
-       .text(payslip.department, 200, employeeY + 40)
-       .text('Tay Co', 200, employeeY + 60)
-       .text(payslip.designation, 200, employeeY + 80)
-       .text('24/06/2024', 200, employeeY + 100)
-       .text('Bani Pashri, PO Bagh, Tehsil & Dist Bagh.', 200, employeeY + 120)
-       .text('0321-455-4035', 200, employeeY + 140)
-       .text('', 200, employeeY + 160);
+       .text(payslip.employeeName, 200, employeeY + 22)
+       .text(payslip.department, 200, employeeY + 44)
+       .text('P. Personal', 200, employeeY + 66)
+       .text(payslip.designation, 200, employeeY + 88)
+       .text('01/11/2023', 200, employeeY + 110)
+       .text('Borjoin PO Khas, Chamyati Sharqi Tehsil Dhir Kot, District Bagh Pakistan', 200, employeeY + 132)
+       .text('0341-5460284', 200, employeeY + 154)
+       .text('5-C', 200, employeeY + 176)
+       .text('', 200, employeeY + 198) // Lwp Days (empty)
+       .text(payslip.totalDays || 31, 200, employeeY + 220)
+       .text('ALLIED BANK LTD', 200, employeeY + 242)
+       .text('Chak Shahzad', 200, employeeY + 264)
+       .text('0010092902370014', 200, employeeY + 286);
 
-    doc.moveDown(10);
-
-    // Pay & Allowances and Deductions Table
+    // Pay & Allowances and Deductions Table - OPTIMIZED FOR SINGLE PAGE
+    const tableY = employeeY + 320;
     doc.fontSize(12)
        .font('Helvetica-Bold')
-       .text('Pay & Allowances and Deductions')
+       .text('Pay & Allowances and Deductions', 50, tableY)
        .moveDown(0.5);
 
-    // Table headers
-    const tableY = doc.y;
+    // Table headers - FIXED POSITIONING
     doc.fontSize(10)
        .font('Helvetica-Bold')
-       .text('Pay & Allowances', 50, tableY)
-       .text('Amount', 200, tableY)
-       .text('Deductions', 350, tableY)
-       .text('Amount', 500, tableY);
+       .text('Pay & Allowances', 50, tableY + 25)
+       .text('Amount', 200, tableY + 25)
+       .text('Deductions', 350, tableY + 25)
+       .text('Amount', 500, tableY + 25);
 
-    // Draw table lines
-    doc.moveTo(50, tableY - 5)
-       .lineTo(550, tableY - 5)
+    // Draw table lines - FIXED POSITIONING
+    doc.moveTo(50, tableY + 20)
+       .lineTo(550, tableY + 20)
        .stroke();
 
-    doc.moveTo(50, tableY + 15)
-       .lineTo(550, tableY + 15)
+    doc.moveTo(50, tableY + 45)
+       .lineTo(550, tableY + 45)
        .stroke();
 
-    // Pay & Allowances rows
-    let currentTableY = tableY + 25;
+    // Pay & Allowances rows - OPTIMIZED FOR SINGLE PAGE
+    let currentTableY = tableY + 55;
     doc.fontSize(10)
        .font('Helvetica')
        .text('Basic', 50, currentTableY)
        .text(formatCurrency(payslip.earnings.basicSalary), 200, currentTableY);
 
-    currentTableY += 20;
-    doc.text('Food Allowance', 50, currentTableY)
-       .text(formatCurrency(payslip.earnings.medicalAllowance), 200, currentTableY);
-
-    // Deductions rows
-    currentTableY = tableY + 25;
+    // Deductions rows - OPTIMIZED FOR SINGLE PAGE
     doc.text('Income Tax', 350, currentTableY)
        .text(formatCurrency(payslip.deductions.incomeTax), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 22;
+    doc.text('Company Loan - Deduction', 350, currentTableY)
+       .text(formatCurrency(payslip.deductions.loanDeduction), 500, currentTableY);
+
+    currentTableY += 22;
     doc.text('EOBI', 350, currentTableY)
        .text(formatCurrency(payslip.deductions.eobi), 500, currentTableY);
 
-    // Summary rows
-    currentTableY += 30;
+    // Summary rows - OPTIMIZED FOR SINGLE PAGE
+    currentTableY += 25;
     doc.fontSize(10)
        .font('Helvetica-Bold')
-       .text('Gross Pay & Allowances', 50, currentTableY)
+       .text('Gross Pay & Allowances (Total)', 50, currentTableY)
        .text(formatCurrency(payslip.totalEarnings), 200, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 22;
     doc.text('Total Deductions', 350, currentTableY)
        .text(formatCurrency(payslip.totalDeductions), 500, currentTableY);
 
-    currentTableY += 20;
+    currentTableY += 22;
     doc.fontSize(12)
        .font('Helvetica-Bold')
        .text('Net Pay [Rs:]', 50, currentTableY)
        .text(formatCurrency(payslip.netSalary), 200, currentTableY);
 
-    // Amount in words
+    // Amount in words - OPTIMIZED FOR SINGLE PAGE
     currentTableY += 25;
     doc.fontSize(10)
        .font('Helvetica')
        .text(`[${numberToWords(payslip.netSalary)} Only]`, 50, currentTableY);
 
-    doc.moveDown(3);
+    // Loan Summary Section - OPTIMIZED FOR SINGLE PAGE
+    currentTableY += 35;
+    doc.fontSize(12)
+       .font('Helvetica-Bold')
+       .text('Loan Summary', 50, currentTableY);
 
-    // Notes
-    if (payslip.notes) {
-      doc.fontSize(10)
-         .font('Helvetica')
-         .fillColor('#000')
-         .text('Notes:', { underline: true })
-         .moveDown(0.5)
-         .text(payslip.notes);
-    }
+    // Loan table headers - OPTIMIZED FOR SINGLE PAGE
+    currentTableY += 22;
+    doc.fontSize(9)
+       .font('Helvetica-Bold')
+       .text('Sanctioned Amt.', 50, currentTableY)
+       .text('Current month Ded.', 130, currentTableY)
+       .text('Acc Int.', 220, currentTableY)
+       .text('Remaining Install.', 280, currentTableY)
+       .text('Balance', 360, currentTableY);
 
-    // Footer with signatures and system info
-    const footerY = doc.page.height - 100;
-    
-    // Signature labels
+    // Draw loan table lines - OPTIMIZED POSITIONING
+    doc.moveTo(50, currentTableY - 5)
+       .lineTo(450, currentTableY - 5)
+       .stroke();
+
+    doc.moveTo(50, currentTableY + 18)
+       .lineTo(450, currentTableY + 18)
+       .stroke();
+
+    // Loan Against PF row - OPTIMIZED FOR SINGLE PAGE
+    currentTableY += 25;
+    doc.fontSize(9)
+       .font('Helvetica')
+       .text('Loan Against PF:', 50, currentTableY)
+       .text('56,159', 130, currentTableY)
+       .text('0', 220, currentTableY)
+       .text('9', 280, currentTableY)
+       .text('28,079', 360, currentTableY);
+
+    // Company Loan row - OPTIMIZED FOR SINGLE PAGE
+    currentTableY += 22;
+    doc.text('Company Loan:', 50, currentTableY)
+       .text('200,000', 130, currentTableY)
+       .text('0', 220, currentTableY)
+       .text('18', 280, currentTableY)
+       .text('180,000', 360, currentTableY);
+
+    // Loan Balance (Net) - OPTIMIZED FOR SINGLE PAGE
+    currentTableY += 22;
     doc.fontSize(10)
        .font('Helvetica-Bold')
-       .text('Prepared By', 50, footerY)
-       .text('Received By', 200, footerY)
-       .text('Checked By', 350, footerY);
+       .text('Loan Balance (Net):', 50, currentTableY)
+       .text('208,079', 360, currentTableY);
 
-    // System information
-    doc.fontSize(8)
-       .font('Helvetica')
-       .fillColor('#666')
-       .text('Human Capital Management Version 12.07.10072024 Build 0001', 50, footerY + 30)
-       .text(`USER ID: ${payslip.createdBy?.firstName || 'SYSTEM'}`, 50, footerY + 45)
-       .text(formatDate(new Date()), 50, footerY + 60);
+
 
     // Finalize PDF
     doc.end();

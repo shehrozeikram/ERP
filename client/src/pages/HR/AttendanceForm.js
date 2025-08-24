@@ -151,6 +151,7 @@ const AttendanceForm = () => {
   };
 
   const validateForm = () => {
+    console.log('🔍 Validating form data:', formData);
     const newErrors = {};
 
     if (!formData.employee) {
@@ -171,6 +172,7 @@ const AttendanceForm = () => {
       }
     }
 
+    console.log('🔍 Form validation errors:', newErrors);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -288,16 +290,39 @@ const AttendanceForm = () => {
       };
 
       if (id) {
+        console.log('🔄 Updating attendance record:', id);
+        console.log('📝 Update data:', attendanceData);
         const response = await api.put(`/attendance/${id}`, attendanceData);
+        console.log('✅ Update response:', response.data);
+        
+        // After updating attendance, navigate with a signal that payroll should be refreshed
+        navigate('/hr/attendance', { 
+          state: { 
+            attendanceUpdated: true, 
+            message: 'Attendance updated successfully. Payroll will be automatically updated with new 26-day calculations.' 
+          } 
+        });
       } else {
+        console.log('➕ Creating new attendance record');
         const response = await api.post('/attendance', attendanceData);
+        console.log('✅ Create response:', response.data);
+        
+        navigate('/hr/attendance');
       }
-
-      navigate('/hr/attendance');
     } catch (error) {
-      console.error('Error saving attendance:', error);
-      console.error('Error response:', error.response?.data);
-      setError(error.response?.data?.message || 'Failed to save attendance record');
+      console.error('❌ Error saving attendance:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      console.error('❌ Error message:', error.message);
+      
+      let errorMessage = 'Failed to save attendance record';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -617,6 +642,55 @@ const AttendanceForm = () => {
                 onChange={(e) => handleInputChange('notes', e.target.value)}
                 placeholder="Add any additional notes or comments..."
               />
+            </Grid>
+
+            {/* 26-Day Attendance System Info */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }}>
+                <Chip label="26-Day Attendance System" color="info" />
+              </Divider>
+              
+              <Box sx={{ p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
+                <Typography variant="subtitle2" color="info.main" gutterBottom sx={{ fontWeight: 600 }}>
+                  📅 26 Working Days Per Month (Excluding Sundays)
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6" color="primary.main">26</Typography>
+                      <Typography variant="caption">Total Working Days</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6" color="success.main">
+                        {formData.status === 'Present' ? 'Present' : 'Absent/Leave'}
+                      </Typography>
+                      <Typography variant="caption">Current Status</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6" color="warning.main">
+                        {formData.status === 'Absent' || formData.status === 'Leave' ? 'Daily Rate × 1' : 'No Deduction'}
+                      </Typography>
+                      <Typography variant="caption">Salary Impact</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+                
+                <Typography variant="caption" color="textSecondary" sx={{ mt: 2, display: 'block' }}>
+                  💡 <strong>Formula:</strong> Daily Rate = Gross Salary ÷ 26 | Deduction = Daily Rate × Absent Days
+                </Typography>
+                
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  <Typography variant="caption">
+                    <strong>Note:</strong> This form edits individual daily attendance. Monthly absent/present day counts 
+                    are calculated automatically when generating payroll based on all attendance records.
+                  </Typography>
+                </Alert>
+              </Box>
             </Grid>
 
             {/* Action Buttons */}

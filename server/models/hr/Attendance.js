@@ -116,6 +116,20 @@ const attendanceSchema = new mongoose.Schema({
   location: {
     type: String,
     default: 'Office'
+  },
+  
+  // 26-Day Attendance System Fields
+  totalWorkingDays: {
+    type: Number,
+    default: 26 // Default to 26 working days per month
+  },
+  dailyRate: {
+    type: Number,
+    default: 0
+  },
+  attendanceDeduction: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true
@@ -168,9 +182,9 @@ attendanceSchema.virtual('totalHours').get(function() {
 // Pre-save middleware to calculate work hours
 attendanceSchema.pre('save', function(next) {
   // Custom validation: at least one of checkIn.time or checkOut.time must be present
-  // But allow for different types of attendance events
-  if (!this.checkIn?.time && !this.checkOut?.time) {
-    return next(new Error('At least one of check-in time or check-out time is required'));
+  // BUT allow Absent and Leave status without times
+  if (!this.checkIn?.time && !this.checkOut?.time && this.status !== 'Absent' && this.status !== 'Leave') {
+    return next(new Error('At least one of check-in time or check-out time is required for Present status'));
   }
   
   // If we have both times, calculate work hours
@@ -197,6 +211,7 @@ attendanceSchema.pre('save', function(next) {
     this.status = 'Present';
   }
   
+  // Note: 26-Day calculation moved to update route for reliability
   next();
 });
 

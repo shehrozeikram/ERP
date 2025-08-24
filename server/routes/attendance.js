@@ -8,6 +8,7 @@ const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
 const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
 const mongoose = require('mongoose');
+const PayrollUpdateService = require('../services/payrollUpdateService');
 
 // Get all attendance records with pagination and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -205,8 +206,55 @@ router.put('/:id', authMiddleware, async (req, res) => {
       }
     });
 
+    // 26-Day Attendance System: Calculate daily rate and deductions
+    if (attendance.status === 'Absent' || attendance.status === 'Leave') {
+      const Employee = require('../models/hr/Employee');
+      const employee = await Employee.findById(attendance.employee);
+      
+      if (employee && employee.salary?.basic) {
+        const grossSalary = employee.salary.basic;
+        attendance.dailyRate = grossSalary / 26; // 26 working days per month
+        attendance.attendanceDeduction = attendance.dailyRate; // 1 day deduction
+        console.log(`💰 26-Day System: Employee ${employee.firstName} ${employee.lastName}`);
+        console.log(`   Gross Salary: Rs. ${grossSalary.toLocaleString()}`);
+        console.log(`   Daily Rate: Rs. ${attendance.dailyRate.toFixed(2)}`);
+        console.log(`   Attendance Deduction: Rs. ${attendance.attendanceDeduction.toFixed(2)}`);
+      }
+    } else {
+      // Reset deduction for present days
+      attendance.attendanceDeduction = 0;
+      attendance.dailyRate = 0;
+    }
+    
+    // Note: absentDays and presentDays are payroll-level fields, not attendance-level
+    // These will be calculated when generating payroll based on attendance records
+    console.log('📝 Note: absentDays and presentDays are calculated at payroll level');
+    console.log('📊 Individual attendance records track daily status only');
+
     attendance.updatedBy = req.user.id;
     await attendance.save();
+
+    // 🔄 Auto-Update Payroll: Recalculate monthly payroll when attendance changes
+    try {
+      const attendanceDate = new Date(attendance.date);
+      const month = attendanceDate.getMonth();
+      const year = attendanceDate.getFullYear();
+      
+      console.log(`🔄 Auto-updating payroll for ${month + 1}/${year} after attendance change`);
+      
+      // Update payroll for this month to reflect new attendance counts
+      await PayrollUpdateService.updatePayrollForMonth(
+        attendance.employee.toString(),
+        month,
+        year
+      );
+      
+      console.log(`✅ Payroll auto-updated successfully for ${month + 1}/${year}`);
+      
+    } catch (payrollError) {
+      console.error(`⚠️ Warning: Failed to auto-update payroll:`, payrollError.message);
+      // Don't fail the attendance update if payroll update fails
+    }
 
     const updatedAttendance = await Attendance.findById(attendance._id)
       .populate('employee', 'firstName lastName employeeId')
@@ -220,6 +268,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
       data: updatedAttendance
     });
   } catch (error) {
+    console.error('❌ Error updating attendance:', error);
     errorHandler(error, req, res);
   }
 });
@@ -239,6 +288,28 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     attendance.isActive = false;
     attendance.updatedBy = req.user.id;
     await attendance.save();
+
+    // 🔄 Auto-Update Payroll: Recalculate monthly payroll when attendance is deleted
+    try {
+      const attendanceDate = new Date(attendance.date);
+      const month = attendanceDate.getMonth();
+      const year = attendanceDate.getFullYear();
+      
+      console.log(`🔄 Auto-updating payroll for ${month + 1}/${year} after attendance deletion`);
+      
+      // Update payroll for this month to reflect new attendance counts
+      await PayrollUpdateService.updatePayrollForMonth(
+        attendance.employee.toString(),
+        month,
+        year
+      );
+      
+      console.log(`✅ Payroll auto-updated successfully for ${month + 1}/${year}`);
+      
+    } catch (payrollError) {
+      console.error(`⚠️ Warning: Failed to auto-update payroll:`, payrollError.message);
+      // Don't fail the attendance deletion if payroll update fails
+    }
 
     res.json({
       success: true,
@@ -505,7 +576,6 @@ router.get('/department/:department', authMiddleware, async (req, res) => {
 // Process and save all biometric data to attendance database
 router.post('/process-biometric-data', authMiddleware, async (req, res) => {
   try {
-    console.log('🔄 Processing all biometric data to attendance database...');
     
     // Connect to ZKTeco device and get data
     await zktecoService.connect('splaza.nayatel.net', 4370);
@@ -541,8 +611,6 @@ router.post('/process-biometric-data', authMiddleware, async (req, res) => {
       
       return true;
     });
-
-    console.log(`📊 Filtered ${validRecords.length} valid records out of ${rawData.data.length} total records`);
 
     // Process each record
     let processed = 0;
@@ -770,7 +838,6 @@ router.get('/latest', authMiddleware, async (req, res) => {
 // Fetch ZKTeco attendance on-demand
 router.post('/fetch-zkteco', authMiddleware, async (req, res) => {
   try {
-    console.log('🔄 Fetching ZKTeco attendance on-demand...');
     
     // Get the ZKTeco integration configuration
     const BiometricIntegration = require('../models/hr/BiometricIntegration');
@@ -829,8 +896,6 @@ router.post('/fetch-zkteco', authMiddleware, async (req, res) => {
 // Manual sync attendance from ZKTeco device
 router.post('/sync-from-device', authMiddleware, async (req, res) => {
   try {
-    console.log('🔄 Manual attendance sync requested...');
-    
     // Check if user has admin permissions
     if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
       return res.status(403).json({
@@ -844,19 +909,14 @@ router.post('/sync-from-device', authMiddleware, async (req, res) => {
     const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
 
     // Connect to ZKTeco device
-    console.log('🔌 Connecting to ZKTeco device...');
     await zktecoService.connect('splaza.nayatel.net', 4370);
-    console.log('✅ Connected to ZKTeco device');
 
     // Get attendance data from device
-    console.log('📥 Fetching attendance data from device...');
     const attendanceData = await zktecoService.getAttendanceData();
     
     if (!attendanceData.success || !attendanceData.data) {
       throw new Error('Failed to get attendance data from device');
     }
-
-    console.log(`📊 Found ${attendanceData.data.length} total attendance records on device`);
 
     // Get today's date range in Pakistan timezone
     const today = new Date();
@@ -865,15 +925,11 @@ router.post('/sync-from-device', authMiddleware, async (req, res) => {
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-    console.log(`📅 Filtering for today (Pakistan time): ${todayStart.toISOString()} to ${todayEnd.toISOString()}`);
-
     // Filter records for today
     const todayRecords = attendanceData.data.filter(record => {
       const recordDate = new Date(record.recordTime);
       return recordDate >= todayStart && recordDate < todayEnd;
     });
-
-    console.log(`📊 Found ${todayRecords.length} attendance records for today`);
 
     if (todayRecords.length === 0) {
       await zktecoService.disconnect();
@@ -965,9 +1021,6 @@ router.post('/sync-from-device', authMiddleware, async (req, res) => {
 
     // Disconnect from device
     await zktecoService.disconnect();
-    console.log('🔌 Disconnected from ZKTeco device');
-
-    console.log(`✅ Manual sync complete: ${created} created, ${updated} updated, ${errors} errors`);
 
     res.json({
       success: true,

@@ -266,37 +266,29 @@ class AttendanceService {
     }
   }
 
-  // Sync ZKTeco attendance
-  async syncZKTecoAttendance(startDate = null, endDate = null) {
+  // Sync ZKTeco attendance to database
+  static async syncZKTecoAttendance() {
     try {
-      console.log('🔄 AttendanceService: Starting ZKTeco attendance sync...');
+      // Connect to ZKTeco device
+      const zktecoService = require('./zktecoService');
+      await zktecoService.connect('splaza.nayatel.net', 4370);
+
+      // Get attendance data from device
+      const attendanceData = await zktecoService.getAttendanceData();
       
-      // Get the biometric integration configuration
-      const integration = await BiometricIntegration.findOne({ 
-        $or: [
-          { integrationType: 'ZKTeco' },
-          { integrationType: 'API' }
-        ],
-        isActive: true 
-      });
-      
-      if (!integration) {
-        throw new Error('No active ZKTeco integration found');
+      if (!attendanceData.success || !attendanceData.data) {
+        throw new Error('Failed to get attendance data from device');
       }
+
+      // Process and sync the attendance data
+      const syncResult = await zktecoService.syncAttendanceToDatabase();
       
-      // Use the zktecoService to fetch attendance from device
-      const result = await zktecoService.fetchAttendanceFromDevice(integration, startDate, endDate);
+      // Disconnect from device
+      await zktecoService.disconnect();
       
-      // Update the last sync time
-      await BiometricIntegration.findByIdAndUpdate(integration._id, {
-        lastSyncAt: new Date()
-      });
-      
-      console.log('✅ AttendanceService: ZKTeco sync completed successfully');
-      return result;
-      
+      return syncResult;
     } catch (error) {
-      console.error('❌ AttendanceService: Error syncing ZKTeco attendance:', error);
+      console.error('❌ Error syncing ZKTeco attendance:', error.message);
       throw error;
     }
   }

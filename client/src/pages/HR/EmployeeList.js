@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -64,7 +64,7 @@ const EmployeeList = () => {
   const navigate = useNavigate();
 
   // Fetch employees
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       setLoading(true);
       // Request all employees using the new getAll parameter
@@ -82,94 +82,132 @@ const EmployeeList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Fetch departments
-  const fetchDepartments = async () => {
+  const fetchDepartments = useCallback(async () => {
     try {
       const response = await api.get('/hr/departments');
       setDepartments(response.data.data || []);
     } catch (error) {
       console.error('Error fetching departments:', error);
     }
-  };
+  }, []);
 
   // Pagination handlers
-  const handleChangePage = (event, newPage) => {
+  const handleChangePage = useCallback((event, newPage) => {
     setPaginationLoading(true);
     setPage(newPage);
     // Small delay to show loading state
     setTimeout(() => setPaginationLoading(false), 300);
-  };
+  }, []);
 
-  const handleChangeRowsPerPage = (event) => {
+  const handleChangeRowsPerPage = useCallback((event) => {
     setPaginationLoading(true);
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0); // Reset to first page when changing rows per page
     // Small delay to show loading state
     setTimeout(() => setPaginationLoading(false), 300);
-  };
+  }, []);
 
   // Handle filter changes and reset pagination
-  const handleSearchChange = (value) => {
+  const handleSearchChange = useCallback((value) => {
     setSearchTerm(value);
     setPage(0); // Reset to first page when search changes
-  };
+  }, []);
 
-  const handleDepartmentFilterChange = (value) => {
+  const handleDepartmentFilterChange = useCallback((value) => {
     setDepartmentFilter(value);
     setPage(0); // Reset to first page when department filter changes
-  };
+  }, []);
 
-  const handleStatusFilterChange = (value) => {
+  const handleStatusFilterChange = useCallback((value) => {
     setStatusFilter(value);
     setPage(0); // Reset to first page when status filter changes
-  };
+  }, []);
 
-  const clearAllFilters = () => {
+  const clearAllFilters = useCallback(() => {
     setSearchTerm('');
     setDepartmentFilter('');
     setStatusFilter('');
     setPage(0); // Reset to first page when clearing filters
-  };
+  }, []);
 
   useEffect(() => {
     fetchEmployees();
     fetchDepartments();
-  }, []);
+  }, [fetchEmployees, fetchDepartments]);
 
   // Filter employees
-  const filteredEmployees = employees.filter(employee => {
-    // Simple search - only search in name and employee ID
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      (employee.firstName || '').toLowerCase().includes(searchLower) ||
-      (employee.lastName || '').toLowerCase().includes(searchLower) ||
-      (employee.employeeId || '').toLowerCase().includes(searchLower);
-    
-    const employeeDepartment = typeof employee.placementDepartment === 'object' ? employee.placementDepartment?.name : employee.placementDepartment;
-    const matchesDepartment = !departmentFilter || employeeDepartment === departmentFilter;
-    
-    // Handle status filter
-    let matchesStatus = true;
-    if (statusFilter) {
-      if (statusFilter === 'active') {
-        matchesStatus = employee.isActive === true;
-      } else if (statusFilter === 'inactive') {
-        matchesStatus = employee.isActive === false;
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(employee => {
+      // Simple search - only search in name and employee ID
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = 
+        (employee.firstName || '').toLowerCase().includes(searchLower) ||
+        (employee.lastName || '').toLowerCase().includes(searchLower) ||
+        (employee.employeeId || '').toLowerCase().includes(searchLower);
+      
+      const employeeDepartment = typeof employee.placementDepartment === 'object' ? employee.placementDepartment?.name : employee.placementDepartment;
+      const matchesDepartment = !departmentFilter || employeeDepartment === departmentFilter;
+      
+      // Handle status filter
+      let matchesStatus = true;
+      if (statusFilter) {
+        if (statusFilter === 'active') {
+          matchesStatus = employee.isActive === true && employee.employmentStatus === 'Active';
+        } else if (statusFilter === 'draft') {
+          matchesStatus = employee.employmentStatus === 'Draft';
+        } else if (statusFilter === 'inactive') {
+          matchesStatus = employee.isActive === false && employee.employmentStatus !== 'Draft';
+        }
       }
-    }
 
-    return matchesSearch && matchesDepartment && matchesStatus;
-  });
+      return matchesSearch && matchesDepartment && matchesStatus;
+    });
+  }, [employees, searchTerm, departmentFilter, statusFilter]);
 
-  // Sort filtered employees by Employee ID in ascending order
-  const sortedEmployees = [...filteredEmployees].sort((a, b) => {
-    // Convert Employee ID to number for proper numerical sorting
-    const idA = parseInt(a.employeeId) || 0;
-    const idB = parseInt(b.employeeId) || 0;
-    return idA - idB; // Ascending order (1, 2, 3, ...)
-  });
+  // Sort filtered employees by status first (inactive/draft at top), then by Employee ID
+  const sortedEmployees = useMemo(() => {
+    return [...filteredEmployees].sort((a, b) => {
+      // First priority: Status (inactive/draft employees come first)
+      const aIsActive = a.isActive === true && a.employmentStatus === 'Active';
+      const bIsActive = b.isActive === true && b.employmentStatus === 'Active';
+      
+      if (aIsActive !== bIsActive) {
+        // Inactive/draft employees come first
+        return aIsActive ? 1 : -1;
+      }
+      
+      // Second priority: Employee ID (ascending order for same status)
+      const idA = parseInt(a.employeeId) || 0;
+      const idB = parseInt(b.employeeId) || 0;
+      return idA - idB;
+    });
+  }, [filteredEmployees]);
+
+  // Memoize statistics calculations
+  const statistics = useMemo(() => {
+    const activeEmployees = employees.filter(emp => emp.isActive === true && emp.employmentStatus === 'Active').length;
+    const draftEmployees = employees.filter(emp => emp.employmentStatus === 'Draft').length;
+    const inactiveEmployees = employees.filter(emp => emp.isActive === false && emp.employmentStatus !== 'Draft').length;
+    
+    const newThisMonth = employees.filter(emp => {
+      const hireDate = new Date(emp.hireDate);
+      const now = new Date();
+      return hireDate.getMonth() === now.getMonth() && 
+             hireDate.getFullYear() === now.getFullYear();
+    }).length;
+    
+    return {
+      totalEmployees: employees.length,
+      activeEmployees,
+      draftEmployees,
+      inactiveEmployees,
+      departmentsCount: departments.length,
+      newThisMonth
+    };
+  }, [employees, departments]);
 
   // Handle pagination for sorted employees
   useEffect(() => {
@@ -181,7 +219,7 @@ const EmployeeList = () => {
   }, [sortedEmployees, page, rowsPerPage]);
 
   // Handle delete
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     try {
       await api.delete(`/hr/employees/${selectedEmployee._id}`);
       setSnackbar({
@@ -199,14 +237,26 @@ const EmployeeList = () => {
         severity: 'error'
       });
     }
+  }, [selectedEmployee]);
+
+  const getStatusColor = (employee) => {
+    if (employee.isActive === true && employee.employmentStatus === 'Active') {
+      return 'success';
+    } else if (employee.employmentStatus === 'Draft') {
+      return 'warning';
+    } else {
+      return 'error';
+    }
   };
 
-  const getStatusColor = (isActive) => {
-    return isActive ? 'success' : 'error';
-  };
-
-  const getStatusText = (isActive) => {
-    return isActive ? 'Active' : 'Inactive';
+  const getStatusText = (employee) => {
+    if (employee.isActive === true && employee.employmentStatus === 'Active') {
+      return 'Active';
+    } else if (employee.employmentStatus === 'Draft') {
+      return 'Draft';
+    } else {
+      return 'Inactive';
+    }
   };
 
   const formatPKR = (amount) => {
@@ -250,14 +300,14 @@ const EmployeeList = () => {
 
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Total Employees
               </Typography>
               <Typography variant="h4">
-                {employees.length}
+                {statistics.totalEmployees}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 (Excluding deleted)
@@ -265,14 +315,14 @@ const EmployeeList = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Active Employees
               </Typography>
               <Typography variant="h4">
-                {employees.filter(emp => emp.isActive).length}
+                {statistics.activeEmployees}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 (Excluding deleted)
@@ -280,31 +330,56 @@ const EmployeeList = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Draft Employees
+              </Typography>
+              <Typography variant="h4" color="warning.main">
+                {statistics.draftEmployees}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                (Completed onboarding)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Inactive Employees
+              </Typography>
+              <Typography variant="h4" color="error.main">
+                {statistics.inactiveEmployees}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                (Terminated/Resigned)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={2}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 Departments
               </Typography>
               <Typography variant="h4">
-                {departments.length}
+                {statistics.departmentsCount}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={6} md={2}>
           <Card>
             <CardContent>
               <Typography color="textSecondary" gutterBottom>
                 New This Month
               </Typography>
               <Typography variant="h4">
-                {employees.filter(emp => {
-                  const hireDate = new Date(emp.hireDate);
-                  const now = new Date();
-                  return hireDate.getMonth() === now.getMonth() && 
-                         hireDate.getFullYear() === now.getFullYear();
-                }).length}
+                {statistics.newThisMonth}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 (Excluding deleted)
@@ -375,6 +450,7 @@ const EmployeeList = () => {
               >
                 <MenuItem value="">All Statuses</MenuItem>
                 <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="draft">Draft</MenuItem>
                 <MenuItem value="inactive">Inactive</MenuItem>
               </Select>
             </FormControl>
@@ -403,7 +479,7 @@ const EmployeeList = () => {
             <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
               {searchTerm && `Search: "${searchTerm}"`}
               {departmentFilter && ` • Department: ${departmentFilter}`}
-              {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : 'Inactive'}`}
+              {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : statusFilter === 'draft' ? 'Draft' : 'Inactive'}`}
             </Typography>
           </Box>
         )}
@@ -431,7 +507,7 @@ const EmployeeList = () => {
               Showing {page * rowsPerPage + 1}-{Math.min((page + 1) * rowsPerPage, totalItems)} of {totalItems} employees
             </Typography>
             <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              📊 Sorted by Employee ID (1, 2, 3...)
+              📊 Sorted by Status (Inactive/Draft first), then Employee ID
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -506,6 +582,24 @@ const EmployeeList = () => {
                         <Box>
                           <Typography variant="subtitle2">
                             {employee.firstName} {employee.lastName}
+                            {employee.employmentStatus === 'Draft' && (
+                              <Chip 
+                                label="Draft" 
+                                size="small" 
+                                color="warning" 
+                                variant="outlined"
+                                sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
+                              />
+                            )}
+                            {employee.isActive === false && employee.employmentStatus !== 'Draft' && (
+                              <Chip 
+                                label="Inactive" 
+                                size="small" 
+                                color="error" 
+                                variant="outlined"
+                                sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
+                              />
+                            )}
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
                             {formatEmployeeId(employee.employeeId)}
@@ -541,8 +635,8 @@ const EmployeeList = () => {
                     <TableCell>{employee.phone}</TableCell>
                     <TableCell>
                       <Chip
-                        label={getStatusText(employee.isActive)}
-                        color={getStatusColor(employee.isActive)}
+                        label={getStatusText(employee)}
+                        color={getStatusColor(employee)}
                         size="small"
                       />
                     </TableCell>

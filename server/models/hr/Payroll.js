@@ -93,6 +93,17 @@ const payrollSchema = new mongoose.Schema({
       }
     }
   },
+  // Core Salary Components (separate from flexible allowances)
+  houseRentAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'House rent allowance cannot be negative']
+  },
+  medicalAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Medical allowance cannot be negative']
+  },
   // Overtime
   overtimeHours: {
     type: Number,
@@ -183,10 +194,20 @@ const payrollSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Leave days cannot be negative']
   },
+  // Attendance calculations (26-day basis)
+  dailyRate: {
+    type: Number,
+    default: 0,
+    min: [0, 'Daily rate cannot be negative']
+  },
+  attendanceDeduction: {
+    type: Number,
+    default: 0,
+    min: [0, 'Attendance deduction cannot be negative']
+  },
   // Calculations
   grossSalary: {
     type: Number,
-    required: [true, 'Gross salary is required'],
     min: [0, 'Gross salary cannot be negative']
   },
   totalEarnings: {
@@ -201,7 +222,6 @@ const payrollSchema = new mongoose.Schema({
   },
   netSalary: {
     type: Number,
-    required: [true, 'Net salary is required'],
     min: [0, 'Net salary cannot be negative']
   },
   // Status
@@ -305,24 +325,68 @@ payrollSchema.pre('save', function(next) {
   // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
   this.eobi = 370;
   
+  // Auto-calculate core salary components if not provided
+  if (!this.medicalAllowance && this.allowances?.medical?.isActive) {
+    this.medicalAllowance = this.allowances.medical.amount;
+  }
+  
+  // Auto-calculate house rent allowance if not provided (23.34% of gross salary)
+  if (!this.houseRentAllowance && this.basicSalary > 0) {
+    // Calculate what the gross salary should be based on basic salary (66.66% of total gross)
+    const expectedGrossSalary = Math.round(this.basicSalary / 0.6666);
+    this.houseRentAllowance = Math.round(expectedGrossSalary * 0.2334);
+  }
+  
+  // TWO-TIER ALLOWANCE SYSTEM:
+  // If monthly payroll allowances are not explicitly set, use employee master allowances as defaults
+  // This allows monthly overrides while maintaining employee master settings as fallbacks
+  
+  // Note: The allowances are already populated from the frontend when creating payroll
+  // This hook ensures calculations are correct based on the final allowance values
+  
   // Recalculate gross salary (Base only - Basic + Medical + House Rent)
   this.grossSalary = this.basicSalary + 
     (this.houseRentAllowance || 0) + 
     (this.medicalAllowance || 0);
   
-  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
-  const additionalAllowances = 
-    (this.allowances?.conveyance?.isActive ? this.allowances.conveyance.amount : 0) +
-    (this.allowances?.food?.isActive ? this.allowances.food.amount : 0) +
-    (this.allowances?.vehicleFuel?.isActive ? this.allowances.vehicleFuel.amount : 0) +
-    (this.allowances?.special?.isActive ? this.allowances.special.amount : 0) +
-    (this.allowances?.other?.isActive ? this.allowances.other.amount : 0);
-  
-  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
-  this.totalEarnings = this.grossSalary + additionalAllowances + 
-    (this.overtimeAmount || 0) + 
-    (this.performanceBonus || 0) + 
-    (this.otherBonus || 0);
+  // 🔧 FIXED: Total Earnings should ONLY change when salary structure changes
+  // NOT when attendance or deductions change
+  const shouldRecalculateTotalEarnings = 
+    this.isModified('basicSalary') ||
+    this.isModified('houseRentAllowance') ||
+    this.isModified('medicalAllowance') ||
+    this.isModified('allowances') ||
+    this.isModified('overtimeAmount') ||
+    this.isModified('performanceBonus') ||
+    this.isModified('otherBonus') ||
+    !this.totalEarnings; // Only calculate if not set initially
+
+  if (shouldRecalculateTotalEarnings) {
+    // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
+    const additionalAllowances = 
+      (this.allowances?.conveyance?.isActive ? this.allowances.conveyance.amount : 0) +
+      (this.allowances?.food?.isActive ? this.allowances.food.amount : 0) +
+      (this.allowances?.vehicleFuel?.isActive ? this.allowances.vehicleFuel.amount : 0) +
+      (this.allowances?.special?.isActive ? this.allowances.special.amount : 0) +
+      (this.allowances?.other?.isActive ? this.allowances.other.amount : 0);
+    
+    // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
+    this.totalEarnings = this.grossSalary + additionalAllowances + 
+      (this.overtimeAmount || 0) + 
+      (this.performanceBonus || 0) + 
+      (this.otherBonus || 0);
+    
+    // Log the Total Earnings calculation breakdown
+    console.log(`💰 Total Earnings Calculation (Salary Structure Changed):`);
+    console.log(`   Gross Salary (Base): Rs. ${this.grossSalary?.toFixed(2) || 0}`);
+    console.log(`   Additional Allowances: Rs. ${additionalAllowances?.toFixed(2) || 0}`);
+    console.log(`   Overtime Amount: Rs. ${this.overtimeAmount?.toFixed(2) || 0}`);
+    console.log(`   Performance Bonus: Rs. ${this.performanceBonus?.toFixed(2) || 0}`);
+    console.log(`   Other Bonus: Rs. ${this.otherBonus?.toFixed(2) || 0}`);
+    console.log(`   Total Earnings: Rs. ${this.totalEarnings?.toFixed(2) || 0}`);
+  } else {
+    console.log(`💰 Total Earnings UNCHANGED: Rs. ${this.totalEarnings?.toFixed(2) || 0} (No salary structure changes)`);
+  }
   
   // Auto-calculate income tax if not provided (same as September 688 employees)
   if (!this.incomeTax && this.totalEarnings) {
@@ -378,6 +442,35 @@ payrollSchema.pre('save', function(next) {
     }
   }
   
+  // 26-Day Attendance System: Calculate daily rate and attendance deduction
+  if (this.grossSalary > 0) {
+    this.dailyRate = this.grossSalary / 26; // Daily Rate = Gross Salary ÷ 26
+    console.log(`💰 Daily Rate Calculation: ${this.grossSalary} ÷ 26 = ${this.dailyRate.toFixed(2)}`);
+  }
+  
+  // 🔧 AUTOMATIC ABSENT DAYS CALCULATION
+  // Always recalculate absent days based on present days and leave days
+  if (this.totalWorkingDays > 0 && this.presentDays !== undefined) {
+    const calculatedAbsentDays = Math.max(0, this.totalWorkingDays - this.presentDays - (this.leaveDays || 0));
+    
+    // Only update if the calculated value is different from current value
+    if (this.absentDays !== calculatedAbsentDays) {
+      console.log(`🧮 Pre-save: Auto-calculating absent days: ${this.totalWorkingDays} - ${this.presentDays} - ${this.leaveDays || 0} = ${calculatedAbsentDays}`);
+      console.log(`   Previous absent days: ${this.absentDays}, New absent days: ${calculatedAbsentDays}`);
+      this.absentDays = calculatedAbsentDays;
+    }
+  }
+  
+  // 🔧 ALWAYS RECALCULATE ATTENDANCE DEDUCTION
+  // Calculate attendance deduction based on absent days and daily rate
+  if (this.dailyRate > 0 && this.absentDays > 0) {
+    this.attendanceDeduction = this.absentDays * this.dailyRate; // Deduction = Daily Rate × Absent Days
+    console.log(`💰 Attendance Deduction: ${this.absentDays} absent days × Rs. ${this.dailyRate.toFixed(2)} = Rs. ${this.attendanceDeduction.toFixed(2)}`);
+  } else {
+    this.attendanceDeduction = 0;
+    console.log(`💰 No Attendance Deduction: ${this.absentDays || 0} absent days, Daily Rate: ${this.dailyRate?.toFixed(2) || 0}`);
+  }
+  
   // Calculate total deductions (excluding Provident Fund for now - Coming Soon)
   this.totalDeductions = 
     // (this.providentFund || 0) + // Excluded - Coming Soon
@@ -386,10 +479,30 @@ payrollSchema.pre('save', function(next) {
     (this.vehicleLoanDeduction || 0) +
     (this.companyLoanDeduction || 0) +
     (this.eobi || 0) + 
+    (this.attendanceDeduction || 0) + // Attendance deduction (26-day basis)
     (this.otherDeductions || 0);
   
+  // Log the Total Deductions calculation breakdown
+  console.log(`💰 Total Deductions Calculation:`);
+  console.log(`   Income Tax: Rs. ${this.incomeTax?.toFixed(2) || 0}`);
+  console.log(`   Health Insurance: Rs. ${this.healthInsurance?.toFixed(2) || 0}`);
+  console.log(`   Vehicle Loan: Rs. ${this.vehicleLoanDeduction?.toFixed(2) || 0}`);
+  console.log(`   Company Loan: Rs. ${this.companyLoanDeduction?.toFixed(2) || 0}`);
+  console.log(`   EOBI: Rs. ${this.eobi?.toFixed(2) || 0}`);
+  console.log(`   Attendance Deduction: Rs. ${this.attendanceDeduction?.toFixed(2) || 0}`);
+  console.log(`   Other Deductions: Rs. ${this.otherDeductions?.toFixed(2) || 0}`);
+  console.log(`   Total Deductions: Rs. ${this.totalDeductions?.toFixed(2) || 0}`);
+  
   // Calculate net salary
-  this.netSalary = this.grossSalary - this.totalDeductions;
+  this.netSalary = this.totalEarnings - this.totalDeductions;
+  
+  // Log the final calculations
+  console.log(`💰 Final Payroll Calculations:`);
+  console.log(`   Gross Salary (Base): Rs. ${this.grossSalary?.toFixed(2) || 0}`);
+  console.log(`   Total Earnings: Rs. ${this.totalEarnings?.toFixed(2) || 0}`);
+  console.log(`   Total Deductions: Rs. ${this.totalDeductions?.toFixed(2) || 0}`);
+  console.log(`   Net Salary: Rs. ${this.netSalary?.toFixed(2) || 0}`);
+  console.log(`   Attendance Deduction: Rs. ${this.attendanceDeduction?.toFixed(2) || 0} (${this.absentDays || 0} days × Rs. ${this.dailyRate?.toFixed(2) || 0})`);
   
   next();
 });
@@ -473,14 +586,14 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     throw new Error('Payroll already exists for this month');
   }
 
-  // Calculate attendance
-  const totalWorkingDays = attendanceData.totalWorkingDays || 22; // Default working days
+  // Get employee salary structure
+  const basicSalary = employee.salary.basic || 0;
+  
+  // Calculate attendance (26 working days per month - excluding Sundays)
+  const totalWorkingDays = attendanceData.totalWorkingDays || 26; // Default: 26 working days
   const presentDays = attendanceData.presentDays || totalWorkingDays;
   const absentDays = attendanceData.absentDays || 0;
   const leaveDays = attendanceData.leaveDays || 0;
-
-  // Get employee salary structure
-  const basicSalary = employee.salary.basic || 0;
   
   // Get employee allowances (only active ones)
   const employeeAllowances = employee.allowances || {};
@@ -517,6 +630,10 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   }, 0);
   
   const grossSalary = basicSalary + totalAllowances;
+  
+  // Calculate daily rate for attendance deduction (26-day basis)
+  const dailyRate = grossSalary / 26; // Simple: Gross Salary ÷ 26
+  const attendanceDeduction = absentDays * dailyRate; // Deduct for each absent day
 
   // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
   const additionalAllowances = 
@@ -561,6 +678,8 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     presentDays: presentDays,
     absentDays: absentDays,
     leaveDays: leaveDays,
+    dailyRate: dailyRate,
+    attendanceDeduction: attendanceDeduction,
     grossSalary: grossSalary,
     totalEarnings: totalEarnings,
     currency: employee.currency || 'PKR',
@@ -729,6 +848,26 @@ payrollSchema.methods.markAsUnpaid = async function() {
   this.approvedAt = undefined;
   
   return await this.save();
+};
+
+// Instance method to calculate attendance deduction
+payrollSchema.methods.calculateAttendanceDeduction = function() {
+  if (this.grossSalary > 0 && this.absentDays > 0) {
+    this.dailyRate = this.grossSalary / 26;
+    this.attendanceDeduction = this.absentDays * this.dailyRate;
+    
+    console.log(`💰 Attendance Deduction Calculation:`);
+    console.log(`   Gross Salary: Rs. ${this.grossSalary.toFixed(2)}`);
+    console.log(`   Daily Rate: Rs. ${this.dailyRate.toFixed(2)} (${this.grossSalary} ÷ 26)`);
+    console.log(`   Absent Days: ${this.absentDays}`);
+    console.log(`   Attendance Deduction: Rs. ${this.attendanceDeduction.toFixed(2)} (${this.absentDays} × ${this.dailyRate.toFixed(2)})`);
+    
+    return this.attendanceDeduction;
+  } else {
+    this.attendanceDeduction = 0;
+    console.log(`💰 No Attendance Deduction: Gross Salary: ${this.grossSalary}, Absent Days: ${this.absentDays}`);
+    return 0;
+  }
 };
 
 // Index for efficient queries
