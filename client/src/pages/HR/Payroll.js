@@ -112,6 +112,7 @@ const Payroll = () => {
     month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
     year: new Date().getFullYear()
   });
+  const [monthlyTaxUpdateLoading, setMonthlyTaxUpdateLoading] = useState(false);
   const [expandedMonths, setExpandedMonths] = useState(new Set());
   const [generalPayrollExpanded, setGeneralPayrollExpanded] = useState(false);
   const [employeeDetailsPage, setEmployeeDetailsPage] = useState({});
@@ -145,14 +146,26 @@ const Payroll = () => {
   useEffect(() => {
     const filteredPayrolls = getFilteredPayrolls();
     
+    // Debug logging
+    if (filteredPayrolls.length > 0) {
+      console.log('Processing payrolls:', filteredPayrolls.length);
+      console.log('Sample payroll:', filteredPayrolls[0]);
+    }
+    
     if (filteredPayrolls.length > 0) {
       const grouped = filteredPayrolls.reduce((acc, payroll) => {
+        // Ensure month and year exist before processing
+        if (!payroll.month || !payroll.year) {
+          console.warn('Payroll missing month or year:', payroll);
+          return acc;
+        }
+        
         const key = `${payroll.month}-${payroll.year}`;
         if (!acc[key]) {
           acc[key] = {
             month: payroll.month,
             year: payroll.year,
-            monthName: months.find(m => m.value === payroll.month.toString().padStart(2, '0'))?.label || `Month ${payroll.month}`,
+            monthName: months.find(m => m.value === payroll.month?.toString().padStart(2, '0'))?.label || `Month ${payroll.month}`,
             payrolls: [],
             totalEmployees: 0,
             totalGrossSalary: 0,
@@ -176,14 +189,21 @@ const Payroll = () => {
       });
 
       // Sort employees within each monthly group by Employee ID in ascending order
-      monthlyArray.forEach(monthly => {
-        monthly.payrolls.sort((a, b) => {
-          // Convert Employee ID to number for proper numerical sorting
-          const idA = parseInt(a.employee?.employeeId) || 0;
-          const idB = parseInt(b.employee?.employeeId) || 0;
-          return idA - idB; // Ascending order (1, 2, 3, ...)
+              monthlyArray.forEach(monthly => {
+          monthly.payrolls.sort((a, b) => {
+            // Convert Employee ID to number for proper numerical sorting
+            const idA = parseInt(a.employee?.employeeId) || 0;
+            const idB = parseInt(b.employee?.employeeId) || 0;
+            return idA - idB; // Ascending order (1, 2, 3, ...)
+          });
         });
-      });
+        
+        // Additional safety check - filter out any invalid entries
+        monthlyArray.forEach(monthly => {
+          monthly.payrolls = monthly.payrolls.filter(payroll => 
+            payroll && payroll.month && payroll.year && payroll.employee
+          );
+        });
 
       setMonthlyPayrolls(monthlyArray);
       setTotalItems(monthlyArray.length);
@@ -212,8 +232,18 @@ const Payroll = () => {
       });
 
       const response = await api.get(`/payroll?${params}`);
-      setPayrolls(response.data.data || []);
-      setTotalItems(response.data.data?.length || 0);
+      const payrollData = response.data.data || [];
+      
+      // Validate payroll data before setting state
+      const validatedPayrolls = payrollData.filter(payroll => 
+        payroll && 
+        typeof payroll.month === 'number' && 
+        typeof payroll.year === 'number' && 
+        payroll.employee
+      );
+      
+      setPayrolls(validatedPayrolls);
+      setTotalItems(validatedPayrolls.length);
     } catch (error) {
       console.error('Error fetching payrolls:', error);
       setError('Failed to load payrolls');
@@ -428,7 +458,8 @@ const Payroll = () => {
   };
 
   const getFilteredPayrolls = () => {
-    let filtered = payrolls;
+    // Safety check - ensure payrolls is an array and filter out invalid entries
+    let filtered = (payrolls || []).filter(p => p && p.month && p.year && p.employee);
 
     // Filter by status
     if (filters.status) {
@@ -496,6 +527,8 @@ const Payroll = () => {
       const startDate = new Date(filters.startDate);
       const endDate = new Date(filters.endDate);
       filtered = filtered.filter(p => {
+        // Safety check for month and year
+        if (!p.month || !p.year) return false;
         const payrollDate = new Date(p.year, p.month - 1, 1);
         return payrollDate >= startDate && payrollDate <= endDate;
       });
@@ -590,171 +623,50 @@ const Payroll = () => {
     try {
       setBulkCreateLoading(true);
       
-      // Get all active employees - fixed to use correct field and value
-      const activeEmployees = employees.filter(emp => emp.employmentStatus === 'Active');
-      
-      if (activeEmployees.length === 0) {
-        setError('No active employees found. Please check if employees have "Active" employment status.');
-        return;
-      }
-
-      // Check if payrolls already exist for this month - improved checking
+      // Get month and year from form
       const month = parseInt(bulkCreateForm.month);
       const year = bulkCreateForm.year;
       
+      // Check if payrolls already exist for this month
       const existingPayrolls = payrolls.filter(
         p => p.month === month && p.year === year
       );
 
-      let employeesToProcess = [];
-
+      let forceRegenerate = false;
+      
       if (existingPayrolls.length > 0) {
-        // Extract employee IDs from existing payrolls - fix the comparison logic
-        const existingEmployeeIds = existingPayrolls.map(p => {
-          // Handle both populated and unpopulated employee references
-          if (p.employee && typeof p.employee === 'object' && p.employee._id) {
-            return p.employee._id.toString();
-          } else if (p.employee) {
-            return p.employee.toString();
-          }
-          return null;
-        }).filter(id => id !== null);
+        const confirmMessage = `${existingPayrolls.length} payrolls already exist for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}. 
         
-        // Filter out employees who already have payrolls
-        employeesToProcess = activeEmployees.filter(emp => {
-          const empId = emp._id.toString();
-          const hasPayroll = existingEmployeeIds.includes(empId);
-          return !hasPayroll;
-        });
+Do you want to:
+1. Regenerate all payrolls (overwrite existing)?
+2. Skip employees who already have payrolls?
+3. Cancel?`;
         
-        if (employeesToProcess.length === 0) {
-          setError(`All active employees already have payrolls for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}. No new payrolls to create.`);
+        const choice = window.confirm(confirmMessage) ? 
+          (window.confirm('Regenerate all payrolls? This will overwrite existing ones.') : 'skip') : 
+          'cancel';
+        
+        if (choice === 'cancel') {
+          setBulkCreateLoading(false);
           return;
         }
         
-        const confirmMessage = `${existingPayrolls.length} employees already have payrolls for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}. 
-        
-${employeesToProcess.length} employees still need payrolls created.
-
-Do you want to create payrolls for the remaining ${employeesToProcess.length} employees?`;
-        
-        if (!window.confirm(confirmMessage)) {
-          return;
-        }
+        forceRegenerate = (choice === 'regenerate');
       } else {
         // No existing payrolls, create for all active employees
-        employeesToProcess = activeEmployees;
+        const confirmMessage = `Create payrolls for all active employees for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}?`;
+        if (!window.confirm(confirmMessage)) {
+          setBulkCreateLoading(false);
+          return;
+        }
       }
 
-      // Show confirmation with employee count
-      const confirmMessage = `Are you sure you want to create payrolls for ${employeesToProcess.length} employees for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}?`;
-      if (!window.confirm(confirmMessage)) {
-        return;
-      }
-
-      // Create payrolls for employees who don't have them
-      const payrollPromises = employeesToProcess.map(async (employee) => {
-        // Calculate start and end dates for the month
-        const month = parseInt(bulkCreateForm.month);
-        const year = bulkCreateForm.year;
-        const startDate = new Date(year, month - 1, 1); // First day of month
-        const endDate = new Date(year, month, 0); // Last day of month
-        
-        // Get employee salary structure
-        const grossSalary = employee.salary.gross || 0;
-        const basicSalary = Math.round(grossSalary * 0.6666); // 66.66% of gross (same as PayrollForm)
-        
-        // Get employee allowances (only active ones)
-        const employeeAllowances = employee.allowances || {};
-        const payrollAllowances = {
-          conveyance: {
-            isActive: employeeAllowances.conveyance?.isActive || false,
-            amount: employeeAllowances.conveyance?.isActive ? employeeAllowances.conveyance.amount : 0
-          },
-          food: {
-            isActive: employeeAllowances.food?.isActive || false,
-            amount: employeeAllowances.food?.isActive ? employeeAllowances.food.amount : 0
-          },
-          vehicleFuel: {
-            isActive: employeeAllowances.vehicleFuel?.isActive || false,
-            amount: employeeAllowances.vehicleFuel?.isActive ? employeeAllowances.vehicleFuel.amount : 0
-          },
-          medical: {
-            isActive: employeeAllowances.medical?.isActive || false,
-            amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
-          },
-          special: {
-            isActive: employeeAllowances.special?.isActive || false,
-            amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
-          },
-          other: {
-            isActive: employeeAllowances.other?.isActive || false,
-            amount: employeeAllowances.other?.isActive ? employeeAllowances.other.amount : 0
-          }
-        };
-
-        // Calculate total allowances (only active ones)
-        const totalAllowances = Object.values(payrollAllowances).reduce((sum, allowance) => {
-          return sum + (allowance.isActive ? allowance.amount : 0);
-        }, 0);
-        
-        // Calculate total gross (basic + allowances)
-        const totalGross = basicSalary + totalAllowances;
-
-        // Calculate overtime (if any)
-        const overtimeHours = 0; // Default to 0 for bulk create
-        const overtimeRate = (basicSalary / 176); // Assuming 176 working hours per month
-        const overtimeAmount = overtimeHours * overtimeRate;
-
-        // Get loan deductions
-        const vehicleLoanDeduction = employee.loans?.vehicleLoan?.monthlyInstallment || 0;
-        const companyLoanDeduction = employee.loans?.companyLoan?.monthlyInstallment || 0;
-
-        // Create payroll object
-        const payrollData = {
-          employee: employee._id,
-          month: month,
-          year: year,
-          payPeriod: {
-            startDate: startDate.toISOString().split('T')[0], // YYYY-MM-DD format
-            endDate: endDate.toISOString().split('T')[0], // YYYY-MM-DD format
-            type: 'monthly'
-          },
-          basicSalary: basicSalary,
-          grossSalary: totalGross, // Total gross (basic + allowances)
-          allowances: payrollAllowances,
-          overtime: {
-            hours: overtimeHours,
-            rate: overtimeRate,
-            amount: overtimeAmount
-          },
-          bonuses: {
-            performance: 0,
-            other: 0
-          },
-          deductions: {
-            pension: 0, // providentFund - Coming Soon (not included in total deductions)
-            tax: 0, // incomeTax
-            insurance: 0, // healthInsurance
-            other: 0, // otherDeductions
-            eobi: 370 // Fixed EOBI amount for Pakistan
-          },
-          attendance: {
-                    totalDays: 26,
-        presentDays: 26,
-            absentDays: 0
-          },
-          leaveDeductions: {
-            totalLeaveDays: 0
-          },
-          currency: 'PKR',
-          notes: 'Bulk created payroll'
-        };
-
-        return api.post('/payroll', payrollData);
+      // Use the new bulk generation API endpoint
+      const response = await api.post('/payroll', {
+        month: month,
+        year: year,
+        forceRegenerate: forceRegenerate
       });
-
-      await Promise.all(payrollPromises);
       
       setBulkCreateDialogOpen(false);
       setBulkCreateForm({
@@ -769,7 +681,29 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
       setError(null);
       
       // Show success message
-      alert(`Successfully created payrolls for ${employeesToProcess.length} employees for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}!`);
+      if (response.data.success) {
+        const summary = response.data.data.summary;
+        const skippedCount = response.data.data.skippedEmployees ? response.data.data.skippedEmployees.length : 0;
+        
+        let message = `✅ Successfully generated ${summary.totalEmployees} payrolls for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}!\n\n`;
+        message += `📊 Summary:\n`;
+        message += `• Total Employees: ${summary.totalEmployees}\n`;
+        message += `• Total Gross Salary: Rs. ${summary.totalGrossSalary.toLocaleString()}\n`;
+        message += `• Total Net Salary: Rs. ${summary.totalNetSalary.toLocaleString()}\n`;
+        message += `• Total Tax: Rs. ${summary.totalTax.toLocaleString()}\n`;
+        
+        if (skippedCount > 0) {
+          message += `\n⏭️  Skipped: ${skippedCount} employees (already had payrolls)`;
+        }
+        
+        if (response.data.data.errors && response.data.data.errors.length > 0) {
+          message += `\n⚠️  Errors: ${response.data.data.errors.length} (see console for details)`;
+        }
+        
+        alert(message);
+      } else {
+        alert('Payroll generation completed but with some issues. Please check the console for details.');
+      }
     } catch (error) {
       console.error('Error creating bulk payrolls:', error);
       setError(`Failed to create bulk payrolls: ${error.message}`);
@@ -817,98 +751,50 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
     return 'Mixed';
   };
 
-  const handleUpdatePayrollAllowances = async () => {
+
+
+  const handleMonthlyTaxUpdate = async () => {
     try {
-      setLoading(true);
+      setMonthlyTaxUpdateLoading(true);
       setError(null);
       
-      // Get all payrolls that need updating
-      const payrollsToUpdate = payrolls.filter(p => {
-        // Check if payroll has old allowance structure or missing allowances
-        return !p.allowances || 
-               !p.allowances.food || 
-               !p.allowances.vehicleFuel ||
-               p.allowances.food?.amount === 0 ||
-               p.allowances.vehicleFuel?.amount === 0;
-      });
-      
-      if (payrollsToUpdate.length === 0) {
-        setError('All payrolls already have the correct allowances structure.');
-        return;
-      }
-      
-      const confirmMessage = `This will update ${payrollsToUpdate.length} payroll(s) with current employee allowances. This action cannot be undone. Continue?`;
+      const confirmMessage = 'This will update taxes for all payrolls in the current month using the latest FBR 2025-2026 tax slabs. This action cannot be undone. Continue?';
       if (!window.confirm(confirmMessage)) {
         return;
       }
       
-      let updatedCount = 0;
-      let errorCount = 0;
+      // Get current month and year
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
       
-      for (const payroll of payrollsToUpdate) {
-        try {
-          // Get current employee allowances
-          const employeeResponse = await api.get(`/hr/employees/${payroll.employee._id || payroll.employee}`);
-          const employee = employeeResponse.data.data;
-          
-          if (employee && employee.allowances) {
-            // Update payroll allowances
-            const updatedAllowances = {
-              conveyance: {
-                isActive: employee.allowances.conveyance?.isActive || false,
-                amount: employee.allowances.conveyance?.isActive ? employee.allowances.conveyance.amount : 0
-              },
-              food: {
-                isActive: employee.allowances.food?.isActive || false,
-                amount: employee.allowances.food?.isActive ? employee.allowances.food.amount : 0
-              },
-              vehicleFuel: {
-                isActive: employee.allowances.vehicleFuel?.isActive || false,
-                amount: employee.allowances.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0
-              },
-              medical: {
-                isActive: employee.allowances.medical?.isActive || false,
-                amount: employee.allowances.medical?.isActive ? employee.allowances.medical.amount : 0
-              },
-              special: {
-                isActive: employee.allowances.special?.isActive || false,
-                amount: employee.allowances.special?.isActive ? employee.allowances.special.amount : 0
-              },
-              other: {
-                isActive: employee.allowances.other?.isActive || false,
-                amount: employee.allowances.other?.isActive ? employee.allowances.other.amount : 0
-              }
-            };
-            
-            // Update the payroll
-            await api.put(`/payroll/${payroll._id}`, {
-              allowances: updatedAllowances
-            });
-            
-            updatedCount++;
-          }
-        } catch (updateError) {
-          console.error(`Error updating payroll ${payroll._id}:`, updateError);
-          errorCount++;
-        }
-      }
+      console.log(`🔄 Updating monthly taxes for ${currentMonth}/${currentYear}...`);
       
-      // Refresh data
-      await fetchPayrolls();
-      await fetchStats();
+      // Call the monthly tax update API
+      const response = await api.post('/payroll/current-month-tax-update');
       
-      if (errorCount > 0) {
-        setError(`Updated ${updatedCount} payroll(s) successfully. ${errorCount} payroll(s) failed to update.`);
-      } else {
+      if (response.data.success) {
+        const result = response.data.data;
+        
+        console.log('✅ Monthly tax update completed:', result);
+        
+        // Show success message
+        alert(`Successfully updated taxes for ${result.totalCount} payrolls!\n\nUpdated: ${result.updatedCount}\nAlready Updated: ${result.totalCount - result.updatedCount}\nFailed: ${result.errorCount}`);
+        
+        // Refresh data
+        await fetchPayrolls();
+        await fetchStats();
+        
         setError(null);
-        alert(`Successfully updated ${updatedCount} payroll(s) with current employee allowances!`);
+      } else {
+        setError('Failed to update monthly taxes');
       }
       
     } catch (error) {
-      console.error('Error updating payroll allowances:', error);
-      setError('Failed to update payroll allowances');
+      console.error('Error updating monthly taxes:', error);
+      setError(`Failed to update monthly taxes: ${error.message}`);
     } finally {
-      setLoading(false);
+      setMonthlyTaxUpdateLoading(false);
     }
   };
 
@@ -1014,16 +900,18 @@ Do you want to create payrolls for the remaining ${employeesToProcess.length} em
           >
             Bulk Create Payroll
           </Button>
+          
           <Button
             variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={handleUpdatePayrollAllowances}
+            startIcon={<TrendingUpIcon />}
+            onClick={handleMonthlyTaxUpdate}
             sx={{ mr: 2 }}
-            color="info"
-            disabled={loading}
+            color="warning"
+            disabled={monthlyTaxUpdateLoading}
           >
-            Update Allowances
+            {monthlyTaxUpdateLoading ? 'Updating Taxes...' : 'Update Monthly Taxes'}
           </Button>
+
           <Button
             variant="contained"
             startIcon={<AddIcon />}

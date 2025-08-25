@@ -722,11 +722,14 @@ const PayrollDetail = () => {
             </Grid>
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: 'success.light', color: 'white' }}>
-                <Typography variant="h4">{formatPKR(calculateNetSalaryOptimized())}</Typography>
+                <Typography variant="h4">{formatPKR(payroll.netSalary || 0)}</Typography>
                 <Typography variant="body2">Net Salary</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1 }}>
+                  Total Earnings - Deductions
+                </Typography>
                 {payroll.netSalary !== calculateNetSalaryOptimized() && (
-                  <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1 }}>
-                    Stored: {formatPKR(payroll.netSalary)}
+                  <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 1, color: 'warning.light' }}>
+                    📊 Calculated: {formatPKR(calculateNetSalaryOptimized())}
                   </Typography>
                 )}
               </Paper>

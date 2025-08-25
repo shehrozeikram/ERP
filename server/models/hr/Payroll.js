@@ -315,7 +315,8 @@ payrollSchema.virtual('totalBonuses').get(function() {
   return this.performanceBonus + this.otherBonus;
 });
 
-// Pre-save middleware to calculate totals
+// Pre-save middleware to calculate totals - TEMPORARILY DISABLED
+/*
 payrollSchema.pre('save', function(next) {
   // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
   if (!this.providentFund && this.basicSalary > 0) {
@@ -385,61 +386,57 @@ payrollSchema.pre('save', function(next) {
     console.log(`   Other Bonus: Rs. ${this.otherBonus?.toFixed(2) || 0}`);
     console.log(`   Total Earnings: Rs. ${this.totalEarnings?.toFixed(2) || 0}`);
   } else {
-    console.log(`💰 Total Earnings UNCHANGED: Rs. ${this.totalEarnings?.toFixed(2) || 0} (No salary structure changes)`);
+    // IMPORTANT: Preserve the existing total earnings value
+    const originalTotalEarnings = this.totalEarnings;
+    console.log(`💰 Total Earnings UNCHANGED: Rs. ${originalTotalEarnings?.toFixed(2) || 0} (No salary structure changes)`);
+    
+    // Ensure total earnings is not modified during attendance updates
+    if (this.isModified('presentDays') || this.isModified('absentDays') || this.isModified('leaveDays')) {
+      console.log(`   📊 Attendance update detected - preserving total earnings: Rs. ${originalTotalEarnings?.toFixed(2) || 0}`);
+    }
   }
   
-  // Auto-calculate income tax if not provided (same as September 688 employees)
-  if (!this.incomeTax && this.totalEarnings) {
-    try {
-      // Medical allowance for tax calculation is 10% of total earnings (tax-exempt)
-      const medicalAllowanceForTax = Math.round(this.totalEarnings * 0.10);
-      
-      // Taxable Income = Total Earnings - Medical Allowance
-      const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
-      
-      // Calculate tax using FBR 2025-2026 rules
-      const annualTaxableIncome = taxableIncome * 12;
-      
-      // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
-      let annualTax = 0;
-      
-      if (annualTaxableIncome <= 600000) {
-        // No tax for income up to 600,000
-        annualTax = 0;
-      } else if (annualTaxableIncome <= 1200000) {
-        // 1% on income from 600,001 to 1,200,000
-        annualTax = (annualTaxableIncome - 600000) * 0.01;
-      } else if (annualTaxableIncome <= 2200000) {
-        // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
-        annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-      } else if (annualTaxableIncome <= 3200000) {
-        // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
-        annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-      } else if (annualTaxableIncome <= 4100000) {
-        // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
-        annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-      } else {
-        // Rs. 616,000 + 35% on income above 4,100,000
-        annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-      }
-      
-      // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-      if (annualTaxableIncome > 10000000) {
-        const surcharge = annualTax * 0.09;
-        annualTax += surcharge;
-      }
-      
-      // Convert to monthly tax
-      this.incomeTax = Math.round(annualTax / 12);
-      
-      console.log(`💰 Pre-save Tax Calculation: Total Earnings: ${this.totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${this.incomeTax}`);
-      
-    } catch (error) {
-      console.error('Error calculating tax in pre-save:', error);
-      // Fallback to old calculation
-      const taxCalculation = calculateTax(this.grossSalary);
-      this.incomeTax = calculateMonthlyTaxImage(taxCalculation.taxableIncome);
+  // Tax calculation according to user's formula (ONLY if income tax is completely undefined/null)
+  // If income tax has any value (including 0), respect it and don't recalculate
+  if (this.incomeTax === undefined || this.incomeTax === null) {
+    // 1. Calculate medical allowance (10% of total earnings - tax exempt)
+    const medicalAllowanceForTax = Math.round(this.totalEarnings * 0.10);
+    
+    // 2. Calculate taxable income (total earnings - medical allowance)
+    const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
+    
+    // 3. Calculate tax using FBR 2025-2026 rules on taxable income
+    const annualTaxableIncome = taxableIncome * 12;
+    
+    let annualTax = 0;
+    
+    if (annualTaxableIncome <= 600000) {
+      annualTax = 0;
+    } else if (annualTaxableIncome <= 1200000) {
+      annualTax = (annualTaxableIncome - 600000) * 0.01;
+    } else if (annualTaxableIncome <= 2200000) {
+      annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+    } else if (annualTaxableIncome <= 3200000) {
+      annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    } else if (annualTaxableIncome <= 4100000) {
+      annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    } else {
+      annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
     }
+    
+    // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
+    if (annualTaxableIncome > 10000000) {
+      const surcharge = annualTax * 0.09;
+      annualTax += surcharge;
+    }
+    
+    // 4. Convert to monthly tax (don't add medical allowance back)
+    const monthlyTax = Math.round(annualTax / 12);
+    this.incomeTax = monthlyTax;
+    
+    console.log(`💰 Pre-save Tax Calculation (User's Formula): Total Earnings: ${this.totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Monthly Tax: ${monthlyTax}`);
+  } else {
+    console.log(`💰 Pre-save: Income Tax already set to ${this.incomeTax} - respecting existing value`);
   }
   
   // 26-Day Attendance System: Calculate daily rate and attendance deduction
@@ -471,9 +468,9 @@ payrollSchema.pre('save', function(next) {
     console.log(`💰 No Attendance Deduction: ${this.absentDays || 0} absent days, Daily Rate: ${this.dailyRate?.toFixed(2) || 0}`);
   }
   
-  // Calculate total deductions (excluding Provident Fund for now - Coming Soon)
+  // Calculate total deductions (excluding Provident Fund as requested)
   this.totalDeductions = 
-    // (this.providentFund || 0) + // Excluded - Coming Soon
+    // (this.providentFund || 0) + // Excluded as requested
     (this.incomeTax || 0) + 
     (this.healthInsurance || 0) + 
     (this.vehicleLoanDeduction || 0) +
@@ -488,7 +485,7 @@ payrollSchema.pre('save', function(next) {
   console.log(`   Health Insurance: Rs. ${this.healthInsurance?.toFixed(2) || 0}`);
   console.log(`   Vehicle Loan: Rs. ${this.vehicleLoanDeduction?.toFixed(2) || 0}`);
   console.log(`   Company Loan: Rs. ${this.companyLoanDeduction?.toFixed(2) || 0}`);
-  console.log(`   EOBI: Rs. ${this.eobi?.toFixed(2) || 0}`);
+  console.log(`   EOBI: Rs. ${this.eobi || 0}`);
   console.log(`   Attendance Deduction: Rs. ${this.attendanceDeduction?.toFixed(2) || 0}`);
   console.log(`   Other Deductions: Rs. ${this.otherDeductions?.toFixed(2) || 0}`);
   console.log(`   Total Deductions: Rs. ${this.totalDeductions?.toFixed(2) || 0}`);
@@ -506,64 +503,52 @@ payrollSchema.pre('save', function(next) {
   
   next();
 });
+*/
 
-// Method to calculate and update tax after payroll creation
-payrollSchema.methods.calculateAndUpdateTax = async function() {
-  if (this.totalEarnings) {
-    try {
-      // Medical allowance is 10% of total earnings (tax-exempt)
-      const medicalAllowanceForTax = Math.round(this.totalEarnings * 0.10);
-      
-      // Taxable Income = Total Earnings - Medical Allowance
-      const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
-      
-      // Calculate tax using FBR 2025-2026 rules
-      const annualTaxableIncome = taxableIncome * 12;
-      
-      // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
-      let annualTax = 0;
-      
-      if (annualTaxableIncome <= 600000) {
-        // No tax for income up to 600,000
-        annualTax = 0;
-      } else if (annualTaxableIncome <= 1200000) {
-        // 1% on income from 600,001 to 1,200,000
-        annualTax = (annualTaxableIncome - 600000) * 0.01;
-      } else if (annualTaxableIncome <= 2200000) {
-        // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
-        annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-      } else if (annualTaxableIncome <= 3200000) {
-        // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
-        annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-      } else if (annualTaxableIncome <= 4100000) {
-        // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
-        annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-      } else {
-        // Rs. 616,000 + 35% on income above 4,100,000
-        annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-      }
-      
-      // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-      if (annualTaxableIncome > 10000000) {
-        const surcharge = annualTax * 0.09;
-        annualTax += surcharge;
-      }
-      
-      // Convert to monthly tax
-      this.incomeTax = Math.round(annualTax / 12);
-      
-      console.log(`💰 Tax Calculation for Employee: Total Earnings: ${this.totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${this.incomeTax}`);
-      
-      // Save the updated tax
-      await this.save();
-      
-      return this.incomeTax;
-    } catch (error) {
-      console.error('Error calculating tax:', error);
-      return 0;
-    }
+// 🚫 MIDDLEWARE DISABLED - Route calculations will be preserved exactly as calculated
+console.log('🚫 Pre-save middleware DISABLED - preserving route calculations');
+
+// Tax calculation according to user's formula
+payrollSchema.methods.calculateTax = function() {
+  if (!this.totalEarnings) return 0;
+  
+  // 1. Calculate medical allowance (10% of total earnings - tax exempt)
+  const medicalAllowanceForTax = Math.round(this.totalEarnings * 0.10);
+  
+  // 2. Calculate taxable income (total earnings - medical allowance)
+  const taxableIncome = this.totalEarnings - medicalAllowanceForTax;
+  
+  // 3. Calculate tax using FBR 2025-2026 rules on taxable income
+  const annualTaxableIncome = taxableIncome * 12;
+  
+  let annualTax = 0;
+  
+  if (annualTaxableIncome <= 600000) {
+    annualTax = 0;
+  } else if (annualTaxableIncome <= 1200000) {
+    annualTax = (annualTaxableIncome - 600000) * 0.01;
+  } else if (annualTaxableIncome <= 2200000) {
+    annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+  } else if (annualTaxableIncome <= 3200000) {
+    annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+  } else if (annualTaxableIncome <= 4100000) {
+    annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+  } else {
+    annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
   }
-  return 0;
+  
+  // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
+  if (annualTaxableIncome > 10000000) {
+    const surcharge = annualTax * 0.09;
+    annualTax += surcharge;
+  }
+  
+  // 4. Convert to monthly tax (don't add medical allowance back)
+  const monthlyTax = Math.round(annualTax / 12);
+  
+  console.log(`💰 calculateTax Method (User's Formula): Total Earnings: ${this.totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Monthly Tax: ${monthlyTax}`);
+  
+  return monthlyTax;
 };
 
 // Static method to generate payroll for an employee
@@ -780,7 +765,7 @@ payrollSchema.statics.calculateTaxForPayroll = async function(payrollId) {
     throw new Error('Payroll not found');
   }
   
-  return await payroll.calculateAndUpdateTax();
+        return payroll.calculateTax();
 };
 
 // Static method to calculate tax for all payrolls in a month/year
@@ -790,7 +775,7 @@ payrollSchema.statics.calculateTaxForMonth = async function(month, year) {
   
   for (const payroll of payrolls) {
     try {
-      const tax = await payroll.calculateAndUpdateTax();
+              const tax = payroll.calculateTax();
       results.push({
         payrollId: payroll._id,
         employeeId: payroll.employee,
