@@ -363,4 +363,75 @@ router.post('/mark-candidate-hired-read', authMiddleware, asyncHandler(async (re
   });
 }));
 
+// @route   GET /api/notifications/module-counts
+// @desc    Get module-specific notification counts for the authenticated user
+// @access  Private
+router.get('/module-counts', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const userId = req.user._id;
+    
+    // Get counts for each module using aggregation for better performance
+    const moduleCounts = await Notification.getModuleCounts(userId);
+    
+    // Convert to object format
+    const counts = {};
+    moduleCounts.forEach(item => {
+      counts[item.module || 'other'] = item.count;
+    });
+
+    // Ensure all modules have a count (even if 0)
+    const allModules = ['employees', 'hr', 'finance', 'crm', 'sales', 'procurement'];
+    allModules.forEach(module => {
+      if (!counts[module]) {
+        counts[module] = 0;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: counts
+    });
+  } catch (error) {
+    console.error('Error getting module counts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting module counts'
+    });
+  }
+}));
+
+// @route   PUT /api/notifications/mark-read
+// @desc    Mark multiple notifications as read (optimized batch operation)
+// @access  Private
+router.put('/mark-read', authMiddleware, asyncHandler(async (req, res) => {
+  const { notificationIds } = req.body;
+  const userId = req.user._id;
+
+  if (!notificationIds || !Array.isArray(notificationIds)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Notification IDs array is required'
+    });
+  }
+
+  try {
+    // Mark notifications as read
+    const result = await Notification.markAsRead(userId, notificationIds);
+    
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} notifications marked as read`,
+      data: {
+        modifiedCount: result.modifiedCount
+      }
+    });
+  } catch (error) {
+    console.error('Error marking notifications as read:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error marking notifications as read'
+    });
+  }
+}));
+
 module.exports = router;

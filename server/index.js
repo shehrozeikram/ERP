@@ -155,6 +155,11 @@ if (process.env.NODE_ENV === 'development') {
 // Static files
 app.use('/uploads', express.static('uploads'));
 
+// Serve React build files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/build')));
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -216,11 +221,18 @@ app.use('/api/zkteco', zktecoRoutes);
 // Error handling middleware
 app.use(errorHandler);
 
-// 404 handler
-app.use('*', (req, res) => {
+// Serve React app for client-side routing (must be after API routes)
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+  });
+}
+
+// 404 handler (only for API routes)
+app.use('/api/*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: 'Route not found'
+    message: 'API route not found'
   });
 });
 

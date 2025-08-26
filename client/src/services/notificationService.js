@@ -28,14 +28,16 @@ class NotificationService {
   }
 
   /**
-   * Mark notification as read
+   * Mark notifications as read (optimized batch operation)
    */
-  static async markAsRead(notificationId) {
+  static async markAsRead(notificationIds) {
     try {
-      const response = await api.post(`/notifications/${notificationId}/read`);
+      const response = await api.put('/notifications/mark-read', {
+        notificationIds: Array.isArray(notificationIds) ? notificationIds : [notificationIds]
+      });
       return response.data;
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      console.error('Error marking notifications as read:', error);
       throw error;
     }
   }
@@ -136,6 +138,19 @@ class NotificationService {
     } catch (error) {
       console.error('Error marking candidate hired notifications as read:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get module-specific notification counts (NEW)
+   */
+  static async getModuleCounts() {
+    try {
+      const response = await api.get('/notifications/module-counts');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching module counts:', error);
+      return { data: {} };
     }
   }
 }

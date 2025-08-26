@@ -36,6 +36,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { getModuleMenuItems } from '../../utils/permissions';
 import NotificationService from '../../services/notificationService';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const drawerWidth = 280;
 
@@ -71,6 +72,7 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { getModuleCount } = useNotifications();
   const [openSubmenu, setOpenSubmenu] = useState({});
   const [candidateHiredCount, setCandidateHiredCount] = useState(0);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
@@ -279,6 +281,67 @@ const Sidebar = () => {
                                     <Badge 
                                       badgeContent={isMarkingRead ? '...' : candidateHiredCount} 
                                       color={isMarkingRead ? "default" : "error"}
+                                      sx={{ 
+                                        ml: 1,
+                                        '& .MuiBadge-badge': {
+                                          fontSize: '0.75rem',
+                                          height: '20px',
+                                          minWidth: '20px',
+                                          borderRadius: '10px'
+                                        }
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </Box>
+                              )}
+                              
+                              {/* Show module-specific notification badges */}
+                              {subItem.text === 'Employees' && getModuleCount('employees') > 0 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                  <Tooltip title={`${getModuleCount('employees')} employee notifications`} arrow>
+                                    <Badge 
+                                      badgeContent={getModuleCount('employees')} 
+                                      color="error"
+                                      sx={{ 
+                                        ml: 1,
+                                        '& .MuiBadge-badge': {
+                                          fontSize: '0.75rem',
+                                          height: '20px',
+                                          minWidth: '20px',
+                                          borderRadius: '10px'
+                                        }
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </Box>
+                              )}
+                              
+                              {subItem.text === 'Departments' && getModuleCount('hr') > 0 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                  <Tooltip title={`${getModuleCount('hr')} HR notifications`} arrow>
+                                    <Badge 
+                                      badgeContent={getModuleCount('hr')} 
+                                      color="error"
+                                      sx={{ 
+                                        ml: 1,
+                                        '& .MuiBadge-badge': {
+                                          fontSize: '0.75rem',
+                                          height: '20px',
+                                          minWidth: '20px',
+                                          borderRadius: '10px'
+                                        }
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </Box>
+                              )}
+                              
+                              {subItem.text === 'Payroll' && getModuleCount('finance') > 0 && (
+                                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                  <Tooltip title={`${getModuleCount('finance')} finance notifications`} arrow>
+                                    <Badge 
+                                      badgeContent={getModuleCount('finance')} 
+                                      color="error"
                                       sx={{ 
                                         ml: 1,
                                         '& .MuiBadge-badge': {

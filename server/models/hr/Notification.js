@@ -17,12 +17,12 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['info', 'success', 'warning', 'error', 'system'],
+    enum: ['info', 'success', 'warning', 'error', 'system', 'candidate_hired', 'employee_status_change', 'attendance_update', 'payroll_generated', 'loan_approved', 'leave_request', 'performance_review', 'training_assigned'],
     default: 'info'
   },
   category: {
     type: String,
-    enum: ['attendance', 'payroll', 'leave', 'approval', 'system', 'other'],
+    enum: ['attendance', 'payroll', 'leave', 'approval', 'system', 'hiring', 'employee', 'finance', 'other'],
     default: 'other'
   },
   isRead: {
@@ -44,7 +44,14 @@ const notificationSchema = new mongoose.Schema({
     type: String // Text for the action button
   },
   metadata: {
-    type: mongoose.Schema.Types.Mixed // Additional data specific to notification type
+    module: {
+      type: String,
+      enum: ['employees', 'hr', 'finance', 'crm', 'sales', 'procurement', 'other'],
+      default: 'other'
+    },
+    entityId: mongoose.Schema.Types.ObjectId, // Related entity ID
+    entityType: String, // Type of related entity
+    additionalData: mongoose.Schema.Types.Mixed // Any additional data
   },
   expiresAt: {
     type: Date // When the notification should expire
@@ -64,8 +71,9 @@ const notificationSchema = new mongoose.Schema({
 // Index for better query performance
 notificationSchema.index({ recipient: 1, isRead: 1 });
 notificationSchema.index({ recipient: 1, createdAt: -1 });
-notificationSchema.index({ type: 1, category: 1 });
-notificationSchema.index({ expiresAt: 1 });
+notificationSchema.index({ recipient: 1, 'metadata.module': 1, isRead: 1 });
+notificationSchema.index({ recipient: 1, type: 1, isRead: 1 });
+notificationSchema.index({ recipient: 1, category: 1, isRead: 1 });
 
 // Auto-expire notifications
 notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
@@ -90,8 +98,8 @@ notificationSchema.statics.getForUser = function(userId, options = {}) {
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit)
-    .populate('recipient', 'name email')
-    .populate('createdBy', 'name email');
+    .populate('recipient', 'firstName lastName email')
+    .populate('createdBy', 'firstName lastName email');
 };
 
 notificationSchema.statics.getUnreadCount = function(userId) {
@@ -99,6 +107,30 @@ notificationSchema.statics.getUnreadCount = function(userId) {
     recipient: userId, 
     isRead: false 
   });
+};
+
+notificationSchema.statics.getModuleCounts = function(userId) {
+  return this.aggregate([
+    {
+      $match: {
+        recipient: userId,
+        isRead: false
+      }
+    },
+    {
+      $group: {
+        _id: '$metadata.module',
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $project: {
+        module: '$_id',
+        count: 1,
+        _id: 0
+      }
+    }
+  ]);
 };
 
 notificationSchema.statics.markAsRead = function(userId, notificationIds) {
@@ -115,5 +147,31 @@ notificationSchema.statics.markAsRead = function(userId, notificationIds) {
     }
   );
 };
+
+// Auto-categorize notifications based on type
+notificationSchema.pre('save', function(next) {
+  // Auto-categorize based on notification type
+  if (this.type === 'candidate_hired' || this.type === 'employee_status_change') {
+    this.metadata.module = 'employees';
+    this.category = 'hiring';
+  } else if (this.type === 'payroll_generated') {
+    this.metadata.module = 'finance';
+    this.category = 'payroll';
+  } else if (this.type === 'attendance_update') {
+    this.metadata.module = 'hr';
+    this.category = 'attendance';
+  } else if (this.type === 'leave_request') {
+    this.metadata.module = 'hr';
+    this.category = 'leave';
+  } else if (this.type === 'loan_approved') {
+    this.metadata.module = 'finance';
+    this.category = 'other';
+  } else if (this.type === 'performance_review' || this.type === 'training_assigned') {
+    this.metadata.module = 'hr';
+    this.category = 'other';
+  }
+  
+  next();
+});
 
 module.exports = mongoose.model('Notification', notificationSchema);

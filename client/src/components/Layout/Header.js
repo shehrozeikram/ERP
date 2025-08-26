@@ -24,7 +24,7 @@ import {
 import { styled, alpha } from '@mui/material/styles';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import NotificationService from '../../services/notificationService';
+import { useNotifications } from '../../contexts/NotificationContext';
 import Notifications from '../Notifications/Notifications';
 
 const SearchWrapper = styled('div')(({ theme }) => ({
@@ -72,53 +72,9 @@ const Header = () => {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { getUnreadCount } = useNotifications();
 
-  // Fetch unread notification count
-  useEffect(() => {
-    if (!user) {
-      setUnreadCount(0);
-      return;
-    }
-
-    const fetchUnreadCount = async () => {
-      try {
-        const count = await NotificationService.getUnreadCount();
-        setUnreadCount(count);
-      } catch (error) {
-        console.error('Error fetching unread count:', error);
-      }
-    };
-
-    fetchUnreadCount();
-    
-    // Refresh count every 30 seconds
-    const interval = setInterval(fetchUnreadCount, 30000);
-    
-    // Listen for custom event to refresh notifications (from sidebar)
-    const handleRefreshNotifications = () => {
-      console.log('🔄 Header: Refreshing notifications from sidebar event...');
-      refreshUnreadCount();
-    };
-    
-    window.addEventListener('refreshNotifications', handleRefreshNotifications);
-    
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('refreshNotifications', handleRefreshNotifications);
-    };
-  }, [user]);
-
-  const refreshUnreadCount = async () => {
-    if (!user) return;
-    
-    try {
-      const count = await NotificationService.getUnreadCount();
-      setUnreadCount(count);
-    } catch (error) {
-      console.error('Error refreshing unread count:', error);
-    }
-  };
+  const unreadCount = getUnreadCount();
 
   const handleProfileMenuOpen = (event) => {
     setAnchorEl(event.currentTarget);
@@ -207,7 +163,7 @@ const Header = () => {
             sx: { width: 400, maxHeight: 600 }
           }}
         >
-          <Notifications onNotificationAction={refreshUnreadCount} />
+          <Notifications />
         </Menu>
 
         {/* User Profile Menu */}

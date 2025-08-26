@@ -44,6 +44,7 @@ import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
 import NotFound from './pages/NotFound/NotFound';
+
 import FBRTaxManagement from './pages/HR/FBRTaxManagement';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
@@ -581,6 +582,7 @@ function App() {
               path="/admin/users" 
               element={<ProtectedRoute requiredRole="admin"><UserManagement /></ProtectedRoute>} 
             />
+
 
             {/* HR Management Routes */}
             <Route 

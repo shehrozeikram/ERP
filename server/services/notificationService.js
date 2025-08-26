@@ -38,19 +38,24 @@ class NotificationService {
           recipient: recipient._id,
           title: '🎉 New Employee Hired',
           message: `Candidate ${candidate.firstName} ${candidate.lastName} has been successfully hired for the position of ${jobPosting.title} in ${jobPosting.department} department.`,
-          type: 'success',
-          category: 'approval',
+          type: 'candidate_hired',
+          category: 'hiring',
           priority: 'high',
           actionUrl: `/hr/employees/new-employee-onboarding/${candidate._id}`,
           metadata: {
-            candidateId: candidate._id,
-            candidateName: `${candidate.firstName} ${candidate.lastName}`,
-            candidateEmail: candidate.email,
-            candidatePhone: candidate.phone,
-            jobTitle: jobPosting.title,
-            department: jobPosting.department,
-            hireDate: new Date(),
-            salary: candidate.offer?.offeredSalary || 'Not specified'
+            module: 'employees',
+            entityId: candidate._id,
+            entityType: 'Candidate',
+            additionalData: {
+              candidateId: candidate._id,
+              candidateName: `${candidate.firstName} ${candidate.lastName}`,
+              candidateEmail: candidate.email,
+              candidatePhone: candidate.phone,
+              jobTitle: jobPosting.title,
+              department: jobPosting.department,
+              hireDate: new Date(),
+              salary: candidate.offer?.offeredSalary || 'Not specified'
+            }
           },
           createdBy: createdBy._id
         });
@@ -195,87 +200,49 @@ class NotificationService {
   }
 
   /**
-   * Create a notification for attendance updates
+   * Mark notifications as read
    */
-  static async createAttendanceNotification(attendance, employee, createdBy) {
+  static async markAsRead(userId, notificationIds) {
     try {
-      const hrUsers = await User.find({
-        role: { $in: ['admin', 'hr_manager'] },
-        department: 'HR',
-        isActive: true
-      });
-
-      if (hrUsers.length === 0) return null;
-
-      const action = attendance.checkIn ? 'checked in' : 'checked out';
-      const time = attendance.checkIn?.time || attendance.checkOut?.time;
-      const timeStr = time ? new Date(time).toLocaleTimeString() : 'now';
-
-      // Create a notification for each HR user
-      const notifications = [];
-      for (const hrUser of hrUsers) {
-        const notification = new Notification({
-          recipient: hrUser._id,
-          title: '⏰ Attendance Update',
-          message: `${employee.firstName} ${employee.lastName} ${action} at ${timeStr}.`,
-          type: 'info',
-          category: 'attendance',
-          priority: 'low',
-          actionUrl: `/hr/attendance`,
-          metadata: {
-            employeeId: employee._id,
-            employeeName: `${employee.firstName} ${employee.lastName}`,
-            action,
-            timestamp: time,
-            deviceId: attendance.deviceId || 'Unknown'
-          },
-          createdBy: createdBy._id
-        });
-
-        await notification.save();
-        notifications.push(notification);
-      }
-      
-      console.log(`✅ Attendance notifications created for ${hrUsers.length} HR users`);
-      
-      return notifications;
+      return await Notification.markAsRead(userId, notificationIds);
     } catch (error) {
-      console.error('❌ Error creating attendance notification:', error);
+      console.error('Error marking notifications as read:', error);
       throw error;
     }
   }
 
   /**
-   * Create a notification for payroll generation
+   * Create payroll notification
    */
-  static async createPayrollNotification(payroll, employee, createdBy) {
+  static async createPayrollNotification(employee, payroll, createdBy) {
     try {
       const hrUsers = await User.find({
         role: { $in: ['admin', 'hr_manager'] },
-        department: 'HR',
         isActive: true
       });
 
-      if (hrUsers.length === 0) return null;
-
-      // Create a notification for each HR user
       const notifications = [];
-      for (const hrUser of hrUsers) {
+      for (const recipient of hrUsers) {
         const notification = new Notification({
-          recipient: hrUser._id,
+          recipient: recipient._id,
           title: '💰 Payroll Generated',
-          message: `Payroll for ${employee.firstName} ${employee.lastName} has been generated for ${payroll.month}/${payroll.year}.`,
-          type: 'info',
+          message: `Payroll has been generated for ${employee.firstName} ${employee.lastName} for ${payroll.month}/${payroll.year}.`,
+          type: 'payroll_generated',
           category: 'payroll',
           priority: 'medium',
           actionUrl: `/hr/payroll/${payroll._id}`,
           metadata: {
-            employeeId: employee._id,
-            employeeName: `${employee.firstName} ${employee.lastName}`,
-            month: payroll.month,
-            year: payroll.year,
-            netSalary: payroll.netSalary,
-            generatedDate: new Date()
+            module: 'finance',
+            entityId: payroll._id,
+            entityType: 'Payroll',
+            additionalData: {
+              employeeId: employee._id,
+              employeeName: `${employee.firstName} ${employee.lastName}`,
+              month: payroll.month,
+              year: payroll.year,
+              grossSalary: payroll.grossSalary,
+              netSalary: payroll.netSalary
+            }
           },
           createdBy: createdBy._id
         });
@@ -283,12 +250,59 @@ class NotificationService {
         await notification.save();
         notifications.push(notification);
       }
-      
-      console.log(`✅ Payroll notifications created for ${hrUsers.length} HR users`);
-      
+
+      console.log(`✅ Payroll notifications created for ${notifications.length} users`);
       return notifications;
     } catch (error) {
       console.error('❌ Error creating payroll notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create attendance notification
+   */
+  static async createAttendanceNotification(employee, attendance, createdBy) {
+    try {
+      const hrUsers = await User.find({
+        role: { $in: ['admin', 'hr_manager'] },
+        isActive: true
+      });
+
+      const notifications = [];
+      for (const recipient of hrUsers) {
+        const notification = new Notification({
+          recipient: recipient._id,
+          title: '⏰ Attendance Update',
+          message: `Attendance record updated for ${employee.firstName} ${employee.lastName} on ${attendance.date}.`,
+          type: 'attendance_update',
+          category: 'attendance',
+          priority: 'low',
+          actionUrl: `/hr/attendance/${attendance._id}`,
+          metadata: {
+            module: 'hr',
+            entityId: attendance._id,
+            entityType: 'Attendance',
+            additionalData: {
+              employeeId: employee._id,
+              employeeName: `${employee.firstName} ${employee.lastName}`,
+              date: attendance.date,
+              checkIn: attendance.checkIn,
+              checkOut: attendance.checkOut,
+              status: attendance.status
+            }
+          },
+          createdBy: createdBy._id
+        });
+
+        await notification.save();
+        notifications.push(notification);
+      }
+
+      console.log(`✅ Attendance notifications created for ${notifications.length} users`);
+      return notifications;
+    } catch (error) {
+      console.error('❌ Error creating attendance notification:', error);
       throw error;
     }
   }

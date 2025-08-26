@@ -33,59 +33,26 @@ import {
   Error
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
-import NotificationService from '../../services/notificationService';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 const Notifications = ({ onNotificationAction }) => {
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const { 
+    getNotifications, 
+    getUnreadCount, 
+    markAsRead, 
+    isLoading 
+  } = useNotifications();
+  
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
 
-  useEffect(() => {
-    fetchNotifications();
-    fetchUnreadCount();
-  }, []);
-
-  const fetchNotifications = async () => {
-    try {
-      setLoading(true);
-      const response = await NotificationService.getNotifications({
-        status: 'unread',
-        limit: 10
-      });
-      setNotifications(response.data || []);
-      setError(null);
-    } catch (err) {
-      setError('Failed to fetch notifications');
-      console.error('Error fetching notifications:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchUnreadCount = async () => {
-    try {
-      const count = await NotificationService.getUnreadCount();
-      setUnreadCount(count);
-    } catch (err) {
-      console.error('Error fetching unread count:', err);
-    }
-  };
+  const notifications = getNotifications();
+  const unreadCount = getUnreadCount();
+  const loading = isLoading();
 
   const handleMarkAsRead = async (notificationId) => {
     try {
-      await NotificationService.markAsRead(notificationId);
-      // Update local state
-      setNotifications(prev => 
-        prev.map(notif => 
-          notif._id === notificationId 
-            ? { ...notif, status: 'read' }
-            : notif
-        )
-      );
-      fetchUnreadCount();
+      await markAsRead([notificationId]);
       // Notify parent component to refresh unread count
       if (onNotificationAction) {
         onNotificationAction();
@@ -97,12 +64,7 @@ const Notifications = ({ onNotificationAction }) => {
 
   const handleMarkAsArchived = async (notificationId) => {
     try {
-      await NotificationService.markAsArchived(notificationId);
-      // Remove from local state
-      setNotifications(prev => 
-        prev.filter(notif => notif._id !== notificationId)
-      );
-      fetchUnreadCount();
+      await markAsRead([notificationId]);
       // Notify parent component to refresh unread count
       if (onNotificationAction) {
         onNotificationAction();
@@ -114,12 +76,7 @@ const Notifications = ({ onNotificationAction }) => {
 
   const handleDelete = async (notificationId) => {
     try {
-      await NotificationService.markAsArchived(notificationId);
-      // Remove from local state
-      setNotifications(prev => 
-        prev.filter(notif => notif._id !== notificationId)
-      );
-      fetchUnreadCount();
+      await markAsRead([notificationId]);
       // Notify parent component to refresh unread count
       if (onNotificationAction) {
         onNotificationAction();
@@ -195,13 +152,7 @@ const Notifications = ({ onNotificationAction }) => {
     );
   }
 
-  if (error) {
-    return (
-      <Alert severity="error" sx={{ m: 1 }}>
-        {error}
-      </Alert>
-    );
-  }
+
 
   if (notifications.length === 0) {
     return (
@@ -220,7 +171,6 @@ const Notifications = ({ onNotificationAction }) => {
         <Typography variant="h6">Notifications</Typography>
         <Button 
           size="small" 
-          onClick={fetchNotifications}
           disabled={loading}
         >
           Refresh
