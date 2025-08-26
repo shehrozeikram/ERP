@@ -56,6 +56,7 @@ const EmployeeForm = () => {
 
   const [banks, setBanks] = useState([]);
   const [companies, setCompanies] = useState([]);
+  const [sectors, setSectors] = useState([]);
   const [projects, setProjects] = useState([]);
   const [sections, setSections] = useState([]);
   const [designations, setDesignations] = useState([]);
@@ -71,6 +72,7 @@ const EmployeeForm = () => {
   const [employee, setEmployee] = useState(null);
 
   const [showAddCompanyDialog, setShowAddCompanyDialog] = useState(false);
+  const [showAddSectorDialog, setShowAddSectorDialog] = useState(false);
   const [showAddProjectDialog, setShowAddProjectDialog] = useState(false);
   const [showAddDepartmentDialog, setShowAddDepartmentDialog] = useState(false);
   const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
@@ -83,6 +85,13 @@ const EmployeeForm = () => {
     name: '',
     code: '',
     type: 'Private Limited',
+    description: ''
+  });
+
+  const [newSectorData, setNewSectorData] = useState({
+    name: '',
+    code: '',
+    industry: 'Technology',
     description: ''
   });
 
@@ -156,7 +165,8 @@ const EmployeeForm = () => {
     // Employment status
     employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'], 'Invalid employment status'),
     // Placement fields
-    placementCompany: Yup.string(),
+    placementCompany: Yup.string().required('Company is required'),
+    placementSector: Yup.string().required('Sector is required'),
     placementProject: Yup.string(),
     placementDepartment: Yup.string(),
     placementSection: Yup.string(),
@@ -254,6 +264,16 @@ const EmployeeForm = () => {
       setCompanies(response.data.data || []);
     } catch (error) {
       console.error('Error fetching companies:', error);
+    }
+  };
+
+  // Fetch sectors
+  const fetchSectors = async () => {
+    try {
+      const response = await api.get('/hr/sectors');
+      setSectors(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching sectors:', error);
     }
   };
 
@@ -475,6 +495,7 @@ const EmployeeForm = () => {
         ...employeeData,
         bankName: employeeData.bankName?._id || employeeData.bankName || '',
         placementCompany: employeeData.placementCompany?._id || employeeData.placementCompany || '',
+        placementSector: employeeData.placementSector?._id || employeeData.placementSector || '',
         placementProject: employeeData.placementProject?._id || employeeData.placementProject || '',
         placementDepartment: employeeData.placementDepartment?._id || employeeData.placementDepartment || '',
         placementSection: employeeData.placementSection?._id || employeeData.placementSection || '',
@@ -621,6 +642,7 @@ const EmployeeForm = () => {
     fetchDepartments();
     fetchBanks();
     fetchCompanies();
+    fetchSectors();
     fetchProjects();
     fetchSections();
     fetchDesignations();
@@ -666,7 +688,7 @@ const EmployeeForm = () => {
         gross: ''
       },
       // Placement fields
-      placementCompany: '',
+      placementSector: '',
       placementProject: '',
       placementDepartment: '',
       placementSection: '',
@@ -730,10 +752,10 @@ const EmployeeForm = () => {
         }
         
         // Clean up empty placement fields (convert empty strings to undefined)
-        const placementFields = [
-          'placementCompany', 'placementProject', 
-          'placementDepartment', 'placementSection', 'placementDesignation', 'placementLocation'
-        ];
+                  const placementFields = [
+            'placementCompany', 'placementSector', 'placementProject', 
+            'placementDepartment', 'placementSection', 'placementDesignation', 'placementLocation'
+          ];
         
         console.log('🧹 Cleaning up placement fields...');
         placementFields.forEach(field => {
@@ -853,6 +875,13 @@ const EmployeeForm = () => {
     }));
   };
 
+  const handleNewSectorChange = (field, value) => {
+    setNewSectorData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
 
 
   const handleNewProjectChange = (field, value) => {
@@ -929,6 +958,44 @@ const EmployeeForm = () => {
     }
   };
 
+  const handleSaveNewSector = async () => {
+    try {
+      if (!newSectorData.name || !newSectorData.code) {
+        setSnackbar({
+          open: true,
+          message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const response = await api.post('/hr/sectors', newSectorData);
+      
+      setSnackbar({
+        open: true,
+        message: 'Sector added successfully',
+        severity: 'success'
+      });
+
+      setShowAddSectorDialog(false);
+      setNewSectorData({ name: '', code: '', industry: 'Technology', description: '' });
+      
+      // Refresh sectors
+      await fetchSectors();
+      
+      // Set the newly created sector as selected
+      formik.setFieldValue('placementSector', response.data.data._id);
+      
+    } catch (error) {
+      console.error('Error adding sector:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error adding sector',
+        severity: 'error'
+      });
+    }
+  };
+
 
 
   const handleSaveNewProject = async () => {
@@ -944,7 +1011,7 @@ const EmployeeForm = () => {
 
       const projectData = {
         ...newProjectData,
-        company: formik.values.placementCompany
+        sector: formik.values.placementSector
       };
 
       const response = await api.post('/hr/projects', projectData);
@@ -1233,12 +1300,7 @@ const EmployeeForm = () => {
                     variant="outlined"
                     sx={{ fontWeight: 600 }}
                   />
-                  <Chip 
-                    label={formik.values.isActive ? 'Active' : 'Inactive'} 
-                    color={formik.values.isActive ? 'success' : 'error'}
-                    variant="outlined"
-                    size="small"
-                  />
+                  
                 </Box>
               </Grid>
             )}
@@ -1933,9 +1995,14 @@ const EmployeeForm = () => {
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={3}>
                     <Typography variant="body2" color="text.secondary">
-                      <strong>Company:</strong> {safeRenderText(companies.find(c => c._id === formik.values.placementCompany)?.name) || 'Not Selected'}
-                    </Typography>
-                  </Grid>
+                                      <strong>Company:</strong> {safeRenderText(companies.find(c => c._id === formik.values.placementCompany)?.name) || 'Not Selected'}
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Sector:</strong> {safeRenderText(sectors.find(s => s._id === formik.values.placementSector)?.name) || 'Not Selected'}
+              </Typography>
+            </Grid>
                   <Grid item xs={12} md={3}>
                     <Typography variant="body2" color="text.secondary">
                       <strong>Department:</strong> {safeRenderText(departments.find(d => d._id === formik.values.placementDepartment)?.name) || 'Not Selected'}
@@ -1965,7 +2032,7 @@ const EmployeeForm = () => {
                   </Grid>
                   <Grid item xs={12} md={4}>
                     <Typography variant="body2" color="text.secondary">
-                      <strong>Status:</strong> {formik.values.placementCompany && formik.values.placementDepartment && formik.values.placementDesignation ? 'Complete' : 'Incomplete'}
+                      <strong>Status:</strong> {formik.values.placementCompany && formik.values.placementSector && formik.values.placementDepartment && formik.values.placementDesignation ? 'Complete' : 'Incomplete'}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -2053,6 +2120,51 @@ const EmployeeForm = () => {
               </FormControl>
             </Grid>
 
+            {/* Sector */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Sector</InputLabel>
+                <Select
+                  name="placementSector"
+                  value={safeFormValue(formik.values.placementSector)}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddSectorDialog(true);
+                      return;
+                    }
+                    formik.setFieldValue('placementSector', e.target.value);
+                    formik.setFieldValue('placementProject', '');
+                    formik.setFieldValue('placementDepartment', '');
+                    formik.setFieldValue('placementSection', '');
+                    formik.setFieldValue('placementDesignation', '');
+                  }}
+                  error={formik.touched.placementSector && Boolean(formik.errors.placementSector)}
+                  label="Sector"
+                >
+                  {sectors.map((sector) => (
+                    <MenuItem key={sector._id} value={sector._id}>
+                      {safeRenderText(sector.name)} ({safeRenderText(sector.industry)})
+                    </MenuItem>
+                  ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New Sector
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
 
 
             {/* Project */}
@@ -2074,14 +2186,14 @@ const EmployeeForm = () => {
                   }}
                   error={formik.touched.placementProject && Boolean(formik.errors.placementProject)}
                   label="Project"
-                  disabled={!safeFormValue(formik.values.placementCompany)}
+                  disabled={!safeFormValue(formik.values.placementSector)}
                 >
                   {projects.map((project) => (
                     <MenuItem key={project._id} value={project._id}>
                       {safeRenderText(project.name)} - {safeRenderText(project.company?.name)}
                     </MenuItem>
                   ))}
-                  {safeFormValue(formik.values.placementCompany) && (
+                  {safeFormValue(formik.values.placementSector) && (
                                       <MenuItem 
                     value="add_new" 
                     sx={{ 
@@ -2128,14 +2240,14 @@ const EmployeeForm = () => {
                   }}
                   error={formik.touched.placementDepartment && Boolean(formik.errors.placementDepartment)}
                   label="Department"
-                  disabled={!safeFormValue(formik.values.placementCompany)}
+                  disabled={!safeFormValue(formik.values.placementSector)}
                 >
                   {departments.map((dept) => (
                     <MenuItem key={dept._id} value={dept._id}>
                       {safeRenderText(dept.name)} ({safeRenderText(dept.code)})
                     </MenuItem>
                   ))}
-                  {safeFormValue(formik.values.placementCompany) && (
+                  {safeFormValue(formik.values.placementSector) && (
                                       <MenuItem 
                     value="add_new" 
                     sx={{ 
@@ -2181,14 +2293,14 @@ const EmployeeForm = () => {
                   }}
                   error={formik.touched.placementSection && Boolean(formik.errors.placementSection)}
                   label="Section"
-                  disabled={!safeFormValue(formik.values.placementCompany)}
+                  disabled={!safeFormValue(formik.values.placementSector)}
                 >
                   {sections.map((section) => (
                     <MenuItem key={section._id} value={section._id}>
                       {safeRenderText(section.name)} - {safeRenderText(section.department?.name)}
                     </MenuItem>
                   ))}
-                  {safeFormValue(formik.values.placementCompany) && (
+                  {safeFormValue(formik.values.placementSector) && (
                                       <MenuItem 
                     value="add_new" 
                     sx={{ 
@@ -2225,14 +2337,14 @@ const EmployeeForm = () => {
                   }}
                   error={formik.touched.placementDesignation && Boolean(formik.errors.placementDesignation)}
                   label="Designation/Position"
-                  disabled={!safeFormValue(formik.values.placementCompany)}
+                  disabled={!safeFormValue(formik.values.placementSector)}
                 >
                   {designations.map((designation) => (
                     <MenuItem key={designation._id} value={designation._id}>
                       {safeRenderText(designation.title)} - {safeRenderText(designation.level)}
                     </MenuItem>
                   ))}
-                  {safeFormValue(formik.values.placementCompany) && (
+                  {safeFormValue(formik.values.placementSector) && (
                                       <MenuItem 
                     value="add_new" 
                     sx={{ 
@@ -2712,9 +2824,12 @@ const EmployeeForm = () => {
                     Employment Details
                   </Typography>
                   <Typography variant="body1">
-                    <strong>Company:</strong> {safeRenderText(companies.find(c => c._id === safeFormValue(formik.values.placementCompany))?.name) || 'Not selected'}
-                  </Typography>
-                  <Typography variant="body1">
+                                    <strong>Company:</strong> {safeRenderText(companies.find(c => c._id === safeFormValue(formik.values.placementCompany))?.name) || 'Not selected'}
+              </Typography>
+              <Typography variant="body1">
+                <strong>Sector:</strong> {safeRenderText(sectors.find(s => s._id === safeFormValue(formik.values.placementSector))?.name) || 'Not selected'}
+              </Typography>
+              <Typography variant="body1">
                     <strong>Department:</strong> {safeRenderText(departments.find(d => d._id === safeFormValue(formik.values.placementDepartment))?.name) || 'Not selected'}
                   </Typography>
                   <Typography variant="body1">
@@ -2883,6 +2998,70 @@ const EmployeeForm = () => {
           <Button onClick={() => setShowAddCompanyDialog(false)}>Cancel</Button>
           <Button onClick={handleSaveNewCompany} variant="contained">
             Add Company
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Sector Dialog */}
+      <Dialog open={showAddSectorDialog} onClose={() => setShowAddSectorDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Sector</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Sector Name"
+                  value={newSectorData.name}
+                  onChange={(e) => handleNewSectorChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Sector Code"
+                  value={newSectorData.code}
+                  onChange={(e) => handleNewSectorChange('code', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Industry</InputLabel>
+                  <Select
+                    value={newSectorData.industry}
+                    onChange={(e) => handleNewSectorChange('industry', e.target.value)}
+                    label="Industry"
+                  >
+                    <MenuItem value="Technology">Technology</MenuItem>
+                    <MenuItem value="Healthcare">Healthcare</MenuItem>
+                    <MenuItem value="Finance">Finance</MenuItem>
+                    <MenuItem value="Manufacturing">Manufacturing</MenuItem>
+                    <MenuItem value="Education">Education</MenuItem>
+                    <MenuItem value="Government">Government</MenuItem>
+                    <MenuItem value="Retail">Retail</MenuItem>
+                    <MenuItem value="Other">Other</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={newSectorData.description}
+                  onChange={(e) => handleNewSectorChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddSectorDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewSector} variant="contained">
+            Add Sector
           </Button>
         </DialogActions>
       </Dialog>

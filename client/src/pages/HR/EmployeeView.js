@@ -100,26 +100,6 @@ const EmployeeView = () => {
     return 'Unknown';
   };
 
-  const handleUpdatePayrolls = async () => {
-    try {
-      setUpdatingPayrolls(true);
-      const response = await api.post(`/hr/employees/${id}/update-payrolls`);
-      setSnackbar({
-        open: true,
-        message: response.data.message,
-        severity: 'success'
-      });
-    } catch (error) {
-      console.error('Error updating payrolls:', error);
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.message || 'Failed to update payrolls',
-        severity: 'error'
-      });
-    } finally {
-      setUpdatingPayrolls(false);
-    }
-  };
 
   const handleToggleStatus = () => {
     const newStatus = !employee.isActive;
@@ -207,14 +187,14 @@ const EmployeeView = () => {
               sx={{ margin: 0 }}
             />
           </Box>
-          <Button
+          {/* <Button
             variant="outlined"
             startIcon={<UpdateIcon />}
             onClick={handleUpdatePayrolls}
             disabled={updatingPayrolls}
           >
             {updatingPayrolls ? 'Updating...' : 'Update Payrolls'}
-          </Button>
+          </Button> */}
           <Button
             variant="contained"
             startIcon={<EditIcon />}
@@ -387,16 +367,34 @@ const EmployeeView = () => {
                       <Typography variant="body1">{safeRenderText(employee.placementCompany)}</Typography>
                     </Grid>
                   )}
+                   {employee.placementCompany && (
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="textSecondary">Sector</Typography>
+                      <Typography variant="body1">{safeRenderText(employee.placementSector)}</Typography>
+                    </Grid>
+                  )}
                   {employee.placementProject && (
                     <Grid item xs={6}>
                       <Typography variant="body2" color="textSecondary">Project</Typography>
                       <Typography variant="body1">{safeRenderText(employee.placementProject)}</Typography>
                     </Grid>
                   )}
+                  {employee.placementProject && (
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="textSecondary">Department</Typography>
+                      <Typography variant="body1">{safeRenderText(employee.placementDepartment)}</Typography>
+                    </Grid>
+                  )}
                   {employee.placementSection && (
                     <Grid item xs={6}>
                       <Typography variant="body2" color="textSecondary">Section</Typography>
                       <Typography variant="body1">{safeRenderText(employee.placementSection)}</Typography>
+                    </Grid>
+                  )}
+                  {employee.placementSection && (
+                    <Grid item xs={6}>
+                      <Typography variant="body2" color="textSecondary">Designation/Position</Typography>
+                      <Typography variant="body1">{safeRenderText(employee.placementDesignation)}</Typography>
                     </Grid>
                   )}
                   {employee.oldDesignation && (
