@@ -636,7 +636,7 @@ Do you want to:
 3. Cancel?`;
         
         const choice = window.confirm(confirmMessage) ? 
-          (window.confirm('Regenerate all payrolls? This will overwrite existing ones.') : 'skip') : 
+          (window.confirm('Regenerate all payrolls? This will overwrite existing ones.') ? 'regenerate' : 'skip') : 
           'cancel';
         
         if (choice === 'cancel') {
