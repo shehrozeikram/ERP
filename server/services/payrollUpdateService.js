@@ -132,6 +132,84 @@ class PayrollUpdateService {
   }
   
   /**
+   * Update payroll for a specific employee and month when leave deductions change
+   * @param {string} employeeId - Employee ID
+   * @param {number} month - Month (0-11)
+   * @param {number} year - Year
+   * @param {Object} leaveDeductions - Leave deduction data
+   */
+  static async updatePayrollForLeaveDeductions(employeeId, month, year, leaveDeductions) {
+    try {
+      console.log(`🔄 Updating payroll leave deductions for employee ${employeeId}, ${month + 1}/${year}`);
+      
+      const Payroll = mongoose.model('Payroll');
+      
+      // Find existing payroll
+      let payroll = await Payroll.findOne({
+        employee: employeeId,
+        month: month,
+        year: year
+      });
+      
+      if (!payroll) {
+        console.log(`⚠️ No payroll found for ${month + 1}/${year}`);
+        return null;
+      }
+      
+      console.log(`📊 Current Leave Deductions for ${month + 1}/${year}:`);
+      console.log(`   Unpaid Leave: ${leaveDeductions.unpaidLeave || 0}`);
+      console.log(`   Sick Leave: ${leaveDeductions.sickLeave || 0}`);
+      console.log(`   Casual Leave: ${leaveDeductions.casualLeave || 0}`);
+      console.log(`   Annual Leave: ${leaveDeductions.annualLeave || 0}`);
+      console.log(`   Other Leave: ${leaveDeductions.otherLeave || 0}`);
+      
+      // Update leave deduction fields
+      payroll.leaveDeductions = {
+        unpaidLeave: leaveDeductions.unpaidLeave || 0,
+        sickLeave: leaveDeductions.sickLeave || 0,
+        casualLeave: leaveDeductions.casualLeave || 0,
+        annualLeave: leaveDeductions.annualLeave || 0,
+        otherLeave: leaveDeductions.otherLeave || 0,
+        totalLeaveDays: (leaveDeductions.unpaidLeave || 0) + 
+                       (leaveDeductions.sickLeave || 0) + 
+                       (leaveDeductions.casualLeave || 0) + 
+                       (leaveDeductions.annualLeave || 0) + 
+                       (leaveDeductions.otherLeave || 0)
+      };
+      
+      // Calculate leave deduction amount
+      if (payroll.dailyRate > 0) {
+        const unpaidAndOtherLeaveDays = (leaveDeductions.unpaidLeave || 0) + (leaveDeductions.otherLeave || 0);
+        payroll.leaveDeductionAmount = unpaidAndOtherLeaveDays * payroll.dailyRate;
+        console.log(`💰 Leave Deduction Amount: ${unpaidAndOtherLeaveDays} days × Rs. ${payroll.dailyRate.toFixed(2)} = Rs. ${payroll.leaveDeductionAmount.toFixed(2)}`);
+      } else {
+        payroll.leaveDeductionAmount = 0;
+        console.log(`💰 No Leave Deduction Amount: Daily rate not available`);
+      }
+      
+      // 🔧 Force recalculation by clearing calculated fields
+      payroll.attendanceDeduction = undefined;
+      
+      // Trigger recalculation via pre-save middleware (if enabled) or manual calculation
+      await payroll.save();
+      
+      // Fetch updated payroll to show final values
+      const updatedPayroll = await Payroll.findById(payroll._id);
+      
+      console.log(`📊 Final Leave Deduction Values for ${month + 1}/${year}:`);
+      console.log(`   Total Leave Days: ${updatedPayroll.leaveDeductions?.totalLeaveDays || 0}`);
+      console.log(`   Leave Deduction Amount: Rs. ${updatedPayroll.leaveDeductionAmount?.toFixed(2) || 'N/A'}`);
+      console.log(`   Daily Rate: Rs. ${updatedPayroll.dailyRate?.toFixed(2) || 'N/A'}`);
+      
+      return updatedPayroll;
+      
+    } catch (error) {
+      console.error(`❌ Error updating payroll leave deductions for ${month + 1}/${year}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Calculate monthly attendance summary from attendance records
    * @param {Array} attendanceRecords - Array of attendance records
    * @returns {Object} Summary with presentDays, absentDays, leaveDays, totalWorkingDays

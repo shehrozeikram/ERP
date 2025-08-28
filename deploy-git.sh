@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 SERVER_USER="root"
 SERVER_IP="68.183.215.177"
 SERVER_PATH="/var/www/sgc-erp"
-GIT_REPO="https://github.com/shehrozeikram/ERP.git"
+GIT_REPO="git@github.com:shehrozeikram/ERP.git"
 
 echo -e "${YELLOW}📋 Configuration:${NC}"
 echo "   Server: $SERVER_USER@$SERVER_IP"
@@ -64,7 +64,7 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         git pull origin main
     else
         echo "📥 Cloning repository..."
-        git clone https://github.com/shehrozeikram/ERP.git .
+        git clone git@github.com:shehrozeikram/ERP.git .
     fi
     
     echo "📋 Installing backend dependencies..."

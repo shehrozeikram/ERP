@@ -205,6 +205,50 @@ const payrollSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Attendance deduction cannot be negative']
   },
+  // Leave Deductions (similar structure to allowances)
+  leaveDeductions: {
+    unpaidLeave: {
+      type: Number,
+      default: 0,
+      min: [0, 'Unpaid leave days cannot be negative']
+    },
+    sickLeave: {
+      type: Number,
+      default: 0,
+      min: [0, 'Sick leave days cannot be negative']
+    },
+    casualLeave: {
+      type: Number,
+      default: 0,
+      min: [0, 'Casual leave days cannot be negative']
+    },
+    annualLeave: {
+      type: Number,
+      default: 0,
+      min: [0, 'Annual leave days cannot be negative']
+    },
+    otherLeave: {
+      type: Number,
+      default: 0,
+      min: [0, 'Other leave days cannot be negative']
+    },
+    totalLeaveDays: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total leave days cannot be negative']
+    },
+    leaveDeductionAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Leave deduction amount cannot be negative']
+    }
+  },
+  // Leave deduction amount (calculated field for easy access)
+  leaveDeductionAmount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Leave deduction amount cannot be negative']
+  },
   // Calculations
   grossSalary: {
     type: Number,

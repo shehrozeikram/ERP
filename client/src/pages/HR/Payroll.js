@@ -30,13 +30,6 @@ import {
   Tooltip,
   Fab,
   Collapse,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  List,
-  ListItem,
-  ListItemText,
-  Divider,
   InputAdornment
 } from '@mui/material';
 import {
@@ -901,7 +894,7 @@ Do you want to:
             Bulk Create Payroll
           </Button>
           
-          <Button
+          {/* <Button
             variant="outlined"
             startIcon={<TrendingUpIcon />}
             onClick={handleMonthlyTaxUpdate}
@@ -910,7 +903,7 @@ Do you want to:
             disabled={monthlyTaxUpdateLoading}
           >
             {monthlyTaxUpdateLoading ? 'Updating Taxes...' : 'Update Monthly Taxes'}
-          </Button>
+          </Button> */}
 
           <Button
             variant="contained"

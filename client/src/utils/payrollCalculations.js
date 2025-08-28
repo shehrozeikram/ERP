@@ -106,6 +106,7 @@ export const calculateTotalDeductions = (payroll, calculatedTax = 0) => {
          (payroll.companyLoanDeduction || 0) +
          (payroll.eobi || 370) + 
          (payroll.attendanceDeduction || 0) + 
+         (payroll.leaveDeductionAmount || 0) + // Include leave deduction amount
          (payroll.otherDeductions || 0);
 };
 

@@ -79,14 +79,12 @@ let changeStreamService;
 const { errorHandler } = require('./middleware/errorHandler');
 const { authMiddleware } = require('./middleware/auth');
 
+// Import database configuration
+const { connectDB } = require('./config/database');
+
 // Database connection
 console.log('MongoDB URI:', process.env.MONGODB_URI);
-mongoose.connect(process.env.MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('✅ MongoDB connected successfully'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+connectDB();
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -155,10 +153,7 @@ if (process.env.NODE_ENV === 'development') {
 // Static files
 app.use('/uploads', express.static('uploads'));
 
-// Serve React build files in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/build')));
-}
+// Note: React build files are now served by nginx, not by Node.js
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -198,6 +193,15 @@ app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
 app.use('/api/payslips', authMiddleware, payslipRoutes);
 // Public routes (no authentication required)
 app.use('/api/job-postings/apply', require('./routes/publicJobPostings'));
+
+// Catch-all route for non-API requests - return 404 for any non-API routes
+app.get('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'API endpoint not found',
+    message: 'This route is not handled by the backend API',
+    availableRoutes: '/api/*'
+  });
+});
 app.use('/api/applications/public', require('./routes/publicApplications'));
 app.use('/api/applications/easy-apply', easyApplyRoutes);
 app.use('/api/public-approvals', require('./routes/publicApprovals')); // Public approval endpoints

@@ -1133,9 +1133,54 @@ router.put('/:id', [
     payroll.remarks = req.body.remarks;
   }
 
+  // 🔧 HANDLE LEAVE DEDUCTIONS - Same pattern as attendance updates
+  if (req.body.leaveDeductions) {
+    console.log(`📊 Leave Deductions Update:`, req.body.leaveDeductions);
+    
+    // Map leave deduction fields directly to payroll object
+    payroll.leaveDeductions = {
+      unpaidLeave: parseInt(req.body.leaveDeductions.unpaidLeave) || 0,
+      sickLeave: parseInt(req.body.leaveDeductions.sickLeave) || 0,
+      casualLeave: parseInt(req.body.leaveDeductions.casualLeave) || 0,
+      annualLeave: parseInt(req.body.leaveDeductions.annualLeave) || 0,
+      otherLeave: parseInt(req.body.leaveDeductions.otherLeave) || 0,
+      totalLeaveDays: 0, // Will be calculated
+      leaveDeductionAmount: 0 // Will be calculated
+    };
+    
+    // Calculate total leave days
+    payroll.leaveDeductions.totalLeaveDays = 
+      payroll.leaveDeductions.unpaidLeave + 
+      payroll.leaveDeductions.sickLeave + 
+      payroll.leaveDeductions.casualLeave + 
+      payroll.leaveDeductions.annualLeave + 
+      payroll.leaveDeductions.otherLeave;
+    
+    // 🔧 UPDATE LEAVE DAYS FIELD - This will trigger present days recalculation
+    payroll.leaveDays = payroll.leaveDeductions.totalLeaveDays;
+    
+    // 🔧 AUTO-RECALCULATE PRESENT DAYS when leave days change
+    if (payroll.totalWorkingDays && payroll.leaveDays !== undefined) {
+      const newPresentDays = Math.max(0, payroll.totalWorkingDays - (payroll.absentDays || 0) - payroll.leaveDays);
+      console.log(`🧮 Auto-recalculating present days: ${payroll.totalWorkingDays} - ${payroll.absentDays || 0} - ${payroll.leaveDays} = ${newPresentDays}`);
+      payroll.presentDays = newPresentDays;
+    }
+    
+    console.log(`📊 Leave Deductions Summary:`);
+    console.log(`   Unpaid Leave: ${payroll.leaveDeductions.unpaidLeave}`);
+    console.log(`   Sick Leave: ${payroll.leaveDeductions.sickLeave}`);
+    console.log(`   Casual Leave: ${payroll.leaveDeductions.casualLeave}`);
+    console.log(`   Annual Leave: ${payroll.leaveDeductions.annualLeave}`);
+    console.log(`   Other Leave: ${payroll.leaveDeductions.otherLeave}`);
+    console.log(`   Total Leave Days: ${payroll.leaveDeductions.totalLeaveDays}`);
+    console.log(`   Updated Leave Days Field: ${payroll.leaveDays}`);
+    console.log(`   Updated Present Days: ${payroll.presentDays}`);
+  }
+
   // Force recalculation by clearing calculated fields
   payroll.dailyRate = undefined;
   payroll.attendanceDeduction = undefined;
+  payroll.leaveDeductionAmount = undefined;
 
   // 🔧 CALCULATE ATTENDANCE DEDUCTION BEFORE SAVE
   // This ensures attendance deduction is included in total deductions
