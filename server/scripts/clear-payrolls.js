@@ -14,7 +14,7 @@ const connectDB = async () => {
 };
 
 // Main function to clear all payrolls
-const clearAllPayrolls = async () => {
+const clearPayrolls = async () => {
   try {
     console.log('🚀 Starting payroll cleanup...');
     
@@ -48,4 +48,4 @@ const clearAllPayrolls = async () => {
 };
 
 // Run the script
-connectDB().then(clearAllPayrolls);
+connectDB().then(clearPayrolls);
