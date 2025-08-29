@@ -209,15 +209,6 @@ app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
 app.use('/api/payslips', authMiddleware, payslipRoutes);
 // Public routes (no authentication required)
 app.use('/api/job-postings/apply', require('./routes/publicJobPostings'));
-
-// Catch-all route for non-API requests - return 404 for any non-API routes
-app.get('*', (req, res) => {
-  res.status(404).json({ 
-    error: 'API endpoint not found',
-    message: 'This route is not handled by the backend API',
-    availableRoutes: '/api/*'
-  });
-});
 app.use('/api/applications/public', require('./routes/publicApplications'));
 app.use('/api/applications/easy-apply', easyApplyRoutes);
 app.use('/api/public-approvals', require('./routes/publicApprovals')); // Public approval endpoints
@@ -236,6 +227,15 @@ app.use('/api/courses', authMiddleware, courseRoutes);
 app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
 app.use('/api/zkteco', zktecoRoutes);
+
+// Catch-all route for non-API requests - return 404 for any non-API routes
+app.get('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'API endpoint not found',
+    message: 'This route is not handled by the backend API',
+    availableRoutes: '/api/*'
+  });
+});
 
 
 // Error handling middleware
