@@ -16,7 +16,7 @@ const server = http.createServer(app);
 // Socket.IO setup with CORS
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: ['http://localhost:3000', 'https://tovus.net', 'https://www.tovus.net'],
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -137,7 +137,23 @@ if (process.env.NODE_ENV === 'production') {
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'https://tovus.net',
+      'https://www.tovus.net'
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
