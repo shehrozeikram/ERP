@@ -75,6 +75,18 @@ const { connectDB } = require('./config/database');
 // Set environment variables
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// Check critical environment variables
+console.log('🔧 Environment Check:');
+console.log('   NODE_ENV:', NODE_ENV);
+console.log('   JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ NOT SET');
+console.log('   MONGODB_URI:', process.env.MONGODB_URI ? '✅ Set' : '❌ NOT SET');
+
+if (!process.env.JWT_SECRET) {
+  console.error('❌ CRITICAL: JWT_SECRET environment variable is not set!');
+  console.error('❌ This will cause login failures. Please set JWT_SECRET in your .env file.');
+  process.exit(1);
+}
+
 // Database connection
 console.log('MongoDB URI:', process.env.MONGODB_URI);
 connectDB();

@@ -151,22 +151,33 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Method to generate JWT token
 userSchema.methods.generateAuthToken = function() {
-  return jwt.sign(
-    { 
-      userId: this._id,
-      email: this.email,
-      role: this.role,
-      department: this.department,
-      iat: Math.floor(Date.now() / 1000), // Issued at
-      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // Expires in 24 hours
-    },
-    process.env.JWT_SECRET,
-    { 
-      expiresIn: process.env.JWT_EXPIRE || '24h',
-      issuer: 'sgc-erp',
-      audience: 'sgc-erp-users'
+  try {
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('❌ JWT_SECRET environment variable is not set');
+      throw new Error('JWT_SECRET not configured');
     }
-  );
+
+    return jwt.sign(
+      { 
+        userId: this._id,
+        email: this.email,
+        role: this.role,
+        department: this.department,
+        iat: Math.floor(Date.now() / 1000), // Issued at
+        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // Expires in 24 hours
+      },
+      jwtSecret,
+      { 
+        expiresIn: process.env.JWT_EXPIRE || '24h',
+        issuer: 'sgc-erp',
+        audience: 'sgc-erp-users'
+      }
+    );
+  } catch (error) {
+    console.error('❌ Error generating JWT token:', error.message);
+    throw new Error('Failed to generate authentication token');
+  }
 };
 
 // Method to get user profile (without sensitive data)

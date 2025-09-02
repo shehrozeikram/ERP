@@ -177,6 +177,24 @@ router.post('/login', [
     });
   } catch (error) {
     console.error('🔐 Login error:', error);
+    console.error('🔐 Error stack:', error.stack);
+    
+    // Check for specific error types
+    if (error.message === 'JWT_SECRET not configured') {
+      return res.status(500).json({
+        success: false,
+        message: 'Server configuration error. Please contact administrator.'
+      });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
     return res.status(500).json({
       success: false,
       message: 'Server error during login'
