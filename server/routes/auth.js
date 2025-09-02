@@ -117,6 +117,7 @@ router.post('/login', [
   // Check for validation errors
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('🔐 Login validation failed:', errors.array());
     return res.status(400).json({
       success: false,
       message: 'Validation failed',
@@ -125,49 +126,62 @@ router.post('/login', [
   }
 
   const { email, password } = req.body;
+  console.log('🔐 Login attempt for:', email);
 
-  // Find user by email and include password for comparison
-  const user = await User.findOne({ email }).select('+password');
+  try {
+    // Find user by email and include password for comparison
+    const user = await User.findOne({ email }).select('+password');
 
-  if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid credentials'
-    });
-  }
-
-  // Check if user is active
-  if (!user.isActive) {
-    return res.status(401).json({
-      success: false,
-      message: 'Account is deactivated. Please contact administrator.'
-    });
-  }
-
-  // Check password
-  const isPasswordValid = await user.comparePassword(password);
-  if (!isPasswordValid) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid credentials'
-    });
-  }
-
-  // Update last login
-  user.lastLogin = new Date();
-  await user.save();
-
-  // Generate JWT token
-  const token = user.generateAuthToken();
-
-  res.json({
-    success: true,
-    message: 'Login successful',
-    data: {
-      user: user.getProfile(),
-      token
+    if (!user) {
+      console.log('🔐 Login failed: User not found:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
     }
-  });
+
+    // Check if user is active
+    if (!user.isActive) {
+      console.log('🔐 Login failed: User deactivated:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Account is deactivated. Please contact administrator.'
+      });
+    }
+
+    // Check password
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      console.log('🔐 Login failed: Invalid password for:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate JWT token
+    const token = user.generateAuthToken();
+    console.log('🔐 Login successful for:', email);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: user.getProfile(),
+        token
+      }
+    });
+  } catch (error) {
+    console.error('🔐 Login error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
+  }
 }));
 
 // @route   GET /api/auth/me

@@ -156,10 +156,16 @@ userSchema.methods.generateAuthToken = function() {
       userId: this._id,
       email: this.email,
       role: this.role,
-      department: this.department
+      department: this.department,
+      iat: Math.floor(Date.now() / 1000), // Issued at
+      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // Expires in 24 hours
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRE || '24h' }
+    { 
+      expiresIn: process.env.JWT_EXPIRE || '24h',
+      issuer: 'sgc-erp',
+      audience: 'sgc-erp-users'
+    }
   );
 };
 

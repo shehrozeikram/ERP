@@ -108,7 +108,9 @@ app.use(cors({
     
     const allowedOrigins = [
       'http://localhost:3000',
+      'http://tovus.net',
       'https://tovus.net',
+      'http://www.tovus.net',
       'https://www.tovus.net'
     ];
     
@@ -243,10 +245,11 @@ mongoose.connection.once('open', async () => {
 
 // Scheduled Sync Service is already initialized as singleton
 
-server.listen(PORT, async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
   console.log(`📊 Environment: ${NODE_ENV}`);
-  console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
+  console.log(`🌐 API Base URL: http://0.0.0.0:${PORT}/api`);
+  console.log(`🔒 Server bound to all interfaces (0.0.0.0)`);
   
 
   
