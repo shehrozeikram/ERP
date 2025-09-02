@@ -164,8 +164,7 @@ userSchema.methods.generateAuthToken = function() {
         email: this.email,
         role: this.role,
         department: this.department,
-        iat: Math.floor(Date.now() / 1000), // Issued at
-        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // Expires in 24 hours
+        iat: Math.floor(Date.now() / 1000) // Issued at
       },
       jwtSecret,
       { 
