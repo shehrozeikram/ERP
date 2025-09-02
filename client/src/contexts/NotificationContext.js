@@ -181,7 +181,7 @@ export const NotificationProvider = ({ children }) => {
     dispatch({ type: 'CLEAR_ALL' });
   }, []);
 
-  // Auto-refresh every 30 seconds when authenticated
+  // Auto-refresh every 5 minutes when authenticated (reduced from 30 seconds)
   React.useEffect(() => {
     if (!isAuthenticated) {
       clearAll();
@@ -189,7 +189,7 @@ export const NotificationProvider = ({ children }) => {
     }
 
     fetchNotifications();
-    const interval = setInterval(() => fetchNotifications(), 30000);
+    const interval = setInterval(() => fetchNotifications(), 300000); // 5 minutes
     
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchNotifications, clearAll]);

@@ -12,8 +12,8 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: 30000, // Increased from 5000ms
       socketTimeoutMS: 60000, // Increased from 45000ms
       // SSL/TLS options
-      ssl: true,
-      sslValidate: true,
+      tls: true,
+      tlsAllowInvalidCertificates: false,
       // Retry options
       retryWrites: true,
       w: 'majority',
@@ -21,8 +21,8 @@ const connectDB = async () => {
       connectTimeoutMS: 30000, // Increased from 10000ms
       // Heartbeat settings
       heartbeatFrequencyMS: 10000,
-      // Buffer settings (removed deprecated options)
-      bufferCommands: false,
+      // Buffer settings
+      bufferCommands: true,
     });
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);

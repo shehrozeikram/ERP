@@ -147,10 +147,17 @@ const Candidates = () => {
     }
   };
 
-  // Load data on mount and when filters change
+  // Load initial data on mount
   useEffect(() => {
     loadCandidates();
     loadDepartmentsAndPositions();
+  }, []); // Empty dependency array - only run once
+
+  // Reload candidates when filters change
+  useEffect(() => {
+    if (filters.status || filters.source || filters.availability) {
+      loadCandidates();
+    }
   }, [filters.status, filters.source, filters.availability]);
 
   // Debounced search effect

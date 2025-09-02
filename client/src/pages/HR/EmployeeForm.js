@@ -638,6 +638,7 @@ const EmployeeForm = () => {
     }
   };
 
+  // Load initial data - only run once on mount
   useEffect(() => {
     fetchDepartments();
     fetchBanks();
@@ -651,6 +652,10 @@ const EmployeeForm = () => {
     fetchProvinces();
     fetchCities();
     fetchNextEmployeeId();
+  }, []); // Empty dependency array - only run once
+
+  // Fetch employee data when ID changes
+  useEffect(() => {
     if (id && id !== 'add') {
       fetchEmployee();
     }

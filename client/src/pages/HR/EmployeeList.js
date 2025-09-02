@@ -37,20 +37,18 @@ import {
   Delete as DeleteIcon,
   Search as SearchIcon,
   Visibility as ViewIcon,
-  FilterList as FilterIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import api from '../../services/authService';
-import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
+import { useData } from '../../contexts/DataContext';
+import { PageLoading } from '../../components/LoadingSpinner';
+import api from '../../services/api';
 
 const EmployeeList = () => {
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { employees, departments, loading: dataLoading } = useData();
   const [paginationLoading, setPaginationLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [departments, setDepartments] = useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -63,36 +61,7 @@ const EmployeeList = () => {
   
   const navigate = useNavigate();
 
-  // Fetch employees
-  const fetchEmployees = useCallback(async () => {
-    try {
-      setLoading(true);
-      // Request all employees using the new getAll parameter
-      const response = await api.get('/hr/employees?getAll=true');
-      setEmployees(response.data.data || []);
-      // Reset pagination when fetching new data
-      setPage(0);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      setSnackbar({
-        open: true,
-        message: 'Error fetching employees',
-        severity: 'error'
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Fetch departments
-  const fetchDepartments = useCallback(async () => {
-    try {
-      const response = await api.get('/hr/departments');
-      setDepartments(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching departments:', error);
-    }
-  }, []);
+  // No need to fetch data - it's provided by DataContext
 
   // Pagination handlers
   const handleChangePage = useCallback((event, newPage) => {
@@ -133,10 +102,7 @@ const EmployeeList = () => {
     setPage(0); // Reset to first page when clearing filters
   }, []);
 
-  useEffect(() => {
-    fetchEmployees();
-    fetchDepartments();
-  }, [fetchEmployees, fetchDepartments]);
+  // No need for useEffect - data is provided by DataContext
 
   // Filter employees
   const filteredEmployees = useMemo(() => {
@@ -227,7 +193,6 @@ const EmployeeList = () => {
         message: 'Employee deleted successfully',
         severity: 'success'
       });
-      fetchEmployees();
       setDeleteDialogOpen(false);
       setSelectedEmployee(null);
     } catch (error) {
@@ -259,15 +224,7 @@ const EmployeeList = () => {
     }
   };
 
-  const formatPKR = (amount) => {
-    if (amount === null || amount === undefined) return 'PKR 0';
-    return new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
-  };
+
 
   // Format employee ID to 5 digits with leading zeros
   const formatEmployeeId = (employeeId) => {
@@ -275,7 +232,7 @@ const EmployeeList = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
-  if (loading) {
+  if (dataLoading.employees || dataLoading.departments) {
     return (
       <PageLoading 
         message="Loading employees..." 
@@ -673,10 +630,10 @@ const EmployeeList = () => {
                   <TableCell colSpan={17} align="center" sx={{ py: 4 }}>
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="h6" color="textSecondary" gutterBottom>
-                        {loading ? 'Loading employees...' : 'No employees found'}
+                        {dataLoading.employees ? 'Loading employees...' : 'No employees found'}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
-                        {loading 
+                        {dataLoading.employees 
                           ? 'Please wait while we fetch your employee data...' 
                           : searchTerm || departmentFilter || statusFilter
                             ? 'Try adjusting your search criteria or filters'

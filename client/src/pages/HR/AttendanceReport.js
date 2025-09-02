@@ -60,11 +60,11 @@ const AttendanceReport = () => {
     descend: false
   });
 
-  // Fetch employees and departments
+  // Fetch employees and departments - only run once on mount
   useEffect(() => {
     fetchEmployees();
     fetchDepartments();
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   const fetchEmployees = async () => {
     try {

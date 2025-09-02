@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -37,26 +37,22 @@ import {
   Visibility as ViewIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  CheckCircle as ApproveIcon,
-  Payment as PaymentIcon,
-  Download as DownloadIcon,
   FilterList as FilterIcon,
-  Refresh as RefreshIcon,
   TrendingUp as TrendingUpIcon,
   AccountBalance as AccountBalanceIcon,
   Receipt as ReceiptIcon,
   People as PeopleIcon,
-  Undo as UndoIcon,
+
   ExpandMore as ExpandMoreIcon,
   GroupWork as GroupWorkIcon,
   Search as SearchIcon,
   Clear as ClearIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
-import { formatPKR } from '../../utils/currency';
+
+import { useData } from '../../contexts/DataContext';
 import api from '../../services/authService';
-import { PageLoading, TableSkeleton } from '../../components/LoadingSpinner';
+import { PageLoading } from '../../components/LoadingSpinner';
 
 // Months array moved outside component to prevent recreation on every render
 const months = [
@@ -76,11 +72,12 @@ const months = [
 
 const Payroll = () => {
   const navigate = useNavigate();
+  const { employees, departments, positions, loading: dataLoading } = useData();
   const [payrolls, setPayrolls] = useState([]);
   const [monthlyPayrolls, setMonthlyPayrolls] = useState([]);
   const [paginatedMonthlyPayrolls, setPaginatedMonthlyPayrolls] = useState([]);
   const [stats, setStats] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(0);
@@ -96,16 +93,13 @@ const Payroll = () => {
     searchQuery: ''
   });
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  const [employees, setEmployees] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [positions, setPositions] = useState([]);
   const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
   const [bulkCreateLoading, setBulkCreateLoading] = useState(false);
   const [bulkCreateForm, setBulkCreateForm] = useState({
     month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
     year: new Date().getFullYear()
   });
-  const [monthlyTaxUpdateLoading, setMonthlyTaxUpdateLoading] = useState(false);
+
   const [expandedMonths, setExpandedMonths] = useState(new Set());
   const [generalPayrollExpanded, setGeneralPayrollExpanded] = useState(false);
   const [employeeDetailsPage, setEmployeeDetailsPage] = useState({});
@@ -115,25 +109,164 @@ const Payroll = () => {
   const [currentOverview, setCurrentOverview] = useState(null);
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
 
+  // Define functions with useCallback to avoid dependency issues
+  const fetchPayrolls = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      // For monthly grouping, we need ALL payrolls, not paginated
+      const params = new URLSearchParams({
+        limit: 0, // Get all payrolls for proper monthly grouping
+        ...filters
+      });
+
+      const response = await api.get(`/payroll?${params}`);
+      const payrollData = response.data.data || [];
+      
+      // Validate payroll data before setting state
+      const validatedPayrolls = payrollData.filter(payroll => 
+        payroll && 
+        typeof payroll.month === 'number' && 
+        typeof payroll.year === 'number' && 
+        payroll.employee
+      );
+      
+      setPayrolls(validatedPayrolls);
+      setTotalItems(validatedPayrolls.length);
+    } catch (error) {
+      console.error('Error fetching payrolls:', error);
+      setError('Failed to load payrolls');
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await api.get('/payroll/stats');
+      setStats(response.data.data || {});
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  }, []);
+
+  const fetchCurrentOverview = useCallback(async () => {
+    try {
+      setCurrentOverviewLoading(true);
+      const response = await api.get('/payroll/current-overview');
+      setCurrentOverview(response.data.data);
+    } catch (error) {
+      console.error('Error fetching current overview:', error);
+      setError('Failed to load current payroll overview');
+    } finally {
+      setCurrentOverviewLoading(false);
+    }
+  }, []);
+
+  const getFilteredPayrolls = useCallback(() => {
+    // Safety check - ensure payrolls is an array and filter out invalid entries
+    let filtered = (payrolls || []).filter(p => p && p.month && p.year && p.employee);
+
+    // Filter by status
+    if (filters.status) {
+      filtered = filtered.filter(p => p.status === filters.status);
+    }
+
+    // Filter by employee
+    if (filters.employeeId) {
+      filtered = filtered.filter(p => p.employee === filters.employeeId);
+    }
+
+    // Filter by department
+    if (filters.department) {
+      filtered = filtered.filter(p => p.employee?.department === filters.department);
+    }
+
+    // Filter by position
+    if (filters.position) {
+      filtered = filtered.filter(p => p.employee?.position === filters.position);
+    }
+
+    // Filter by search query - Updated to include both monthly and general payroll
+    if (filters.searchQuery) {
+      const query = filters.searchQuery.toLowerCase();
+      
+      // Filter monthly payrolls
+      filtered = filtered.filter(p => 
+        p.employee?.firstName?.toLowerCase().includes(query) ||
+        p.employee?.lastName?.toLowerCase().includes(query) ||
+        p.employee?.employeeId?.toLowerCase().includes(query) ||
+        p.employee?.department?.toLowerCase().includes(query) ||
+        p.employee?.position?.toLowerCase().includes(query)
+      );
+      
+      // Also filter general payroll overview if it exists
+      if (currentOverview && currentOverview.employees) {
+        const filteredGeneralEmployees = currentOverview.employees.filter(emp => 
+          emp.firstName?.toLowerCase().includes(query) ||
+          emp.lastName?.toLowerCase().includes(query) ||
+          emp.employeeId?.toLowerCase().includes(query) ||
+          emp.placementDepartment?.name?.toLowerCase().includes(query) ||
+          emp.designation?.name?.toLowerCase().includes(query)
+        );
+        
+        // Update current overview with filtered results for search
+        if (filters.searchQuery) {
+          setCurrentOverview(prev => ({
+            ...prev,
+            filteredEmployees: filteredGeneralEmployees,
+            isSearchActive: true
+          }));
+        } else {
+          // Clear search state when query is empty
+          setCurrentOverview(prev => ({
+            ...prev,
+            filteredEmployees: null,
+            isSearchActive: false
+          }));
+        }
+      }
+    }
+
+    // Filter by date range
+    if (filters.startDate && filters.endDate) {
+      const startDate = new Date(filters.startDate);
+      const endDate = new Date(filters.endDate);
+      filtered = filtered.filter(p => {
+        // Safety check for month and year
+        if (!p.month || !p.year) return false;
+        const payrollDate = new Date(p.year, p.month - 1, 1);
+        return payrollDate >= startDate && payrollDate <= endDate;
+      });
+    }
+
+    return filtered;
+  }, [payrolls, filters, currentOverview]);
+
+  // Initial data fetch - only run once on mount
   useEffect(() => {
     fetchPayrolls();
     fetchStats();
-    fetchEmployees();
-    fetchDepartments();
-    fetchPositions();
-  }, [page, rowsPerPage, filters]);
+  }, [fetchPayrolls, fetchStats]); // Include dependencies
+
+  // Refetch payrolls when pagination or filters change
+  useEffect(() => {
+    if (page > 0 || Object.values(filters).some(filter => filter !== '')) {
+      fetchPayrolls();
+    }
+  }, [page, rowsPerPage, filters, fetchPayrolls]);
 
   // Fetch current overview when component mounts and when general payroll is expanded
   useEffect(() => {
     fetchCurrentOverview();
-  }, []);
+  }, [fetchCurrentOverview]);
 
   useEffect(() => {
     if (generalPayrollExpanded) {
       // Data is already loaded, just ensure it's fresh
       fetchCurrentOverview();
     }
-  }, [generalPayrollExpanded]);
+  }, [generalPayrollExpanded, fetchCurrentOverview]);
 
   // Group payrolls by month and year - fixed dependency array
   useEffect(() => {
@@ -204,7 +337,7 @@ const Payroll = () => {
       setMonthlyPayrolls([]);
       setTotalItems(0);
     }
-  }, [payrolls, filters]); // Added filters dependency
+  }, [payrolls, filters, getFilteredPayrolls]); // Include all dependencies
 
   // Handle pagination for monthly payrolls
   useEffect(() => {
@@ -214,121 +347,41 @@ const Payroll = () => {
     setPaginatedMonthlyPayrolls(paginated);
   }, [monthlyPayrolls, page, rowsPerPage]);
 
-  const fetchPayrolls = async () => {
-    try {
-      setLoading(true);
-      
-      // For monthly grouping, we need ALL payrolls, not paginated
-      const params = new URLSearchParams({
-        limit: 0, // Get all payrolls for proper monthly grouping
-        ...filters
-      });
+  // Calculate current overview from employees data (unused function)
+  // const calculateCurrentOverview = () => {
+  //   if (!employees || employees.length === 0) return {};
+  //   
+  //   const activeEmployees = employees.filter(emp => emp.employmentStatus === 'Active');
+  //   
+  //   let totalBasicSalary = 0;
+  //   let totalGrossSalary = 0;
+  //   let totalNetSalary = 0;
+  //   
+  //   activeEmployees.forEach(emp => {
+  //     if (emp.salary && emp.salary.gross) {
+  //       const gross = emp.salary.gross;
+  //       const basic = gross * 0.6666; // 66.66% of gross
+  //       // const medical = gross * 0.1; // 10% of gross (tax exempt)
+  //       // const houseRent = gross * 0.2334; // 23.34% of gross
+  //       
+  //       totalBasicSalary += basic;
+  //       totalGrossSalary += gross;
+  //       
+  //       // Calculate net salary (gross - deductions)
+  //       // For now, using gross as net (deductions will be calculated later)
+  //       totalNetSalary += gross;
+  //     }
+  //   });
+  //   
+  //   return {
+  //     totalEmployees: activeEmployees.length,
+  //     totalBasicSalary: Math.round(totalBasicSalary),
+  //     totalGrossSalary: Math.round(totalGrossSalary),
+  //     totalNetSalary: Math.round(totalNetSalary)
+  //   };
+  // };
 
-      const response = await api.get(`/payroll?${params}`);
-      const payrollData = response.data.data || [];
-      
-      // Validate payroll data before setting state
-      const validatedPayrolls = payrollData.filter(payroll => 
-        payroll && 
-        typeof payroll.month === 'number' && 
-        typeof payroll.year === 'number' && 
-        payroll.employee
-      );
-      
-      setPayrolls(validatedPayrolls);
-      setTotalItems(validatedPayrolls.length);
-    } catch (error) {
-      console.error('Error fetching payrolls:', error);
-      setError('Failed to load payrolls');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStats = async () => {
-    try {
-      const response = await api.get('/payroll/stats');
-      setStats(response.data.data || {});
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-    }
-  };
-
-  const fetchCurrentOverview = async () => {
-    try {
-      setCurrentOverviewLoading(true);
-      const response = await api.get('/payroll/current-overview');
-      setCurrentOverview(response.data.data);
-    } catch (error) {
-      console.error('Error fetching current overview:', error);
-      setError('Failed to load current payroll overview');
-    } finally {
-      setCurrentOverviewLoading(false);
-    }
-  };
-
-  // Calculate current overview from employees data
-  const calculateCurrentOverview = () => {
-    if (!employees || employees.length === 0) return {};
-    
-    const activeEmployees = employees.filter(emp => emp.employmentStatus === 'Active');
-    
-    let totalBasicSalary = 0;
-    let totalGrossSalary = 0;
-    let totalNetSalary = 0;
-    
-    activeEmployees.forEach(emp => {
-      if (emp.salary && emp.salary.gross) {
-        const gross = emp.salary.gross;
-        const basic = gross * 0.6666; // 66.66% of gross
-        const medical = gross * 0.1; // 10% of gross (tax exempt)
-        const houseRent = gross * 0.2334; // 23.34% of gross
-        
-        totalBasicSalary += basic;
-        totalGrossSalary += gross;
-        
-        // Calculate net salary (gross - deductions)
-        // For now, using gross as net (deductions will be calculated later)
-        totalNetSalary += gross;
-      }
-    });
-    
-    return {
-      totalEmployees: activeEmployees.length,
-      totalBasicSalary: Math.round(totalBasicSalary),
-      totalGrossSalary: Math.round(totalGrossSalary),
-      totalNetSalary: Math.round(totalNetSalary)
-    };
-  };
-
-  const fetchEmployees = async () => {
-    try {
-      // Fetch ALL employees using the new getAll parameter
-      const response = await api.get('/hr/employees?getAll=true');
-      setEmployees(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      setError('Failed to load employees');
-    }
-  };
-
-  const fetchDepartments = async () => {
-    try {
-      const response = await api.get('/hr/departments?limit=0');
-      setDepartments(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching departments:', error);
-    }
-  };
-
-  const fetchPositions = async () => {
-    try {
-      const response = await api.get('/hr/positions?limit=0');
-      setPositions(response.data.data || []);
-    } catch (error) {
-      console.error('Error fetching positions:', error);
-    }
-  };
+  // No need to fetch employees, departments, positions - they're provided by DataContext
 
   const handleChangePage = (event, newPage) => {
     setPaginationLoading(true);
@@ -450,86 +503,6 @@ const Payroll = () => {
     }
   };
 
-  const getFilteredPayrolls = () => {
-    // Safety check - ensure payrolls is an array and filter out invalid entries
-    let filtered = (payrolls || []).filter(p => p && p.month && p.year && p.employee);
-
-    // Filter by status
-    if (filters.status) {
-      filtered = filtered.filter(p => p.status === filters.status);
-    }
-
-    // Filter by employee
-    if (filters.employeeId) {
-      filtered = filtered.filter(p => p.employee === filters.employeeId);
-    }
-
-    // Filter by department
-    if (filters.department) {
-      filtered = filtered.filter(p => p.employee?.department === filters.department);
-    }
-
-    // Filter by position
-    if (filters.position) {
-      filtered = filtered.filter(p => p.employee?.position === filters.position);
-    }
-
-    // Filter by search query - Updated to include both monthly and general payroll
-    if (filters.searchQuery) {
-      const query = filters.searchQuery.toLowerCase();
-      
-      // Filter monthly payrolls
-      filtered = filtered.filter(p => 
-        p.employee?.firstName?.toLowerCase().includes(query) ||
-        p.employee?.lastName?.toLowerCase().includes(query) ||
-        p.employee?.employeeId?.toLowerCase().includes(query) ||
-        p.employee?.department?.toLowerCase().includes(query) ||
-        p.employee?.position?.toLowerCase().includes(query)
-      );
-      
-      // Also filter general payroll overview if it exists
-      if (currentOverview && currentOverview.employees) {
-        const filteredGeneralEmployees = currentOverview.employees.filter(emp => 
-          emp.firstName?.toLowerCase().includes(query) ||
-          emp.lastName?.toLowerCase().includes(query) ||
-          emp.employeeId?.toLowerCase().includes(query) ||
-          emp.placementDepartment?.name?.toLowerCase().includes(query) ||
-          emp.designation?.name?.toLowerCase().includes(query)
-        );
-        
-        // Update current overview with filtered results for search
-        if (filters.searchQuery) {
-          setCurrentOverview(prev => ({
-            ...prev,
-            filteredEmployees: filteredGeneralEmployees,
-            isSearchActive: true
-          }));
-        } else {
-          // Clear search state when query is empty
-          setCurrentOverview(prev => ({
-            ...prev,
-            filteredEmployees: null,
-            isSearchActive: false
-          }));
-        }
-      }
-    }
-
-    // Filter by date range
-    if (filters.startDate && filters.endDate) {
-      const startDate = new Date(filters.startDate);
-      const endDate = new Date(filters.endDate);
-      filtered = filtered.filter(p => {
-        // Safety check for month and year
-        if (!p.month || !p.year) return false;
-        const payrollDate = new Date(p.year, p.month - 1, 1);
-        return payrollDate >= startDate && payrollDate <= endDate;
-      });
-    }
-
-    return filtered;
-  };
-
   const getStatusColor = (status) => {
     switch (status) {
       case 'draft': return 'default';
@@ -566,38 +539,41 @@ const Payroll = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
-  const handleApprove = async (payrollId) => {
-    try {
-      await api.patch(`/payroll/${payrollId}/approve`);
-      fetchPayrolls();
-      fetchStats();
-    } catch (error) {
-      console.error('Error approving payroll:', error);
-      setError('Failed to approve payroll');
-    }
-  };
+  // Unused function - handleApprove
+  // const handleApprove = async (payrollId) => {
+  //   try {
+  //     await api.patch(`/payroll/${payrollId}/approve`);
+  //     fetchPayrolls();
+  //     fetchStats();
+  //   } catch (error) {
+  //     console.error('Error approving payroll:', error);
+  //     setError('Failed to approve payroll');
+  //   }
+  // };
 
-  const handleMarkAsPaid = async (payrollId) => {
-    try {
-      await api.patch(`/payroll/${payrollId}/mark-paid`);
-      fetchPayrolls();
-      fetchStats();
-    } catch (error) {
-      console.error('Error marking payroll as paid:', error);
-      setError('Failed to mark payroll as paid');
-    }
-  };
+  // Unused function - handleMarkAsPaid
+  // const handleMarkAsPaid = async (payrollId) => {
+  //   try {
+  //     await api.patch(`/payroll/${payrollId}/mark-paid`);
+  //     fetchPayrolls();
+  //     fetchStats();
+  //   } catch (error) {
+  //     console.error('Error marking payroll as paid:', error);
+  //     setError('Failed to mark payroll as paid');
+  //   }
+  // };
 
-  const handleMarkAsUnpaid = async (payrollId) => {
-    try {
-      await api.patch(`/payroll/${payrollId}/mark-unpaid`);
-      fetchPayrolls();
-      fetchStats();
-    } catch (error) {
-      console.error('Error marking payroll as unpaid:', error);
-      setError('Failed to mark payroll as unpaid');
-    }
-  };
+  // Unused function - handleMarkAsUnpaid
+  // const handleMarkAsUnpaid = async (payrollId) => {
+  //   try {
+  //     await api.patch(`/payroll/${payrollId}/mark-unpaid`);
+  //     fetchPayrolls();
+  //     fetchStats();
+  //   } catch (error) {
+  //     console.error('Error marking payroll as unpaid:', error);
+  //     setError('Failed to mark payroll as unpaid');
+  //   }
+  // };
 
   const handleDelete = async (payrollId) => {
     if (window.confirm('Are you sure you want to delete this payroll?')) {
@@ -746,119 +722,121 @@ Do you want to:
 
 
 
-  const handleMonthlyTaxUpdate = async () => {
-    try {
-      setMonthlyTaxUpdateLoading(true);
-      setError(null);
-      
-      const confirmMessage = 'This will update taxes for all payrolls in the current month using the latest FBR 2025-2026 tax slabs. This action cannot be undone. Continue?';
-      if (!window.confirm(confirmMessage)) {
-        return;
-      }
-      
-      // Get current month and year
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      
-      console.log(`🔄 Updating monthly taxes for ${currentMonth}/${currentYear}...`);
-      
-      // Call the monthly tax update API
-      const response = await api.post('/payroll/current-month-tax-update');
-      
-      if (response.data.success) {
-        const result = response.data.data;
-        
-        console.log('✅ Monthly tax update completed:', result);
-        
-        // Show success message
-        alert(`Successfully updated taxes for ${result.totalCount} payrolls!\n\nUpdated: ${result.updatedCount}\nAlready Updated: ${result.totalCount - result.updatedCount}\nFailed: ${result.errorCount}`);
-        
-        // Refresh data
-        await fetchPayrolls();
-        await fetchStats();
-        
-        setError(null);
-      } else {
-        setError('Failed to update monthly taxes');
-      }
-      
-    } catch (error) {
-      console.error('Error updating monthly taxes:', error);
-      setError(`Failed to update monthly taxes: ${error.message}`);
-    } finally {
-      setMonthlyTaxUpdateLoading(false);
-    }
-  };
+  // Unused function - handleMonthlyTaxUpdate
+  // const handleMonthlyTaxUpdate = async () => {
+  //   try {
+  //     setMonthlyTaxUpdateLoading(true);
+  //     setError(null);
+  //     
+  //     const confirmMessage = 'This will update taxes for all payrolls in the current month using the latest FBR 2025-2026 tax slabs. This action cannot be undone. Continue?';
+  //     if (!window.confirm(confirmMessage)) {
+  //       return;
+  //     }
+  //     
+  //     // Get current month and year
+  //     const now = new Date();
+  //     const currentMonth = now.getMonth() + 1;
+  //     const currentYear = now.getFullYear();
+  //     
+  //     console.log(`🔄 Updating monthly taxes for ${currentMonth}/${currentYear}...`);
+  //     
+  //     // Call the monthly tax update API
+  //     const response = await api.post('/payroll/current-month-tax-update');
+  //     
+  //     if (response.data.success) {
+  //       const result = response.data.data;
+  //       
+  //       console.log('✅ Monthly tax update completed:', result);
+  //       
+  //       // Show success message
+  //       alert(`Successfully updated taxes for ${result.totalCount} payrolls!\n\nUpdated: ${result.updatedCount}\nAlready Updated: ${result.totalCount - result.updatedCount}\nFailed: ${result.errorCount}`);
+  //       
+  //       // Refresh data
+  //       await fetchPayrolls();
+  //       await fetchStats();
+  //       
+  //       setError(null);
+  //     } else {
+  //       setError('Failed to update monthly taxes');
+  //     }
+  //     
+  //   } catch (error) {
+  //     console.error('Error updating monthly taxes:', error);
+  //     setError(`Failed to update monthly taxes: ${error.message}`);
+  //   } finally {
+  //     setMonthlyTaxUpdateLoading(false);
+  //   }
+  // };
 
-  const handleRecalculateExistingPayrolls = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Get all existing payrolls
-      const payrollsToRecalculate = payrolls.filter(p => p.status !== 'Deleted');
-      
-      if (payrollsToRecalculate.length === 0) {
-        setError('No payrolls found to recalculate.');
-        return;
-      }
-      
-      const confirmMessage = `This will recalculate ${payrollsToRecalculate.length} existing payroll(s) to exclude Provident Fund from total deductions and net salary. This action cannot be undone. Continue?`;
-      if (!window.confirm(confirmMessage)) {
-        return;
-      }
-      
-      let updatedCount = 0;
-      let errorCount = 0;
-      
-      for (const payroll of payrollsToRecalculate) {
-        try {
-          // Recalculate total deductions excluding Provident Fund
-          const recalculatedTotalDeductions = (payroll.incomeTax || 0) + 
-                                            (payroll.healthInsurance || 0) + 
-                                            (payroll.vehicleLoanDeduction || 0) +
-                                            (payroll.companyLoanDeduction || 0) +
-                                            (payroll.eobi || 370) + 
-                                            (payroll.otherDeductions || 0);
-          
-          // Recalculate net salary
-          const recalculatedNetSalary = (payroll.grossSalary || 0) - recalculatedTotalDeductions;
-          
-          // Update payroll with recalculated values
-          await api.put(`/payroll/${payroll._id}`, {
-            totalDeductions: recalculatedTotalDeductions,
-            netSalary: recalculatedNetSalary
-          });
-          
-          updatedCount++;
-        } catch (error) {
-          console.error(`Error updating payroll ${payroll._id}:`, error);
-          errorCount++;
-        }
-      }
-      
-      // Refresh data
-      fetchPayrolls();
-      fetchStats();
-      
-      setError(null);
-      
-      // Show success message
-      if (errorCount === 0) {
-        alert(`Successfully recalculated ${updatedCount} payroll(s)! Provident Fund is now excluded from total deductions and net salary.`);
-      } else {
-        alert(`Recalculated ${updatedCount} payroll(s) with ${errorCount} errors. Please check the console for details.`);
-      }
-    } catch (error) {
-      console.error('Error recalculating payrolls:', error);
-      setError(`Failed to recalculate payrolls: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Unused function - handleRecalculateExistingPayrolls
+  // const handleRecalculateExistingPayrolls = async () => {
+  //   try {
+  //     setLoading(true);
+  //     setError(null);
+  //     
+  //     // Get all existing payrolls
+  //     const payrollsToRecalculate = payrolls.filter(p => p.status !== 'Deleted');
+  //     
+  //     if (payrollsToRecalculate.length === 0) {
+  //       setError('No payrolls found to recalculate.');
+  //       return;
+  //     }
+  //     
+  //     const confirmMessage = `This will recalculate ${payrollsToRecalculate.length} existing payroll(s) to exclude Provident Fund from total deductions and net salary. This action cannot be undone. Continue?`;
+  //     if (!window.confirm(confirmMessage)) {
+  //       return;
+  //     }
+  //     
+  //     let updatedCount = 0;
+  //     let errorCount = 0;
+  //     
+  //     for (const payroll of payrollsToRecalculate) {
+  //       try {
+  //         // Recalculate total deductions excluding Provident Fund
+  //         const recalculatedTotalDeductions = (payroll.incomeTax || 0) + 
+  //                                           (payroll.healthInsurance || 0) + 
+  //                                           (payroll.vehicleLoanDeduction || 0) +
+  //                                           (payroll.companyLoanDeduction || 0) +
+  //                                           (payroll.eobi || 370) + 
+  //                                           (payroll.otherDeductions || 0);
+  //         
+  //         // Recalculate net salary
+  //         const recalculatedNetSalary = (payroll.grossSalary || 0) - recalculatedTotalDeductions;
+  //         
+  //         // Update payroll with recalculated values
+  //         await api.put(`/payroll/${payroll._id}`, {
+  //           totalDeductions: recalculatedTotalDeductions,
+  //           netSalary: recalculatedNetSalary
+  //         });
+  //         
+  //         updatedCount++;
+  //       } catch (error) {
+  //         console.error(`Error updating payroll ${payroll._id}:`, error);
+  //         errorCount++;
+  //       }
+  //     }
+  //     
+  //     // Refresh data
+  //     fetchPayrolls();
+  //     fetchStats();
+  //     
+  //     setError(null);
+  //     
+  //     // Show success message
+  //     if (errorCount === 0) {
+  //       alert(`Successfully recalculated ${updatedCount} payroll(s)! Provident Fund is now excluded from total deductions and net salary.`);
+  //     } else {
+  //       alert(`Recalculated ${updatedCount} payroll(s) with ${errorCount} errors. Please check the console for details.`);
+  //     }
+  //   } catch (error) {
+  //     console.error('Error recalculating payrolls:', error);
+  //     setError(`Failed to recalculate payrolls: ${error.message}`);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
-  if (loading && payrolls.length === 0) {
+  if ((loading && payrolls.length === 0) || dataLoading.employees || dataLoading.departments || dataLoading.positions) {
     return (
       <PageLoading 
         message="Loading payrolls..." 
@@ -1732,10 +1710,10 @@ Do you want to:
                   <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="h6" color="textSecondary" gutterBottom>
-                        {loading ? 'Loading payrolls...' : 'No payrolls found'}
+                        {(loading || dataLoading.employees || dataLoading.departments || dataLoading.positions) ? 'Loading payrolls...' : 'No payrolls found'}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
-                        {loading 
+                        {(loading || dataLoading.employees || dataLoading.departments || dataLoading.positions)
                           ? 'Please wait while we fetch your payroll data...' 
                           : filters.searchQuery || Object.values(filters).some(v => v !== '' && v !== null)
                             ? 'Try adjusting your search criteria or filters'

@@ -401,10 +401,10 @@ const HRReports = () => {
     }
   ];
 
-  // Load initial data
+  // Load initial data - only run once on mount
   useEffect(() => {
     loadInitialData();
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   const loadInitialData = async () => {
     try {

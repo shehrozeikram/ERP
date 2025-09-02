@@ -71,6 +71,7 @@ export const MODULES = {
       { name: 'Employees', path: '/hr/employees' },
       { name: 'Departments', path: '/hr/departments' },
       { name: 'Attendance', path: '/hr/attendance' },
+      { name: 'Attendance Record', path: '/hr/attendance-record' },
       { name: 'Attendance Report', path: '/hr/attendance/report' },
       { name: 'Biometric Integration', path: '/hr/biometric' },
       { name: 'Payroll', path: '/hr/payroll' },

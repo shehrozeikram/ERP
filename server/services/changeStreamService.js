@@ -282,4 +282,4 @@ class ChangeStreamService {
   }
 }
 
-module.exports = new ChangeStreamService();
+module.exports = ChangeStreamService;

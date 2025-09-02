@@ -361,9 +361,10 @@ const HRDashboard = () => {
     });
   };
 
+  // Initial data fetch - only run once on mount
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   const fetchDashboardData = async () => {
     try {

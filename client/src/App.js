@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
+import { DataProvider } from './contexts/DataContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
 // Layout Components
@@ -23,6 +24,8 @@ import PayrollForm from './pages/HR/PayrollForm';
 import PayrollDetail from './pages/HR/PayrollDetail';
 import EmployeePayrollDetails from './pages/HR/EmployeePayrollDetails';
 import AttendanceList from './pages/HR/AttendanceList';
+import AttendanceRecord from './pages/HR/AttendanceRecord';
+import AttendanceRecordDetail from './pages/HR/AttendanceRecordDetail';
 import AttendanceDetail from './pages/HR/AttendanceDetail';
 import AttendanceForm from './pages/HR/AttendanceForm';
 import AttendanceReport from './pages/HR/AttendanceReport';
@@ -154,12 +157,13 @@ function App() {
 
   // If user is authenticated, show the full application with layout
   return (
-    <Layout>
-      <Sidebar />
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        <Header />
-        <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
-          <Routes>
+    <DataProvider>
+      <Layout>
+        <Sidebar />
+        <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+          <Header />
+          <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+            <Routes>
             {/* Dashboard */}
             <Route 
               path="/dashboard" 
@@ -240,6 +244,14 @@ function App() {
             <Route
               path="/hr/attendance"
               element={<ProtectedRoute><AttendanceList /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/attendance-record"
+              element={<ProtectedRoute><AttendanceRecord /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/attendance-record/:employeeId"
+              element={<ProtectedRoute><AttendanceRecordDetail /></ProtectedRoute>}
             />
             <Route
               path="/hr/attendance/report"
@@ -613,11 +625,12 @@ function App() {
               path="*" 
               element={<NotFound />} 
             />
-          </Routes>
+                      </Routes>
+          </Box>
         </Box>
-      </Box>
-    </Layout>
-  );
+      </Layout>
+    </DataProvider>
+    );
 }
 
 export default App; 

@@ -170,7 +170,7 @@ const PublicEmployeeOnboarding = () => {
       console.log('❌ No onboarding ID provided');
       setError('No onboarding ID provided');
     }
-  }, [onboardingId]);
+  }, [onboardingId]); // Only depend on onboardingId changes
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

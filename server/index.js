@@ -7,20 +7,10 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const http = require('http');
-const { Server } = require('socket.io');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const server = http.createServer(app);
-
-// Socket.IO setup with CORS
-const io = new Server(server, {
-  cors: {
-    origin: ['http://localhost:3000', 'https://tovus.net', 'https://www.tovus.net'],
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
-});
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -64,16 +54,16 @@ const trainingProgramRoutes = require('./routes/trainingPrograms');
 const zktecoRoutes = require('./routes/zkteco');
 const hiringRoutes = require('./routes/hiring');
 const employeeOnboardingRoutes = require('./routes/employeeOnboarding');
+const zkbioTimeRoutes = require('./routes/zkbioTimeRoutes');
 
 
 // Import services
-const ZKTecoWebSocketService = require('./services/zktecoWebSocketService');
 const attendanceService = require('./services/attendanceService');
 const ChangeStreamService = require('./services/changeStreamService');
+const zkbioTimeBackgroundService = require('./services/zkbioTimeBackgroundService');
 
 // Initialize services
-let zktecoWebSocketService;
-let changeStreamService;
+let changeStreamService = null;
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -82,39 +72,14 @@ const { authMiddleware } = require('./middleware/auth');
 // Import database configuration
 const { connectDB } = require('./config/database');
 
+// Set environment variables
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
 // Database connection
 console.log('MongoDB URI:', process.env.MONGODB_URI);
 connectDB();
 
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-  console.log('🔌 Client connected:', socket.id);
-  
-  // Send initial connection status
-  socket.emit('connection_status', { 
-    status: 'connected', 
-    message: 'Connected to real-time attendance service',
-    timestamp: new Date()
-  });
 
-  // Handle client joining attendance room
-  socket.on('join_attendance', () => {
-    socket.join('attendance');
-    console.log(`👥 Client ${socket.id} joined attendance room`);
-    socket.emit('room_joined', { room: 'attendance', message: 'Joined attendance updates room' });
-  });
-
-  // Handle client leaving attendance room
-  socket.on('leave_attendance', () => {
-    socket.leave('attendance');
-    console.log(`👋 Client ${socket.id} left attendance room`);
-  });
-
-  // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log('🔌 Client disconnected:', socket.id);
-  });
-});
 
 // Initialize Change Stream service
 
@@ -123,7 +88,7 @@ app.use(helmet());
 app.use(compression());
 
 // Rate limiting (disabled for development)
-if (process.env.NODE_ENV === 'production') {
+if (NODE_ENV === 'production') {
   const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
     max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
@@ -162,7 +127,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Logging middleware
-if (process.env.NODE_ENV === 'development') {
+if (NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
@@ -177,7 +142,7 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     message: 'SGC ERP System is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: NODE_ENV
   });
 });
 
@@ -227,6 +192,7 @@ app.use('/api/courses', authMiddleware, courseRoutes);
 app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
 app.use('/api/zkteco', zktecoRoutes);
+app.use('/api/zkbio', zkbioTimeRoutes);
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {
@@ -262,21 +228,16 @@ const PORT = process.env.PORT || 5001;
 mongoose.connection.once('open', async () => {
   try {
     console.log('🚀 Initializing Change Stream service...');
-    const changeStreamService = new ChangeStreamService();
+    changeStreamService = new ChangeStreamService();
     await changeStreamService.start();
     console.log('✅ Change Stream service initialized successfully');
+    
+    // Start ZKBio Time background sync service
+    console.log('🚀 Starting ZKBio Time background sync service...');
+    zkbioTimeBackgroundService.start();
+    console.log('✅ ZKBio Time background sync service started');
   } catch (error) {
-    console.error('❌ Failed to initialize Change Stream service:', error);
-  }
-  
-  // Initialize ZKTeco WebSocket service
-  try {
-    console.log('🚀 Initializing ZKTeco WebSocket service...');
-    zktecoWebSocketService = new ZKTecoWebSocketService(io);
-    await zktecoWebSocketService.startWebSocketConnection();
-    console.log('✅ ZKTeco WebSocket service initialized successfully');
-  } catch (error) {
-    console.error('❌ Failed to initialize ZKTeco WebSocket service:', error);
+    console.error('❌ Failed to initialize services:', error);
   }
 });
 
@@ -284,9 +245,8 @@ mongoose.connection.once('open', async () => {
 
 server.listen(PORT, async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV}`);
+  console.log(`📊 Environment: ${NODE_ENV}`);
   console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
-  console.log(`🔌 Socket.IO server running on port ${PORT}`);
   
 
   
@@ -322,13 +282,9 @@ process.on('SIGTERM', async () => {
     console.log('✅ Change Stream service stopped');
   }
   
-  // Stop ZKTeco WebSocket service
-  try {
-    zktecoWebSocketService.stopWebSocketConnection();
-    console.log('✅ ZKTeco WebSocket service stopped');
-  } catch (error) {
-    console.error('⚠️ Error stopping ZKTeco WebSocket service:', error);
-  }
+  // Stop ZKBio Time background service
+  zkbioTimeBackgroundService.stop();
+  console.log('✅ ZKBio Time background service stopped');
   
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');
@@ -345,13 +301,9 @@ process.on('SIGINT', async () => {
     console.log('✅ Change Stream service stopped');
   }
   
-  // Stop ZKTeco WebSocket service
-  try {
-    zktecoWebSocketService.stopWebSocketConnection();
-    console.log('✅ ZKTeco WebSocket service stopped');
-  } catch (error) {
-    console.error('⚠️ Error stopping ZKTeco WebSocket service:', error);
-  }
+  // Stop ZKBio Time background service
+  zkbioTimeBackgroundService.stop();
+  console.log('✅ ZKBio Time background service stopped');
   
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');

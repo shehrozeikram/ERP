@@ -105,8 +105,8 @@ const Sidebar = () => {
   useEffect(() => {
     fetchCandidateHiredCount();
     
-    // Set up interval to refresh count every 30 seconds
-    const interval = setInterval(fetchCandidateHiredCount, 30000);
+    // Set up interval to refresh count every 5 minutes (reduced from 30 seconds)
+    const interval = setInterval(fetchCandidateHiredCount, 300000);
     
     return () => clearInterval(interval);
   }, [user]);

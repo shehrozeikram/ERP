@@ -6,6 +6,7 @@ const { authMiddleware } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const attendanceService = require('../services/attendanceService');
 const zktecoService = require('../services/zktecoService');
+const zkbioTimeService = require('../services/zkbioTimeService');
 const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
 const mongoose = require('mongoose');
 const PayrollUpdateService = require('../services/payrollUpdateService');
@@ -1036,6 +1037,177 @@ router.post('/sync-from-device', authMiddleware, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error during manual attendance sync:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// ===== ZKBio Time Integration Endpoints =====
+
+// Sync attendance from ZKBio Time system
+router.post('/sync-zkbio-time', authMiddleware, async (req, res) => {
+  try {
+    // Check if user has admin permissions
+    if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions. Only admins and HR managers can trigger ZKBio Time syncs.'
+      });
+    }
+
+    const { startDate, endDate } = req.body;
+    
+    // Set default date range (last 7 days if not specified)
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date();
+    if (!startDate) {
+      start.setDate(start.getDate() - 7); // Default to last 7 days
+    }
+
+    console.log(`🔄 Starting ZKBio Time sync from ${start.toISOString().split('T')[0]} to ${end.toISOString().split('T')[0]}`);
+
+    // Use the ZKBio Time service to sync attendance
+    const result = await zkbioTimeService.syncAttendanceToDatabase(start, end);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'ZKBio Time attendance sync completed successfully',
+        data: result.data
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'ZKBio Time sync failed',
+        error: result.error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error during ZKBio Time sync:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Get employees from ZKBio Time system
+router.get('/zkbio-time/employees', authMiddleware, async (req, res) => {
+  try {
+    // Check if user has admin permissions
+    if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions. Only admins and HR managers can access ZKBio Time data.'
+      });
+    }
+
+    const result = await zkbioTimeService.getEmployees();
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Employees retrieved successfully' : 'Failed to retrieve employees',
+      data: result.data,
+      count: result.count,
+      source: 'ZKBio Time System'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching ZKBio Time employees:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Get attendance records from ZKBio Time system
+router.get('/zkbio-time/attendance', authMiddleware, async (req, res) => {
+  try {
+    // Check if user has admin permissions
+    if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions. Only admins and HR managers can access ZKBio Time data.'
+      });
+    }
+
+    const { startDate, endDate } = req.query;
+    
+    // Set default date range (last 7 days if not specified)
+    const end = endDate ? new Date(endDate) : new Date();
+    const start = startDate ? new Date(startDate) : new Date();
+    if (!startDate) {
+      start.setDate(start.getDate() - 7); // Default to last 7 days
+    }
+
+    const result = await zkbioTimeService.getAttendanceRecords(start, end);
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Attendance records retrieved successfully' : 'Failed to retrieve attendance records',
+      data: result.data,
+      count: result.count,
+      dateRange: {
+        start: start.toISOString().split('T')[0],
+        end: end.toISOString().split('T')[0]
+      },
+      source: 'ZKBio Time System'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching ZKBio Time attendance:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Get real-time attendance from ZKBio Time system
+router.get('/zkbio-time/realtime', authMiddleware, async (req, res) => {
+  try {
+    // Check if user has admin permissions
+    if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions. Only admins and HR managers can access ZKBio Time real-time data.'
+      });
+    }
+
+    const result = await zkbioTimeService.getRealTimeAttendance();
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Real-time attendance retrieved successfully' : 'Failed to retrieve real-time attendance',
+      data: result.data,
+      count: result.count,
+      timestamp: result.timestamp,
+      source: 'ZKBio Time System'
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching ZKBio Time real-time attendance:', error);
+    errorHandler(error, req, res);
+  }
+});
+
+// Test ZKBio Time connection
+router.get('/zkbio-time/test-connection', authMiddleware, async (req, res) => {
+  try {
+    // Check if user has admin permissions
+    if (req.user.role !== 'admin' && req.user.role !== 'hr_manager') {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions. Only admins and HR managers can test ZKBio Time connection.'
+      });
+    }
+
+    const result = await zkbioTimeService.testConnection();
+    
+    res.json({
+      success: result.success,
+      message: result.message,
+      data: {
+        server: result.server || 'ZKBio Time',
+        status: result.status,
+        timestamp: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error testing ZKBio Time connection:', error);
     errorHandler(error, req, res);
   }
 });

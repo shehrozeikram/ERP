@@ -86,10 +86,11 @@ const Departments = () => {
     }
   };
 
+  // Initial data fetch - only run once on mount
   useEffect(() => {
     fetchDepartments();
     fetchEmployees();
-  }, []);
+  }, []); // Empty dependency array - only run once
 
   const formik = useFormik({
     initialValues: {
