@@ -158,20 +158,20 @@ class ZKBioTimeApiService {
   /**
    * Get employee attendance history with pagination support
    */
-  async getEmployeeAttendanceHistory(employeeCode, limit = 1000, offset = 0) {
+  async getEmployeeAttendanceHistory(employeeCode, pageSize = 30, page = 1) {
     try {
       if (!(await this.ensureAuth())) {
         throw new Error('Authentication failed');
       }
 
-      console.log(`🔍 Fetching attendance history for employee ${employeeCode} (limit: ${limit}, offset: ${offset})...`);
+      console.log(`🔍 Fetching attendance history for employee ${employeeCode} (page_size: ${pageSize}, page: ${page})...`);
       
       const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           emp_code: employeeCode,
-          limit: limit,
-          offset: offset,
+          page_size: pageSize,
+          page: page,
           ordering: '-punch_time'
         }
       });
@@ -183,7 +183,9 @@ class ZKBioTimeApiService {
           data: response.data.data,
           count: response.data.count || response.data.data.length,
           totalCount: response.data.count || 0,
-          hasMore: response.data.data.length === limit
+          hasMore: !!response.data.next,
+          nextPage: response.data.next ? page + 1 : null,
+          previousPage: response.data.previous ? page - 1 : null
         };
       }
 
@@ -202,12 +204,12 @@ class ZKBioTimeApiService {
       console.log(`🔍 Fetching complete attendance history for employee ${employeeCode}...`);
       
       let allRecords = [];
-      let offset = 0;
-      const limit = 1000;
+      let page = 1;
+      const pageSize = 30;
       let hasMore = true;
       
       while (hasMore) {
-        const result = await this.getEmployeeAttendanceHistory(employeeCode, limit, offset);
+        const result = await this.getEmployeeAttendanceHistory(employeeCode, pageSize, page);
         
         if (!result.success) {
           console.error('❌ Failed to fetch attendance records');
@@ -216,7 +218,7 @@ class ZKBioTimeApiService {
         
         allRecords = allRecords.concat(result.data);
         hasMore = result.hasMore;
-        offset += limit;
+        page++;
         
         console.log(`📊 Fetched ${result.data.length} records (total: ${allRecords.length})`);
         

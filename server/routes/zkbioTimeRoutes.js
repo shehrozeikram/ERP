@@ -309,7 +309,7 @@ router.get('/zkbio/employees/attendance', async (req, res) => {
     // Apply pagination
     const totalCount = employees.length;
     const totalPages = Math.ceil(totalCount / limit);
-    const startIndex = page * limit;
+    const startIndex = (page - 1) * limit; // Fix: page starts from 1, not 0
     const endIndex = startIndex + limit;
     const paginatedEmployees = employees.slice(startIndex, endIndex);
     
