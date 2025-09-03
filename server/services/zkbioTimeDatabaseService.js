@@ -54,7 +54,7 @@ const zkbioTimeAttendanceSchema = new mongoose.Schema({
   uploadTime: { type: Date },
   date: { type: String, required: true }, // YYYY-MM-DD format
   isProcessed: { type: Boolean, default: false }
-}, { timestamps: true });
+}, { timestamps: true, collection: 'zkbiotimeattendances' });
 
 // Create indexes for better performance
 zkbioTimeEmployeeSchema.index({ empCode: 1 });
@@ -388,15 +388,103 @@ class ZKBioTimeDatabaseService {
   }
 
   /**
+   * Get specific employee's complete attendance history from ZKBio Time API
+   */
+  async getEmployeeAttendanceHistoryFromAPI(employeeId) {
+    try {
+      console.log(`🔍 Fetching attendance history from ZKBio Time API for employee: ${employeeId}`);
+      
+      // Import the API service
+      const zkbioTimeApiService = require('./zkbioTimeApiService');
+      
+      // Get complete attendance history from API
+      const apiResult = await zkbioTimeApiService.getCompleteEmployeeAttendanceHistory(employeeId);
+      
+      if (!apiResult.success) {
+        console.error('❌ Failed to fetch from API:', apiResult.error);
+        return { success: false, error: apiResult.error };
+      }
+      
+      console.log(`📊 API returned ${apiResult.data.length} attendance records for employee ${employeeId}`);
+      
+      if (apiResult.data.length === 0) {
+        return { success: false, error: 'No attendance records found' };
+      }
+      
+      // Get employee details from the latest attendance record
+      const latestRecord = apiResult.data[0];
+      
+      // Group attendance records by date
+      const groupedByDate = {};
+      
+      apiResult.data.forEach(record => {
+        const date = record.punch_time?.split(' ')[0]; // YYYY-MM-DD format
+        if (!groupedByDate[date]) {
+          groupedByDate[date] = {
+            date: date,
+            checkIn: null,
+            checkOut: null,
+            location: record.area_alias || 'N/A'
+          };
+        }
+        
+        // Determine if it's check-in or check-out based on punch state
+        if (record.punch_state_display === 'Check In') {
+          groupedByDate[date].checkIn = record.punch_time;
+        } else if (record.punch_state_display === 'Check Out') {
+          groupedByDate[date].checkOut = record.punch_time;
+        }
+        
+        // Update location if not set
+        if (!groupedByDate[date].location || groupedByDate[date].location === 'N/A') {
+          groupedByDate[date].location = record.area_alias || 'N/A';
+        }
+      });
+
+      // Convert grouped data to array and sort by date (newest first)
+      const groupedAttendance = Object.values(groupedByDate)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      return {
+        success: true,
+        employee: {
+          employeeId: employeeId,
+          firstName: latestRecord.first_name || '',
+          lastName: latestRecord.last_name || '',
+          fullName: `${latestRecord.first_name || ''} ${latestRecord.last_name || ''}`.trim(),
+          department: latestRecord.department || ''
+        },
+        attendance: groupedAttendance,
+        totalRecords: apiResult.data.length,
+        source: 'ZKBio Time API'
+      };
+    } catch (error) {
+      console.error('Error getting employee attendance history from API:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Get specific employee's complete attendance history grouped by date
    */
   async getEmployeeAttendanceHistory(employeeId) {
     try {
+      console.log(`🔍 Fetching attendance history for employee: ${employeeId}`);
+      
       // Get all attendance records for this employee
       const attendance = await ZKBioTimeAttendance
         .find({ empCode: employeeId })
         .sort({ punchTime: -1 }) // Latest first
         .lean();
+
+      console.log(`📊 Found ${attendance.length} attendance records in database for employee ${employeeId}`);
+      
+      if (attendance.length > 0) {
+        console.log('📅 Sample records:');
+        attendance.slice(0, 5).forEach((record, index) => {
+          console.log(`${index + 1}. Date: ${record.date}, Time: ${record.punchTime}, Type: ${record.punchStateDisplay}`);
+        });
+      }
 
       if (!attendance || attendance.length === 0) {
         return { success: false, error: 'Employee not found' };

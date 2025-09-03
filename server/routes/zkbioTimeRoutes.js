@@ -2,8 +2,6 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const zkbioTimeApiService = require('../services/zkbioTimeApiService');
-const zkbioTimeDatabaseService = require('../services/zkbioTimeDatabaseService');
-const zkbioTimeBackgroundService = require('../services/zkbioTimeBackgroundService');
 
 /**
  * GET /api/attendance/zkbio/today
@@ -14,8 +12,6 @@ router.get('/zkbio/today', async (req, res) => {
     const apiResult = await zkbioTimeApiService.getTodayAttendance();
     
     if (apiResult.success && apiResult.data.length > 0) {
-      await zkbioTimeDatabaseService.saveAttendanceRecords(apiResult.data);
-      
       const employeeResult = await zkbioTimeApiService.getEmployees();
       const employees = employeeResult.success ? employeeResult.data : [];
       
@@ -68,11 +64,10 @@ router.post('/zkbio/sync', authMiddleware, async (req, res) => {
       const employeeResult = await zkbioTimeApiService.getEmployees();
       
       if (employeeResult.success) {
-        const saveResult = await zkbioTimeDatabaseService.saveEmployees(employeeResult.data);
         results.employees = {
           success: true,
-          count: saveResult.saved,
-          failed: saveResult.failed
+          count: employeeResult.data.length,
+          failed: 0
         };
       }
     }
@@ -92,11 +87,10 @@ router.post('/zkbio/sync', authMiddleware, async (req, res) => {
       }
       
       if (attendanceResult.success) {
-        const saveResult = await zkbioTimeDatabaseService.saveAttendanceRecords(attendanceResult.data);
         results.attendance = {
           success: true,
-          count: saveResult.saved,
-          failed: saveResult.failed
+          count: attendanceResult.data.length,
+          failed: 0
         };
       }
     }
@@ -281,114 +275,6 @@ router.get('/zkbio/date-range', async (req, res) => {
 });
 
 /**
- * GET /api/zkbio/zkbio/background/status
- * Get background service status
- */
-router.get('/zkbio/background/status', async (req, res) => {
-  try {
-    const status = zkbioTimeBackgroundService.getStatus();
-    res.json({
-      success: true,
-      data: status
-    });
-  } catch (error) {
-    console.error('Error getting background service status:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get background service status'
-    });
-  }
-});
-
-/**
- * POST /api/zkbio/zkbio/background/start
- * Start background service
- */
-router.post('/zkbio/background/start', async (req, res) => {
-  try {
-    zkbioTimeBackgroundService.start();
-    res.json({
-      success: true,
-      message: 'Background service started successfully'
-    });
-  } catch (error) {
-    console.error('Error starting background service:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to start background service'
-    });
-  }
-});
-
-/**
- * POST /api/zkbio/zkbio/background/stop
- * Stop background service
- */
-router.post('/zkbio/background/stop', async (req, res) => {
-  try {
-    zkbioTimeBackgroundService.stop();
-    res.json({
-      success: true,
-      message: 'Background service stopped successfully'
-    });
-  } catch (error) {
-    console.error('Error stopping background service:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to stop background service'
-    });
-  }
-});
-
-/**
- * POST /api/zkbio/zkbio/background/sync
- * Force immediate sync
- */
-router.post('/zkbio/background/sync', async (req, res) => {
-  try {
-    await zkbioTimeBackgroundService.forceSync();
-    res.json({
-      success: true,
-      message: 'Force sync completed successfully'
-    });
-  } catch (error) {
-    console.error('Error during force sync:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to perform force sync'
-    });
-  }
-});
-
-/**
- * PUT /api/zkbio/zkbio/background/interval
- * Update sync interval
- */
-router.put('/zkbio/background/interval', async (req, res) => {
-  try {
-    const { minutes } = req.body;
-    if (!minutes || minutes < 1 || minutes > 60) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid interval. Must be between 1 and 60 minutes.'
-      });
-    }
-    
-    zkbioTimeBackgroundService.updateSyncInterval(minutes);
-    res.json({
-      success: true,
-      message: `Sync interval updated to ${minutes} minutes`
-    });
-  } catch (error) {
-    console.error('Error updating sync interval:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update sync interval'
-    });
-  }
-});
-
-/**
  * GET /api/zkbio/zkbio/employees/attendance
  * Get all employees with their latest attendance activity (with pagination)
  */
@@ -398,16 +284,56 @@ router.get('/zkbio/employees/attendance', async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const searchQuery = req.query.search || '';
     
-    const result = await zkbioTimeDatabaseService.getEmployeesWithLatestAttendance(page, limit, searchQuery);
+    // Get employees from ZKBio Time API
+    const employeeResult = await zkbioTimeApiService.getEmployees();
+    
+    if (!employeeResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch employees from ZKBio Time'
+      });
+    }
+    
+    let employees = employeeResult.data;
+    
+    // Apply search filter
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      employees = employees.filter(emp => 
+        (emp.emp_code || '').toLowerCase().includes(searchLower) ||
+        (emp.first_name || '').toLowerCase().includes(searchLower) ||
+        (emp.last_name || '').toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Apply pagination
+    const totalCount = employees.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const startIndex = page * limit;
+    const endIndex = startIndex + limit;
+    const paginatedEmployees = employees.slice(startIndex, endIndex);
+    
+    // Transform data for frontend
+    const transformedData = paginatedEmployees.map(emp => ({
+      employeeId: emp.emp_code,
+      firstName: emp.first_name || '',
+      lastName: emp.last_name || '',
+      fullName: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
+      department: emp.department?.dept_name || 'N/A',
+      latestActivity: 'Check In', // Default since we don't have real-time data here
+      latestTime: new Date().toLocaleTimeString(),
+      latestDate: new Date().toLocaleDateString(),
+      status: 'Present'
+    }));
     
     res.json({
       success: true,
-      data: result.data,
-      count: result.count,
-      totalCount: result.totalCount,
-      page: result.page,
-      limit: result.limit,
-      totalPages: result.totalPages
+      data: transformedData,
+      count: transformedData.length,
+      totalCount: totalCount,
+      page: page,
+      limit: limit,
+      totalPages: totalPages
     });
   } catch (error) {
     console.error('Error fetching employees with attendance:', error);
@@ -425,20 +351,60 @@ router.get('/zkbio/employees/attendance', async (req, res) => {
 router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
   try {
     const { employeeId } = req.params;
-    const result = await zkbioTimeDatabaseService.getEmployeeAttendanceHistory(employeeId);
+    const result = await zkbioTimeApiService.getCompleteEmployeeAttendanceHistory(employeeId);
     
-    if (result.success) {
+    if (result.success && result.data.length > 0) {
+      // Get employee details from the latest attendance record
+      const latestRecord = result.data[0];
+      
+      // Group attendance records by date
+      const groupedByDate = {};
+      
+      result.data.forEach(record => {
+        const date = record.punch_time?.split(' ')[0]; // YYYY-MM-DD format
+        if (!groupedByDate[date]) {
+          groupedByDate[date] = {
+            date: date,
+            checkIn: null,
+            checkOut: null,
+            location: record.area_alias || 'N/A'
+          };
+        }
+        
+        // Determine if it's check-in or check-out based on punch state
+        if (record.punch_state_display === 'Check In') {
+          groupedByDate[date].checkIn = record.punch_time;
+        } else if (record.punch_state_display === 'Check Out') {
+          groupedByDate[date].checkOut = record.punch_time;
+        }
+        
+        // Update location if not set
+        if (!groupedByDate[date].location || groupedByDate[date].location === 'N/A') {
+          groupedByDate[date].location = record.area_alias || 'N/A';
+        }
+      });
+
+      // Convert grouped data to array and sort by date (newest first)
+      const groupedAttendance = Object.values(groupedByDate)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
       res.json({
         success: true,
         data: {
-          employee: result.employee,
-          attendance: result.attendance
+          employee: {
+            employeeId: employeeId,
+            firstName: latestRecord.first_name || '',
+            lastName: latestRecord.last_name || '',
+            fullName: `${latestRecord.first_name || ''} ${latestRecord.last_name || ''}`.trim(),
+            department: latestRecord.department || ''
+          },
+          attendance: groupedAttendance
         }
       });
     } else {
       res.status(404).json({
         success: false,
-        message: 'Employee not found'
+        message: 'Employee not found or no attendance records'
       });
     }
   } catch (error) {
@@ -446,34 +412,6 @@ router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch employee attendance history'
-    });
-  }
-});
-
-/**
- * GET /api/zkbio/zkbio/debug/attendance
- * Debug endpoint to check database content
- */
-router.get('/zkbio/debug/attendance', async (req, res) => {
-  try {
-    const count = await zkbioTimeDatabaseService.zkbioTimeAttendanceModel.countDocuments();
-    const sample = await zkbioTimeDatabaseService.zkbioTimeAttendanceModel.findOne().lean();
-    const empCodes = await zkbioTimeDatabaseService.zkbioTimeAttendanceModel.distinct('empCode');
-    
-    res.json({
-      success: true,
-      data: {
-        totalRecords: count,
-        sampleRecord: sample,
-        uniqueEmployeeIds: empCodes,
-        employeeCount: empCodes.length
-      }
-    });
-  } catch (error) {
-    console.error('Error in debug endpoint:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Debug endpoint failed'
     });
   }
 });

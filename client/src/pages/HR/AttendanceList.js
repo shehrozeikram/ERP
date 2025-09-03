@@ -344,15 +344,15 @@ const AttendanceList = () => {
               </TableRow>
             ) : (
               attendance.map((record, index) => (
-                <TableRow key={`${record.deviceUserId || record.userId || record.uid || index}-${record.recordTime || Date.now()}-${index}`} hover>
+                <TableRow key={`${typeof record.deviceUserId === 'object' ? record.deviceUserId.id || record.deviceUserId.toString() : record.deviceUserId || typeof record.userId === 'object' ? record.userId.id || record.userId.toString() : record.userId || typeof record.uid === 'object' ? record.uid.id || record.uid.toString() : record.uid || index}-${record.recordTime || Date.now()}-${index}`} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Box>
                         <Typography variant="body2" fontWeight="bold">
-                          {record.employee?.firstName || record.employee?.lastName || record.name || record.userName || record.fullName || `User ${record.deviceUserId || record.userId || record.uid || 'Unknown'}`}
+                          {record.employee?.firstName || record.employee?.lastName || record.name || record.userName || record.fullName || `User ${typeof record.deviceUserId === 'object' ? record.deviceUserId.id || record.deviceUserId.toString() : record.deviceUserId || typeof record.userId === 'object' ? record.userId.id || record.userId.toString() : record.userId || typeof record.uid === 'object' ? record.uid.id || record.uid.toString() : record.uid || 'Unknown'}`}
                         </Typography>
                         <Typography variant="caption" color="textSecondary">
-                          {record.employee?.employeeId || record.deviceUserId || record.userId || record.uid || 'N/A'}
+                          {record.employee?.employeeId || (typeof record.deviceUserId === 'object' ? record.deviceUserId.id || record.deviceUserId.toString() : record.deviceUserId) || (typeof record.userId === 'object' ? record.userId.id || record.userId.toString() : record.userId) || (typeof record.uid === 'object' ? record.uid.id || record.uid.toString() : record.uid) || 'N/A'}
                         </Typography>
                       </Box>
                     </Box>
@@ -393,7 +393,11 @@ const AttendanceList = () => {
                       <Tooltip title="View Details">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/hr/attendance/employee/${record.employee?._id || record.deviceUserId || record.userId || record.uid}/detail`)}
+                          onClick={() => {
+                            const employeeId = record.employee?._id || record.employee?.id || record.deviceUserId || record.userId || record.uid;
+                            const id = typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId;
+                            navigate(`/hr/attendance/employee/${id}/detail`);
+                          }}
                         >
                           <ViewIcon />
                         </IconButton>
@@ -401,7 +405,11 @@ const AttendanceList = () => {
                       <Tooltip title="Edit">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/hr/attendance/${record._id || record.uid || record.userId || record.deviceUserId}/edit`)}
+                          onClick={() => {
+                            const recordId = record._id || record.uid || record.userId || record.deviceUserId;
+                            const id = typeof recordId === 'object' ? recordId.id || recordId.toString() : recordId;
+                            navigate(`/hr/attendance/${id}/edit`);
+                          }}
                         >
                           <EditIcon />
                         </IconButton>

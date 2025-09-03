@@ -38,10 +38,14 @@ const AttendanceRecordDetail = () => {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/zkbio/zkbio/employees/${employeeId}/attendance`);
+      // Ensure employeeId is a string
+      const id = typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId;
+      
+      const response = await fetch(`/api/zkbio/zkbio/employees/${id}/attendance`);
       const result = await response.json();
       
       if (result.success) {
+        console.log('🔍 API Response:', result.data);
         setEmployee(result.data.employee);
         setAttendanceHistory(result.data.attendance);
       } else {
@@ -63,7 +67,7 @@ const AttendanceRecordDetail = () => {
   }, [employeeId, fetchEmployeeDetail]);
 
   // Pagination
-  const paginatedAttendance = attendanceHistory.slice(
+  const paginatedAttendance = (attendanceHistory || []).slice(
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage
   );
@@ -79,7 +83,8 @@ const AttendanceRecordDetail = () => {
 
   const formatTime = (time) => {
     if (!time) return 'N/A';
-    return new Date(time).toLocaleTimeString('en-US', { 
+    const timeValue = typeof time === 'object' ? time.toString() : time;
+    return new Date(timeValue).toLocaleTimeString('en-US', { 
       hour12: false, 
       hour: '2-digit', 
       minute: '2-digit', 
@@ -89,10 +94,11 @@ const AttendanceRecordDetail = () => {
 
   const formatDate = (date) => {
     if (!date) return 'N/A';
-    return new Date(date).toLocaleDateString();
+    const dateValue = typeof date === 'object' ? date.toString() : date;
+    return new Date(dateValue).toLocaleDateString();
   };
 
-  if (!employeeId) {
+  if (!employeeId || (typeof employeeId === 'object' && !employeeId.id)) {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">Employee ID is required</Alert>
@@ -117,7 +123,7 @@ const AttendanceRecordDetail = () => {
           Attendance Record
         </Link>
         <Typography color="text.primary">
-          {employee?.fullName || `Employee ${employeeId}`}
+          {employee?.fullName || `Employee ${typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId}`}
         </Typography>
       </Breadcrumbs>
 
@@ -128,14 +134,14 @@ const AttendanceRecordDetail = () => {
             <PersonIcon sx={{ fontSize: 40, color: 'primary.main' }} />
             <Box>
               <Typography variant="h5" component="h1" gutterBottom>
-                {employee.fullName || `${employee.firstName || ''} ${employee.lastName || ''}`.trim()}
+                {typeof employee.fullName === 'object' ? employee.fullName.toString() : employee.fullName || `${typeof employee.firstName === 'object' ? employee.firstName.toString() : employee.firstName || ''} ${typeof employee.lastName === 'object' ? employee.lastName.toString() : employee.lastName || ''}`.trim() || 'Unknown Employee'}
               </Typography>
               <Typography variant="body1" color="textSecondary">
-                Employee ID: {employee.employeeId}
+                Employee ID: {typeof employee.employeeId === 'object' ? employee.employeeId.id || employee.employeeId.toString() : employee.employeeId || 'N/A'}
               </Typography>
               {employee.department && (
                 <Typography variant="body2" color="textSecondary">
-                  Department: {employee.department}
+                  Department: {typeof employee.department === 'object' ? employee.department.toString() : employee.department}
                 </Typography>
               )}
             </Box>
@@ -154,7 +160,7 @@ const AttendanceRecordDetail = () => {
       <Paper>
         <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Typography variant="h6">
-            Attendance History ({attendanceHistory.length} records)
+            Attendance History ({(attendanceHistory || []).length} records)
           </Typography>
         </Box>
         <TableContainer>
@@ -189,7 +195,7 @@ const AttendanceRecordDetail = () => {
                 </TableRow>
               ) : (
                 paginatedAttendance.map((record, index) => (
-                  <TableRow key={`${record.date}-${index}`} hover>
+                  <TableRow key={`${typeof record.date === 'object' ? record.date.toString() : record.date}-${index}`} hover>
                     <TableCell>
                       <Typography variant="body2">
                         {formatDate(record.date)}
@@ -207,7 +213,7 @@ const AttendanceRecordDetail = () => {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
-                        {record.location}
+                        {typeof record.location === 'object' ? record.location.toString() : record.location || 'N/A'}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -215,15 +221,15 @@ const AttendanceRecordDetail = () => {
               )}
             </TableBody>
           </Table>
-          <TablePagination
-            rowsPerPageOptions={[10, 20, 50, 100]}
-            component="div"
-            count={attendanceHistory.length}
-            rowsPerPage={rowsPerPage}
-            page={page}
-            onPageChange={handlePageChange}
-            onRowsPerPageChange={handleRowsPerPageChange}
-          />
+                      <TablePagination
+              rowsPerPageOptions={[10, 20, 50, 100]}
+              component="div"
+              count={(attendanceHistory || []).length}
+              rowsPerPage={rowsPerPage}
+              page={page}
+              onPageChange={handlePageChange}
+              onRowsPerPageChange={handleRowsPerPageChange}
+            />
         </TableContainer>
       </Paper>
     </Box>

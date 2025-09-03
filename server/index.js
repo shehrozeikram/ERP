@@ -60,7 +60,6 @@ const zkbioTimeRoutes = require('./routes/zkbioTimeRoutes');
 // Import services
 const attendanceService = require('./services/attendanceService');
 const ChangeStreamService = require('./services/changeStreamService');
-const zkbioTimeBackgroundService = require('./services/zkbioTimeBackgroundService');
 
 // Initialize services
 let changeStreamService = null;
@@ -245,11 +244,6 @@ mongoose.connection.once('open', async () => {
     changeStreamService = new ChangeStreamService();
     await changeStreamService.start();
     console.log('✅ Change Stream service initialized successfully');
-    
-    // Start ZKBio Time background sync service
-    console.log('🚀 Starting ZKBio Time background sync service...');
-    zkbioTimeBackgroundService.start();
-    console.log('✅ ZKBio Time background sync service started');
   } catch (error) {
     console.error('❌ Failed to initialize services:', error);
   }

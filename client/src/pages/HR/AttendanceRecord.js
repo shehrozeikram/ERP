@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -12,246 +12,389 @@ import {
   TablePagination,
   IconButton,
   TextField,
-  Button,
+  InputAdornment,
+  Chip,
+  Avatar,
   Alert,
-  Tooltip,
   CircularProgress,
-  Chip
+  Tooltip,
+  Card,
+  CardContent,
+  Grid
 } from '@mui/material';
 import {
-  Visibility as ViewIcon,
   Search as SearchIcon,
-  Clear as ClearIcon
+  Visibility as ViewIcon,
+  Schedule as ScheduleIcon,
+  Person as PersonIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useData } from '../../contexts/DataContext';
+import { PageLoading } from '../../components/LoadingSpinner';
 
 const AttendanceRecord = () => {
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const { employees, departments, loading: dataLoading } = useData();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [paginationLoading, setPaginationLoading] = useState(false);
+  
+  // Pagination state
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [totalCount, setTotalCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-
+  const [paginatedEmployees, setPaginatedEmployees] = useState([]);
+  
   const navigate = useNavigate();
 
-  // Fetch employee attendance records with pagination
-  const fetchEmployeeAttendance = useCallback(async (currentPage = page, currentLimit = rowsPerPage, search = searchQuery) => {
-    // Prevent multiple simultaneous requests
-    if (loading) return;
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: currentLimit.toString()
-      });
-      
-      if (search.trim()) {
-        params.append('search', search.trim());
-      }
-      
-      const response = await fetch(`/api/zkbio/zkbio/employees/attendance?${params}`);
-      const result = await response.json();
-      
-      if (result.success) {
-        setEmployees(result.data);
-        setTotalCount(result.totalCount);
-        setTotalPages(result.totalPages);
-      } else {
-        setError(result.message || 'Failed to fetch employee attendance');
-      }
-    } catch (error) {
-      console.error('Error fetching employee attendance:', error);
-      setError('Failed to connect to attendance system');
-    } finally {
-      setLoading(false);
-    }
-  }, [loading, page, rowsPerPage, searchQuery]);
-
-  // Auto-fetch on component mount
-  useEffect(() => {
-    fetchEmployeeAttendance();
-  }, []); // Empty dependency array - only run once on mount
-
-  // Handle search with debouncing
-  useEffect(() => {
-    if (searchQuery.trim()) {
-      const timeoutId = setTimeout(() => {
-        fetchEmployeeAttendance(0, rowsPerPage, searchQuery);
-      }, 500); // 500ms debounce
-
-      return () => clearTimeout(timeoutId);
-    } else if (searchQuery === '') {
-      // Only fetch if we're not on page 0 already to avoid duplicate calls
-      if (page !== 0) {
-        fetchEmployeeAttendance(0, rowsPerPage, '');
-      }
-    }
-  }, [searchQuery]); // Only depend on searchQuery
-
-  // Handle pagination changes
-  const handlePageChange = (event, newPage) => {
+  // Pagination handlers
+  const handleChangePage = useCallback((event, newPage) => {
+    setPaginationLoading(true);
     setPage(newPage);
-    fetchEmployeeAttendance(newPage, rowsPerPage, searchQuery);
-  };
+    setTimeout(() => setPaginationLoading(false), 300);
+  }, []);
 
-  const handleRowsPerPageChange = (event) => {
-    const newLimit = parseInt(event.target.value, 10);
-    setRowsPerPage(newLimit);
+  const handleChangeRowsPerPage = useCallback((event) => {
+    setPaginationLoading(true);
+    setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
-    fetchEmployeeAttendance(0, newLimit, searchQuery);
-  };
+    setTimeout(() => setPaginationLoading(false), 300);
+  }, []);
 
-  const clearSearch = () => {
-    setSearchQuery('');
+  // Filter handlers
+  const handleSearchChange = useCallback((value) => {
+    setSearchTerm(value);
     setPage(0);
-    // Don't call fetchEmployeeAttendance here - let the useEffect handle it
-  };
+  }, []);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Present':
-        return 'success';
-      case 'Absent':
-        return 'error';
-      case 'Late':
-        return 'warning';
-      default:
-        return 'default';
+  const handleDepartmentFilterChange = useCallback((value) => {
+    setDepartmentFilter(value);
+    setPage(0);
+  }, []);
+
+  const handleStatusFilterChange = useCallback((value) => {
+    setStatusFilter(value);
+    setPage(0);
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setSearchTerm('');
+    setDepartmentFilter('');
+    setStatusFilter('');
+    setPage(0);
+  }, []);
+
+  // Filter employees
+  const filteredEmployees = useMemo(() => {
+    return employees.filter(employee => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = 
+        (employee.firstName || '').toLowerCase().includes(searchLower) ||
+        (employee.lastName || '').toLowerCase().includes(searchLower) ||
+        (employee.employeeId || '').toLowerCase().includes(searchLower);
+      
+      const employeeDepartment = typeof employee.placementDepartment === 'object' ? employee.placementDepartment?.name : employee.placementDepartment;
+      const matchesDepartment = !departmentFilter || employeeDepartment === departmentFilter;
+      
+      let matchesStatus = true;
+      if (statusFilter) {
+        if (statusFilter === 'active') {
+          matchesStatus = employee.isActive === true && employee.employmentStatus === 'Active';
+        } else if (statusFilter === 'draft') {
+          matchesStatus = employee.employmentStatus === 'Draft';
+        } else if (statusFilter === 'inactive') {
+          matchesStatus = employee.isActive === false && employee.employmentStatus !== 'Draft';
+        }
+      }
+
+      return matchesSearch && matchesDepartment && matchesStatus;
+    });
+  }, [employees, searchTerm, departmentFilter, statusFilter]);
+
+  // Sort employees by status and employee ID
+  const sortedEmployees = useMemo(() => {
+    return [...filteredEmployees].sort((a, b) => {
+      const aIsActive = a.isActive === true && a.employmentStatus === 'Active';
+      const bIsActive = b.isActive === true && b.employmentStatus === 'Active';
+      
+      if (aIsActive !== bIsActive) {
+        return aIsActive ? 1 : -1;
+      }
+      
+      const idA = parseInt(a.employeeId) || 0;
+      const idB = parseInt(b.employeeId) || 0;
+      return idA - idB;
+    });
+  }, [filteredEmployees]);
+
+  // Handle pagination
+  useEffect(() => {
+    const startIndex = page * rowsPerPage;
+    const endIndex = startIndex + rowsPerPage;
+    const paginated = sortedEmployees.slice(startIndex, endIndex);
+    setPaginatedEmployees(paginated);
+  }, [sortedEmployees, page, rowsPerPage]);
+
+  // Statistics
+  const statistics = useMemo(() => {
+    const activeEmployees = employees.filter(emp => emp.isActive === true && emp.employmentStatus === 'Active').length;
+    const draftEmployees = employees.filter(emp => emp.employmentStatus === 'Draft').length;
+    const inactiveEmployees = employees.filter(emp => emp.isActive === false && emp.employmentStatus !== 'Draft').length;
+    
+    return {
+      totalEmployees: employees.length,
+      activeEmployees,
+      draftEmployees,
+      inactiveEmployees,
+      departmentsCount: departments.length
+    };
+  }, [employees, departments]);
+
+  const getStatusColor = (employee) => {
+    if (employee.isActive === true && employee.employmentStatus === 'Active') {
+      return 'success';
+    } else if (employee.employmentStatus === 'Draft') {
+      return 'warning';
+    } else {
+      return 'error';
     }
   };
 
-  const formatTime = (time) => {
-    if (!time) return 'N/A';
-    return new Date(time).toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit' 
-    });
+  const getStatusText = (employee) => {
+    if (employee.isActive === true && employee.employmentStatus === 'Active') {
+      return 'Active';
+    } else if (employee.employmentStatus === 'Draft') {
+      return 'Draft';
+    } else {
+      return 'Inactive';
+    }
   };
 
-  const formatDate = (date) => {
-    if (!date) return 'N/A';
-    return new Date(date).toLocaleDateString();
+  const formatEmployeeId = (employeeId) => {
+    if (!employeeId) return '';
+    return employeeId.toString().padStart(5, '0');
   };
+
+  if (dataLoading.employees || dataLoading.departments) {
+    return (
+      <PageLoading 
+        message="Loading employees..." 
+        showSkeleton={true}
+        skeletonType="table"
+      />
+    );
+  }
 
   return (
     <Box sx={{ p: 3 }}>
       {/* Page Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1">
-          Attendance Record
-        </Typography>
-        <Typography variant="body2" color="textSecondary">
-          Showing latest activity per employee (sorted by Employee ID) - Optimized with backend pagination
-        </Typography>
+        <Box>
+          <Typography variant="h4" component="h1">
+            Attendance Record
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            View employee attendance history from ZKBio Time system
+          </Typography>
+        </Box>
       </Box>
 
-      {/* Search Bar */}
+      {/* Statistics Cards */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Total Employees
+              </Typography>
+              <Typography variant="h4">
+                {statistics.totalEmployees}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Active Employees
+              </Typography>
+              <Typography variant="h4" color="success.main">
+                {statistics.activeEmployees}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Draft Employees
+              </Typography>
+              <Typography variant="h4" color="warning.main">
+                {statistics.draftEmployees}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Typography color="textSecondary" gutterBottom>
+                Departments
+              </Typography>
+              <Typography variant="h4">
+                {statistics.departmentsCount}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Search and Filters */}
       <Paper sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <TextField
-            placeholder="Search by Employee ID or Name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            size="small"
-            sx={{ flexGrow: 1 }}
-            InputProps={{
-              startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-            }}
-          />
-          {searchQuery && (
-            <Button
-              variant="outlined"
-              onClick={clearSearch}
-              startIcon={<ClearIcon />}
-              size="small"
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} md={4}>
+            <TextField
+              fullWidth
+              placeholder="Search by Employee ID or Name..."
+              value={searchTerm}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <TextField
+              fullWidth
+              select
+              label="Department"
+              value={departmentFilter}
+              onChange={(e) => handleDepartmentFilterChange(e.target.value)}
             >
-              Clear
-            </Button>
-          )}
-        </Box>
+              <option value="">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept._id} value={dept.name}>
+                  {dept.name}
+                </option>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <TextField
+              fullWidth
+              select
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => handleStatusFilterChange(e.target.value)}
+            >
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="draft">Draft</option>
+              <option value="inactive">Inactive</option>
+            </TextField>
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <IconButton
+              onClick={clearAllFilters}
+              title="Clear Filters"
+              sx={{ height: 56, width: 56 }}
+            >
+              <ScheduleIcon />
+            </IconButton>
+          </Grid>
+        </Grid>
+        
+        {/* Search Results Summary */}
+        {(searchTerm || departmentFilter || statusFilter) && (
+          <Box sx={{ mt: 2, p: 2, bgcolor: 'info.50', borderRadius: 1 }}>
+            <Typography variant="body2" color="info.main">
+              🔍 Found {sortedEmployees.length} employee(s)
+            </Typography>
+          </Box>
+        )}
       </Paper>
 
-      {/* Error Alert */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Employee Attendance Table */}
+      {/* Employee Table */}
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell>Employee</TableCell>
               <TableCell>Employee ID</TableCell>
-              <TableCell>Employee Name</TableCell>
-              <TableCell>Latest Activity</TableCell>
-              <TableCell>Time</TableCell>
-              <TableCell>Date</TableCell>
+              <TableCell>Department</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading ? (
+            {paginationLoading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={5} align="center">
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 3 }}>
                     <CircularProgress size={24} sx={{ mr: 2 }} />
                     <Typography variant="body2" color="textSecondary">
-                      Loading employee attendance records...
+                      Loading employees...
                     </Typography>
                   </Box>
                 </TableCell>
               </TableRow>
-            ) : employees.length === 0 ? (
+            ) : paginatedEmployees.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center">
-                  <Typography variant="body2" color="textSecondary">
-                    {searchQuery ? 'No employees found matching your search' : 'No employee attendance records found'}
-                  </Typography>
+                <TableCell colSpan={5} align="center">
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <PersonIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                    <Typography variant="h6" color="textSecondary" gutterBottom>
+                      No employees found
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      {searchTerm || departmentFilter || statusFilter
+                        ? 'Try adjusting your search criteria'
+                        : 'No employees in the system yet'
+                      }
+                    </Typography>
+                  </Box>
                 </TableCell>
               </TableRow>
             ) : (
-              employees.map((employee) => (
-                <TableRow key={employee.employeeId} hover>
+              paginatedEmployees.map((employee) => (
+                <TableRow key={employee._id} hover>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Avatar sx={{ mr: 2, bgcolor: 'primary.main' }}>
+                        {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="subtitle2">
+                          {employee.firstName} {employee.lastName}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          {employee.email}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold">
-                      {employee.employeeId}
+                      {formatEmployeeId(employee.employeeId)}
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {employee.fullName || `${employee.firstName || ''} ${employee.lastName || ''}`.trim()}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="primary" fontWeight="bold">
-                      {employee.latestActivity || 'N/A'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {formatTime(employee.latestTime)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {formatDate(employee.latestDate)}
+                      {typeof employee.placementDepartment === 'object' 
+                        ? employee.placementDepartment?.name 
+                        : employee.placementDepartment || 'N/A'
+                      }
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={employee.status || 'Unknown'}
-                      color={getStatusColor(employee.status)}
+                      label={getStatusText(employee)}
+                      color={getStatusColor(employee)}
                       size="small"
                     />
                   </TableCell>
@@ -260,6 +403,7 @@ const AttendanceRecord = () => {
                       <IconButton
                         size="small"
                         onClick={() => navigate(`/hr/attendance-record/${employee.employeeId}`)}
+                        color="primary"
                       >
                         <ViewIcon />
                       </IconButton>
@@ -273,11 +417,11 @@ const AttendanceRecord = () => {
         <TablePagination
           rowsPerPageOptions={[5, 10, 25, 50]}
           component="div"
-          count={totalCount}
+          count={sortedEmployees.length}
           rowsPerPage={rowsPerPage}
           page={page}
-          onPageChange={handlePageChange}
-          onRowsPerPageChange={handleRowsPerPageChange}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
         />
       </TableContainer>
     </Box>

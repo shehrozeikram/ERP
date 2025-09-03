@@ -116,7 +116,7 @@ class ZKBioTimeApiService {
         params: {
           start_time: startTime,
           end_time: endTime,
-          limit: 100,
+          limit: 1000,
           ordering: '-punch_time'
         }
       });
@@ -134,7 +134,7 @@ class ZKBioTimeApiService {
       const latestResponse = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
-          limit: 50,
+          limit: 1000,
           ordering: '-punch_time'
         }
       });
@@ -152,6 +152,93 @@ class ZKBioTimeApiService {
     } catch (error) {
       console.error('❌ Failed to fetch attendance:', error.message);
       return { success: false, data: [], count: 0, error: error.message };
+    }
+  }
+
+  /**
+   * Get employee attendance history with pagination support
+   */
+  async getEmployeeAttendanceHistory(employeeCode, limit = 1000, offset = 0) {
+    try {
+      if (!(await this.ensureAuth())) {
+        throw new Error('Authentication failed');
+      }
+
+      console.log(`🔍 Fetching attendance history for employee ${employeeCode} (limit: ${limit}, offset: ${offset})...`);
+      
+      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+        headers: this.getAuthHeaders(),
+        params: {
+          emp_code: employeeCode,
+          limit: limit,
+          offset: offset,
+          ordering: '-punch_time'
+        }
+      });
+
+      if (response.data && response.data.data) {
+        console.log(`✅ Fetched ${response.data.data.length} attendance records for employee ${employeeCode}`);
+        return {
+          success: true,
+          data: response.data.data,
+          count: response.data.count || response.data.data.length,
+          totalCount: response.data.count || 0,
+          hasMore: response.data.data.length === limit
+        };
+      }
+
+      return { success: false, data: [], count: 0, totalCount: 0, hasMore: false };
+    } catch (error) {
+      console.error('❌ Failed to fetch employee attendance history:', error.message);
+      return { success: false, data: [], count: 0, totalCount: 0, hasMore: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get complete employee attendance history (all records)
+   */
+  async getCompleteEmployeeAttendanceHistory(employeeCode) {
+    try {
+      console.log(`🔍 Fetching complete attendance history for employee ${employeeCode}...`);
+      
+      let allRecords = [];
+      let offset = 0;
+      const limit = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const result = await this.getEmployeeAttendanceHistory(employeeCode, limit, offset);
+        
+        if (!result.success) {
+          console.error('❌ Failed to fetch attendance records');
+          break;
+        }
+        
+        allRecords = allRecords.concat(result.data);
+        hasMore = result.hasMore;
+        offset += limit;
+        
+        console.log(`📊 Fetched ${result.data.length} records (total: ${allRecords.length})`);
+        
+        // Safety check to prevent infinite loops
+        if (allRecords.length > 10000) {
+          console.warn('⚠️ Reached maximum record limit (10,000), stopping pagination');
+          break;
+        }
+      }
+      
+      console.log(`✅ Total attendance records for employee ${employeeCode}: ${allRecords.length}`);
+      
+      return {
+        success: true,
+        data: allRecords,
+        count: allRecords.length,
+        totalCount: allRecords.length
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to fetch complete employee attendance history:', error.message);
+      return { success: false, data: [], count: 0, totalCount: 0, error: error.message };
     }
   }
 
