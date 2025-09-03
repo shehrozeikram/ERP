@@ -116,7 +116,8 @@ class ZKBioTimeApiService {
         params: {
           start_time: startTime,
           end_time: endTime,
-          limit: 1000,
+          page_size: 30,
+          page: 1,
           ordering: '-punch_time'
         }
       });
@@ -134,7 +135,8 @@ class ZKBioTimeApiService {
       const latestResponse = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
-          limit: 1000,
+          page_size: 30,
+          page: 1,
           ordering: '-punch_time'
         }
       });
