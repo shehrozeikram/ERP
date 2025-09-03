@@ -160,10 +160,6 @@ const AttendanceList = () => {
           <Typography variant="h4" component="h1" gutterBottom>
             Attendance Management
           </Typography>
-          <Typography variant="body2" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
-            Background sync active - data automatically saved every 5 minutes
-          </Typography>
         </Box>
       </Box>
 
