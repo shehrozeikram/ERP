@@ -44,6 +44,7 @@ const AttendanceDetail = () => {
   useEffect(() => {
     fetchAttendanceDetail();
   }, [employeeId]);
+  
 
   const fetchAttendanceDetail = async () => {
     try {
