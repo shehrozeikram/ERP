@@ -473,94 +473,90 @@ router.get('/employee/:employeeId/detail', authMiddleware, async (req, res) => {
 
     // Fetch real-time attendance data from ZKBio Time system
     try {
-      const zkbioResponse = await axios.get(`${req.protocol}://${req.get('host')}/api/zkbio/zkbio/employees/${employee.employeeId}/attendance`, {
-        headers: {
-          'Authorization': req.headers.authorization,
-          'Content-Type': 'application/json'
-        }
-      });
+      // Call the ZKBio Time service directly instead of making an HTTP request
+      const ZKBioTimeApiService = require('../services/zkbioTimeApiService');
+      const zkbioInstance = new ZKBioTimeApiService();
+      
+      // Get employee attendance from ZKBio Time
+      const zkbioData = await zkbioInstance.getEmployeeAttendance(employee.employeeId);
+      
+      if (zkbioData.success && zkbioData.data.attendance) {
+        // Transform ZKBio Time data to match our format
+        const attendanceRecords = zkbioData.data.attendance.map(record => ({
+          _id: `zkbio_${record.date}`,
+          date: new Date(record.date),
+          status: record.checkIn ? 'Present' : 'Absent',
+          checkIn: record.checkIn ? { time: new Date(record.checkIn) } : null,
+          checkOut: record.checkOut ? { time: new Date(record.checkOut) } : null,
+          workHours: record.checkIn && record.checkOut ? 
+            Math.round((new Date(record.checkOut) - new Date(record.checkIn)) / (1000 * 60 * 60) * 100) / 100 : 0,
+          location: record.location,
+          isActive: true,
+          updatedAt: new Date()
+        }));
 
-      if (zkbioResponse.status === 200) {
-        const zkbioData = zkbioResponse.data;
-        
-        if (zkbioData.success && zkbioData.data.attendance) {
-          // Transform ZKBio Time data to match our format
-          const attendanceRecords = zkbioData.data.attendance.map(record => ({
-            _id: `zkbio_${record.date}`,
-            date: new Date(record.date),
-            status: record.checkIn ? 'Present' : 'Absent',
-            checkIn: record.checkIn ? { time: new Date(record.checkIn) } : null,
-            checkOut: record.checkOut ? { time: new Date(record.checkOut) } : null,
-            workHours: record.checkIn && record.checkOut ? 
-              Math.round((new Date(record.checkOut) - new Date(record.checkIn)) / (1000 * 60 * 60) * 100) / 100 : 0,
-            location: record.location,
-            isActive: true,
-            updatedAt: new Date()
-          }));
+        // Get today's attendance
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayAttendance = attendanceRecords.find(record => 
+          record.date.getTime() === today.getTime()
+        );
 
-          // Get today's attendance
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const todayAttendance = attendanceRecords.find(record => 
-            record.date.getTime() === today.getTime()
-          );
+        // Calculate attendance statistics
+        const totalDays = 30;
+        const presentDays = attendanceRecords.filter(record => 
+          record.status === 'Present' || record.checkIn?.time
+        ).length;
+        const absentDays = totalDays - presentDays;
+        const lateDays = attendanceRecords.filter(record => 
+          record.status === 'Late'
+        ).length;
 
-          // Calculate attendance statistics
-          const totalDays = 30;
-          const presentDays = attendanceRecords.filter(record => 
-            record.status === 'Present' || record.checkIn?.time
-          ).length;
-          const absentDays = totalDays - presentDays;
-          const lateDays = attendanceRecords.filter(record => 
-            record.status === 'Late'
-          ).length;
+        // Format the response
+        const formattedEmployee = {
+          _id: employee._id,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          employeeId: employee.employeeId,
+          department: employee.department?.name || 'N/A',
+          position: employee.position?.name || 'N/A',
+          email: employee.email,
+          phone: employee.phone
+        };
 
-          // Format the response
-          const formattedEmployee = {
-            _id: employee._id,
-            firstName: employee.firstName,
-            lastName: employee.lastName,
-            employeeId: employee.employeeId,
-            department: employee.department?.name || 'N/A',
-            position: employee.position?.name || 'N/A',
-            email: employee.email,
-            phone: employee.phone
-          };
+        const formattedAttendanceRecords = attendanceRecords.map(record => ({
+          ...record,
+          checkInTime: record.checkIn?.time ? 
+            formatLocalDateTime(record.checkIn.time) : null,
+          checkOutTime: record.checkOut?.time ? 
+            formatLocalDateTime(record.checkOut.time) : null,
+          attendanceDate: formatLocalDateTime(record.date),
+          lastUpdated: formatLocalDateTime(record.updatedAt)
+        }));
 
-          const formattedAttendanceRecords = attendanceRecords.map(record => ({
-            ...record,
-            checkInTime: record.checkIn?.time ? 
-              formatLocalDateTime(record.checkIn.time) : null,
-            checkOutTime: record.checkOut?.time ? 
-              formatLocalDateTime(record.checkOut.time) : null,
-            attendanceDate: formatLocalDateTime(record.date),
-            lastUpdated: formatLocalDateTime(record.updatedAt)
-          }));
-
-          res.json({
-            success: true,
-            data: {
-              employee: formattedEmployee,
-              attendanceRecords: formattedAttendanceRecords,
-              statistics: {
-                totalDays,
-                presentDays,
-                absentDays,
-                lateDays,
-                attendanceRate: Math.round((presentDays / totalDays) * 100)
-              },
-              todayAttendance: todayAttendance ? {
-                ...todayAttendance,
-                checkInTime: todayAttendance.checkIn?.time ? 
-                  formatLocalDateTime(todayAttendance.checkIn.time) : null,
-                checkOutTime: todayAttendance.checkOut?.time ? 
-                  formatLocalDateTime(todayAttendance.checkOut.time) : null,
-                attendanceDate: formatLocalDateTime(todayAttendance.date)
-              } : null
-            }
-          });
-          return;
-        }
+        res.json({
+          success: true,
+          data: {
+            employee: formattedEmployee,
+            attendanceRecords: formattedAttendanceRecords,
+            statistics: {
+              totalDays,
+              presentDays,
+              absentDays,
+              lateDays,
+              attendanceRate: Math.round((presentDays / totalDays) * 100)
+            },
+            todayAttendance: todayAttendance ? {
+              ...todayAttendance,
+              checkInTime: todayAttendance.checkIn?.time ? 
+                formatLocalDateTime(todayAttendance.checkIn.time) : null,
+              checkOutTime: todayAttendance.checkOut?.time ? 
+                formatLocalDateTime(todayAttendance.checkOut.time) : null,
+              attendanceDate: formatLocalDateTime(todayAttendance.date)
+            } : null
+          }
+        });
+        return;
       }
     } catch (zkbioError) {
       console.error('Error fetching from ZKBio Time system:', zkbioError);

@@ -119,11 +119,23 @@ app.use(cors({
     
     const allowedOrigins = [
       'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5000',
+      'http://localhost:5001',
       'http://tovus.net',
       'https://tovus.net',
       'http://www.tovus.net',
-      'https://www.tovus.net'
+      'https://www.tovus.net',
+      'http://68.183.215.177',
+      'https://68.183.215.177',
+      'http://68.183.215.177:3000',
+      'https://68.183.215.177:3000'
     ];
+    
+    // In development, allow all origins for testing
+    if (NODE_ENV === 'development') {
+      return callback(null, true);
+    }
     
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
@@ -132,8 +144,10 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+});
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
