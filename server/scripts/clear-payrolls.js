@@ -13,30 +13,35 @@ const connectDB = async () => {
   }
 };
 
-// Main function to clear all payrolls
-const clearPayrolls = async () => {
+// Main function to clear August payrolls only
+const clearAugustPayrolls = async () => {
   try {
-    console.log('🚀 Starting payroll cleanup...');
+    console.log('🚀 Starting August payroll cleanup...');
     
-    // Get count before deletion
-    const totalPayrolls = await Payroll.countDocuments({});
+    // Get count before deletion for August
+    const augustPayrolls = await Payroll.countDocuments({ month: 8 });
+    console.log(`📊 Found ${augustPayrolls} August payroll records`);
     
-    if (totalPayrolls === 0) {
-      console.log('ℹ️  No payroll records found');
+    if (augustPayrolls === 0) {
+      console.log('ℹ️  No August payroll records found');
       return;
     }
     
-    console.log(`📊 Found ${totalPayrolls} payroll records to delete`);
+    console.log(`📊 August payroll records to delete: ${augustPayrolls}`);
     
-    // Delete all payrolls
-    const result = await Payroll.deleteMany({});
+    // Delete August payrolls only
+    const result = await Payroll.deleteMany({ month: 8 });
+    console.log(`🗑️  Deleted ${result.deletedCount} August payroll records`);
     
-    console.log('\n✅ Payroll cleanup completed!');
-    console.log(`📊 Deleted: ${result.deletedCount} payroll records`);
+    console.log('\n✅ August payroll cleanup completed!');
+    console.log(`📊 Total deleted: ${result.deletedCount} August payroll records`);
     
     // Verify deletion
-    const remainingCount = await Payroll.countDocuments({});
-    console.log(`📊 Remaining: ${remainingCount} payroll records`);
+    const remainingAugust = await Payroll.countDocuments({ month: 8 });
+    const totalRemaining = await Payroll.countDocuments({});
+    
+    console.log(`📊 Remaining August payrolls: ${remainingAugust}`);
+    console.log(`📊 Total remaining payrolls: ${totalRemaining}`);
     
   } catch (error) {
     console.error('❌ Error:', error);
@@ -48,4 +53,4 @@ const clearPayrolls = async () => {
 };
 
 // Run the script
-connectDB().then(clearPayrolls);
+connectDB().then(clearAugustPayrolls);

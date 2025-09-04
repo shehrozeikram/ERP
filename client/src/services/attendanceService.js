@@ -152,4 +152,39 @@ class AttendanceService {
   }
 }
 
+/**
+ * Get absent employees for a specific date
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @param {Object} options - Filter options
+ * @returns {Promise<Object>} Absent employees data
+ */
+export const getAbsentEmployees = async (date, options = {}) => {
+  try {
+    const params = new URLSearchParams({
+      date,
+      excludeWeekends: options.excludeWeekends !== false ? 'true' : 'false',
+      excludeHolidays: options.excludeHolidays !== false ? 'true' : 'false',
+      onlyActiveEmployees: options.onlyActiveEmployees !== false ? 'true' : 'false'
+    });
+
+    const response = await fetch(`/api/zkbio/absent-employees?${params}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error fetching absent employees:', error);
+    throw error;
+  }
+};
+
 export default AttendanceService;

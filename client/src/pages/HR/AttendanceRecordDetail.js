@@ -41,7 +41,7 @@ const AttendanceRecordDetail = () => {
       // Ensure employeeId is a string
       const id = typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId;
       
-      const response = await fetch(`/api/zkbio/zkbio/employees/${id}/attendance`);
+      const response = await fetch(`http://localhost:5001/api/zkbio/zkbio/employees/${id}/attendance`);
       const result = await response.json();
       
       if (result.success) {

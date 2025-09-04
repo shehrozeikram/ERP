@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { getZKBioTimeConfig, getUserAgent, updateCookies } = require('../config/zktecoConfig');
 
 /**
  * ZKBio Time API Service
@@ -6,13 +7,90 @@ const axios = require('axios');
  */
 class ZKBioTimeApiService {
   constructor() {
-    this.baseURL = 'http://182.180.55.96:85';
-    this.token = null;
-    this.tokenExpiry = null;
-    this.credentials = {
-      username: 'superuser',
-      password: 'SGCit123456'
+    this.config = getZKBioTimeConfig();
+    this.baseURL = this.config.baseURL;
+    this.credentials = this.config.credentials;
+    this.endpoints = this.config.endpoints;
+    this.isAuthenticated = false;
+    this.sessionCookies = null;
+    this.csrfToken = null;
+    
+    // Add caching for better performance
+    this.cache = {
+      employees: {
+        data: null,
+        timestamp: null,
+        ttl: 5 * 60 * 1000 // 5 minutes cache
+      },
+      attendance: {
+        data: {},
+        timestamp: {},
+        ttl: 2 * 60 * 1000 // 2 minutes cache
+      }
     };
+  }
+
+  /**
+   * Check if cache is valid
+   */
+  isCacheValid(cacheKey, cacheType = 'employees') {
+    const cache = this.cache[cacheType];
+    if (!cache) return false;
+    
+    if (cacheType === 'employees') {
+      return cache.data && cache.timestamp && 
+             (Date.now() - cache.timestamp) < cache.ttl;
+    } else if (cacheType === 'attendance') {
+      return cache.data[cacheKey] && cache.timestamp[cacheKey] && 
+             (Date.now() - cache.timestamp[cacheKey]) < cache.ttl;
+    }
+    return false;
+  }
+
+  /**
+   * Get cached data
+   */
+  getCachedData(cacheKey, cacheType = 'employees') {
+    const cache = this.cache[cacheType];
+    if (!cache) return null;
+    
+    if (cacheType === 'employees') {
+      return cache.data;
+    } else if (cacheType === 'attendance') {
+      return cache.data[cacheKey];
+    }
+    return null;
+  }
+
+  /**
+   * Set cached data
+   */
+  setCachedData(data, cacheKey, cacheType = 'employees') {
+    const cache = this.cache[cacheType];
+    if (!cache) return;
+    
+    if (cacheType === 'employees') {
+      cache.data = data;
+      cache.timestamp = Date.now();
+    } else if (cacheType === 'attendance') {
+      cache.data[cacheKey] = data;
+      cache.timestamp[cacheKey] = Date.now();
+    }
+  }
+
+  /**
+   * Clear cache
+   */
+  clearCache(cacheType = 'all') {
+    if (cacheType === 'all' || cacheType === 'employees') {
+      this.cache.employees.data = null;
+      this.cache.employees.timestamp = null;
+    }
+    if (cacheType === 'all' || cacheType === 'attendance') {
+      this.cache.attendance.data = {};
+      this.cache.attendance.timestamp = {};
+    }
+    console.log('🗑️ Cache cleared');
   }
 
   /**
@@ -20,26 +98,90 @@ class ZKBioTimeApiService {
    */
   getAuthHeaders() {
     return {
-      'Authorization': `Token ${this.token}`,
+      'Cookie': this.sessionCookies,
+      'User-Agent': getUserAgent(),
       'Content-Type': 'application/json'
     };
   }
 
   /**
-   * Authenticate with ZKBio Time
+   * Authenticate with ZKBio Time using session-based authentication
    */
   async authenticate() {
     try {
       console.log('🔐 Authenticating with ZKBio Time API...');
       
-      const response = await axios.post(`${this.baseURL}/api-token-auth/`, {
-        username: this.credentials.username,
-        password: this.credentials.password
+      // First, get the login page to extract CSRF token
+      const loginPageResponse = await axios.get(`${this.baseURL}${this.endpoints.login}`, {
+        headers: {
+          'User-Agent': getUserAgent(),
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
+        }
       });
 
-      if (response.data && response.data.token) {
-        this.token = response.data.token;
-        this.tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      // Extract CSRF token from the login page
+      const csrfMatch = loginPageResponse.data.match(/name=['"]csrfmiddlewaretoken['"] value=['"]([^'"]+)['"]/);
+      if (csrfMatch) {
+        this.csrfToken = csrfMatch[1];
+        console.log('✅ CSRF token extracted:', this.csrfToken.substring(0, 10) + '...');
+      }
+
+      // Prepare login data
+      const loginData = new URLSearchParams({
+        'username': this.credentials.username,
+        'password': this.credentials.password,
+        'csrfmiddlewaretoken': this.csrfToken
+      });
+
+      // Perform login
+      const loginResponse = await axios.post(`${this.baseURL}${this.endpoints.login}`, loginData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': getUserAgent(),
+          'Referer': `${this.baseURL}${this.endpoints.login}`,
+          'Origin': this.baseURL,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Cookie': `csrftoken=${this.csrfToken}`
+        },
+        maxRedirects: 0,
+        validateStatus: function (status) {
+          return status >= 200 && status < 400; // Accept redirects
+        }
+      });
+
+      // Extract session cookies from response
+      const setCookieHeaders = loginResponse.headers['set-cookie'];
+      if (setCookieHeaders) {
+        this.sessionCookies = setCookieHeaders.map(cookie => cookie.split(';')[0]).join('; ');
+        console.log('✅ Session cookies obtained');
+        
+        // Update the global config with new cookies
+        const cookieObj = {};
+        setCookieHeaders.forEach(cookie => {
+          const [name, value] = cookie.split(';')[0].split('=');
+          cookieObj[name.trim()] = value.trim();
+        });
+        updateCookies(cookieObj);
+      }
+
+      // Verify authentication by accessing dashboard
+      const dashboardResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
+        headers: {
+          'Cookie': this.sessionCookies,
+          'User-Agent': getUserAgent()
+        }
+      });
+
+      if (dashboardResponse.status === 200 && !dashboardResponse.data.includes('login')) {
+        this.isAuthenticated = true;
         console.log('✅ ZKBio Time authentication successful');
         return true;
       }
@@ -52,47 +194,83 @@ class ZKBioTimeApiService {
   }
 
   /**
-   * Check if token is valid
+   * Check if authenticated
    */
-  isTokenValid() {
-    return this.token && this.tokenExpiry && new Date() < this.tokenExpiry;
+  isLoggedIn() {
+    return this.isAuthenticated && this.sessionCookies;
   }
 
   /**
    * Ensure authentication
    */
   async ensureAuth() {
-    if (!this.isTokenValid()) {
+    if (!this.isLoggedIn()) {
       return await this.authenticate();
     }
     return true;
   }
 
   /**
-   * Get all employees
+   * Get all employees (with pagination to get all employees)
    */
   async getEmployees() {
     try {
+      // Check cache first
+      if (this.isCacheValid('employees', 'employees')) {
+        console.log('👥 Returning cached employees data');
+        return {
+          success: true,
+          data: this.getCachedData('employees', 'employees'),
+          count: this.getCachedData('employees', 'employees').length,
+          source: 'Cache'
+        };
+      }
+
       if (!(await this.ensureAuth())) {
         throw new Error('Authentication failed');
       }
 
-      console.log('👥 Fetching employees from ZKBio Time...');
+      console.log('👥 Fetching all employees from ZKBio Time...');
       
-      const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
-        headers: this.getAuthHeaders()
-      });
+      let allEmployees = [];
+      let page = 1;
+      let hasMore = true;
+      const pageSize = 200; // Increased from 100 for faster fetching
+      
+      while (hasMore) {
+        const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
+          headers: this.getAuthHeaders(),
+          params: {
+            page_size: pageSize,
+            page: page,
+            ordering: 'emp_code'
+          }
+        });
 
-      if (response.data && response.data.data) {
-        console.log(`✅ Fetched ${response.data.data.length} employees`);
-        return {
-          success: true,
-          data: response.data.data,
-          count: response.data.count || response.data.data.length
-        };
+        if (response.data && response.data.data && response.data.data.length > 0) {
+          allEmployees = allEmployees.concat(response.data.data);
+          console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
+          
+          // Check if there are more pages
+          hasMore = response.data.next !== null && response.data.data.length === pageSize;
+          page++;
+        } else {
+          hasMore = false;
+        }
       }
 
-      return { success: false, data: [], count: 0 };
+      console.log(`✅ Total employees fetched: ${allEmployees.length}`);
+      
+      // Cache the result
+      this.setCachedData(allEmployees, 'employees', 'employees');
+      
+      return {
+        success: true,
+        data: allEmployees,
+        count: allEmployees.length,
+        source: 'ZKBio Time API'
+      };
+
     } catch (error) {
       console.error('❌ Failed to fetch employees:', error.message);
       return { success: false, data: [], count: 0, error: error.message };
@@ -100,23 +278,25 @@ class ZKBioTimeApiService {
   }
 
   /**
-   * Get today's attendance
+   * Get today's attendance (optimized)
    */
   async getTodayAttendance() {
     try {
-      // Force fresh authentication
-      await this.authenticate();
+      if (!(await this.ensureAuth())) {
+        throw new Error('Authentication failed');
+      }
 
       const today = new Date();
       const startTime = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T00:00:00`;
       const endTime = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T23:59:59`;
 
+      // Use larger page size for faster fetching
       const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           start_time: startTime,
           end_time: endTime,
-          page_size: 30,
+          page_size: 100, // Increased from 30
           page: 1,
           ordering: '-punch_time'
         }
@@ -135,7 +315,7 @@ class ZKBioTimeApiService {
       const latestResponse = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
-          page_size: 30,
+          page_size: 100, // Increased from 30
           page: 1,
           ordering: '-punch_time'
         }
@@ -251,6 +431,19 @@ class ZKBioTimeApiService {
    */
   async getAttendanceByDateRange(startDate, endDate) {
     try {
+      const cacheKey = `${startDate}_${endDate}`;
+      
+      // Check cache first
+      if (this.isCacheValid(cacheKey, 'attendance')) {
+        console.log(`📊 Returning cached attendance data for ${startDate} to ${endDate}`);
+        return {
+          success: true,
+          data: this.getCachedData(cacheKey, 'attendance'),
+          count: this.getCachedData(cacheKey, 'attendance').length,
+          source: 'Cache'
+        };
+      }
+
       if (!(await this.ensureAuth())) {
         throw new Error('Authentication failed');
       }
@@ -267,10 +460,15 @@ class ZKBioTimeApiService {
 
       if (response.data && response.data.data) {
         console.log(`✅ Fetched ${response.data.data.length} attendance records`);
+        
+        // Cache the result
+        this.setCachedData(response.data.data, cacheKey, 'attendance');
+        
         return {
           success: true,
           data: response.data.data,
-          count: response.data.count || response.data.data.length
+          count: response.data.count || response.data.data.length,
+          source: 'ZKBio Time API'
         };
       }
 
@@ -422,6 +620,143 @@ class ZKBioTimeApiService {
     });
 
     return Array.from(grouped.values());
+  }
+
+  /**
+   * Get absent employees for a specific date (optimized)
+   * @param {string} targetDate - Date in YYYY-MM-DD format
+   * @param {Object} options - Options for filtering
+   * @returns {Object} Absent employees data
+   */
+  async getAbsentEmployees(targetDate, options = {}) {
+    try {
+      if (!(await this.ensureAuth())) {
+        throw new Error('Authentication failed');
+      }
+
+      const {
+        excludeWeekends = true,
+        excludeHolidays = true,
+        onlyActiveEmployees = true
+      } = options;
+
+      console.log(`📊 Fetching absent employees for ${targetDate}...`);
+
+      // Use cached data if available and recent (within 1 minute for absent employees)
+      const cacheKey = `absent_${targetDate}`;
+      if (this.isCacheValid(cacheKey, 'attendance')) {
+        const cachedData = this.getCachedData(cacheKey, 'attendance');
+        console.log(`📊 Returning cached absent employees data for ${targetDate}`);
+        return cachedData;
+      }
+
+      // Check if it's a weekend
+      const targetDateObj = new Date(targetDate);
+      const isWeekend = targetDateObj.getDay() === 0 || targetDateObj.getDay() === 6;
+      
+      if (excludeWeekends && isWeekend) {
+        return {
+          success: true,
+          data: [],
+          summary: {
+            totalAbsent: 0,
+            totalEmployees: 0,
+            absentPercentage: 0,
+            workingDay: false,
+            reason: 'Weekend'
+          },
+          message: 'No absent employees on weekends'
+        };
+      }
+
+      // Parallel fetch: employees and attendance records
+      const [employeeResult, attendanceResult] = await Promise.all([
+        this.getEmployees(),
+        this.getTodayAttendance() // Use today's attendance instead of date range
+      ]);
+
+      if (!employeeResult.success) {
+        throw new Error('Failed to fetch employees');
+      }
+
+      // Filter active employees only
+      let employees = employeeResult.data;
+      if (onlyActiveEmployees) {
+        employees = employees.filter(emp => emp.is_active !== false);
+      }
+
+      // Create a Set of present employee IDs for O(1) lookup
+      const presentEmployeeIds = new Set();
+      if (attendanceResult.success && attendanceResult.data) {
+        attendanceResult.data.forEach(record => {
+          // Check both direct emp_code and nested originalRecord.emp_code
+          const empCode = record.emp_code || record.originalRecord?.emp_code;
+          if (empCode) {
+            presentEmployeeIds.add(empCode.trim());
+          }
+        });
+      }
+
+      // Find absent employees
+      const absentEmployees = employees.filter(employee => 
+        !presentEmployeeIds.has(employee.emp_code?.trim())
+      );
+
+      // Transform data for frontend
+      const transformedData = absentEmployees.map(emp => ({
+        employeeId: emp.emp_code,
+        firstName: emp.first_name || '',
+        lastName: emp.last_name || '',
+        fullName: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
+        department: emp.department?.dept_name || 'N/A',
+        position: emp.position?.position_name || 'N/A',
+        absenceDate: targetDate,
+        absenceReason: 'No punch record',
+        isWeekend: isWeekend,
+        isHoliday: false, // TODO: Implement holiday check
+        employeeData: emp
+      }));
+
+      const summary = {
+        totalAbsent: absentEmployees.length,
+        totalEmployees: employees.length,
+        absentPercentage: employees.length > 0 ? Math.round((absentEmployees.length / employees.length) * 100) : 0,
+        workingDay: !isWeekend,
+        presentEmployees: employees.length - absentEmployees.length,
+        date: targetDate
+      };
+
+      console.log(`✅ Found ${absentEmployees.length} absent employees out of ${employees.length} total`);
+
+      const result = {
+        success: true,
+        data: transformedData,
+        summary,
+        source: 'ZKBio Time API',
+        message: `Found ${absentEmployees.length} absent employees for ${targetDate}`
+      };
+
+      // Cache the result with shorter TTL for absent employees (1 minute)
+      this.setCachedData(result, cacheKey, 'attendance');
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ Failed to fetch absent employees:', error.message);
+      return { 
+        success: false, 
+        data: [], 
+        summary: {
+          totalAbsent: 0,
+          totalEmployees: 0,
+          absentPercentage: 0,
+          workingDay: true,
+          presentEmployees: 0,
+          date: targetDate
+        },
+        error: error.message 
+      };
+    }
   }
 }
 

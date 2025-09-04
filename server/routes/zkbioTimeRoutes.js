@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const zkbioTimeApiService = require('../services/zkbioTimeApiService');
+const zkbioTimeDatabaseService = require('../services/zkbioTimeDatabaseService');
 
 /**
  * GET /api/attendance/zkbio/today
@@ -9,6 +10,19 @@ const zkbioTimeApiService = require('../services/zkbioTimeApiService');
  */
 router.get('/zkbio/today', async (req, res) => {
   try {
+    // Check cache first
+    const cacheKey = 'today_attendance';
+    if (zkbioTimeApiService.isCacheValid(cacheKey, 'attendance')) {
+      const cachedData = zkbioTimeApiService.getCachedData(cacheKey, 'attendance');
+      return res.json({
+        success: true,
+        data: cachedData,
+        count: cachedData.length,
+        source: 'Cache',
+        message: `Loaded ${cachedData.length} attendance records from cache`
+      });
+    }
+
     const apiResult = await zkbioTimeApiService.getTodayAttendance();
     
     if (apiResult.success && apiResult.data.length > 0) {
@@ -16,6 +30,9 @@ router.get('/zkbio/today', async (req, res) => {
       const employees = employeeResult.success ? employeeResult.data : [];
       
       const processedData = zkbioTimeApiService.processAttendanceData(apiResult.data, employees);
+      
+      // Cache the processed data
+      zkbioTimeApiService.setCachedData(processedData, cacheKey, 'attendance');
       
       res.json({
         success: true,
@@ -412,6 +429,74 @@ router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch employee attendance history'
+    });
+  }
+});
+
+/**
+ * GET /api/zkbio/absent-employees
+ * Get absent employees for a specific date
+ */
+router.get('/absent-employees', async (req, res) => {
+  try {
+    const { date, excludeWeekends = 'true', excludeHolidays = 'true', onlyActiveEmployees = 'true', clearCache = 'false' } = req.query;
+    
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date parameter is required (YYYY-MM-DD format)'
+      });
+    }
+
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid date format. Use YYYY-MM-DD'
+      });
+    }
+
+    console.log(`📊 API: Fetching absent employees for ${date}...`);
+    
+    // Clear cache if requested
+    if (clearCache === 'true') {
+      zkbioTimeApiService.clearCache();
+    }
+    
+    const options = {
+      excludeWeekends: excludeWeekends === 'true',
+      excludeHolidays: excludeHolidays === 'true',
+      onlyActiveEmployees: onlyActiveEmployees === 'true'
+    };
+
+    const result = await zkbioTimeApiService.getAbsentEmployees(date, options);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        data: result.data,
+        summary: result.summary,
+        count: result.data.length,
+        source: result.source,
+        message: result.message
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        data: [],
+        summary: result.summary,
+        count: 0,
+        message: 'Failed to fetch absent employees',
+        error: result.error
+      });
+    }
+  } catch (error) {
+    console.error('❌ API Error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch absent employees',
+      error: error.message
     });
   }
 });

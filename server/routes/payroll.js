@@ -7,8 +7,30 @@ const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
 const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
+const Attendance = require('../models/hr/Attendance');
+const AttendanceIntegrationService = require('../services/attendanceIntegrationService');
 
 const router = express.Router();
+
+/**
+ * Calculate working days in a month (excluding Sundays)
+ * @param {number} year - Year
+ * @param {number} month - Month (0-11)
+ * @returns {number} Number of working days
+ */
+const calculateWorkingDaysInMonth = (year, month) => {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let workingDays = 0;
+  
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayOfWeek = new Date(year, month, day).getDay();
+    if (dayOfWeek !== 0) { // 0 = Sunday
+      workingDays++;
+    }
+  }
+  
+  return workingDays;
+};
 
 // @route   GET /api/payroll
 // @desc    Get all payrolls with filters
@@ -562,15 +584,22 @@ router.post('/', [
         // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
         const eobi = 370;
         
-        // 🔧 26-DAY ATTENDANCE SYSTEM
-        const totalWorkingDays = 26;
-        const presentDays = 26; // Assume full attendance for monthly payroll
-        const absentDays = 0;
-        const leaveDays = 0;
+        // 🔧 INTEGRATE ACTUAL ATTENDANCE RECORDS USING SERVICE
+        const attendanceIntegration = await AttendanceIntegrationService.getAttendanceIntegration(
+          employee.employeeId, // Use employeeId field instead of _id
+          month,
+          year,
+          grossSalary
+        );
         
-        // Calculate daily rate and attendance deduction
-        const dailyRate = grossSalary / 26;
-        const attendanceDeduction = 0; // No absent days
+        const {
+          presentDays,
+          absentDays,
+          leaveDays,
+          totalWorkingDays,
+          dailyRate,
+          attendanceDeduction
+        } = attendanceIntegration;
         
         // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
         const totalDeductions = monthlyTax + eobi + attendanceDeduction;
@@ -1438,36 +1467,34 @@ router.delete('/:id',
   })
 );
 
-
-
-
-
-
-
-
-
-//       // 🔧 APPLYING MIDDLEWARE LOGIC IN ROUTE:
+// @route   GET /api/payroll/demo-attendance-integration
+// @desc    Demonstrate attendance integration with payroll calculations
+// @access  Private (HR and Admin)
+router.get('/demo-attendance-integration',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      const { demonstrateAttendanceIntegration } = require('../utils/attendanceIntegrationDemo');
       
-//       // Auto-calculate Provident Fund (8.34% of basic salary) if not provided
-
+      // Run the demonstration
+      const demo = demonstrateAttendanceIntegration();
       
-
+      res.json({
+        success: true,
+        message: 'Attendance integration demonstration',
+        data: demo
+      });
       
-
-      
-
-      
-//       // Calculate total deductions (excluding Provident Fund as requested - same as middleware)
-
-      
-
-
-
-
-      
-
-
-
+    } catch (error) {
+      console.error('❌ Error in attendance integration demo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to run attendance integration demo',
+        error: error.message
+      });
+    }
+  })
+);
 
 // @route   GET /api/payroll/:id/download
 // @desc    Download payroll as PDF
@@ -1953,6 +1980,35 @@ router.get('/monthly-tax-summary/:month/:year',
       res.status(500).json({
         success: false,
         message: 'Failed to get monthly tax summary',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   GET /api/payroll/demo-attendance-integration
+// @desc    Demonstrate attendance integration with payroll calculations
+// @access  Private (HR and Admin)
+router.get('/demo-attendance-integration',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      const { demonstrateAttendanceIntegration } = require('../utils/attendanceIntegrationDemo');
+      
+      // Run the demonstration
+      const demo = demonstrateAttendanceIntegration();
+      
+      res.json({
+        success: true,
+        message: 'Attendance integration demonstration',
+        data: demo
+      });
+      
+    } catch (error) {
+      console.error('❌ Error in attendance integration demo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to run attendance integration demo',
         error: error.message
       });
     }
