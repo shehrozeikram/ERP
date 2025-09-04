@@ -10,7 +10,7 @@ const zkbioTimeService = require('../services/zkbioTimeService');
 const { processZKTecoTimestamp, formatLocalDateTime } = require('../utils/timezoneHelper');
 const mongoose = require('mongoose');
 const PayrollUpdateService = require('../services/payrollUpdateService');
-const fetch = require('node-fetch');
+const axios = require('axios');
 
 // Get all attendance records with pagination and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -473,15 +473,15 @@ router.get('/employee/:employeeId/detail', authMiddleware, async (req, res) => {
 
     // Fetch real-time attendance data from ZKBio Time system
     try {
-      const zkbioResponse = await fetch(`${req.protocol}://${req.get('host')}/api/zkbio/zkbio/employees/${employee.employeeId}/attendance`, {
+      const zkbioResponse = await axios.get(`${req.protocol}://${req.get('host')}/api/zkbio/zkbio/employees/${employee.employeeId}/attendance`, {
         headers: {
           'Authorization': req.headers.authorization,
           'Content-Type': 'application/json'
         }
       });
 
-      if (zkbioResponse.ok) {
-        const zkbioData = await zkbioResponse.json();
+      if (zkbioResponse.status === 200) {
+        const zkbioData = zkbioResponse.data;
         
         if (zkbioData.success && zkbioData.data.attendance) {
           // Transform ZKBio Time data to match our format
