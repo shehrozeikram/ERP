@@ -87,6 +87,10 @@ const AttendanceList = () => {
       setLoading(true);
       setError(null);
       
+      // Clear any existing data first
+      setAttendance([]);
+      setTotalRecords(0);
+      
       const response = await fetch('/api/zkbio/zkbio/today');
       const result = await response.json();
       
@@ -465,11 +469,27 @@ const AttendanceList = () => {
       </Grid>
 
       {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Tabs value={activeTab} onChange={handleTabChange} aria-label="attendance tabs">
           <Tab label="Today's Attendance" />
           <Tab label="Absent Employees" />
         </Tabs>
+        
+        {/* Refresh button for Today's Attendance */}
+        {activeTab === 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {loading && <CircularProgress size={20} />}
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={fetchTodayAttendance}
+              disabled={loading}
+              size="small"
+            >
+              {loading ? 'Loading...' : 'Refresh'}
+            </Button>
+          </Box>
+        )}
       </Box>
 
       {/* Absent Employees Date Selector */}

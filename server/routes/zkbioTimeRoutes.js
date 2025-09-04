@@ -10,19 +10,6 @@ const zkbioTimeDatabaseService = require('../services/zkbioTimeDatabaseService')
  */
 router.get('/zkbio/today', async (req, res) => {
   try {
-    // Check cache first
-    const cacheKey = 'today_attendance';
-    if (zkbioTimeApiService.isCacheValid(cacheKey, 'attendance')) {
-      const cachedData = zkbioTimeApiService.getCachedData(cacheKey, 'attendance');
-      return res.json({
-        success: true,
-        data: cachedData,
-        count: cachedData.length,
-        source: 'Cache',
-        message: `Loaded ${cachedData.length} attendance records from cache`
-      });
-    }
-
     const apiResult = await zkbioTimeApiService.getTodayAttendance();
     
     if (apiResult.success && apiResult.data.length > 0) {
@@ -30,9 +17,6 @@ router.get('/zkbio/today', async (req, res) => {
       const employees = employeeResult.success ? employeeResult.data : [];
       
       const processedData = zkbioTimeApiService.processAttendanceData(apiResult.data, employees);
-      
-      // Cache the processed data
-      zkbioTimeApiService.setCachedData(processedData, cacheKey, 'attendance');
       
       res.json({
         success: true,

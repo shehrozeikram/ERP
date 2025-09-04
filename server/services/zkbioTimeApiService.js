@@ -290,6 +290,8 @@ class ZKBioTimeApiService {
       const startTime = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T00:00:00`;
       const endTime = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T23:59:59`;
 
+      console.log('📊 Fetching fresh today\'s attendance from ZKBio Time...');
+
       // Use larger page size for faster fetching
       const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
@@ -303,6 +305,7 @@ class ZKBioTimeApiService {
       });
 
       if (response.data && response.data.data && response.data.data.length > 0) {
+        console.log(`✅ Fetched ${response.data.data.length} fresh attendance records for today`);
         return {
           success: true,
           data: response.data.data,
@@ -312,6 +315,7 @@ class ZKBioTimeApiService {
       }
 
       // If no today's data, try without date filter to get latest data
+      console.log('📊 No today\'s data found, fetching latest attendance records...');
       const latestResponse = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
@@ -322,6 +326,7 @@ class ZKBioTimeApiService {
       });
 
       if (latestResponse.data && latestResponse.data.data && latestResponse.data.data.length > 0) {
+        console.log(`✅ Fetched ${latestResponse.data.data.length} latest attendance records`);
         return {
           success: true,
           data: latestResponse.data.data,
@@ -330,6 +335,7 @@ class ZKBioTimeApiService {
         };
       }
 
+      console.log('⚠️ No attendance data found');
       return { success: false, data: [], count: 0, source: 'None' };
     } catch (error) {
       console.error('❌ Failed to fetch attendance:', error.message);
