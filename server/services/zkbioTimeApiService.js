@@ -344,7 +344,50 @@ class ZKBioTimeApiService {
   }
 
   /**
-   * Get employee attendance history with pagination support
+   * Get attendance for a specific date
+   */
+  async getAttendanceForDate(targetDate) {
+    try {
+      if (!(await this.ensureAuth())) {
+        throw new Error('Authentication failed');
+      }
+
+      const startTime = `${targetDate}T00:00:00`;
+      const endTime = `${targetDate}T23:59:59`;
+
+      console.log(`📊 Fetching attendance for ${targetDate} from ZKBio Time...`);
+
+      // Use larger page size for faster fetching
+      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+        headers: this.getAuthHeaders(),
+        params: {
+          start_time: startTime,
+          end_time: endTime,
+          page_size: 1000, // Large page size to get all records for the date
+          page: 1,
+          ordering: '-punch_time'
+        }
+      });
+
+      if (response.data && response.data.data && response.data.data.length > 0) {
+        console.log(`✅ Fetched ${response.data.data.length} attendance records for ${targetDate}`);
+        return {
+          success: true,
+          data: response.data.data,
+          count: response.data.count || response.data.data.length,
+          source: targetDate
+        };
+      }
+
+      console.log(`⚠️ No attendance data found for ${targetDate}`);
+      return { success: true, data: [], count: 0, source: targetDate };
+    } catch (error) {
+      console.error(`❌ Failed to fetch attendance for ${targetDate}:`, error.message);
+      return { success: false, data: [], count: 0, error: error.message };
+    }
+  }
+
+  /**
    */
   async getEmployeeAttendanceHistory(employeeCode, pageSize = 30, page = 1) {
     try {
@@ -678,7 +721,7 @@ class ZKBioTimeApiService {
       // Parallel fetch: employees and attendance records
       const [employeeResult, attendanceResult] = await Promise.all([
         this.getEmployees(),
-        this.getTodayAttendance() // Use today's attendance instead of date range
+        this.getAttendanceForDate(targetDate) // Use specific date attendance instead of today
       ]);
 
       if (!employeeResult.success) {

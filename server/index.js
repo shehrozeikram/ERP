@@ -251,7 +251,7 @@ mongoose.connection.once('open', async () => {
 
 // Scheduled Sync Service is already initialized as singleton
 
-server.listen(PORT, '0.0.0.0', async () => {
+server.listen(PORT, 'localhost', async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
   console.log(`📊 Environment: ${NODE_ENV}`);
   console.log(`🌐 API Base URL: http://0.0.0.0:${PORT}/api`);
