@@ -20,20 +20,29 @@ import {
   Tooltip,
   Card,
   CardContent,
-  Grid
+  Grid,
+  Button
 } from '@mui/material';
 import {
   Search as SearchIcon,
   Visibility as ViewIcon,
   Schedule as ScheduleIcon,
-  Person as PersonIcon
+  Person as PersonIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useData } from '../../contexts/DataContext';
 import { PageLoading } from '../../components/LoadingSpinner';
+import api from '../../services/api';
 
 const AttendanceRecord = () => {
-  const { employees, departments, loading: dataLoading } = useData();
+  const [employees, setEmployees] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [loading, setLoading] = useState({
+    employees: true,
+    departments: true
+  });
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -45,6 +54,63 @@ const AttendanceRecord = () => {
   const [paginatedEmployees, setPaginatedEmployees] = useState([]);
   
   const navigate = useNavigate();
+
+  // Fetch employees directly from API
+  const fetchEmployees = async () => {
+    try {
+      setLoading(prev => ({ ...prev, employees: true }));
+      setError(null);
+      const response = await api.get('/hr/employees?getAll=true');
+      const result = response.data;
+      
+      if (result.success) {
+        setEmployees(result.data || []);
+        setSuccess(`Successfully loaded ${result.data?.length || 0} employees`);
+        console.log(`✅ Fetched ${result.data?.length || 0} employees directly from API`);
+      } else {
+        console.error('❌ Failed to fetch employees:', result.message);
+        setError(result.message || 'Failed to fetch employees');
+        setEmployees([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching employees:', error);
+      setError('Failed to connect to server');
+      setEmployees([]);
+    } finally {
+      setLoading(prev => ({ ...prev, employees: false }));
+    }
+  };
+
+  // Fetch departments directly from API
+  const fetchDepartments = async () => {
+    try {
+      setLoading(prev => ({ ...prev, departments: true }));
+      setError(null);
+      const response = await api.get('/hr/departments');
+      const result = response.data;
+      
+      if (result.success) {
+        setDepartments(result.data || []);
+        console.log(`✅ Fetched ${result.data?.length || 0} departments directly from API`);
+      } else {
+        console.error('❌ Failed to fetch departments:', result.message);
+        setError(result.message || 'Failed to fetch departments');
+        setDepartments([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching departments:', error);
+      setError('Failed to connect to server');
+      setDepartments([]);
+    } finally {
+      setLoading(prev => ({ ...prev, departments: false }));
+    }
+  };
+
+  // Load data on component mount
+  useEffect(() => {
+    fetchEmployees();
+    fetchDepartments();
+  }, []);
 
   // Pagination handlers
   const handleChangePage = useCallback((event, newPage) => {
@@ -174,7 +240,7 @@ const AttendanceRecord = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
-  if (dataLoading.employees || dataLoading.departments) {
+  if (loading.employees || loading.departments) {
     return (
       <PageLoading 
         message="Loading employees..." 
@@ -196,7 +262,31 @@ const AttendanceRecord = () => {
             View employee attendance history from ZKBio Time system
           </Typography>
         </Box>
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={() => {
+            fetchEmployees();
+            fetchDepartments();
+          }}
+          disabled={loading.employees || loading.departments}
+        >
+          Refresh Data
+        </Button>
       </Box>
+
+      {/* Error and Success Messages */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+          {success}
+        </Alert>
+      )}
 
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
