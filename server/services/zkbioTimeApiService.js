@@ -389,7 +389,7 @@ class ZKBioTimeApiService {
       console.log(`📊 Fetching attendance for ${targetDate} from ZKBio Time...`);
 
       // Use larger page size for faster fetching
-      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           start_time: startTime,
@@ -428,7 +428,7 @@ class ZKBioTimeApiService {
 
       console.log(`🔍 Fetching attendance history for employee ${employeeCode} (page_size: ${pageSize}, page: ${page})...`);
       
-      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           emp_code: employeeCode,
@@ -454,6 +454,13 @@ class ZKBioTimeApiService {
       return { success: false, data: [], count: 0, totalCount: 0, hasMore: false };
     } catch (error) {
       console.error('❌ Failed to fetch employee attendance history:', error.message);
+      
+      // Try with proxy if direct connection failed
+      if (await this.handleConnectionError(error)) {
+        console.log('🔄 Retrying with proxy...');
+        return await this.getEmployeeAttendanceHistory(employeeCode, pageSize, page);
+      }
+      
       return { success: false, data: [], count: 0, totalCount: 0, hasMore: false, error: error.message };
     }
   }
@@ -530,7 +537,7 @@ class ZKBioTimeApiService {
 
       console.log(`📊 Fetching attendance from ${startDate} to ${endDate}...`);
       
-      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           punch_time__gte: `${startDate} 00:00:00`,
