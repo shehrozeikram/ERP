@@ -112,6 +112,11 @@ class ZKBioTimeApiService {
     try {
       console.log('🔐 Authenticating with ZKBio Time API...');
       
+      // Clear any existing session data
+      this.isAuthenticated = false;
+      this.sessionCookies = null;
+      this.csrfToken = null;
+      
       // First, get the login page to extract CSRF token
       const loginPageResponse = await axios.get(`${this.baseURL}${this.endpoints.login}`, {
         headers: {
@@ -121,7 +126,8 @@ class ZKBioTimeApiService {
           'Accept-Encoding': 'gzip, deflate',
           'Connection': 'keep-alive',
           'Upgrade-Insecure-Requests': '1'
-        }
+        },
+        timeout: 10000
       });
 
       // Extract CSRF token from the login page
@@ -129,6 +135,9 @@ class ZKBioTimeApiService {
       if (csrfMatch) {
         this.csrfToken = csrfMatch[1];
         console.log('✅ CSRF token extracted:', this.csrfToken.substring(0, 10) + '...');
+      } else {
+        console.error('❌ Failed to extract CSRF token from login page');
+        return false;
       }
 
       // Prepare login data
@@ -137,6 +146,8 @@ class ZKBioTimeApiService {
         'password': this.credentials.password,
         'csrfmiddlewaretoken': this.csrfToken
       });
+
+      console.log(`🔑 Attempting login with username: ${this.credentials.username}`);
 
       // Perform login
       const loginResponse = await axios.post(`${this.baseURL}${this.endpoints.login}`, loginData, {
@@ -153,16 +164,19 @@ class ZKBioTimeApiService {
           'Cookie': `csrftoken=${this.csrfToken}`
         },
         maxRedirects: 0,
+        timeout: 15000,
         validateStatus: function (status) {
           return status >= 200 && status < 400; // Accept redirects
         }
       });
 
+      console.log(`📡 Login response status: ${loginResponse.status}`);
+
       // Extract session cookies from response
       const setCookieHeaders = loginResponse.headers['set-cookie'];
-      if (setCookieHeaders) {
+      if (setCookieHeaders && setCookieHeaders.length > 0) {
         this.sessionCookies = setCookieHeaders.map(cookie => cookie.split(';')[0]).join('; ');
-        console.log('✅ Session cookies obtained');
+        console.log('✅ Session cookies obtained:', setCookieHeaders.length, 'cookies');
         
         // Update the global config with new cookies
         const cookieObj = {};
@@ -171,25 +185,38 @@ class ZKBioTimeApiService {
           cookieObj[name.trim()] = value.trim();
         });
         updateCookies(cookieObj);
+      } else {
+        console.error('❌ No session cookies received from login response');
+        return false;
       }
 
       // Verify authentication by accessing dashboard
+      console.log('🔍 Verifying authentication by accessing dashboard...');
       const dashboardResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
         headers: {
           'Cookie': this.sessionCookies,
           'User-Agent': getUserAgent()
-        }
+        },
+        timeout: 10000
       });
+
+      console.log(`📊 Dashboard response status: ${dashboardResponse.status}`);
 
       if (dashboardResponse.status === 200 && !dashboardResponse.data.includes('login')) {
         this.isAuthenticated = true;
         console.log('✅ ZKBio Time authentication successful');
         return true;
+      } else {
+        console.error('❌ Authentication verification failed - dashboard contains login page');
+        return false;
       }
       
-      return false;
     } catch (error) {
       console.error('❌ ZKBio Time authentication failed:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', error.response.data?.substring(0, 200));
+      }
       return false;
     }
   }
@@ -206,9 +233,35 @@ class ZKBioTimeApiService {
    */
   async ensureAuth() {
     if (!this.isLoggedIn()) {
+      console.log('🔐 Not authenticated, attempting to authenticate...');
       return await this.authenticate();
     }
-    return true;
+    
+    // Test if current session is still valid by making a test request
+    try {
+      const testResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
+        headers: {
+          'Cookie': this.sessionCookies,
+          'User-Agent': getUserAgent()
+        },
+        timeout: 5000
+      });
+      
+      if (testResponse.status === 200 && !testResponse.data.includes('login')) {
+        console.log('✅ Session is still valid');
+        return true;
+      } else {
+        console.log('⚠️ Session expired, re-authenticating...');
+        this.isAuthenticated = false;
+        this.sessionCookies = null;
+        return await this.authenticate();
+      }
+    } catch (error) {
+      console.log('⚠️ Session test failed, re-authenticating...', error.message);
+      this.isAuthenticated = false;
+      this.sessionCookies = null;
+      return await this.authenticate();
+    }
   }
 
   /**

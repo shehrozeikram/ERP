@@ -44,7 +44,8 @@ const AttendanceRecordDetail = () => {
       const response = await fetch(`${process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'}/api/zkbio/zkbio/employees/${id}/attendance`);
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
       
       const result = await response.json();
@@ -58,7 +59,21 @@ const AttendanceRecordDetail = () => {
       }
     } catch (error) {
       console.error('Error fetching employee details:', error);
-      setError(`Failed to connect to attendance system: ${error.message}`);
+      
+      // Provide more specific error messages based on error type
+      let errorMessage = error.message;
+      
+      if (error.message.includes('ECONNREFUSED') || error.message.includes('not accessible')) {
+        errorMessage = 'Attendance system is not accessible from the server. This may be due to network connectivity issues. Please contact your system administrator.';
+      } else if (error.message.includes('ETIMEDOUT') || error.message.includes('timed out')) {
+        errorMessage = 'Request timed out. The attendance system may be slow or unavailable. Please try again.';
+      } else if (error.message.includes('ENOTFOUND') || error.message.includes('host not found')) {
+        errorMessage = 'Attendance system host not found. Please check the system configuration.';
+      } else if (error.message.includes('Failed to connect')) {
+        errorMessage = 'Unable to connect to the attendance system. Please check your network connection and try again.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

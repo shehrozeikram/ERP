@@ -352,6 +352,8 @@ router.get('/zkbio/employees/attendance', async (req, res) => {
 router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
   try {
     const { employeeId } = req.params;
+    console.log(`🔍 Fetching attendance history for employee: ${employeeId}`);
+    
     const result = await zkbioTimeApiService.getCompleteEmployeeAttendanceHistory(employeeId);
     
     if (result.success && result.data.length > 0) {
@@ -389,6 +391,8 @@ router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
       const groupedAttendance = Object.values(groupedByDate)
         .sort((a, b) => new Date(b.date) - new Date(a.date));
 
+      console.log(`✅ Successfully fetched ${groupedAttendance.length} attendance records for employee ${employeeId}`);
+      
       res.json({
         success: true,
         data: {
@@ -403,16 +407,35 @@ router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
         }
       });
     } else {
+      console.log(`⚠️ No attendance records found for employee ${employeeId}`);
       res.status(404).json({
         success: false,
         message: 'Employee not found or no attendance records'
       });
     }
   } catch (error) {
-    console.error('Error fetching employee attendance history:', error);
-    res.status(500).json({
+    console.error('❌ Error fetching employee attendance history:', error);
+    
+    // Provide more specific error messages based on error type
+    let errorMessage = 'Failed to fetch employee attendance history';
+    let statusCode = 500;
+    
+    if (error.message && error.message.includes('ECONNREFUSED')) {
+      errorMessage = 'Attendance system is not accessible from this server. Please check network connectivity.';
+      statusCode = 503;
+    } else if (error.message && error.message.includes('ETIMEDOUT')) {
+      errorMessage = 'Attendance system request timed out. Please try again.';
+      statusCode = 504;
+    } else if (error.message && error.message.includes('ENOTFOUND')) {
+      errorMessage = 'Attendance system host not found. Please check configuration.';
+      statusCode = 502;
+    }
+    
+    res.status(statusCode).json({
       success: false,
-      message: 'Failed to fetch employee attendance history'
+      message: errorMessage,
+      error: error.message,
+      details: 'This error typically occurs when the server cannot connect to the attendance system. Please check if the attendance system is accessible from your server.'
     });
   }
 });

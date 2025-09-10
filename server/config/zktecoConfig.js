@@ -41,12 +41,10 @@ const BIOMETRIC_CONFIG = {
 
   // Shared settings for both systems
   shared: {
-    // Authentication cookies (update these when they expire)
+    // Authentication cookies (dynamically managed - no hardcoded values)
     cookies: {
-      account_info: 'eyJ1c2VybmFtZSI6ICIiLCAicGFzc3dvcmQiOiAiIiwgImVtcE5hbWUiOiAiIiwgImVtcFB3ZCI6ICIiLCAicmVtZW1iZXJfbWVfYWRtaW4iOiAiIiwgInJlbWVtYmVyX21lX2VtcGxveWVlIjogIiJ9',
-      csrftoken: '5HYMUICZU4NuFZVlCuCwIoOLYnrKDTSp',
-      django_language: 'en',
-      sessionid: '9iseou0t87g07grp2ivcpsnfzkgkw0mw'
+      // Cookies are now dynamically obtained during authentication
+      // No hardcoded values to prevent session conflicts
     },
 
     // User agent for requests
