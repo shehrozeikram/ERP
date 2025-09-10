@@ -20,6 +20,7 @@ import {
   Person as PersonIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
+import api from '../../services/api';
 
 const AttendanceRecordDetail = () => {
   const [employee, setEmployee] = useState(null);
@@ -41,36 +42,38 @@ const AttendanceRecordDetail = () => {
       // Ensure employeeId is a string
       const id = typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId;
       
-      const response = await fetch(`${process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'}/api/zkbio/zkbio/employees/${id}/attendance`);
+      console.log('🔍 Fetching attendance for employee:', id);
+      console.log('🔧 API Base URL:', api.defaults.baseURL);
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
+      const response = await api.get(`/zkbio/zkbio/employees/${id}/attendance`);
       
-      const result = await response.json();
-      
-      if (result.success) {
-        console.log('🔍 API Response:', result.data);
-        setEmployee(result.data.employee);
-        setAttendanceHistory(result.data.attendance);
+      if (response.data.success) {
+        console.log('🔍 API Response:', response.data.data);
+        setEmployee(response.data.data.employee);
+        setAttendanceHistory(response.data.data.attendance);
       } else {
-        setError(result.message || 'Failed to fetch employee details');
+        setError(response.data.message || 'Failed to fetch employee details');
       }
     } catch (error) {
       console.error('Error fetching employee details:', error);
       
       // Provide more specific error messages based on error type
-      let errorMessage = error.message;
+      let errorMessage = 'Failed to fetch attendance data';
       
-      if (error.message.includes('ECONNREFUSED') || error.message.includes('not accessible')) {
+      if (error.response) {
+        // Server responded with error status
+        errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
+      } else if (error.request) {
+        // Request was made but no response received
+        errorMessage = 'Unable to connect to the server. Please check your network connection and try again.';
+      } else if (error.message.includes('ECONNREFUSED') || error.message.includes('not accessible')) {
         errorMessage = 'Attendance system is not accessible from the server. This may be due to network connectivity issues. Please contact your system administrator.';
       } else if (error.message.includes('ETIMEDOUT') || error.message.includes('timed out')) {
         errorMessage = 'Request timed out. The attendance system may be slow or unavailable. Please try again.';
       } else if (error.message.includes('ENOTFOUND') || error.message.includes('host not found')) {
         errorMessage = 'Attendance system host not found. Please check the system configuration.';
-      } else if (error.message.includes('Failed to connect')) {
-        errorMessage = 'Unable to connect to the attendance system. Please check your network connection and try again.';
+      } else {
+        errorMessage = error.message;
       }
       
       setError(errorMessage);
