@@ -61,6 +61,7 @@ const supplierRoutes = require('./routes/suppliers');
 const pettyCashRoutes = require('./routes/pettyCash');
 const eventRoutes = require('./routes/events');
 const staffAssignmentRoutes = require('./routes/staffAssignments');
+const attendanceProxyRoutes = require('./routes/attendanceProxy');
 
 
 // Import services
@@ -218,6 +219,7 @@ app.use('/api/suppliers', authMiddleware, supplierRoutes);
 app.use('/api/petty-cash', authMiddleware, pettyCashRoutes);
 app.use('/api/events', authMiddleware, eventRoutes);
 app.use('/api/staff-assignments', authMiddleware, staffAssignmentRoutes);
+app.use('/api/attendance-proxy', attendanceProxyRoutes);
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {

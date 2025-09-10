@@ -14,6 +14,7 @@ class ZKBioTimeApiService {
     this.isAuthenticated = false;
     this.sessionCookies = null;
     this.csrfToken = null;
+    this.useProxy = false; // Flag to use proxy when direct connection fails
     
     // Add caching for better performance
     this.cache = {
@@ -211,6 +212,29 @@ class ZKBioTimeApiService {
   }
 
   /**
+   * Get the appropriate base URL (direct or proxy)
+   */
+  getRequestBaseURL() {
+    if (this.useProxy) {
+      return 'http://localhost:5001/api/attendance-proxy/zkbio-proxy';
+    }
+    return this.baseURL;
+  }
+
+  /**
+   * Handle connection errors and switch to proxy if needed
+   */
+  async handleConnectionError(error, retryWithProxy = true) {
+    if (retryWithProxy && !this.useProxy && 
+        (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
+      console.log('🔄 Direct connection failed, switching to proxy...');
+      this.useProxy = true;
+      return true; // Retry with proxy
+    }
+    return false; // Don't retry
+  }
+
+  /**
    * Get all employees (with pagination to get all employees)
    */
   async getEmployees() {
@@ -293,7 +317,7 @@ class ZKBioTimeApiService {
       console.log('📊 Fetching fresh today\'s attendance from ZKBio Time...');
 
       // Use larger page size for faster fetching
-      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           start_time: startTime,
@@ -339,6 +363,13 @@ class ZKBioTimeApiService {
       return { success: false, data: [], count: 0, source: 'None' };
     } catch (error) {
       console.error('❌ Failed to fetch attendance:', error.message);
+      
+      // Try with proxy if direct connection failed
+      if (await this.handleConnectionError(error)) {
+        console.log('🔄 Retrying with proxy...');
+        return await this.getTodayAttendance();
+      }
+      
       return { success: false, data: [], count: 0, error: error.message };
     }
   }

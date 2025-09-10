@@ -3,34 +3,41 @@
  * Centralized configuration for ZKTeco device and ZKBio Time system
  */
 
-const BIOMETRIC_CONFIG = {
-  // ZKTeco Device settings (legacy)
-  zkteco: {
-    device: {
-      host: '182.180.55.96',
-      port: 85,
-      websocketUrl: 'ws://182.180.55.96:85/base/dashboard/realtime_punch/',
-      timeout: 10000,
-      inMsgDelay: 4000
-    }
-  },
+// Get configuration from environment variables with fallbacks
+const getAttendanceConfig = () => {
+  return {
+    // ZKTeco Device settings (legacy)
+    zkteco: {
+      device: {
+        host: process.env.ZKTECO_HOST || '182.180.55.96',
+        port: parseInt(process.env.ZKTECO_PORT) || 85,
+        websocketUrl: process.env.ZKTECO_WEBSOCKET_URL || 'ws://182.180.55.96:85/base/dashboard/realtime_punch/',
+        timeout: parseInt(process.env.ZKTECO_TIMEOUT) || 10000,
+        inMsgDelay: parseInt(process.env.ZKTECO_MSG_DELAY) || 4000
+      }
+    },
 
-  // ZKBio Time System settings (new)
-  zkbioTime: {
-    baseURL: 'http://182.180.55.96:85',
-    credentials: {
-      username: 'superuser',
-      password: 'SGCit123456'
-    },
-    endpoints: {
-      login: '/login/',
-      dashboard: '/dashboard/',
-      employees: '/api/employees/',
-      attendance: '/api/attendance/',
-      realtime: '/base/dashboard/realtime_punch/'
-    },
-    timeout: 10000
-  },
+    // ZKBio Time System settings (new)
+    zkbioTime: {
+      baseURL: process.env.ZKBIO_BASE_URL || 'http://182.180.55.96:85',
+      credentials: {
+        username: process.env.ZKBIO_USERNAME || 'superuser',
+        password: process.env.ZKBIO_PASSWORD || 'SGCit123456'
+      },
+      endpoints: {
+        login: '/login/',
+        dashboard: '/dashboard/',
+        employees: '/api/employees/',
+        attendance: '/api/attendance/',
+        realtime: '/base/dashboard/realtime_punch/'
+      },
+      timeout: parseInt(process.env.ZKBIO_TIMEOUT) || 10000
+    }
+  };
+};
+
+const BIOMETRIC_CONFIG = {
+  ...getAttendanceConfig(),
 
   // Shared settings for both systems
   shared: {
