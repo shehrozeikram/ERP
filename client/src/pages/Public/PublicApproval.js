@@ -69,7 +69,7 @@ const PublicApproval = () => {
   const loadApproval = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:5001/api/public-approvals/${id}`);
+      const response = await axios.get(`${process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'}/api/public-approvals/${id}`);
       setApproval(response.data.data);
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to load approval details');
@@ -97,7 +97,7 @@ const PublicApproval = () => {
         approverEmail: approverEmail
       };
       
-      await axios.post(`http://localhost:5001/api/public-approvals/${id}/approve`, approvalData);
+      await axios.post(`${process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'}/api/public-approvals/${id}/approve`, approvalData);
       
       setApprovalDialogOpen(false);
       setFormData({ comments: '', signature: '', agreeToTerms: false });
@@ -131,7 +131,7 @@ const PublicApproval = () => {
         approverEmail: approverEmail
       };
       
-      await axios.post(`http://localhost:5001/api/public-approvals/${id}/reject`, rejectionData);
+      await axios.post(`${process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'}/api/public-approvals/${id}/reject`, rejectionData);
       
       setRejectionDialogOpen(false);
       setFormData({ comments: '', signature: '', agreeToTerms: false });
