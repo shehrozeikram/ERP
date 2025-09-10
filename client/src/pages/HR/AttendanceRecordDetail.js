@@ -42,6 +42,11 @@ const AttendanceRecordDetail = () => {
       const id = typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId;
       
       const response = await fetch(`${process.env.NODE_ENV === 'production' ? window.location.origin : 'http://localhost:5001'}/api/zkbio/zkbio/employees/${id}/attendance`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -53,7 +58,7 @@ const AttendanceRecordDetail = () => {
       }
     } catch (error) {
       console.error('Error fetching employee details:', error);
-      setError('Failed to connect to attendance system');
+      setError(`Failed to connect to attendance system: ${error.message}`);
     } finally {
       setLoading(false);
     }
