@@ -17,7 +17,9 @@ import HRDashboard from './pages/HR/HRDashboard';
 import EmployeeList from './pages/HR/EmployeeList';
 import EmployeeForm from './pages/HR/EmployeeForm';
 import EmployeeView from './pages/HR/EmployeeView';
-import HRReports from './pages/HR/HRReports';
+import HRReports from './pages/HR/Reports/HRReports';
+import PayrollReport from './pages/HR/Reports/PayrollReport';
+import AttendanceReports from './pages/HR/Reports/AttendanceReports';
 import Departments from './pages/HR/Departments';
 import Payroll from './pages/HR/Payroll';
 import PayrollForm from './pages/HR/PayrollForm';
@@ -200,8 +202,16 @@ function App() {
               element={<ProtectedRoute><EmployeeForm /></ProtectedRoute>} 
             />
             <Route
-                      path="/hr/reports"
-        element={<ProtectedRoute><HRReports /></ProtectedRoute>}
+              path="/hr/reports"
+              element={<ProtectedRoute><HRReports /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/reports/payroll/:reportType"
+              element={<ProtectedRoute><PayrollReport /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/reports/attendance/:reportType"
+              element={<ProtectedRoute><AttendanceReports /></ProtectedRoute>}
             />
             <Route 
               path="/hr/employees/:id" 

@@ -37,6 +37,8 @@ const countryRoutes = require('./routes/countries');
 const loanRoutes = require('./routes/loans');
 const finalSettlementRoutes = require('./routes/finalSettlements');
 const hrReportsRoutes = require('./routes/hrReports');
+const payrollReportsRoutes = require('./routes/payrollReports');
+const attendanceReportsRoutes = require('./routes/attendanceReports');
 const payslipRoutes = require('./routes/payslips');
 const jobPostingRoutes = require('./routes/jobPostings');
 // const publicJobPostingRoutes = require('./routes/publicJobPostings');
@@ -190,6 +192,8 @@ app.use('/api/provinces', authMiddleware, provinceRoutes);
 app.use('/api/countries', authMiddleware, countryRoutes);
 app.use('/api/loans', authMiddleware, loanRoutes);
 app.use('/api/final-settlements', authMiddleware, finalSettlementRoutes);
+app.use('/api/hr/reports/payroll', authMiddleware, payrollReportsRoutes);
+app.use('/api/hr/reports/attendance', authMiddleware, attendanceReportsRoutes);
 app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
 app.use('/api/payslips', authMiddleware, payslipRoutes);
 // Public routes (no authentication required)

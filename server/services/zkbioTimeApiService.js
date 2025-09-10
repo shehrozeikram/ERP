@@ -822,7 +822,12 @@ class ZKBioTimeApiService {
       // Filter active employees only
       let employees = employeeResult.data;
       if (onlyActiveEmployees) {
-        employees = employees.filter(emp => emp.is_active !== false);
+        // ZKBio Time uses app_status for filtering active employees
+        // app_status = 1 means inactive, app_status = 0 or undefined means active
+        employees = employees.filter(emp => 
+          emp.is_active !== false && 
+          emp.app_status !== 1
+        );
       }
 
       // Create a Set of present employee IDs for O(1) lookup
