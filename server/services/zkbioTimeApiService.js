@@ -807,6 +807,55 @@ class ZKBioTimeApiService {
       };
     }
   }
+
+  /**
+   * Get bulk attendance data for multiple employees by month (OPTIMIZED)
+   * @param {Array} employeeIds - Array of employee IDs
+   * @param {number} month - Month (1-12)
+   * @param {number} year - Year
+   * @returns {Object} Bulk attendance data for all employees
+   */
+  async getBulkAttendanceByMonth(employeeIds, month, year) {
+    try {
+      console.log(`🔧 Fetching bulk attendance data for ${employeeIds.length} employees from ZKBio Time API - ${month}/${year}`);
+      
+      // Create date range for the month
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+      
+      // Make bulk request for all employees
+      const response = await axios.post(`${this.baseURL}/personnel/api/attendance/bulk/`, {
+        employeeIds,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      }, {
+        headers: this.getAuthHeaders()
+      });
+      
+      if (response.data && response.data.success && response.data.data) {
+        console.log(`✅ Successfully fetched bulk attendance data for ${employeeIds.length} employees`);
+        return response.data.data;
+      } else {
+        console.log('⚠️ No bulk attendance data received from ZKBio Time API');
+        
+        // Return empty data structure for all employees
+        const emptyData = {};
+        for (const employeeId of employeeIds) {
+          emptyData[employeeId] = { records: [] };
+        }
+        return emptyData;
+      }
+    } catch (error) {
+      console.error('❌ Error fetching bulk attendance data from ZKBio Time API:', error.message);
+      
+      // Return empty data structure for all employees as fallback
+      const emptyData = {};
+      for (const employeeId of employeeIds) {
+        emptyData[employeeId] = { records: [] };
+      }
+      return emptyData;
+    }
+  }
 }
 
 // Export singleton instance

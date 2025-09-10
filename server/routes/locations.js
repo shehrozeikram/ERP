@@ -1,186 +1,161 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const { body, validationResult } = require('express-validator');
-const { asyncHandler } = require('../middleware/errorHandler');
-const { authorize } = require('../middleware/auth');
+const router = express.Router();
+const { authMiddleware } = require('../middleware/auth');
+const permissions = require('../middleware/permissions');
 const Location = require('../models/hr/Location');
 
-const router = express.Router();
+// Apply authentication middleware
+router.use(authMiddleware);
 
-// @route   GET /api/locations
-// @desc    Get all locations
-// @access  Private (HR and Admin)
-router.get('/', 
-  authorize('admin', 'hr_manager'), 
-  asyncHandler(async (req, res) => {
-    const { type, city, search } = req.query;
-    
-    const query = { isActive: true };
-    
-    if (type) {
-      query.type = type;
-    }
-    
-    if (city) {
-      query['address.city'] = city;
-    }
+// Get all locations with optional filters
+router.get('/', async (req, res) => {
+  try {
+    const { 
+      search, 
+      type, 
+      status, 
+      page = 1, 
+      limit = 10 
+    } = req.query;
+
+    // Build query
+    const query = {};
     
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } }
+      ];
     }
+    
+    if (type) query.type = type;
+    if (status) query.status = status;
 
-    const locations = await Location.find(query).sort({ name: 1 });
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Execute query
+    const locations = await Location.find(query)
+      .populate('createdBy', 'firstName lastName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Location.countDocuments(query);
 
     res.json({
       success: true,
-      data: locations
+      data: locations,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / parseInt(limit)),
+        total
+      }
     });
-  })
-);
+  } catch (error) {
+    console.error('Error fetching locations:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch locations' });
+  }
+});
 
-// @route   GET /api/locations/:id
-// @desc    Get location by ID
-// @access  Private (HR and Admin)
-router.get('/:id', 
-  authorize('admin', 'hr_manager'), 
-  asyncHandler(async (req, res) => {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid location ID format'
-      });
-    }
-
-    const location = await Location.findById(req.params.id);
+// Get single location
+router.get('/:id', async (req, res) => {
+  try {
+    const location = await Location.findById(req.params.id)
+      .populate('createdBy', 'firstName lastName');
 
     if (!location) {
-      return res.status(404).json({
-        success: false,
-        message: 'Location not found'
-      });
+      return res.status(404).json({ success: false, message: 'Location not found' });
     }
 
-    res.json({
-      success: true,
-      data: location
-    });
-  })
-);
-
-// @route   POST /api/locations
-// @desc    Create new location
-// @access  Private (HR and Admin)
-router.post('/', [
-  authorize('admin', 'hr_manager'),
-  body('name').trim().notEmpty().withMessage('Location name is required'),
-  body('code').trim().notEmpty().withMessage('Location code is required'),
-  body('type').optional().isIn(['Office', 'Branch', 'Site', 'Remote', 'Client Site', 'Other']).withMessage('Valid location type is required'),
-  body('address.street').notEmpty().withMessage('Street address is required'),
-  body('address.city').notEmpty().withMessage('City is required'),
-  body('address.state').notEmpty().withMessage('State is required'),
-  body('address.zipCode').notEmpty().withMessage('ZIP code is required'),
-  body('address.country').notEmpty().withMessage('Country is required')
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: errors.array()
-    });
+    res.json({ success: true, data: location });
+  } catch (error) {
+    console.error('Error fetching location:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch location' });
   }
+});
 
-  const location = new Location(req.body);
-  await location.save();
+// Create new location
+router.post('/', permissions.checkPermission('location_create'), async (req, res) => {
+  try {
+    const locationData = {
+      ...req.body,
+      createdBy: req.user.id
+    };
 
-  res.status(201).json({
-    success: true,
-    message: 'Location created successfully',
-    data: location
-  });
-}));
+    const location = new Location(locationData);
+    await location.save();
 
-// @route   PUT /api/locations/:id
-// @desc    Update location
-// @access  Private (HR and Admin)
-router.put('/:id', [
-  authorize('admin', 'hr_manager'),
-  body('name').optional().trim().notEmpty().withMessage('Location name is required'),
-  body('code').optional().trim().notEmpty().withMessage('Location code is required'),
-  body('type').optional().isIn(['Office', 'Branch', 'Site', 'Remote', 'Client Site', 'Other']).withMessage('Valid location type is required'),
-  body('address.street').optional().notEmpty().withMessage('Street address is required'),
-  body('address.city').optional().notEmpty().withMessage('City is required'),
-  body('address.state').optional().notEmpty().withMessage('State is required'),
-  body('address.zipCode').optional().notEmpty().withMessage('ZIP code is required'),
-  body('address.country').optional().notEmpty().withMessage('Country is required')
-], asyncHandler(async (req, res) => {
-  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid location ID format'
-    });
+    // Populate creator for response
+    await location.populate('createdBy', 'firstName lastName');
+
+    res.status(201).json({ success: true, data: location });
+  } catch (error) {
+    console.error('Error creating location:', error);
+    res.status(500).json({ success: false, message: 'Failed to create location' });
   }
+});
 
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: errors.array()
-    });
+// Update location
+router.put('/:id', permissions.checkPermission('location_update'), async (req, res) => {
+  try {
+    const location = await Location.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    ).populate('createdBy', 'firstName lastName');
+
+    if (!location) {
+      return res.status(404).json({ success: false, message: 'Location not found' });
+    }
+
+    res.json({ success: true, data: location });
+  } catch (error) {
+    console.error('Error updating location:', error);
+    res.status(500).json({ success: false, message: 'Failed to update location' });
   }
+});
 
-  const location = await Location.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  );
+// Delete location
+router.delete('/:id', permissions.checkPermission('location_delete'), async (req, res) => {
+  try {
+    const location = await Location.findByIdAndDelete(req.params.id);
+    
+    if (!location) {
+      return res.status(404).json({ success: false, message: 'Location not found' });
+    }
 
-  if (!location) {
-    return res.status(404).json({
-      success: false,
-      message: 'Location not found'
-    });
+    res.json({ success: true, message: 'Location deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting location:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete location' });
   }
+});
 
-  res.json({
-    success: true,
-    message: 'Location updated successfully',
-    data: location
-  });
-}));
-
-// @route   DELETE /api/locations/:id
-// @desc    Delete location (soft delete)
-// @access  Private (HR and Admin)
-router.delete('/:id', 
-  authorize('admin', 'hr_manager'), 
-  asyncHandler(async (req, res) => {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid location ID format'
-      });
+// Update location status
+router.put('/:id/status', permissions.checkPermission('location_update'), async (req, res) => {
+  try {
+    const { status } = req.body;
+    
+    if (!['Active', 'Inactive', 'Under Maintenance'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
     }
 
     const location = await Location.findByIdAndUpdate(
       req.params.id,
-      { isActive: false },
+      { status },
       { new: true }
-    );
+    ).populate('createdBy', 'firstName lastName');
 
     if (!location) {
-      return res.status(404).json({
-        success: false,
-        message: 'Location not found'
-      });
+      return res.status(404).json({ success: false, message: 'Location not found' });
     }
 
-    res.json({
-      success: true,
-      message: 'Location deleted successfully'
-    });
-  })
-);
+    res.json({ success: true, data: location });
+  } catch (error) {
+    console.error('Error updating location status:', error);
+    res.status(500).json({ success: false, message: 'Failed to update location status' });
+  }
+});
 
-module.exports = router; 
+module.exports = router;

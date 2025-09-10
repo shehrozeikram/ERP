@@ -55,6 +55,12 @@ const zktecoRoutes = require('./routes/zkteco');
 const hiringRoutes = require('./routes/hiring');
 const employeeOnboardingRoutes = require('./routes/employeeOnboarding');
 const zkbioTimeRoutes = require('./routes/zkbioTimeRoutes');
+const vehicleRoutes = require('./routes/vehicles');
+const groceryRoutes = require('./routes/groceries');
+const supplierRoutes = require('./routes/suppliers');
+const pettyCashRoutes = require('./routes/pettyCash');
+const eventRoutes = require('./routes/events');
+const staffAssignmentRoutes = require('./routes/staffAssignments');
 
 
 // Import services
@@ -206,6 +212,12 @@ app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
 app.use('/api/zkteco', zktecoRoutes);
 app.use('/api/zkbio', zkbioTimeRoutes);
+app.use('/api/vehicles', authMiddleware, vehicleRoutes);
+app.use('/api/groceries', authMiddleware, groceryRoutes);
+app.use('/api/suppliers', authMiddleware, supplierRoutes);
+app.use('/api/petty-cash', authMiddleware, pettyCashRoutes);
+app.use('/api/events', authMiddleware, eventRoutes);
+app.use('/api/staff-assignments', authMiddleware, staffAssignmentRoutes);
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {

@@ -43,6 +43,22 @@ import Opportunities from './pages/CRM/Opportunities';
 import Reports from './pages/CRM/Reports';
 import Profile from './pages/Profile/Profile';
 import UserManagement from './pages/Admin/UserManagement';
+import VehicleList from './pages/Admin/VehicleManagement/VehicleList';
+import VehicleForm from './pages/Admin/VehicleManagement/VehicleForm';
+import VehicleDetails from './pages/Admin/VehicleManagement/VehicleDetails';
+import GroceryList from './pages/Admin/GroceryManagement/GroceryList';
+import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
+import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
+import PettyCashDashboard from './pages/Admin/PettyCashManagement/PettyCashDashboard';
+import FundForm from './pages/Admin/PettyCashManagement/FundForm';
+import EventDashboard from './pages/Admin/EventManagement/EventDashboard';
+import EventList from './pages/Admin/EventManagement/EventList';
+import EventForm from './pages/Admin/EventManagement/EventForm';
+import EventDetails from './pages/Admin/EventManagement/EventDetails';
+import StaffManagementDashboard from './pages/Admin/StaffManagement/StaffManagementDashboard';
+import StaffAssignmentList from './pages/Admin/StaffManagement/StaffAssignmentList';
+import StaffAssignmentForm from './pages/Admin/StaffManagement/StaffAssignmentForm';
+import LocationManagement from './pages/Admin/StaffManagement/LocationManagement';
 import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
@@ -593,6 +609,102 @@ function App() {
             <Route 
               path="/admin/users" 
               element={<ProtectedRoute requiredRole="admin"><UserManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicles" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicles/new" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicles/:id" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleDetails /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicles/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/groceries" 
+              element={<ProtectedRoute requiredRole="admin"><GroceryList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/groceries/new" 
+              element={<ProtectedRoute requiredRole="admin"><GroceryForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/groceries/:id" 
+              element={<ProtectedRoute requiredRole="admin"><GroceryForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/groceries/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><GroceryForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/groceries/stock-alerts" 
+              element={<ProtectedRoute requiredRole="admin"><StockAlerts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/petty-cash" 
+              element={<ProtectedRoute requiredRole="admin"><PettyCashDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/petty-cash/funds/new" 
+              element={<ProtectedRoute requiredRole="admin"><FundForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/petty-cash/funds/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><FundForm /></ProtectedRoute>} 
+            />
+            
+            {/* Event Management Routes */}
+            <Route 
+              path="/admin/events" 
+              element={<ProtectedRoute requiredRole="admin"><EventDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/events/list" 
+              element={<ProtectedRoute requiredRole="admin"><EventList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/events/new" 
+              element={<ProtectedRoute requiredRole="admin"><EventForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/events/:id" 
+              element={<ProtectedRoute requiredRole="admin"><EventDetails /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/events/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><EventForm /></ProtectedRoute>} 
+            />
+            
+            {/* Staff Management Routes */}
+            <Route 
+              path="/admin/staff-management" 
+              element={<ProtectedRoute requiredRole="admin"><StaffManagementDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/staff-management/assignments" 
+              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/staff-management/assignments/new" 
+              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/staff-management/assignments/:id" 
+              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/staff-management/assignments/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/staff-management/locations" 
+              element={<ProtectedRoute requiredRole="admin"><LocationManagement /></ProtectedRoute>} 
             />
 
 

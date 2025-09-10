@@ -96,7 +96,7 @@ const NotificationContext = createContext();
 
 export const NotificationProvider = ({ children }) => {
   const [state, dispatch] = useReducer(notificationReducer, initialState);
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   // Memoized selectors for performance
   const selectors = useMemo(() => ({

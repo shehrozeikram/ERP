@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const zkbioTimeApiService = require('./zkbioTimeApiService');
+const zkbioTimeService = require('./zkbioTimeService');
 
 /**
  * Service to integrate attendance records with payroll calculations
@@ -7,6 +8,42 @@ const zkbioTimeApiService = require('./zkbioTimeApiService');
  * Uses ZKBio Time API for accurate attendance data
  */
 class AttendanceIntegrationService {
+  
+  /**
+   * Check if ZKBio Time server is online and accessible
+   * @returns {Object} Server status result
+   */
+  static async checkZKBioServerStatus() {
+    try {
+      console.log('🔍 Checking ZKBio Time server status...');
+      
+      const zkbioService = zkbioTimeService;
+      const connectionTest = await zkbioService.testConnection();
+      
+      if (connectionTest.success) {
+        console.log('✅ ZKBio Time server is online');
+        return {
+          isOnline: true,
+          message: 'ZKBio Time server is accessible',
+          server: 'ZKBio Time'
+        };
+      } else {
+        console.log('❌ ZKBio Time server is offline or unreachable');
+        return {
+          isOnline: false,
+          message: 'ZKBio Time server is offline or unreachable',
+          error: connectionTest.error
+        };
+      }
+    } catch (error) {
+      console.error('❌ Error checking ZKBio Time server status:', error.message);
+      return {
+        isOnline: false,
+        message: 'Failed to check server status',
+        error: error.message
+      };
+    }
+  }
   
   /**
    * Calculate working days in a month (excluding Sundays)
@@ -28,6 +65,101 @@ class AttendanceIntegrationService {
     return workingDays;
   }
   
+  /**
+   * Get bulk monthly attendance summary from ZKBio Time API (OPTIMIZED)
+   * @param {Array} employeeIds - Array of employee IDs
+   * @param {number} month - Month (1-12)
+   * @param {number} year - Year
+   * @returns {Object} Bulk monthly attendance summary
+   */
+  static async getBulkMonthlyAttendanceSummary(employeeIds, month, year) {
+    try {
+      console.log(`🔧 Fetching bulk attendance summary for ${employeeIds.length} employees from ZKBio Time API`);
+      
+      // Use ZKBio Time API service for bulk data
+      const zkbioService = require('./zkbioTimeApiService');
+      
+      // Get bulk attendance data
+      const bulkAttendanceData = await zkbioService.getBulkAttendanceByMonth(
+        employeeIds,
+        month,
+        year
+      );
+      
+      const results = {};
+      
+      // Process each employee's data
+      for (const employeeId of employeeIds) {
+        const employeeData = bulkAttendanceData[employeeId] || { records: [] };
+        
+        // Calculate working days for the month
+        const totalWorkingDays = this.calculateWorkingDaysInMonth(year, month - 1);
+        
+        // Process attendance records
+        let presentDays = 0;
+        let absentDays = 0;
+        let leaveDays = 0;
+        
+        if (employeeData.records && employeeData.records.length > 0) {
+          for (const record of employeeData.records) {
+            const status = record.status || 'Present';
+            
+            switch (status.toLowerCase()) {
+              case 'present':
+              case 'check-in':
+              case 'check-out':
+                presentDays++;
+                break;
+              case 'absent':
+                absentDays++;
+                break;
+              case 'leave':
+              case 'sick leave':
+              case 'annual leave':
+                leaveDays++;
+                break;
+              default:
+                presentDays++; // Default to present
+            }
+          }
+        } else {
+          // No records found, assume full attendance
+          presentDays = totalWorkingDays;
+        }
+        
+        results[employeeId] = {
+          presentDays,
+          absentDays,
+          leaveDays,
+          totalWorkingDays,
+          attendanceRecords: employeeData.records ? employeeData.records.length : 0
+        };
+      }
+      
+      console.log(`✅ Bulk attendance summary completed for ${employeeIds.length} employees`);
+      return results;
+      
+    } catch (error) {
+      console.error('❌ Error fetching bulk attendance summary:', error.message);
+      
+      // Fallback: return default data for all employees
+      const totalWorkingDays = this.calculateWorkingDaysInMonth(year, month - 1);
+      const results = {};
+      
+      for (const employeeId of employeeIds) {
+        results[employeeId] = {
+          presentDays: totalWorkingDays,
+          absentDays: 0,
+          leaveDays: 0,
+          totalWorkingDays,
+          attendanceRecords: 0
+        };
+      }
+      
+      return results;
+    }
+  }
+
   /**
    * Get attendance summary for an employee for a specific month from ZKBio Time API
    * @param {string} employeeId - Employee ID (employeeId field)
@@ -150,15 +282,152 @@ class AttendanceIntegrationService {
   }
   
   /**
+   * Get bulk attendance integration for multiple employees (OPTIMIZED)
+   * @param {Array} employeeData - Array of {employeeId, grossSalary} objects
+   * @param {number} month - Month (1-12)
+   * @param {number} year - Year
+   * @param {boolean} zkbioServerOnline - Whether ZKBio server is online (optional)
+   * @returns {Object} Bulk attendance integration data
+   */
+  static async getBulkAttendanceIntegration(employeeData, month, year, zkbioServerOnline = null) {
+    try {
+      // Check server status if not provided
+      if (zkbioServerOnline === null) {
+        const serverStatus = await this.checkZKBioServerStatus();
+        zkbioServerOnline = serverStatus.isOnline;
+      }
+      
+      if (!zkbioServerOnline) {
+        console.log(`⚠️ ZKBio Time server is offline - using bulk fallback calculation for ${employeeData.length} employees`);
+        
+        // Use bulk fallback calculation when server is offline
+        const totalWorkingDays = this.calculateWorkingDaysInMonth(year, month - 1);
+        const results = {};
+        
+        for (const emp of employeeData) {
+          const dailyRate = emp.grossSalary / totalWorkingDays;
+          results[emp.employeeId] = {
+            presentDays: totalWorkingDays,
+            absentDays: 0,
+            leaveDays: 0,
+            totalWorkingDays,
+            dailyRate,
+            attendanceDeduction: 0,
+            attendanceRecords: 0,
+            serverStatus: 'offline'
+          };
+        }
+        
+        return results;
+      }
+      
+      console.log(`🔧 Starting bulk ZKBio Time attendance integration for ${employeeData.length} employees - ${month}/${year}`);
+      
+      // Get bulk attendance summary from ZKBio Time API
+      const bulkAttendanceSummary = await this.getBulkMonthlyAttendanceSummary(
+        employeeData.map(emp => emp.employeeId), 
+        month, 
+        year
+      );
+      
+      const results = {};
+      
+      // Process each employee's attendance data
+      for (const emp of employeeData) {
+        const attendanceData = bulkAttendanceSummary[emp.employeeId] || {
+          presentDays: this.calculateWorkingDaysInMonth(year, month - 1),
+          absentDays: 0,
+          leaveDays: 0,
+          totalWorkingDays: this.calculateWorkingDaysInMonth(year, month - 1)
+        };
+        
+        // Calculate attendance deduction
+        const deductionDetails = this.calculateAttendanceDeduction(
+          emp.grossSalary,
+          attendanceData.absentDays,
+          attendanceData.leaveDays,
+          attendanceData.totalWorkingDays
+        );
+        
+        results[emp.employeeId] = {
+          ...attendanceData,
+          ...deductionDetails,
+          serverStatus: 'online'
+        };
+      }
+      
+      console.log(`✅ Bulk ZKBio Time attendance integration completed for ${employeeData.length} employees`);
+      
+      return results;
+      
+    } catch (error) {
+      console.error('❌ Error in bulk ZKBio Time attendance integration:', error.message);
+      
+      // Fallback to bulk calculation if integration fails
+      const totalWorkingDays = this.calculateWorkingDaysInMonth(year, month - 1);
+      const results = {};
+      
+      for (const emp of employeeData) {
+        const dailyRate = emp.grossSalary / totalWorkingDays;
+        results[emp.employeeId] = {
+          presentDays: totalWorkingDays,
+          absentDays: 0,
+          leaveDays: 0,
+          totalWorkingDays,
+          dailyRate,
+          attendanceDeduction: 0,
+          attendanceRecords: 0,
+          serverStatus: 'error'
+        };
+      }
+      
+      return results;
+    }
+  }
+
+  /**
    * Get comprehensive attendance integration for payroll using ZKBio Time API
    * @param {string} employeeId - Employee ID (employeeId field)
    * @param {number} month - Month (1-12)
    * @param {number} year - Year
    * @param {number} grossSalary - Employee's gross salary
+   * @param {boolean} zkbioServerOnline - Whether ZKBio server is online (optional)
    * @returns {Object} Complete attendance integration data
    */
-  static async getAttendanceIntegration(employeeId, month, year, grossSalary) {
+  static async getAttendanceIntegration(employeeId, month, year, grossSalary, zkbioServerOnline = null) {
     try {
+      // Check server status if not provided
+      if (zkbioServerOnline === null) {
+        const serverStatus = await this.checkZKBioServerStatus();
+        zkbioServerOnline = serverStatus.isOnline;
+      }
+      
+      if (!zkbioServerOnline) {
+        console.log(`⚠️ ZKBio Time server is offline - using fallback calculation for employee ${employeeId}`);
+        
+        // Use fallback calculation when server is offline
+        const totalWorkingDays = this.calculateWorkingDaysInMonth(year, month - 1);
+        const dailyRate = grossSalary / totalWorkingDays;
+        
+        console.log(`📊 Fallback calculation for employee ${employeeId}:`);
+        console.log(`   Present Days: ${totalWorkingDays} (full attendance - server offline)`);
+        console.log(`   Absent Days: 0`);
+        console.log(`   Leave Days: 0`);
+        console.log(`   Daily Rate: Rs. ${dailyRate.toFixed(2)}`);
+        console.log(`   Attendance Deduction: Rs. 0`);
+        
+        return {
+          presentDays: totalWorkingDays,
+          absentDays: 0,
+          leaveDays: 0,
+          totalWorkingDays,
+          dailyRate,
+          attendanceDeduction: 0,
+          attendanceRecords: 0,
+          serverStatus: 'offline'
+        };
+      }
+      
       console.log(`🔧 Starting ZKBio Time attendance integration for employee ${employeeId} - ${month}/${year}`);
       
       // Get attendance summary from ZKBio Time API
@@ -174,7 +443,8 @@ class AttendanceIntegrationService {
       
       const result = {
         ...attendanceSummary,
-        ...deductionDetails
+        ...deductionDetails,
+        serverStatus: 'online'
       };
       
       console.log(`✅ ZKBio Time attendance integration completed for employee ${employeeId}`);
@@ -207,7 +477,8 @@ class AttendanceIntegrationService {
         totalWorkingDays,
         dailyRate,
         attendanceDeduction: 0,
-        attendanceRecords: 0
+        attendanceRecords: 0,
+        serverStatus: 'error'
       };
     }
   }

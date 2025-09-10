@@ -3,39 +3,18 @@ import {
   Box,
   Typography,
   Paper,
-  IconButton,
   Button,
   Chip,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Grid,
   Card,
   CardContent,
   Avatar,
-  Tooltip,
   Alert,
   Skeleton,
-  Fab,
-  Switch,
-  FormControlLabel,
   LinearProgress,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemAvatar,
   Tabs,
   Tab,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Table,
   TableBody,
   TableCell,
@@ -44,47 +23,25 @@ import {
   TableRow
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
   Assessment as AssessmentIcon,
   TrendingUp as TrendingUpIcon,
   AttachMoney as MoneyIcon,
   People as PeopleIcon,
   Refresh as RefreshIcon,
   Download as DownloadIcon,
-  MoreVert as MoreIcon,
-  CalendarToday as CalendarIcon,
   Business as BusinessIcon,
   Timeline as TimelineIcon,
-  ExpandMore as ExpandMoreIcon,
-  Phone as PhoneIcon,
-  Email as EmailIcon,
-  LocationOn as LocationIcon,
-  Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
   BarChart as BarChartIcon,
-  PieChart as PieChartIcon,
-  ShowChart as ShowChartIcon,
   Dashboard as DashboardIcon,
-  Analytics as AnalyticsIcon,
-  Receipt as ReceiptIcon,
-  Group as GroupIcon
+  Group as GroupIcon,
+  Phone as PhoneIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 
 const Reports = () => {
-  const navigate = useNavigate();
-  const { user, token } = useAuth();
-  
   // State management
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   
@@ -110,7 +67,6 @@ const Reports = () => {
     try {
       console.log('=== LOADING REPORT DATA ===');
       console.log('Report type:', reportType);
-      setLoading(true);
       setError(null);
       
       const params = {
@@ -152,10 +108,8 @@ const Reports = () => {
     } catch (err) {
       console.error('Error loading report data:', err);
       setError('Failed to load report data. Please try again.');
-    } finally {
-      setLoading(false);
     }
-  }, [filters, user, token]);
+  }, [filters]);
 
   useEffect(() => {
     console.log('=== REPORTS COMPONENT MOUNTED ===');

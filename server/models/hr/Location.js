@@ -1,97 +1,154 @@
 const mongoose = require('mongoose');
 
 const locationSchema = new mongoose.Schema({
+  locationId: {
+    type: String,
+    required: true,
+    unique: true,
+    default: () => `LOC${Date.now().toString().slice(-6)}`
+  },
   name: {
     type: String,
-    required: [true, 'Location name is required'],
-    trim: true,
-    maxlength: [100, 'Location name cannot exceed 100 characters']
-  },
-  code: {
-    type: String,
-    required: [true, 'Location code is required'],
-    unique: true,
-    trim: true,
-    uppercase: true,
-    maxlength: [10, 'Location code cannot exceed 10 characters']
+    required: true,
+    trim: true
   },
   type: {
     type: String,
-    enum: ['Office', 'Branch', 'Site', 'Remote', 'Client Site', 'Other'],
+    required: true,
+    enum: ['Office', 'House', 'Warehouse', 'Factory', 'Security Post', 'Other'],
     default: 'Office'
   },
   address: {
-    street: {
-      type: String,
-      required: [true, 'Street address is required']
-    },
-    city: {
-      type: String,
-      required: [true, 'City is required']
-    },
-    state: {
-      type: String,
-      required: [true, 'State is required']
-    },
-    zipCode: {
-      type: String,
-      required: [true, 'ZIP code is required']
-    },
-    country: {
-      type: String,
-      required: [true, 'Country is required'],
-      default: 'Pakistan'
-    }
+    type: String,
+    required: true,
+    trim: true
   },
-  contactInfo: {
-    phone: String,
-    email: String,
-    fax: String
+  city: {
+    type: String,
+    trim: true
   },
+  province: {
+    type: String,
+    trim: true
+  },
+  country: {
+    type: String,
+    trim: true,
+    default: 'Pakistan'
+  },
+  // Staff capacity management
   capacity: {
     type: Number,
-    min: [0, 'Capacity cannot be negative']
+    default: 1,
+    min: 1
   },
+  currentOccupancy: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  // Specific capacity for different staff types
+  staffCapacity: {
+    guards: { type: Number, default: 0 },
+    security: { type: Number, default: 0 },
+    maintenance: { type: Number, default: 0 },
+    drivers: { type: Number, default: 0 }
+  },
+  currentStaffCount: {
+    guards: { type: Number, default: 0 },
+    security: { type: Number, default: 0 },
+    maintenance: { type: Number, default: 0 },
+    drivers: { type: Number, default: 0 }
+  },
+  status: {
+    type: String,
+    enum: ['Active', 'Inactive', 'Under Maintenance'],
+    default: 'Active'
+  },
+  description: {
+    type: String,
+    trim: true
+  },
+  // Additional fields for better management
   facilities: [{
     type: String,
     trim: true
   }],
-  isActive: {
-    type: Boolean,
-    default: true
+  securityLevel: {
+    type: String,
+    enum: ['Low', 'Medium', 'High', 'Maximum'],
+    default: 'Medium'
   },
-  notes: String
+  accessHours: {
+    startTime: { type: String }, // HH:MM format
+    endTime: { type: String },   // HH:MM format
+    is24Hours: { type: Boolean, default: false }
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  }
 }, {
   timestamps: true
 });
 
-// Indexes
-locationSchema.index({ name: 1 });
-locationSchema.index({ code: 1 });
+// Indexes for performance
+locationSchema.index({ locationId: 1 });
 locationSchema.index({ type: 1 });
-locationSchema.index({ isActive: 1 });
-locationSchema.index({ 'address.city': 1 });
-locationSchema.index({ 'address.country': 1 });
+locationSchema.index({ status: 1 });
+locationSchema.index({ city: 1 });
+locationSchema.index({ province: 1 });
 
 // Virtual for full address
 locationSchema.virtual('fullAddress').get(function() {
-  const addr = this.address;
-  return `${addr.street}, ${addr.city}, ${addr.state} ${addr.zipCode}, ${addr.country}`;
+  const parts = [this.address];
+  if (this.city) parts.push(this.city);
+  if (this.province) parts.push(this.province);
+  if (this.country) parts.push(this.country);
+  return parts.join(', ');
 });
 
-// Static method to find active locations
-locationSchema.statics.findActive = function() {
-  return this.find({ isActive: true }).sort({ name: 1 });
+// Virtual for total staff capacity
+locationSchema.virtual('totalStaffCapacity').get(function() {
+  return this.staffCapacity.guards + this.staffCapacity.security + 
+         this.staffCapacity.maintenance + this.staffCapacity.drivers;
+});
+
+// Virtual for current total staff count
+locationSchema.virtual('currentTotalStaffCount').get(function() {
+  return this.currentStaffCount.guards + this.currentStaffCount.security + 
+         this.currentStaffCount.maintenance + this.currentStaffCount.drivers;
+});
+
+// Method to check if location can accommodate more staff of a specific type
+locationSchema.methods.canAccommodateStaff = function(staffType) {
+  const typeMap = {
+    'Guard': 'guards',
+    'Security': 'security',
+    'Maintenance': 'maintenance',
+    'Driver': 'drivers'
+  };
+  
+  const capacityField = typeMap[staffType];
+  if (!capacityField) return false;
+  
+  return this.currentStaffCount[capacityField] < this.staffCapacity[capacityField];
 };
 
-// Static method to find locations by type
-locationSchema.statics.findByType = function(type) {
-  return this.find({ type, isActive: true }).sort({ name: 1 });
+// Method to get location summary
+locationSchema.methods.getLocationSummary = function() {
+  return {
+    locationId: this.locationId,
+    name: this.name,
+    type: this.type,
+    fullAddress: this.fullAddress,
+    status: this.status,
+    totalStaffCapacity: this.totalStaffCapacity,
+    currentTotalStaffCount: this.currentTotalStaffCount,
+    securityLevel: this.securityLevel,
+    is24Hours: this.accessHours?.is24Hours || false
+  };
 };
 
-// Static method to find locations by city
-locationSchema.statics.findByCity = function(city) {
-  return this.find({ 'address.city': city, isActive: true }).sort({ name: 1 });
-};
-
-module.exports = mongoose.model('Location', locationSchema); 
+module.exports = mongoose.model('Location', locationSchema);

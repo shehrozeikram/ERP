@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   AppBar,
   Toolbar,
-  Typography,
   Box,
   IconButton,
   InputBase,
@@ -16,7 +15,6 @@ import {
 import {
   Search,
   Notifications as NotificationsIcon,
-  AccountCircle,
   Settings,
   Logout,
   Person
@@ -68,7 +66,7 @@ const StyledInputBase = styled(InputBase)(({ theme }) => ({
 
 const Header = () => {
   const theme = useTheme();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);

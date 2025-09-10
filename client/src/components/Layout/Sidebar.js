@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Drawer,
   List,
@@ -6,7 +6,6 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Divider,
   Box,
   Typography,
   Avatar,
@@ -88,7 +87,7 @@ const Sidebar = () => {
   }, [user?.role]);
 
   // Fetch candidate hired notification count for Employee submodule badge
-  const fetchCandidateHiredCount = async () => {
+  const fetchCandidateHiredCount = useCallback(async () => {
     if (user) {
       try {
         console.log('🔄 Fetching candidate hired notification count...');
@@ -100,7 +99,7 @@ const Sidebar = () => {
         setCandidateHiredCount(0);
       }
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     fetchCandidateHiredCount();
@@ -109,12 +108,7 @@ const Sidebar = () => {
     const interval = setInterval(fetchCandidateHiredCount, 300000);
     
     return () => clearInterval(interval);
-  }, [user]);
-
-  // Function to refresh notification count (can be called from parent components)
-  const refreshNotificationCount = () => {
-    fetchCandidateHiredCount();
-  };
+  }, [fetchCandidateHiredCount]);
 
   const handleSubmenuToggle = (text) => {
     setOpenSubmenu(prev => ({

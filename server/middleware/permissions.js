@@ -29,7 +29,57 @@ const checkPermission = (permission) => {
         talent_acquisition: ['admin', 'hr_manager'],
         job_postings: ['admin', 'hr_manager'],
         candidates: ['admin', 'hr_manager'],
-        applications: ['admin', 'hr_manager']
+        applications: ['admin', 'hr_manager'],
+        
+        // Vehicle Management
+        vehicle: ['admin'],
+        vehicle_create: ['admin'],
+        vehicle_update: ['admin'],
+        vehicle_delete: ['admin'],
+        vehicle_view: ['admin'],
+        
+        // Grocery Management
+        grocery: ['admin'],
+        grocery_create: ['admin'],
+        grocery_update: ['admin'],
+        grocery_delete: ['admin'],
+        grocery_view: ['admin'],
+        
+        // Supplier Management
+        supplier: ['admin'],
+        supplier_create: ['admin'],
+        supplier_update: ['admin'],
+        supplier_delete: ['admin'],
+        supplier_view: ['admin'],
+        
+        // Petty Cash Management
+        petty_cash: ['admin'],
+        petty_cash_create: ['admin'],
+        petty_cash_update: ['admin'],
+        petty_cash_delete: ['admin'],
+        petty_cash_view: ['admin'],
+        petty_cash_approve: ['admin'],
+        
+        // Event Management
+        event: ['admin'],
+        event_create: ['admin'],
+        event_update: ['admin'],
+        event_delete: ['admin'],
+        event_view: ['admin'],
+        
+        // Staff Management
+        staff_assignment: ['admin'],
+        staff_assignment_create: ['admin'],
+        staff_assignment_update: ['admin'],
+        staff_assignment_delete: ['admin'],
+        staff_assignment_view: ['admin'],
+        
+        // Location Management
+        location: ['admin'],
+        location_create: ['admin'],
+        location_update: ['admin'],
+        location_delete: ['admin'],
+        location_view: ['admin']
       };
 
       const allowedRoles = permissionMappings[permission];

@@ -1,16 +1,320 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const PDFDocument = require('pdfkit');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
+const Payslip = require('../models/hr/Payslip');
 const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Attendance = require('../models/hr/Attendance');
 const AttendanceIntegrationService = require('../services/attendanceIntegrationService');
 
 const router = express.Router();
+
+/**
+ * Generate payslip PDF
+ * @param {Object} payslip - Payslip data
+ * @param {Object} res - Express response object
+ */
+async function generatePayslipPDF(payslip, res) {
+  try {
+    // Create PDF document - A4 size optimized for single page
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 20
+    });
+
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="payslip-${payslip.payslipNumber}.pdf"`);
+
+    // Pipe PDF to response
+    doc.pipe(res);
+
+    // Optimized helper functions
+    const formatCurrency = (amount) => `Rs ${(amount || 0).toLocaleString()}`;
+    const formatDate = (date) => date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    const numberToWords = (num) => {
+      if (num === 0) return 'Zero';
+      const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+      const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+      const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      if (num < 10) return ones[num];
+      if (num < 20) return teens[num - 10];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
+      if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' and ' + numberToWords(num % 100) : '');
+      if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + numberToWords(num % 1000) : '');
+      if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + numberToWords(num % 100000) : '');
+      return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 ? ' ' + numberToWords(num % 10000000) : '');
+    };
+
+    // Start building the professional single-page PDF
+    const pageWidth = doc.page.width - 40;
+    const pageHeight = doc.page.height - 40;
+
+    // Professional Header - Clean and minimal with proper spacing (moved to left to avoid overlap)
+    doc.fontSize(20)
+       .font('Helvetica-Bold')
+       .fillColor('#2c3e50')
+       .text('SARDAR GROUP OF COMPANIES', 30, 25, { align: 'left' });
+
+    doc.fontSize(16)
+       .font('Helvetica-Bold')
+       .fillColor('#34495e')
+       .text('PAY SLIP', 30, 50, { align: 'left' });
+
+    doc.fontSize(12)
+       .font('Helvetica')
+       .fillColor('#7f8c8d')
+       .text(`For the month of ${formatDate(new Date(payslip.year, payslip.month - 1))}`, 30, 70, { align: 'left' });
+
+    // Right side - Payslip details in properly positioned box (moved further right to avoid overlap)
+    const boxX = pageWidth - 130; // Moved further right to avoid overlap with company name
+    const boxY = 20;
+    const boxWidth = 120; // Increased width for better text spacing
+    const boxHeight = 60;
+    
+    doc.rect(boxX, boxY, boxWidth, boxHeight)
+       .fillColor('#f8f9fa')
+       .fill()
+       .stroke('#dee2e6');
+
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Payslip No:', boxX + 8, boxY + 15)
+       .text('Issue Date:', boxX + 8, boxY + 30);
+
+    doc.fontSize(9)
+       .font('Helvetica')
+       .fillColor('#6c757d')
+       .text(payslip.payslipNumber, boxX + 65, boxY + 15)
+       .text(formatDate(new Date()), boxX + 65, boxY + 30);
+
+    // Employee Information - Clean layout with proper spacing
+    let currentY = 100;
+    
+    // Employee info with properly sized background (increased height)
+    const empBoxHeight = 65;
+    doc.rect(30, currentY, pageWidth - 30, empBoxHeight)
+       .fillColor('#f8f9fa')
+       .fill()
+       .stroke('#dee2e6');
+
+    doc.fontSize(14)
+       .font('Helvetica-Bold')
+       .fillColor('#2c3e50')
+       .text('Employee Information', 40, currentY + 10);
+
+    currentY += 30;
+    
+    // Employee details in two columns with proper alignment
+    doc.fontSize(11)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Name:', 40, currentY)
+       .text('Employee ID:', 300, currentY);
+
+    doc.fontSize(10)
+       .font('Helvetica')
+       .fillColor('#2c3e50')
+       .text(payslip.employeeName, 80, currentY)
+       .text(payslip.employeeId, 380, currentY);
+
+    currentY += 15;
+    
+    doc.fontSize(11)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Department:', 40, currentY)
+       .text('Designation:', 300, currentY);
+
+    doc.fontSize(10)
+       .font('Helvetica')
+       .fillColor('#2c3e50')
+       .text(payslip.department, 110, currentY)
+       .text(payslip.designation, 380, currentY);
+
+    // Earnings and Deductions Table - Professional single-page layout
+    currentY += 35;
+    
+    // Table header with properly sized background
+    const tableHeaderHeight = 25;
+    doc.rect(30, currentY, pageWidth - 30, tableHeaderHeight)
+       .fillColor('#e9ecef')
+       .fill()
+       .stroke('#dee2e6');
+
+    doc.fontSize(12)
+       .font('Helvetica-Bold')
+       .fillColor('#2c3e50')
+       .text('Earnings & Deductions', 40, currentY + 8);
+
+    currentY += 35;
+    
+    // Table headers with proper alignment (better column spacing)
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Earnings', 40, currentY)
+       .text('Amount', 170, currentY)
+       .text('Deductions', 290, currentY)
+       .text('Amount', 430, currentY);
+
+    // Draw properly positioned table lines (adjusted to match column positions)
+    const tableHeight = 100;
+    doc.moveTo(30, currentY - 5).lineTo(pageWidth - 10, currentY - 5).stroke('#dee2e6');
+    doc.moveTo(30, currentY - 5).lineTo(30, currentY + tableHeight).stroke('#dee2e6');
+    doc.moveTo(160, currentY - 5).lineTo(160, currentY + tableHeight).stroke('#dee2e6');
+    doc.moveTo(280, currentY - 5).lineTo(280, currentY + tableHeight).stroke('#dee2e6');
+    doc.moveTo(420, currentY - 5).lineTo(420, currentY + tableHeight).stroke('#dee2e6');
+    doc.moveTo(pageWidth - 10, currentY - 5).lineTo(pageWidth - 10, currentY + tableHeight).stroke('#dee2e6');
+
+    currentY += 15;
+    
+    // Optimized earnings and deductions rendering
+    doc.fontSize(9).font('Helvetica').fillColor('#2c3e50');
+    
+    const earnings = [
+      ['Basic Salary', payslip.earnings.basicSalary],
+      ['House Rent', payslip.earnings.houseRent],
+      ['Medical Allowance', payslip.earnings.medicalAllowance],
+      ['Conveyance Allowance', payslip.earnings.conveyanceAllowance],
+      ['Special Allowance', payslip.earnings.specialAllowance],
+      ['Overtime', payslip.earnings.overtime],
+      ['Bonus', payslip.earnings.bonus]
+    ];
+    
+    const deductions = [
+      ['Provident Fund', payslip.deductions.providentFund],
+      ['EOBI', payslip.deductions.eobi],
+      ['Income Tax', payslip.deductions.incomeTax],
+      ['Attendance Deduction', payslip.deductions.absentDeduction],
+      ['Loan Deduction', payslip.deductions.loanDeduction],
+      ['Other Deductions', payslip.deductions.otherDeductions]
+    ];
+    
+    let earningsY = currentY;
+    earnings.forEach(([label, amount]) => {
+      if (amount > 0) {
+        doc.text(label, 40, earningsY).text(formatCurrency(amount), 170, earningsY);
+        earningsY += 12;
+      }
+    });
+    
+    let deductionsY = currentY;
+    deductions.forEach(([label, amount]) => {
+      if (amount > 0) {
+        doc.text(label, 290, deductionsY).text(formatCurrency(amount), 430, deductionsY);
+        deductionsY += 12;
+      }
+    });
+
+    // Summary section - Professional and clean with proper spacing
+    currentY += 110;
+    
+    // Summary background - properly sized
+    const summaryHeight = 65;
+    doc.rect(30, currentY, pageWidth - 30, summaryHeight)
+       .fillColor('#f8f9fa')
+       .fill()
+       .stroke('#dee2e6');
+
+    // Gross Salary
+    doc.fontSize(11)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Gross Salary:', 40, currentY + 10)
+       .text(formatCurrency(payslip.grossSalary), 200, currentY + 10);
+
+    // Total Deductions
+    doc.text('Total Deductions:', 40, currentY + 25)
+       .text(formatCurrency(payslip.totalDeductions), 200, currentY + 25);
+
+    // Net Salary with properly positioned highlight
+    const netSalaryY = currentY + 40;
+    doc.rect(30, netSalaryY, pageWidth - 30, 20)
+       .fillColor('#e8f5e8')
+       .fill()
+       .stroke('#c3e6c3');
+
+    doc.fontSize(13)
+       .font('Helvetica-Bold')
+       .fillColor('#2c3e50')
+       .text('Net Salary:', 40, netSalaryY + 5)
+       .text(formatCurrency(payslip.netSalary), 200, netSalaryY + 5);
+
+    // Amount in words - properly positioned
+    currentY += 75;
+    doc.fontSize(10)
+       .font('Helvetica')
+       .fillColor('#6c757d')
+       .text(`Amount in words: ${numberToWords(Math.round(payslip.netSalary))} Only`, 40, currentY);
+
+    // Notes section - only if exists, properly positioned
+    if (payslip.remarks) {
+      currentY += 20;
+      doc.fontSize(10)
+         .font('Helvetica-Bold')
+         .fillColor('#495057')
+         .text('Notes:', 40, currentY)
+         .font('Helvetica')
+         .fillColor('#6c757d')
+         .text(payslip.remarks, 40, currentY + 12);
+    }
+
+    // Footer with signatures - compact and professional with proper positioning (added 10px margin bottom)
+    const footerY = doc.page.height - 85;
+    
+    // Signature section with properly sized background
+    const footerHeight = 60;
+    doc.rect(30, footerY, pageWidth - 30, footerHeight)
+       .fillColor('#f8f9fa')
+       .fill()
+       .stroke('#dee2e6');
+
+    // Signature labels with proper spacing
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Prepared By', 40, footerY + 8)
+       .text('Received By', 200, footerY + 8)
+       .text('Approved By', 360, footerY + 8);
+
+    // Signature lines with proper positioning
+    doc.moveTo(40, footerY + 20).lineTo(150, footerY + 20).stroke('#6c757d');
+    doc.moveTo(200, footerY + 20).lineTo(310, footerY + 20).stroke('#6c757d');
+    doc.moveTo(360, footerY + 20).lineTo(470, footerY + 20).stroke('#6c757d');
+
+    // System information - minimal with proper spacing
+    doc.fontSize(8)
+       .font('Helvetica')
+       .fillColor('#6c757d')
+       .text('Human Capital Management System', 40, footerY + 30)
+       .text(`Generated by: ${payslip.createdBy?.firstName || 'SYSTEM'}`, 40, footerY + 40)
+       .text(formatDate(new Date()), 40, footerY + 50);
+
+    // Finalize PDF
+    doc.end();
+    
+  } catch (error) {
+    console.error('❌ Error generating payslip PDF:', error);
+    
+    // Check if headers have already been sent
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to generate payslip PDF',
+        error: error.message
+      });
+    } else {
+      console.error('❌ Headers already sent, cannot send error response');
+    }
+  }
+}
 
 /**
  * Calculate working days in a month (excluding Sundays)
@@ -514,6 +818,18 @@ router.post('/', [
 
     console.log(`📊 Found ${activeEmployees.length} active employees for payroll generation`);
 
+    // 🔧 CHECK ZKBIO TIME SERVER STATUS ONCE BEFORE PROCESSING ALL EMPLOYEES
+    console.log('🔍 Checking ZKBio Time server status before bulk payroll generation...');
+    const serverStatus = await AttendanceIntegrationService.checkZKBioServerStatus();
+    const zkbioServerOnline = serverStatus.isOnline;
+    
+    if (zkbioServerOnline) {
+      console.log('✅ ZKBio Time server is online - will fetch actual attendance records');
+    } else {
+      console.log('⚠️ ZKBio Time server is offline - will use fallback calculations (full attendance)');
+      console.log(`   Server status: ${serverStatus.message}`);
+    }
+
     const createdPayrolls = [];
     const errors = [];
     const skippedEmployees = [];
@@ -521,252 +837,320 @@ router.post('/', [
     let totalNetSalary = 0;
     let totalTax = 0;
 
-    // Generate payroll for each employee
-    for (const employee of activeEmployees) {
-      try {
-        const grossSalary = employee.salary.gross;
-        
-        // 🔧 SALARY BREAKDOWN CALCULATION (66.66% basic, 10% medical, 23.34% house rent)
-        const basicSalary = Math.round(grossSalary * 0.6666);
-        const medicalAllowance = Math.round(grossSalary * 0.10);
-        const houseRentAllowance = Math.round(grossSalary * 0.2334);
-        
-        // Calculate additional allowances from employee master data
-        const additionalAllowances = 
-          (employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0) +
-          (employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0) +
-          (employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0) +
-          (employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0) +
-          (employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
-        
-        // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses
-        // For monthly payroll, we'll set overtime and bonuses to 0 initially
-        const totalEarnings = grossSalary + additionalAllowances;
-        
-        // 🔧 INCOME TAX CALCULATION (User's Formula)
-        // 1. Medical allowance is 10% of total earnings (tax exempt)
-        // 2. Taxable income = Total earnings - Medical allowance (90% of total earnings)
-        // 3. Calculate tax on taxable income using FBR 2025-2026 slabs
-        const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
-        const taxableIncome = totalEarnings - medicalAllowanceForTax;
-        
-        // Calculate monthly tax using FBR 2025-2026 rules
-        const annualTaxableIncome = taxableIncome * 12;
-        let annualTax = 0;
-        
-        if (annualTaxableIncome <= 600000) {
-          annualTax = 0;
-        } else if (annualTaxableIncome <= 1200000) {
-          annualTax = (annualTaxableIncome - 600000) * 0.01;
-        } else if (annualTaxableIncome <= 2200000) {
-          annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-        } else if (annualTaxableIncome <= 3200000) {
-          annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-        } else if (annualTaxableIncome <= 4100000) {
-          annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-        } else {
-          annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-        }
-        
-        // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-        if (annualTaxableIncome > 10000000) {
-          const surcharge = annualTax * 0.09;
-          annualTax += surcharge;
-        }
-        
-        // Convert to monthly tax
-        const monthlyTax = Math.round(annualTax / 12);
-        
-        // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
-        // Provident Fund (8.34% of basic salary)
-        const providentFund = Math.round((basicSalary * 8.34) / 100);
-        
-        // EOBI is always 370 PKR for all employees (Pakistan EOBI fixed amount)
-        const eobi = 370;
-        
-        // 🔧 INTEGRATE ACTUAL ATTENDANCE RECORDS USING SERVICE
-        const attendanceIntegration = await AttendanceIntegrationService.getAttendanceIntegration(
-          employee.employeeId, // Use employeeId field instead of _id
-          month,
-          year,
-          grossSalary
-        );
-        
-        const {
-          presentDays,
-          absentDays,
-          leaveDays,
-          totalWorkingDays,
-          dailyRate,
-          attendanceDeduction
-        } = attendanceIntegration;
-        
-        // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
-        const totalDeductions = monthlyTax + eobi + attendanceDeduction;
-        
-        // 🔧 NET SALARY = Total Earnings - Total Deductions
-        const netSalary = totalEarnings - totalDeductions;
-        
-        // Create payroll data
-        const payrollData = {
-          employee: employee._id,
-          month,
-          year,
-          basicSalary,
-          houseRentAllowance,
-          medicalAllowance,
-          allowances: {
-            conveyance: {
-              isActive: employee.allowances?.conveyance?.isActive || false,
-              amount: employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0
-            },
-            food: {
-              isActive: employee.allowances?.food?.isActive || false,
-              amount: employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0
-            },
-            vehicleFuel: {
-              isActive: employee.allowances?.vehicleFuel?.isActive || false,
-              amount: employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0
-            },
-            medical: {
-              isActive: employee.allowances?.medical?.isActive || false,
-              amount: employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0
-            },
-            special: {
-              isActive: employee.allowances?.special?.isActive || false,
-              amount: employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0
-            },
-            other: {
-              isActive: employee.allowances?.other?.isActive || false,
-              amount: employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0
-            }
-          },
-          overtimeHours: 0,
-          overtimeRate: 0,
-          overtimeAmount: 0,
-          performanceBonus: 0,
-          otherBonus: 0,
-          arrears: 0,
-          providentFund,
-          incomeTax: monthlyTax,
-          healthInsurance: 0,
-          vehicleLoanDeduction: 0,
-          companyLoanDeduction: 0,
-          otherDeductions: 0,
-          eobi,
-          totalWorkingDays,
-          presentDays,
-          absentDays,
-          leaveDays,
-          dailyRate,
-          attendanceDeduction,
-          grossSalary,
-          totalEarnings,
-          totalDeductions,
-          netSalary,
-          currency: 'PKR',
-          remarks: `Monthly payroll generated for ${month}/${year}`,
-          createdBy: req.user.id,
-          status: 'Draft'
-        };
-
-        // Check for existing payroll and handle duplicates
-        const existingPayroll = await Payroll.findOne({
-          employee: employee._id,
-          month,
-          year
-        });
-
-        if (existingPayroll) {
-          if (forceRegenerate) {
-            // Delete existing payroll if forceRegenerate is true
-            await Payroll.findByIdAndDelete(existingPayroll._id);
-            console.log(`🔄 Regenerated payroll for ${employee.firstName} ${employee.lastName} (${employee.employeeId})`);
-          } else {
-            // Skip this employee if payroll already exists
-            console.log(`⏭️  Skipping ${employee.firstName} ${employee.lastName} (${employee.employeeId}) - payroll already exists for ${month}/${year}`);
-            skippedEmployees.push({
-              employeeId: employee.employeeId,
-              name: `${employee.firstName} ${employee.lastName}`,
-              reason: `Payroll already exists for ${month}/${year}`
-            });
-            continue;
-          }
-        }
-
-        // Create and save payroll
-        const payroll = new Payroll(payrollData);
-        await payroll.save();
-        
-        // Populate employee details for response
-        const populatedPayroll = await Payroll.findById(payroll._id)
-          .populate('employee', 'firstName lastName employeeId department position');
-        
-        createdPayrolls.push(populatedPayroll);
-        
-        // Accumulate totals
-        totalGrossSalary += totalEarnings;
-        totalNetSalary += netSalary;
-        totalTax += monthlyTax;
-        
-        console.log(`✅ Generated payroll for ${employee.firstName} ${employee.lastName} (${employee.employeeId}):`);
-        console.log(`   Gross Salary: Rs. ${grossSalary.toLocaleString()}`);
-        console.log(`   Total Earnings: Rs. ${totalEarnings.toLocaleString()}`);
-        console.log(`   Taxable Income: Rs. ${taxableIncome.toLocaleString()}`);
-        console.log(`   Monthly Tax: Rs. ${monthlyTax.toLocaleString()}`);
-        console.log(`   Net Salary: Rs. ${netSalary.toLocaleString()}`);
-        
-      } catch (error) {
-        console.error(`❌ Error generating payroll for employee ${employee.employeeId}:`, error);
-        
-        // Handle specific error types
-        if (error.code === 11000) {
-          // Duplicate key error
-          const errorMsg = `Duplicate payroll for ${employee.firstName} ${employee.lastName} (${employee.employeeId}) - ${month}/${year}`;
-          console.log(`⚠️  ${errorMsg}`);
-          errors.push(errorMsg);
-        } else {
-          // Other errors
-          errors.push(`Error for ${employee.firstName} ${employee.lastName}: ${error.message}`);
-        }
-      }
+    // 🚀 OPTIMIZED BULK PROCESSING - Process employees in parallel batches
+    const BATCH_SIZE = 20; // Process 20 employees simultaneously for optimal performance
+    const batches = [];
+    
+    // Split employees into batches
+    for (let i = 0; i < activeEmployees.length; i += BATCH_SIZE) {
+      batches.push(activeEmployees.slice(i, i + BATCH_SIZE));
     }
-
-    // Calculate summary statistics
-    const summary = {
-      totalEmployees: createdPayrolls.length,
+    
+    console.log(`🚀 Processing ${activeEmployees.length} employees in ${batches.length} batches of ${BATCH_SIZE}`);
+    
+    // 🔧 PRE-CALCULATE COMMON VALUES (Performance optimization)
+    const workingDays = AttendanceIntegrationService.calculateWorkingDaysInMonth(year, month - 1);
+    
+    // 🔧 BULK ATTENDANCE INTEGRATION (Major performance boost)
+    console.log('🔧 Fetching bulk attendance data for all employees...');
+    const employeeDataForAttendance = activeEmployees.map(emp => ({
+      employeeId: emp.employeeId,
+      grossSalary: emp.salary.gross
+    }));
+    
+    const bulkAttendanceData = await AttendanceIntegrationService.getBulkAttendanceIntegration(
+      employeeDataForAttendance,
       month,
       year,
-      totalGrossSalary: Math.round(totalGrossSalary),
-      totalNetSalary: Math.round(totalNetSalary),
-      totalTax: Math.round(totalTax),
-      averageGrossSalary: Math.round(totalGrossSalary / createdPayrolls.length),
-      averageNetSalary: Math.round(totalNetSalary / createdPayrolls.length),
-      averageTax: Math.round(totalTax / createdPayrolls.length)
-    };
+      zkbioServerOnline
+    );
+    
+    console.log(`✅ Bulk attendance data fetched for ${activeEmployees.length} employees`);
+    
+    // Process each batch in parallel
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`📊 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} employees)`);
+      
+      // Process all employees in current batch in parallel
+      const batchPromises = batch.map(async (employee) => {
+        try {
+          const grossSalary = employee.salary.gross;
+          
+          // 🔧 SALARY BREAKDOWN CALCULATION (66.66% basic, 10% medical, 23.34% house rent)
+          const basicSalary = Math.round(grossSalary * 0.6666);
+          const medicalAllowance = Math.round(grossSalary * 0.10);
+          const houseRentAllowance = Math.round(grossSalary * 0.2334);
+          
+          // Calculate additional allowances from employee master data
+          const additionalAllowances = 
+            (employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0) +
+            (employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0) +
+            (employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0) +
+            (employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0) +
+            (employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
+          
+          // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses
+          const totalEarnings = grossSalary + additionalAllowances;
+          
+          // 🔧 INCOME TAX CALCULATION (User's Formula)
+          const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
+          const taxableIncome = totalEarnings - medicalAllowanceForTax;
+          
+          // Calculate monthly tax using FBR 2025-2026 rules
+          const annualTaxableIncome = taxableIncome * 12;
+          let annualTax = 0;
+          
+          if (annualTaxableIncome <= 600000) {
+            annualTax = 0;
+          } else if (annualTaxableIncome <= 1200000) {
+            annualTax = (annualTaxableIncome - 600000) * 0.01;
+          } else if (annualTaxableIncome <= 2200000) {
+            annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+          } else if (annualTaxableIncome <= 3200000) {
+            annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+          } else if (annualTaxableIncome <= 4100000) {
+            annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+          } else {
+            annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
+          }
+          
+          // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
+          if (annualTaxableIncome > 10000000) {
+            const surcharge = annualTax * 0.09;
+            annualTax += surcharge;
+          }
+          
+          // Convert to monthly tax
+          const monthlyTax = Math.round(annualTax / 12);
+          
+          // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
+          const providentFund = Math.round((basicSalary * 8.34) / 100);
+          const eobi = 370;
+          
+          // 🔧 USE PRE-FETCHED BULK ATTENDANCE DATA (Major performance boost)
+          const attendanceData = bulkAttendanceData[employee.employeeId] || {
+            presentDays: workingDays,
+            absentDays: 0,
+            leaveDays: 0,
+            totalWorkingDays: workingDays,
+            dailyRate: grossSalary / workingDays,
+            attendanceDeduction: 0
+          };
+          
+          const {
+            presentDays,
+            absentDays,
+            leaveDays,
+            totalWorkingDays,
+            dailyRate,
+            attendanceDeduction
+          } = attendanceData;
+        
+          // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
+          const totalDeductions = monthlyTax + eobi + attendanceDeduction;
+          
+          // 🔧 NET SALARY = Total Earnings - Total Deductions
+          const netSalary = totalEarnings - totalDeductions;
+          
+          // Create payroll data
+          const payrollData = {
+            employee: employee._id,
+            month,
+            year,
+            basicSalary,
+            houseRentAllowance,
+            medicalAllowance,
+            allowances: {
+              conveyance: {
+                isActive: employee.allowances?.conveyance?.isActive || false,
+                amount: employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0
+              },
+              food: {
+                isActive: employee.allowances?.food?.isActive || false,
+                amount: employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0
+              },
+              vehicleFuel: {
+                isActive: employee.allowances?.vehicleFuel?.isActive || false,
+                amount: employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0
+              },
+              medical: {
+                isActive: employee.allowances?.medical?.isActive || false,
+                amount: employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0
+              },
+              special: {
+                isActive: employee.allowances?.special?.isActive || false,
+                amount: employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0
+              },
+              other: {
+                isActive: employee.allowances?.other?.isActive || false,
+                amount: employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0
+              }
+            },
+            overtimeHours: 0,
+            overtimeRate: 0,
+            overtimeAmount: 0,
+            performanceBonus: 0,
+            otherBonus: 0,
+            arrears: 0,
+            providentFund,
+            incomeTax: monthlyTax,
+            healthInsurance: 0,
+            vehicleLoanDeduction: 0,
+            companyLoanDeduction: 0,
+            otherDeductions: 0,
+            eobi,
+            totalWorkingDays,
+            presentDays,
+            absentDays,
+            leaveDays,
+            dailyRate,
+            attendanceDeduction,
+            grossSalary,
+            totalEarnings,
+            totalDeductions,
+            netSalary,
+            currency: 'PKR',
+            remarks: `Monthly payroll generated for ${month}/${year}`,
+            createdBy: req.user.id,
+            status: 'Draft'
+          };
 
-    console.log(`🎉 Payroll generation completed for ${month}/${year}:`);
-    console.log(`   Total Employees: ${summary.totalEmployees}`);
-    console.log(`   Total Gross Salary: Rs. ${summary.totalGrossSalary.toLocaleString()}`);
-    console.log(`   Total Net Salary: Rs. ${summary.totalNetSalary.toLocaleString()}`);
-    console.log(`   Total Tax: Rs. ${summary.totalTax.toLocaleString()}`);
-    
-    if (skippedEmployees.length > 0) {
-      console.log(`   Skipped Employees: ${skippedEmployees.length} (already have payrolls)`);
+          return {
+            success: true,
+            payrollData,
+            employee: {
+              _id: employee._id,
+              firstName: employee.firstName,
+              lastName: employee.lastName,
+              employeeId: employee.employeeId,
+              department: employee.department,
+              position: employee.position
+            },
+            totals: {
+              totalEarnings,
+              netSalary,
+              monthlyTax
+            }
+          };
+        } catch (error) {
+          console.error(`❌ Error processing payroll for ${employee.firstName} ${employee.lastName}:`, error.message);
+          return {
+            success: false,
+            error: error.message,
+            employee: {
+              employeeId: employee.employeeId,
+              name: `${employee.firstName} ${employee.lastName}`
+            }
+          };
+        }
+      });
+      
+      // Wait for all employees in current batch to complete
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      // Process batch results
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value.success) {
+          const { payrollData, employee, totals } = result.value;
+          
+          // Check for existing payroll and handle duplicates
+          const existingPayroll = await Payroll.findOne({
+            employee: employee._id,
+            month,
+            year
+          });
+
+          if (existingPayroll) {
+            if (forceRegenerate) {
+              // Delete existing payroll if forceRegenerate is true
+              await Payroll.findByIdAndDelete(existingPayroll._id);
+              console.log(`🔄 Regenerated payroll for ${employee.firstName} ${employee.lastName} (${employee.employeeId})`);
+            } else {
+              // Skip this employee if payroll already exists
+              console.log(`⏭️  Skipping ${employee.firstName} ${employee.lastName} (${employee.employeeId}) - payroll already exists for ${month}/${year}`);
+              skippedEmployees.push({
+                employeeId: employee.employeeId,
+                name: `${employee.firstName} ${employee.lastName}`,
+                reason: `Payroll already exists for ${month}/${year}`
+              });
+              continue;
+            }
+          }
+          
+          // Add to batch for bulk insert
+          createdPayrolls.push(payrollData);
+          
+          // Accumulate totals
+          totalGrossSalary += totals.totalEarnings;
+          totalNetSalary += totals.netSalary;
+          totalTax += totals.monthlyTax;
+        } else if (result.status === 'fulfilled' && !result.value.success) {
+          // Handle individual employee errors
+          errors.push({
+            employeeId: result.value.employee.employeeId,
+            name: result.value.employee.name,
+            error: result.value.error
+          });
+        } else {
+          // Handle promise rejection
+          errors.push({
+            employeeId: 'Unknown',
+            name: 'Unknown Employee',
+            error: result.reason?.message || 'Unknown error'
+          });
+        }
+      }
+      
+      console.log(`✅ Batch ${batchIndex + 1}/${batches.length} completed`);
     }
     
-    if (errors.length > 0) {
-      console.log(`   Errors: ${errors.length} (see details below)`);
-    }
+    // 🚀 BULK DATABASE INSERT (Major performance boost)
+    console.log(`💾 Performing bulk insert of ${createdPayrolls.length} payroll records...`);
+    const insertedPayrolls = await Payroll.insertMany(createdPayrolls);
+    console.log(`✅ Bulk insert completed: ${insertedPayrolls.length} payroll records created`);
+    
+    // 🚀 BULK POPULATE FOR RESPONSE (Performance optimization)
+    console.log('🔧 Populating employee details for response...');
+    const populatedPayrolls = await Payroll.find({
+      _id: { $in: insertedPayrolls.map(p => p._id) }
+    }).populate('employee', 'firstName lastName employeeId department position');
+    
+    console.log(`✅ Employee details populated for ${populatedPayrolls.length} payroll records`);
+        
+
+    // 🎯 FINAL SUMMARY AND RESPONSE
+    console.log(`\n🎉 OPTIMIZED BULK PAYROLL GENERATION COMPLETED!`);
+    console.log(`📊 Summary:`);
+    console.log(`   Total Employees Processed: ${activeEmployees.length}`);
+    console.log(`   Payrolls Created: ${populatedPayrolls.length}`);
+    console.log(`   Skipped (Duplicates): ${skippedEmployees.length}`);
+    console.log(`   Errors: ${errors.length}`);
+    console.log(`   Total Gross Salary: Rs. ${totalGrossSalary.toLocaleString()}`);
+    console.log(`   Total Net Salary: Rs. ${totalNetSalary.toLocaleString()}`);
+    console.log(`   Total Tax Collected: Rs. ${totalTax.toLocaleString()}`);
 
     res.status(201).json({
       success: true,
-      message: `Successfully generated ${createdPayrolls.length} payrolls for ${month}/${year}`,
+      message: `Successfully generated ${populatedPayrolls.length} payrolls for ${month}/${year}`,
       data: {
-        summary,
-        payrolls: createdPayrolls,
-        skippedEmployees: skippedEmployees.length > 0 ? skippedEmployees : undefined,
-        errors: errors.length > 0 ? errors : undefined
+        payrolls: populatedPayrolls,
+        summary: {
+          totalEmployees: activeEmployees.length,
+          payrollsCreated: populatedPayrolls.length,
+          skippedEmployees: skippedEmployees.length,
+          errors: errors.length,
+          totalGrossSalary,
+          totalNetSalary,
+          totalTax
+        },
+        skippedEmployees,
+        errors,
+        serverStatus: {
+          zkbioServerOnline,
+          message: serverStatus.message,
+          server: serverStatus.server || 'ZKBio Time'
+        }
       }
     });
 
@@ -792,6 +1176,11 @@ router.put('/:id', [
   body('payPeriod.type').optional().isIn(['weekly', 'bi-weekly', 'monthly']).withMessage('Valid pay period type is required'),
   body('basicSalary').optional().isNumeric().withMessage('Valid basic salary is required')
 ], asyncHandler(async (req, res) => {
+  console.log('🔧 PUT /api/payroll/:id - Request received');
+  console.log('   Payroll ID:', req.params.id);
+  console.log('   Request Body:', JSON.stringify(req.body, null, 2));
+  console.log('   User:', req.user ? req.user.email : 'No user');
+  
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({
       success: false,
@@ -952,21 +1341,57 @@ router.put('/:id', [
     (updateData.houseRentAllowance || payroll.houseRentAllowance) + 
     (updateData.medicalAllowance || payroll.medicalAllowance);
   
+  // 🔧 CRITICAL FIX: Update allowances structure on payroll object FIRST
+  if (req.body.allowances) {
+    console.log('🔧 Updating payroll.allowances with frontend data');
+    payroll.allowances = {
+      conveyance: {
+        isActive: req.body.allowances.conveyance?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.conveyance?.amount) || 0
+      },
+      food: {
+        isActive: req.body.allowances.food?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.food?.amount) || 0
+      },
+      vehicleFuel: {
+        isActive: req.body.allowances.vehicleFuel?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.vehicleFuel?.amount) || 0
+      },
+      medical: {
+        isActive: req.body.allowances.medical?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.medical?.amount) || 0
+      },
+      special: {
+        isActive: req.body.allowances.special?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.special?.amount) || 0
+      },
+      other: {
+        isActive: req.body.allowances.other?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.other?.amount) || 0
+      }
+    };
+    console.log('✅ Updated payroll.allowances:', JSON.stringify(payroll.allowances, null, 2));
+  }
+
   // Note: Overtime, bonuses, and additional allowances are NOT part of gross salary (base)
   // They are added to calculate Total Earnings
 
   // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
+  // Now use the updated payroll.allowances (which contains the frontend data)
   const additionalAllowances = 
-    ((updateData.allowances?.conveyance?.isActive ? updateData.allowances.conveyance.amount : 0) || 
-     (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0)) +
-    ((updateData.allowances?.food?.isActive ? updateData.allowances.food.amount : 0) || 
-     (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0)) +
-    ((updateData.allowances?.vehicleFuel?.isActive ? updateData.allowances.vehicleFuel.amount : 0) || 
-     (payroll.allowances?.vehicleFuel?.isActive ? payroll.allowances.vehicleFuel.amount : 0)) +
-    ((updateData.allowances?.special?.isActive ? updateData.allowances.special.amount : 0) || 
-     (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0)) +
-    ((updateData.allowances?.other?.isActive ? updateData.allowances.other.amount : 0) || 
-     (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0));
+    (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
+    (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
+    (payroll.allowances?.vehicleFuel?.isActive ? payroll.allowances.vehicleFuel.amount : 0) +
+    (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
+    (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
+  
+  console.log('💰 Additional Allowances Calculation:');
+  console.log('   Conveyance:', payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0);
+  console.log('   Food:', payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0);
+  console.log('   Vehicle & Fuel:', payroll.allowances?.vehicleFuel?.isActive ? payroll.allowances.vehicleFuel.amount : 0);
+  console.log('   Special:', payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0);
+  console.log('   Other:', payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
+  console.log('   Total Additional Allowances:', additionalAllowances);
   
   // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
   const totalEarnings = updateData.grossSalary + additionalAllowances + 
@@ -977,57 +1402,71 @@ router.put('/:id', [
   // Store total earnings for reference
   updateData.totalEarnings = totalEarnings;
   
+  // 🔧 CRITICAL FIX: Update payroll.totalEarnings with calculated value
+  payroll.totalEarnings = totalEarnings;
+  
+  console.log('💰 Total Earnings Calculation:');
+  console.log('   Gross Salary (Base):', updateData.grossSalary);
+  console.log('   Additional Allowances:', additionalAllowances);
+  console.log('   Overtime Amount:', updateData.overtimeAmount || payroll.overtimeAmount);
+  console.log('   Performance Bonus:', updateData.performanceBonus || payroll.performanceBonus);
+  console.log('   Other Bonus:', updateData.otherBonus || payroll.otherBonus);
+  console.log('   Total Earnings:', totalEarnings);
+  
   // Medical allowance is 10% of total earnings (tax-exempt)
   const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
   
   // Taxable Income = Total Earnings - Medical Allowance
   const taxableIncome = totalEarnings - medicalAllowanceForTax;
   
-  // Auto-calculate tax if not provided (same as September 688 employees)
-  if (!updateData.incomeTax) {
-    try {
-      // Calculate tax using FBR 2025-2026 rules
-      const annualTaxableIncome = taxableIncome * 12;
-      
-      // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
-      let annualTax = 0;
-      
-      if (annualTaxableIncome <= 600000) {
-        // No tax for income up to 600,000
-        annualTax = 0;
-      } else if (annualTaxableIncome <= 1200000) {
-        // 1% on income from 600,001 to 1,200,000
-        annualTax = (annualTaxableIncome - 600000) * 0.01;
-      } else if (annualTaxableIncome <= 2200000) {
-        // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
-        annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-      } else if (annualTaxableIncome <= 3200000) {
-        // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
-        annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-      } else if (annualTaxableIncome <= 4100000) {
-        // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
-        annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-      } else {
-        // Rs. 616,000 + 35% on income above 4,100,000
-        annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-      }
-      
-      // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-      if (annualTaxableIncome > 10000000) {
-        const surcharge = annualTax * 0.09;
-        annualTax += surcharge;
-      }
-      
-      // Convert to monthly tax
-      updateData.incomeTax = Math.round(annualTax / 12);
-      
-      console.log(`💰 Tax Calculation for Employee Update: Total Earnings: ${totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${updateData.incomeTax}`);
-      
-    } catch (error) {
-      console.error('Error calculating tax:', error);
-      // Fallback to old calculation
-      updateData.incomeTax = calculateMonthlyTax(taxableIncome);
+  // Auto-calculate tax when allowances change (always recalculate for accuracy)
+  // This ensures tax is always updated when Total Earnings change
+  try {
+    // Calculate tax using FBR 2025-2026 rules
+    const annualTaxableIncome = taxableIncome * 12;
+    
+    // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
+    let annualTax = 0;
+    
+    if (annualTaxableIncome <= 600000) {
+      // No tax for income up to 600,000
+      annualTax = 0;
+    } else if (annualTaxableIncome <= 1200000) {
+      // 1% on income from 600,001 to 1,200,000
+      annualTax = (annualTaxableIncome - 600000) * 0.01;
+    } else if (annualTaxableIncome <= 2200000) {
+      // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
+      annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
+    } else if (annualTaxableIncome <= 3200000) {
+      // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
+      annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
+    } else if (annualTaxableIncome <= 4100000) {
+      // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
+      annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
+    } else {
+      // Rs. 616,000 + 35% on income above 4,100,000
+      annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
     }
+    
+    // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
+    if (annualTaxableIncome > 10000000) {
+      const surcharge = annualTax * 0.09;
+      annualTax += surcharge;
+    }
+    
+    // Convert to monthly tax
+    updateData.incomeTax = Math.round(annualTax / 12);
+    
+    // 🔧 CRITICAL FIX: Update payroll.incomeTax with calculated value
+    payroll.incomeTax = updateData.incomeTax;
+    
+    console.log(`💰 Tax Calculation for Employee Update: Total Earnings: ${totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${updateData.incomeTax}`);
+    
+  } catch (error) {
+    console.error('Error calculating tax:', error);
+    // Fallback to old calculation
+    updateData.incomeTax = calculateMonthlyTax(taxableIncome);
+    payroll.incomeTax = updateData.incomeTax;
   }
 
   // Calculate attendance deduction for updateData as well
@@ -1047,6 +1486,10 @@ router.put('/:id', [
     (updateData.otherDeductions || payroll.otherDeductions || 0);
 
   updateData.netSalary = updateData.grossSalary - updateData.totalDeductions;
+  
+  // 🔧 CRITICAL FIX: Update payroll.totalDeductions and payroll.netSalary with calculated values
+  payroll.totalDeductions = updateData.totalDeductions;
+  payroll.netSalary = updateData.netSalary;
 
   // Store the original total earnings to preserve it during updates
   const originalTotalEarnings = payroll.totalEarnings;
@@ -1156,6 +1599,7 @@ router.put('/:id', [
       const attendanceDeduction = (payroll.absentDays + payroll.leaveDays) * dailyRate;
       console.log(`💰 Direct Update Attendance Deduction Preview: ${Math.round(attendanceDeduction)} (Daily Rate: ${dailyRate.toFixed(2)} × (${payroll.absentDays} + ${payroll.leaveDays}))`);
     }
+
   }
   
   if (req.body.remarks !== undefined) {
@@ -1272,6 +1716,11 @@ router.put('/:id', [
     .populate('employee', 'firstName lastName employeeId department position')
     .populate('createdBy', 'firstName lastName')
     .populate('approvedBy', 'firstName lastName');
+
+  console.log('✅ PUT /api/payroll/:id - Request completed successfully');
+  console.log('   Updated Total Earnings:', updatedPayroll.totalEarnings);
+  console.log('   Updated Vehicle & Fuel:', updatedPayroll.allowances?.vehicleFuel?.isActive ? 
+    `Rs. ${updatedPayroll.allowances.vehicleFuel.amount} (Active)` : 'Inactive');
 
   res.json({
     success: true,
@@ -1733,7 +2182,7 @@ router.get('/:id/download',
     doc.fontSize(8)
        .font('Helvetica')
        .fillColor('#666')
-       .text('Human Capital Management System', 50, footerY + 30)
+       .text('Human Resource Management', 50, footerY + 30)
        .text(`Generated by: ${payroll.createdBy?.firstName || 'SYSTEM'}`, 50, footerY + 45)
        .text(formatDate(new Date()), 50, footerY + 60);
 
@@ -2011,6 +2460,145 @@ router.get('/demo-attendance-integration',
         message: 'Failed to run attendance integration demo',
         error: error.message
       });
+    }
+  })
+);
+
+// @route   POST /api/payroll/:id/generate-payslip
+// @desc    Generate and download payslip PDF from existing payroll data (no database record)
+// @access  Private (HR and Admin)
+router.post('/:id/generate-payslip', 
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      const payrollId = req.params.id;
+      console.log(`🔧 Generating payslip PDF for payroll ID: ${payrollId}`);
+      
+      // Validate payroll ID
+      if (!mongoose.Types.ObjectId.isValid(payrollId)) {
+        console.log(`❌ Invalid payroll ID: ${payrollId}`);
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payroll ID format'
+        });
+      }
+      
+      // Get the payroll data with optimized population
+      const payroll = await Payroll.findById(payrollId)
+        .populate({
+          path: 'employee',
+          select: 'firstName lastName employeeId department position',
+          populate: [
+            { path: 'department', select: 'name' },
+            { path: 'position', select: 'title' }
+          ]
+        });
+      
+      if (!payroll) {
+        return res.status(404).json({
+          success: false,
+          message: 'Payroll not found'
+        });
+      }
+      
+      // Extract department and position names efficiently
+      const departmentName = payroll.employee?.department?.name || 'Not Specified';
+      const positionName = payroll.employee?.position?.title || 'Not Specified';
+      
+      // Validate employee data
+      if (!payroll.employee?.employeeId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Employee data not found for this payroll'
+        });
+      }
+      
+      // Generate payslip number for PDF (no database record)
+      const payslipNumber = `PS${payroll.year}${payroll.month.toString().padStart(2, '0')}${payroll.employee.employeeId}`;
+      
+      // Create payslip data object for PDF generation (no database save)
+      const payslipData = {
+        payslipNumber: payslipNumber,
+        employeeName: `${payroll.employee.firstName} ${payroll.employee.lastName}`,
+        employeeId: payroll.employee.employeeId,
+        department: departmentName,
+        designation: positionName,
+        month: payroll.month,
+        year: payroll.year,
+        
+        // Salary structure from payroll
+        basicSalary: payroll.basicSalary || 0,
+        houseRent: payroll.houseRentAllowance || 0,
+        medicalAllowance: payroll.medicalAllowance || 0,
+        conveyanceAllowance: payroll.allowances?.conveyance?.amount || 0,
+        specialAllowance: payroll.allowances?.special?.amount || 0,
+        otherAllowances: payroll.allowances?.other?.amount || 0,
+        
+        // Earnings from payroll
+        earnings: {
+          basicSalary: payroll.basicSalary || 0,
+          houseRent: payroll.houseRentAllowance || 0,
+          medicalAllowance: payroll.medicalAllowance || 0,
+          conveyanceAllowance: payroll.allowances?.conveyance?.amount || 0,
+          specialAllowance: payroll.allowances?.special?.amount || 0,
+          otherAllowances: payroll.allowances?.other?.amount || 0,
+          overtime: payroll.overtimeAmount || 0,
+          bonus: payroll.performanceBonus || 0,
+          incentives: payroll.otherBonus || 0,
+          arrears: payroll.arrears || 0,
+          otherEarnings: 0
+        },
+        
+        // Deductions from payroll
+        deductions: {
+          providentFund: payroll.providentFund || 0,
+          eobi: payroll.eobi || 0,
+          incomeTax: payroll.incomeTax || 0,
+          loanDeduction: payroll.companyLoanDeduction || payroll.vehicleLoanDeduction || 0,
+          advanceDeduction: 0,
+          lateDeduction: 0,
+          absentDeduction: payroll.attendanceDeduction || 0,
+          otherDeductions: payroll.otherDeductions || 0
+        },
+        
+        // Attendance from payroll
+        totalDays: payroll.totalWorkingDays || 0,
+        presentDays: payroll.presentDays || 0,
+        absentDays: payroll.absentDays || 0,
+        lateDays: 0, // Not tracked in payroll
+        overtimeHours: payroll.overtimeHours || 0,
+        
+        // Calculations from payroll
+        grossSalary: payroll.grossSalary || 0,
+        totalEarnings: payroll.totalEarnings || 0,
+        totalDeductions: payroll.totalDeductions || 0,
+        netSalary: payroll.netSalary || 0,
+        
+        // Notes
+        remarks: payroll.remarks || `Monthly payslip for ${payroll.month}/${payroll.year}`,
+        
+        // User info for PDF
+        createdBy: {
+          firstName: req.user.firstName || 'System'
+        }
+      };
+      
+      // Generate PDF and return it (no database record created)
+      await generatePayslipPDF(payslipData, res);
+      
+    } catch (error) {
+      console.error('❌ Error generating payslip from payroll:', error);
+      
+      // Check if headers have already been sent (PDF generation might have started)
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to generate payslip from payroll',
+          error: error.message
+        });
+      } else {
+        console.error('❌ Headers already sent, cannot send error response');
+      }
     }
   })
 );

@@ -20,7 +20,7 @@ const employeeSchema = new mongoose.Schema({
   },
   lastName: {
     type: String,
-    required: [true, 'Last name is required'],
+    required: false,
     trim: true,
     maxlength: [50, 'Last name cannot exceed 50 characters']
   },
@@ -688,7 +688,7 @@ employeeSchema.virtual('otherAllowance').get(function() {
 // Pre-save middleware to auto-generate Employee ID, calculate probation dates, salary components, and update user reference
 employeeSchema.pre('save', async function(next) {
   // Auto-generate Employee ID if not provided
-  if (!this.employeeId || this.isNew) {
+  if (!this.employeeId) {
     try {
       // Find all employees and sort by numeric ID to get the highest one
       const allEmployees = await this.constructor.find({}, { employeeId: 1 }).lean();

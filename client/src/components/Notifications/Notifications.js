@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -8,15 +8,12 @@ import {
   ListItemIcon,
   ListItemSecondaryAction,
   IconButton,
-  Badge,
   Chip,
   Divider,
   Button,
   CircularProgress,
-  Alert,
   Menu,
-  MenuItem,
-  Tooltip
+  MenuItem
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
@@ -29,8 +26,7 @@ import {
   AttachMoney,
   Schedule,
   Warning,
-  Info,
-  Error
+  Info
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import { useNotifications } from '../../contexts/NotificationContext';
@@ -38,7 +34,6 @@ import { useNotifications } from '../../contexts/NotificationContext';
 const Notifications = ({ onNotificationAction }) => {
   const { 
     getNotifications, 
-    getUnreadCount, 
     markAsRead, 
     isLoading 
   } = useNotifications();
@@ -47,7 +42,6 @@ const Notifications = ({ onNotificationAction }) => {
   const [selectedNotification, setSelectedNotification] = useState(null);
 
   const notifications = getNotifications();
-  const unreadCount = getUnreadCount();
   const loading = isLoading();
 
   const handleMarkAsRead = async (notificationId) => {

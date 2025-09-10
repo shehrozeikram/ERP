@@ -184,7 +184,12 @@ export const MODULES = {
     description: 'System administration',
     roles: ['admin'],
     subItems: [
-      { name: 'User Management', path: '/admin/users' }
+      { name: 'User Management', path: '/admin/users' },
+      { name: 'Vehicle Management', path: '/admin/vehicles' },
+      { name: 'Grocery Management', path: '/admin/groceries' },
+      { name: 'Petty Cash Management', path: '/admin/petty-cash' },
+      { name: 'Event Management', path: '/admin/events' },
+      { name: 'Staff Management', path: '/admin/staff-management' }
     ]
   }
 };

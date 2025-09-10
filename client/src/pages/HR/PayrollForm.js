@@ -300,7 +300,27 @@ const PayrollForm = () => {
 
         let savedPayroll;
         if (id && id !== 'add') {
-          console.log('Updating existing payroll:', id);
+          console.log('🔄 UPDATING EXISTING PAYROLL:', id);
+          console.log('📤 COMPLETE PAYLOAD BEING SENT TO BACKEND:');
+          console.log('   Payroll ID:', id);
+          console.log('   Employee ID:', payrollData.employee);
+          console.log('   Pay Period:', payrollData.payPeriod);
+          console.log('   Basic Salary:', payrollData.basicSalary);
+          console.log('   Allowances:', JSON.stringify(payrollData.allowances, null, 2));
+          console.log('   Overtime:', JSON.stringify(payrollData.overtime, null, 2));
+          console.log('   Bonuses:', JSON.stringify(payrollData.bonuses, null, 2));
+          console.log('   Deductions:', JSON.stringify(payrollData.deductions, null, 2));
+          console.log('   Attendance:', JSON.stringify(payrollData.attendance, null, 2));
+          console.log('   Leave Deductions:', JSON.stringify(payrollData.leaveDeductions, null, 2));
+          console.log('   Notes:', payrollData.notes);
+          console.log('📊 SUMMARY OF KEY CHANGES:');
+          console.log('   Vehicle & Fuel Allowance:', payrollData.allowances?.vehicleFuel?.isActive ? 
+            `Active (Rs. ${payrollData.allowances.vehicleFuel.amount})` : 'Inactive');
+          console.log('   Medical Allowance:', payrollData.allowances?.medical?.isActive ? 
+            `Active (Rs. ${payrollData.allowances.medical.amount})` : 'Inactive');
+          console.log('   Total Allowances:', Object.values(payrollData.allowances || {}).reduce((sum, allowance) => 
+            sum + (allowance.isActive ? allowance.amount : 0), 0));
+          console.log('🚀 SENDING PUT REQUEST TO:', `/api/payroll/${id}`);
           savedPayroll = await api.put(`/payroll/${id}`, payrollData);
         } else {
           console.log('Creating new payroll');
@@ -332,7 +352,25 @@ const PayrollForm = () => {
           }
         }
 
-        console.log('Payroll saved successfully');
+        console.log('✅ PAYROLL SAVED SUCCESSFULLY!');
+        console.log('📥 RESPONSE FROM BACKEND:');
+        console.log('   Success:', savedPayroll.data.success);
+        console.log('   Message:', savedPayroll.data.message);
+        console.log('   Updated Payroll Data:', JSON.stringify(savedPayroll.data.data, null, 2));
+        console.log('📊 UPDATED VALUES FROM BACKEND:');
+        if (savedPayroll.data.data) {
+          const updatedPayroll = savedPayroll.data.data;
+          console.log('   Total Earnings:', updatedPayroll.totalEarnings);
+          console.log('   Vehicle & Fuel Allowance:', updatedPayroll.allowances?.vehicleFuel?.isActive ? 
+            `Active (Rs. ${updatedPayroll.allowances.vehicleFuel.amount})` : 'Inactive');
+          console.log('   Medical Allowance:', updatedPayroll.allowances?.medical?.isActive ? 
+            `Active (Rs. ${updatedPayroll.allowances.medical.amount})` : 'Inactive');
+          console.log('   Income Tax:', updatedPayroll.incomeTax);
+          console.log('   Total Deductions:', updatedPayroll.totalDeductions);
+          console.log('   Net Salary:', updatedPayroll.netSalary);
+          console.log('   Updated At:', updatedPayroll.updatedAt);
+        }
+        console.log('🎉 NAVIGATING BACK TO PAYROLL LIST...');
         navigate('/hr/payroll');
       } catch (error) {
         console.error('Error saving payroll:', error);
