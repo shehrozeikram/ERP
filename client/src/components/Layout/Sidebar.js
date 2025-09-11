@@ -29,7 +29,8 @@ import {
   Person,
   Settings,
   Logout,
-  AdminPanelSettings
+  AdminPanelSettings,
+  Analytics
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -51,15 +52,16 @@ const getMenuItems = (userRole) => {
 
 // Icon mapping function
 const getIconComponent = (iconName) => {
-  const iconMap = {
-    Dashboard: <Dashboard />,
-    People: <People />,
-    AccountBalance: <AccountBalance />,
-    ShoppingCart: <ShoppingCart />,
-    PointOfSale: <PointOfSale />,
-    ContactSupport: <ContactSupport />,
-    AdminPanelSettings: <AdminPanelSettings />
-  };
+const iconMap = {
+  Dashboard: <Dashboard />,
+  People: <People />,
+  AccountBalance: <AccountBalance />,
+  ShoppingCart: <ShoppingCart />,
+  PointOfSale: <PointOfSale />,
+  ContactSupport: <ContactSupport />,
+  AdminPanelSettings: <AdminPanelSettings />,
+  Analytics: <Analytics />
+};
   return iconMap[iconName] || <Dashboard />;
 };
 

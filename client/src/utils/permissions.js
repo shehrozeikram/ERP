@@ -56,7 +56,7 @@ export const MODULES = {
     name: 'Dashboard',
     path: '/dashboard',
     icon: 'Dashboard',
-    description: 'Main dashboard',
+    description: 'Executive-level business intelligence dashboard',
     roles: ['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee']
   },
   
