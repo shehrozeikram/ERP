@@ -105,6 +105,40 @@ import OfferAcceptance from './pages/Public/OfferAcceptance';
 import PublicJoiningDocument from './pages/Public/PublicJoiningDocument';
 import PublicEmployeeOnboarding from './pages/Public/PublicEmployeeOnboarding';
 
+// Component to handle role-based redirects
+const RoleBasedRedirect = () => {
+  const { user } = useAuth();
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  // Get appropriate redirect path based on user role
+  const getRedirectPath = (userRole) => {
+    switch (userRole) {
+      case 'admin':
+        return '/dashboard';
+      case 'hr_manager':
+        return '/hr';
+      case 'finance_manager':
+        return '/finance';
+      case 'procurement_manager':
+        return '/procurement';
+      case 'sales_manager':
+        return '/sales';
+      case 'crm_manager':
+        return '/crm';
+      case 'employee':
+        return '/profile';
+      default:
+        return '/profile';
+    }
+  };
+  
+  const redirectPath = getRedirectPath(user.role);
+  return <Navigate to={redirectPath} replace />;
+};
+
 // Public Route Component (redirects to dashboard if already logged in)
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -185,7 +219,7 @@ function App() {
             {/* Dashboard */}
             <Route 
               path="/dashboard" 
-              element={<ProtectedRoute><Dashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} 
             />
 
             {/* HR Module */}
@@ -735,11 +769,11 @@ function App() {
             {/* Default redirects */}
             <Route 
               path="/" 
-              element={<Navigate to="/dashboard" replace />} 
+              element={<RoleBasedRedirect />} 
             />
             <Route 
               path="/login" 
-              element={<Navigate to="/dashboard" replace />} 
+              element={<RoleBasedRedirect />} 
             />
 
             {/* 404 */}

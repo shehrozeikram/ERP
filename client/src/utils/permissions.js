@@ -10,42 +10,42 @@ export const PERMISSIONS = {
   // HR Manager has access to HR module
   hr_manager: {
     canAccessAll: false,
-    modules: ['dashboard', 'hr'],
+    modules: ['hr'],
     description: 'HR module management'
   },
   
   // Finance Manager has access to Finance module
   finance_manager: {
     canAccessAll: false,
-    modules: ['dashboard', 'finance'],
+    modules: ['finance'],
     description: 'Finance module management'
   },
   
   // Procurement Manager has access to Procurement module
   procurement_manager: {
     canAccessAll: false,
-    modules: ['dashboard', 'procurement'],
+    modules: ['procurement'],
     description: 'Procurement module management'
   },
   
   // Sales Manager has access to Sales and CRM modules
   sales_manager: {
     canAccessAll: false,
-    modules: ['dashboard', 'crm', 'sales'],
+    modules: ['crm', 'sales'],
     description: 'Sales and CRM access'
   },
   
   // CRM Manager has access to CRM module
   crm_manager: {
     canAccessAll: false,
-    modules: ['dashboard', 'crm'],
+    modules: ['crm'],
     description: 'CRM module management'
   },
   
   // Employee has limited access
   employee: {
     canAccessAll: false,
-    modules: ['dashboard'],
+    modules: [],
     description: 'Basic access'
   }
 };
@@ -57,7 +57,7 @@ export const MODULES = {
     path: '/dashboard',
     icon: 'Dashboard',
     description: 'Executive-level business intelligence dashboard',
-    roles: ['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee']
+    roles: ['admin']
   },
   
   hr: {
@@ -249,9 +249,6 @@ export const getModuleMenuItems = (userRole) => {
 
 export const isRouteAccessible = (userRole, path) => {
   if (!userRole || !path) return false;
-  
-  // Dashboard is always accessible
-  if (path === '/dashboard') return true;
   
   // Profile is always accessible
   if (path === '/profile') return true;

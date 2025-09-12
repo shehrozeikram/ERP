@@ -3,6 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
 import toast from 'react-hot-toast';
 
+// Utility function to get the appropriate redirect path based on user role
+const getRedirectPath = (userRole) => {
+  switch (userRole) {
+    case 'admin':
+      return '/dashboard';
+    case 'hr_manager':
+      return '/hr';
+    case 'finance_manager':
+      return '/finance';
+    case 'procurement_manager':
+      return '/procurement';
+    case 'sales_manager':
+      return '/sales';
+    case 'crm_manager':
+      return '/crm';
+    case 'employee':
+      return '/profile'; // Employees have limited access, redirect to profile
+    default:
+      return '/profile'; // Default fallback
+  }
+};
+
 const AuthContext = createContext();
 
 const initialState = {
@@ -107,8 +129,9 @@ export const AuthProvider = ({ children }) => {
       });
 
       toast.success('Login successful!');
-      // Navigate to dashboard after successful login
-      navigate('/dashboard');
+      // Navigate to role-appropriate page after successful login
+      const redirectPath = getRedirectPath(user.role);
+      navigate(redirectPath);
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.message || 'Login failed';
@@ -133,8 +156,9 @@ export const AuthProvider = ({ children }) => {
       });
 
       toast.success('Registration successful!');
-      // Navigate to dashboard after successful registration
-      navigate('/dashboard');
+      // Navigate to role-appropriate page after successful registration
+      const redirectPath = getRedirectPath(user.role);
+      navigate(redirectPath);
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.message || 'Registration failed';
