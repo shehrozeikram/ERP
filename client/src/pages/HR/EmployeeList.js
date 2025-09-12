@@ -381,11 +381,13 @@ const EmployeeList = () => {
                 }}
               >
                 <MenuItem value="">All Departments</MenuItem>
-                {departments.map((dept) => (
-                  <MenuItem key={dept._id} value={dept.name}>
-                    {dept.name}
-                  </MenuItem>
-                ))}
+                {departments
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((dept) => (
+                    <MenuItem key={dept._id} value={dept.name}>
+                      {dept.name}
+                    </MenuItem>
+                  ))}
               </Select>
             </FormControl>
           </Grid>
@@ -578,7 +580,7 @@ const EmployeeList = () => {
                     <TableCell>
                       <Box>
                         <Typography variant="caption" display="block">
-                          {employee.placementCompany?.name ? `Company: ${employee.placementCompany.name}` : 'Company: N/A'}
+                          Company: SGC
                         </Typography>
                         <Typography variant="caption" display="block">
                           {employee.placementDepartment?.name ? `Dept: ${employee.placementDepartment.name}` : 'Dept: N/A'}

@@ -58,6 +58,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { PERMISSIONS, MODULES } from '../../utils/permissions';
 import api from '../../services/api';
+import RealtimeAttendanceMonitor from '../../components/RealtimeAttendanceMonitor';
 
 const Dashboard = () => {
   const theme = useTheme();
@@ -873,10 +874,10 @@ const Dashboard = () => {
           </Grid>
         </Grid>
 
-        {/* Activity Feed and System Health */}
+        {/* Real-Time Monitor and System Health */}
         <Grid container spacing={4}>
           <Grid item xs={12} md={8}>
-            <PremiumActivityFeed />
+            <RealtimeAttendanceMonitor />
           </Grid>
           <Grid item xs={12} md={4}>
             <Fade in={animateCards} timeout={1400}>

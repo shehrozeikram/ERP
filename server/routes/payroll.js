@@ -559,7 +559,9 @@ router.get('/employee/:employeeId',
 
       // Get employee details
       const employee = await Employee.findById(req.params.employeeId)
-        .select('firstName lastName employeeId department position salary allowances');
+        .populate('department', 'name code')
+        .populate('position', 'title level')
+        .select('firstName lastName employeeId salary allowances');
 
       if (!employee) {
         return res.status(404).json({
@@ -652,7 +654,9 @@ router.get('/view/employee/:employeeId',
 
       // Get employee details
       const employee = await Employee.findById(req.params.employeeId)
-        .select('firstName lastName employeeId department position salary allowances');
+        .populate('department', 'name code')
+        .populate('position', 'title level')
+        .select('firstName lastName employeeId salary allowances');
 
       if (!employee) {
         return res.status(404).json({

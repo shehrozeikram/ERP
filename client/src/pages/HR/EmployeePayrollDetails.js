@@ -253,7 +253,7 @@ const EmployeePayrollDetails = () => {
                 Employee ID: {employee.employeeId}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                {employee.department} • {employee.position}
+                {employee.department?.name || employee.department} • {employee.position?.title || employee.position}
               </Typography>
             </Box>
           </Box>

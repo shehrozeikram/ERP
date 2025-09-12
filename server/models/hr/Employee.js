@@ -27,7 +27,6 @@ const employeeSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
     lowercase: true,
     trim: true
   },
@@ -127,6 +126,91 @@ const employeeSchema = new mongoose.Schema({
       return this.employmentStatus !== 'Draft';
     },
     trim: true
+  },
+  // Additional fields from Excel file
+  guardianName: {
+    type: String,
+    trim: true
+  },
+  branchCode: {
+    type: String,
+    trim: true
+  },
+  accountNumber: {
+    type: String,
+    trim: true
+  },
+  joiningDate: {
+    type: Date
+  },
+  probationPeriod: {
+    type: Number,
+    min: [0, 'Probation period cannot be negative']
+  },
+  // Salary fields from Excel
+  excelGrossSalary: {
+    type: Number,
+    min: [0, 'Gross salary cannot be negative']
+  },
+  arrears: {
+    type: Number,
+    default: 0,
+    min: [0, 'Arrears cannot be negative']
+  },
+  excelConveyanceAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Conveyance allowance cannot be negative']
+  },
+  excelHouseAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'House allowance cannot be negative']
+  },
+  excelFoodAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Food allowance cannot be negative']
+  },
+  excelVehicleFuelAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Vehicle & fuel allowance cannot be negative']
+  },
+  excelMedicalAllowance: {
+    type: Number,
+    default: 0,
+    min: [0, 'Medical allowance cannot be negative']
+  },
+  totalEarnings: {
+    type: Number,
+    default: 0,
+    min: [0, 'Total earnings cannot be negative']
+  },
+  incomeTax: {
+    type: Number,
+    default: 0,
+    min: [0, 'Income tax cannot be negative']
+  },
+  companyLoan: {
+    type: Number,
+    default: 0,
+    min: [0, 'Company loan cannot be negative']
+  },
+  vehicleLoan: {
+    type: Number,
+    default: 0,
+    min: [0, 'Vehicle loan cannot be negative']
+  },
+  eobiDeduction: {
+    type: Number,
+    default: 0,
+    min: [0, 'EOBI deduction cannot be negative']
+  },
+  netPayable: {
+    type: Number,
+    default: 0,
+    min: [0, 'Net payable cannot be negative']
   },
   bankName: {
     type: mongoose.Schema.Types.ObjectId,

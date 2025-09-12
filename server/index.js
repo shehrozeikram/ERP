@@ -69,9 +69,11 @@ const attendanceProxyRoutes = require('./routes/attendanceProxy');
 // Import services
 const attendanceService = require('./services/attendanceService');
 const ChangeStreamService = require('./services/changeStreamService');
+const ZKBioTimeWebSocketProxy = require('./services/zkbioTimeWebSocketProxy');
 
 // Initialize services
 let changeStreamService = null;
+let zkbioTimeWebSocketProxy = null;
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -262,6 +264,18 @@ mongoose.connection.once('open', async () => {
     changeStreamService = new ChangeStreamService();
     await changeStreamService.start();
     console.log('✅ Change Stream service initialized successfully');
+    
+    // Initialize ZKBio Time WebSocket Proxy
+    console.log('🔌 Initializing ZKBio Time WebSocket Proxy...');
+    zkbioTimeWebSocketProxy = new ZKBioTimeWebSocketProxy();
+    zkbioTimeWebSocketProxy.initializeSocketIO(server);
+    
+    // Connect to ZKBio Time WebSocket
+    setTimeout(() => {
+      zkbioTimeWebSocketProxy.connectToZKBioTime();
+    }, 2000); // Wait 2 seconds for server to be fully ready
+    
+    console.log('✅ ZKBio Time WebSocket Proxy initialized');
   } catch (error) {
     console.error('❌ Failed to initialize services:', error);
   }
@@ -309,6 +323,12 @@ process.on('SIGTERM', async () => {
     console.log('✅ Change Stream service stopped');
   }
   
+  // Stop ZKBio Time WebSocket Proxy
+  if (zkbioTimeWebSocketProxy) {
+    zkbioTimeWebSocketProxy.disconnect();
+    console.log('✅ ZKBio Time WebSocket Proxy stopped');
+  }
+  
   // Stop ZKBio Time background service
   zkbioTimeBackgroundService.stop();
   console.log('✅ ZKBio Time background service stopped');
@@ -326,6 +346,12 @@ process.on('SIGINT', async () => {
   if (changeStreamService) {
     changeStreamService.stop();
     console.log('✅ Change Stream service stopped');
+  }
+  
+  // Stop ZKBio Time WebSocket Proxy
+  if (zkbioTimeWebSocketProxy) {
+    zkbioTimeWebSocketProxy.disconnect();
+    console.log('✅ ZKBio Time WebSocket Proxy stopped');
   }
   
   // Stop ZKBio Time background service

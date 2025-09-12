@@ -95,9 +95,17 @@ const EmployeeView = () => {
   const safeRenderText = (value) => {
     if (typeof value === 'string') return value;
     if (typeof value === 'number') return value.toString();
-    if (value && typeof value === 'object' && value.name) return value.name;
-    if (value && typeof value === 'object' && value.title) return value.title;
-    return 'Unknown';
+    if (value && typeof value === 'object') {
+      // Handle populated objects
+      if (value.name) return value.name;
+      if (value.title) return value.title;
+      if (value.code) return value.code;
+      // Handle arrays or other object types
+      if (Array.isArray(value)) return value.join(', ');
+      // If it's an object but no recognizable properties, return a fallback
+      return 'N/A';
+    }
+    return 'N/A';
   };
 
 
@@ -231,7 +239,7 @@ const EmployeeView = () => {
                   size="small"
                 />
                 <Typography variant="body2" color="textSecondary">
-                  {safeRenderText(employee.department)} • {safeRenderText(employee.position)}
+                  {safeRenderText(employee.department)} • {safeRenderText(employee.placementDesignation)}
                 </Typography>
               </Box>
             </Grid>
@@ -307,8 +315,8 @@ const EmployeeView = () => {
                   <Typography variant="body1">{safeRenderText(employee.department)}</Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2" color="textSecondary">Position</Typography>
-                  <Typography variant="body1">{safeRenderText(employee.position)}</Typography>
+                  <Typography variant="body2" color="textSecondary">Designation</Typography>
+                  <Typography variant="body1">{safeRenderText(employee.placementDesignation)}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Qualification</Typography>

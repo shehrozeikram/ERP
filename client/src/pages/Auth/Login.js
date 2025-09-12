@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -39,6 +39,16 @@ const Login = () => {
   const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [logoRotating, setLogoRotating] = useState(true);
+
+  // Stop logo rotation after 3 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLogoRotating(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const formik = useFormik({
     initialValues: {
@@ -69,7 +79,18 @@ const Login = () => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        p: 2
+        p: 2,
+        '@keyframes revolveLeftToRight': {
+          '0%': {
+            transform: 'rotateY(0deg)',
+          },
+          '50%': {
+            transform: 'rotateY(180deg)',
+          },
+          '100%': {
+            transform: 'rotateY(360deg)',
+          },
+        },
       }}
     >
       <Container maxWidth="sm">
@@ -91,9 +112,24 @@ const Login = () => {
               textAlign: 'center'
             }}
           >
-            <Business sx={{ fontSize: 48, mb: 2 }} />
+            <Box
+              component="img"
+              src={process.env.PUBLIC_URL + '/images/sgc-logo.png'}
+              alt="SGC Logo"
+              sx={{
+                height: 90,
+                width: 'auto',
+                maxWidth: '240px',
+                mb: 2,
+                objectFit: 'contain',
+                display: 'block',
+                margin: '0 auto 16px auto',
+                animation: logoRotating ? 'revolveLeftToRight 1.5s ease-in-out infinite' : 'none',
+                transition: 'animation 0.5s ease-out'
+              }}
+            />
             <Typography variant="h4" component="h1" gutterBottom>
-              SGC ERP System
+              Tovus ERP System
             </Typography>
             <Typography variant="body1" sx={{ opacity: 0.9 }}>
               Enterprise Resource Planning Solution
@@ -185,12 +221,39 @@ const Login = () => {
                 {loading ? 'Signing In...' : 'Sign In'}
               </Button>
 
-              <Box sx={{ textAlign: 'center', mt: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Demo Credentials:
+              <Box sx={{ 
+                textAlign: 'center', 
+                mt: 3,
+                p: 2,
+                borderRadius: 2,
+                background: 'linear-gradient(135deg, rgba(25, 118, 210, 0.05) 0%, rgba(25, 118, 210, 0.02) 100%)',
+                border: '1px solid rgba(25, 118, 210, 0.1)'
+              }}>
+                <Typography variant="h6" sx={{ 
+                  color: 'primary.main', 
+                  fontWeight: 600,
+                  mb: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1
+                }}>
+                  <Business sx={{ fontSize: 20 }} />
+                  Enterprise Features
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                  Email: admin@sgc.com | Password: admin123
+                <Typography variant="body2" sx={{ 
+                  color: 'text.primary',
+                  fontWeight: 500,
+                  mb: 1
+                }}>
+                  Custom Built • Customizable • Light Speed Solution
+                </Typography>
+                <Typography variant="body2" sx={{ 
+                  color: 'text.secondary',
+                  fontStyle: 'italic',
+                  fontSize: '0.875rem'
+                }}>
+                  Need credentials? Contact your system administrator
                 </Typography>
               </Box>
             </form>
@@ -200,7 +263,7 @@ const Login = () => {
         {/* Footer */}
         <Box sx={{ textAlign: 'center', mt: 3 }}>
           <Typography variant="body2" color="white" sx={{ opacity: 0.8 }}>
-            © 2024 SGC ERP System. All rights reserved.
+            © 2025 Tovus ERP System. All rights reserved.
           </Typography>
         </Box>
       </Container>

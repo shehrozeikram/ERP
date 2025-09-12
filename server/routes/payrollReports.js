@@ -46,35 +46,55 @@ router.get('/monthly',
         baseFilter.employee = { $in: employeeIds };
       }
 
-      // Get payroll data for the specified month/year using aggregation for proper sorting
-      const payrollData = await Payroll.aggregate([
+      // Get employee data directly (since payroll records are outdated)
+      // Build employee filter based on department
+      let employeeFilter = {};
+      if (department) {
+        employeeFilter.department = new mongoose.Types.ObjectId(department);
+      }
+
+      const payrollData = await Employee.aggregate([
         {
-          $match: {
-            ...baseFilter,
-            month: parseInt(month),
-            year: parseInt(year)
-          }
-        },
-        {
-          $lookup: {
-            from: 'employees',
-            localField: 'employee',
-            foreignField: '_id',
-            as: 'employeeData'
-          }
+          $match: employeeFilter
         },
         {
           $lookup: {
             from: 'departments',
-            localField: 'employeeData.department',
+            localField: 'department',
             foreignField: '_id',
             as: 'departmentData'
           }
         },
         {
-          $unwind: {
-            path: '$employeeData',
-            preserveNullAndEmptyArrays: true
+          $lookup: {
+            from: 'banks',
+            localField: 'bankName',
+            foreignField: '_id',
+            as: 'bankData'
+          }
+        },
+        {
+          $lookup: {
+            from: 'sections',
+            localField: 'placementSection',
+            foreignField: '_id',
+            as: 'sectionData'
+          }
+        },
+        {
+          $lookup: {
+            from: 'designations',
+            localField: 'placementDesignation',
+            foreignField: '_id',
+            as: 'designationData'
+          }
+        },
+        {
+          $lookup: {
+            from: 'locations',
+            localField: 'placementLocation',
+            foreignField: '_id',
+            as: 'locationData'
           }
         },
         {
@@ -84,17 +104,33 @@ router.get('/monthly',
           }
         },
         {
+          $unwind: {
+            path: '$bankData',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $unwind: {
+            path: '$sectionData',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $unwind: {
+            path: '$designationData',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $unwind: {
+            path: '$locationData',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
           $addFields: {
-            'employee': {
-              firstName: '$employeeData.firstName',
-              lastName: '$employeeData.lastName',
-              employeeId: '$employeeData.employeeId'
-            },
-            'department': {
-              name: '$departmentData.name'
-            },
             'employeeIdNumeric': {
-              $toInt: { $ifNull: ['$employeeData.employeeId', '0'] }
+              $toInt: { $ifNull: ['$employeeId', '0'] }
             }
           }
         },
@@ -103,18 +139,47 @@ router.get('/monthly',
         },
         {
           $project: {
-            employee: 1,
-            department: 1,
-            grossSalary: 1,
-            totalDeductions: 1,
-            netSalary: 1,
-            basicSalary: 1,
-            totalAllowances: 1,
-            overtime: 1,
-            tax: 1,
-            providentFund: 1,
-            eobi: 1,
-            otherDeductions: 1
+            // Employee fields
+            employeeId: 1,
+            firstName: 1,
+            lastName: 1,
+            guardianName: 1,
+            idCard: 1,
+            branchCode: 1,
+            accountNumber: 1,
+            hireDate: 1,
+            project: 1,
+            section: 1,
+            designation: 1,
+            location: 1,
+            dateOfBirth: 1,
+            address: 1,
+            qualification: 1,
+            phone: 1,
+            probationPeriod: 1,
+            joiningDate: 1,
+            appointmentDate: 1,
+            confirmationDate: 1,
+            // Excel salary fields
+            excelGrossSalary: 1,
+            arrears: 1,
+            excelConveyanceAllowance: 1,
+            excelHouseAllowance: 1,
+            excelFoodAllowance: 1,
+            excelVehicleFuelAllowance: 1,
+            excelMedicalAllowance: 1,
+            totalEarnings: 1,
+            incomeTax: 1,
+            companyLoan: 1,
+            vehicleLoan: 1,
+            eobiDeduction: 1,
+            netPayable: 1,
+            // Populated fields
+            'departmentData.name': 1,
+            'bankData.name': 1,
+            'sectionData.name': 1,
+            'designationData.title': 1,
+            'locationData.name': 1
           }
         }
       ]);
@@ -128,29 +193,62 @@ router.get('/monthly',
         });
       }
 
-      // Calculate summary
+      // Calculate summary from employee data
       const summary = {
         totalEmployees: payrollData.length,
-        totalGrossSalary: payrollData.reduce((sum, payroll) => sum + (payroll.grossSalary || 0), 0),
-        totalDeductions: payrollData.reduce((sum, payroll) => sum + (payroll.totalDeductions || 0), 0),
-        netPay: payrollData.reduce((sum, payroll) => sum + (payroll.netSalary || 0), 0)
+        totalGrossSalary: payrollData.reduce((sum, emp) => sum + (emp.excelGrossSalary || 0), 0),
+        totalDeductions: payrollData.reduce((sum, emp) => sum + ((emp.incomeTax || 0) + (emp.companyLoan || 0) + (emp.vehicleLoan || 0) + (emp.eobiDeduction || 0)), 0),
+        netPay: payrollData.reduce((sum, emp) => sum + (emp.netPayable || 0), 0)
       };
 
-      // Transform data for frontend
-      const transformedData = payrollData.map(payroll => ({
-        employeeName: `${payroll.employee?.firstName || ''} ${payroll.employee?.lastName || ''}`.trim(),
-        employeeId: payroll.employee?.employeeId || 'N/A',
-        department: payroll.department?.name || 'N/A',
-        grossSalary: payroll.grossSalary || 0,
-        deductions: payroll.totalDeductions || 0,
-        netPay: payroll.netSalary || 0,
-        basicSalary: payroll.basicSalary || 0,
-        allowances: payroll.totalAllowances || 0,
-        overtime: payroll.overtime || 0,
-        tax: payroll.tax || 0,
-        providentFund: payroll.providentFund || 0,
-        eobi: payroll.eobi || 0,
-        otherDeductions: payroll.otherDeductions || 0
+      // Transform data for frontend (using employee data directly)
+      const transformedData = payrollData.map(employee => ({
+        // Basic employee info
+        employeeId: employee.employeeId || 'N/A',
+        employeeName: `${employee.firstName || ''} ${employee.lastName || ''}`.trim(),
+        guardianName: employee.guardianName || 'N/A',
+        idCard: employee.idCard || 'N/A',
+        bankName: employee.bankData?.name || 'N/A',
+        branchCode: employee.branchCode || 'N/A',
+        accountNumber: employee.accountNumber || 'N/A',
+        hireDate: employee.hireDate || null,
+        project: employee.project || 'N/A',
+        department: employee.departmentData?.name || 'N/A',
+        section: employee.sectionData?.name || 'N/A',
+        designation: employee.designationData?.title || 'N/A',
+        location: employee.locationData?.name || 'N/A',
+        dateOfBirth: employee.dateOfBirth || null,
+        address: employee.address?.street || 'N/A',
+        qualification: employee.qualification || 'N/A',
+        phone: employee.phone || 'N/A',
+        probationPeriod: employee.probationPeriod || null,
+        joiningDate: employee.joiningDate || null,
+        appointmentDate: employee.appointmentDate || null,
+        confirmationDate: employee.confirmationDate || null,
+        // Salary fields from Excel data
+        grossSalary: employee.excelGrossSalary || 0,
+        arrears: employee.arrears || 0,
+        conveyanceAllowance: employee.excelConveyanceAllowance || 0,
+        houseAllowance: employee.excelHouseAllowance || 0,
+        foodAllowance: employee.excelFoodAllowance || 0,
+        vehicleFuelAllowance: employee.excelVehicleFuelAllowance || 0,
+        medicalAllowance: employee.excelMedicalAllowance || 0,
+        totalEarnings: employee.totalEarnings || 0,
+        incomeTax: employee.incomeTax || 0,
+        companyLoan: employee.companyLoan || 0,
+        vehicleLoan: employee.vehicleLoan || 0,
+        eobiDeduction: employee.eobiDeduction || 0,
+        netPayable: employee.netPayable || 0,
+        // Additional fields for display
+        deductions: (employee.incomeTax || 0) + (employee.companyLoan || 0) + (employee.vehicleLoan || 0) + (employee.eobiDeduction || 0),
+        netPay: employee.netPayable || 0,
+        basicSalary: employee.excelGrossSalary || 0,
+        allowances: (employee.excelConveyanceAllowance || 0) + (employee.excelHouseAllowance || 0) + (employee.excelFoodAllowance || 0) + (employee.excelVehicleFuelAllowance || 0) + (employee.excelMedicalAllowance || 0),
+        overtime: 0,
+        tax: employee.incomeTax || 0,
+        providentFund: 0,
+        eobi: employee.eobiDeduction || 0,
+        otherDeductions: 0
       }));
 
       const reportData = {
@@ -447,29 +545,105 @@ router.get('/salary',
 
 // ==================== UTILITY FUNCTIONS ====================
 
-// Convert data to CSV format
+// Convert data to CSV format matching Excel structure
 function convertToCSV(reportData) {
   if (!reportData.data || !Array.isArray(reportData.data)) {
     return 'No data available';
   }
 
-  const headers = Object.keys(reportData.data[0] || {});
+  // Excel structure headers (exact match with Master_File_Aug_2025.xlsx)
+  const excelHeaders = [
+    'Sr No',
+    'ID',
+    'Name',
+    'Guardian Name',
+    'CNIC',
+    'Bank',
+    'Branch Code',
+    'Account No',
+    'DOJ',
+    'Project',
+    'Department',
+    'Section',
+    'Designation',
+    'Location',
+    'DOB',
+    'Address',
+    'Qualification',
+    'Contact No',
+    'Probation Period',
+    'Date Of joining',
+    'Date of Appointment',
+    'Confirmation Date',
+    'Gross Salary',
+    'Arrears',
+    'Conveyance Allowance',
+    'House Allowance',
+    'Food Allowance',
+    'Vehicle & Fuel Allowance',
+    'Medical Allowance',
+    'Total Earnings',
+    'Income Tax',
+    'Company Loan',
+    'Vehicle Loan',
+    'EOBI Ded',
+    'Net Payable'
+  ];
+
   const csvRows = [];
 
   // Add headers
-  csvRows.push(headers.join(','));
+  csvRows.push(excelHeaders.join(','));
 
   // Add data rows
-  reportData.data.forEach(row => {
-    const values = headers.map(header => {
-      const value = row[header];
-      // Escape commas and quotes in CSV
+  reportData.data.forEach((row, index) => {
+    const values = [
+      index + 1, // Sr No
+      row.employeeId || 'N/A', // ID
+      row.employeeName || 'N/A', // Name
+      row.guardianName || 'N/A', // Guardian Name
+      row.idCard || 'N/A', // CNIC
+      row.bankName || 'N/A', // Bank
+      row.branchCode || 'N/A', // Branch Code
+      row.accountNumber || 'N/A', // Account No
+      row.hireDate ? new Date(row.hireDate).toLocaleDateString() : 'N/A', // DOJ
+      row.project || 'N/A', // Project
+      row.department || 'N/A', // Department
+      row.section || 'N/A', // Section
+      row.designation || 'N/A', // Designation
+      row.location || 'N/A', // Location
+      row.dateOfBirth ? new Date(row.dateOfBirth).toLocaleDateString() : 'N/A', // DOB
+      row.address || 'N/A', // Address
+      row.qualification || 'N/A', // Qualification
+      row.phone || 'N/A', // Contact No
+      row.probationPeriod ? `${row.probationPeriod} months` : 'N/A', // Probation Period
+      row.joiningDate ? new Date(row.joiningDate).toLocaleDateString() : 'N/A', // Date Of joining
+      row.appointmentDate ? new Date(row.appointmentDate).toLocaleDateString() : 'N/A', // Date of Appointment
+      row.confirmationDate ? new Date(row.confirmationDate).toLocaleDateString() : 'N/A', // Confirmation Date
+      row.grossSalary || 0, // Gross Salary
+      row.arrears || 0, // Arrears
+      row.conveyanceAllowance || 0, // Conveyance Allowance
+      row.houseAllowance || 0, // House Allowance
+      row.foodAllowance || 0, // Food Allowance
+      row.vehicleFuelAllowance || 0, // Vehicle & Fuel Allowance
+      row.medicalAllowance || 0, // Medical Allowance
+      row.totalEarnings || 0, // Total Earnings
+      row.incomeTax || 0, // Income Tax
+      row.companyLoan || 0, // Company Loan
+      row.vehicleLoan || 0, // Vehicle Loan
+      row.eobiDeduction || 0, // EOBI Ded
+      row.netPayable || 0 // Net Payable
+    ];
+
+    // Escape commas and quotes in CSV
+    const escapedValues = values.map(value => {
       if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
         return `"${value.replace(/"/g, '""')}"`;
       }
-      return value || '';
+      return value;
     });
-    csvRows.push(values.join(','));
+
+    csvRows.push(escapedValues.join(','));
   });
 
   return csvRows.join('\n');
