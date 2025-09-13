@@ -35,7 +35,6 @@ import {
   AttachMoney,
   Schedule,
   CheckCircle,
-  Refresh,
   Download,
   Print,
   Security,
@@ -65,7 +64,6 @@ const Dashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
   const [animateCards, setAnimateCards] = useState(false);
 
   // Fetch comprehensive dashboard data
@@ -134,8 +132,6 @@ const Dashboard = () => {
           { type: 'performance', message: 'System performance optimized', time: '5 hours ago', icon: <Speed />, color: 'info' }
         ]
       });
-
-      setLastUpdated(new Date());
       
       // Trigger card animations
       setTimeout(() => setAnimateCards(true), 100);
@@ -148,10 +144,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
-    
-    // Auto-refresh every 5 minutes
-    const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    // Removed auto-refresh polling - now purely real-time via WebSocket
   }, [fetchDashboardData]);
 
   const getAccessibleModules = () => {
@@ -568,21 +561,6 @@ const Dashboard = () => {
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
-              <Tooltip title="Refresh Data">
-                <IconButton 
-                  onClick={fetchDashboardData} 
-                  sx={{ 
-                    backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                    '&:hover': {
-                      backgroundColor: alpha(theme.palette.primary.main, 0.2),
-                      transform: 'rotate(180deg)'
-                    },
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  <Refresh />
-                </IconButton>
-              </Tooltip>
               <Tooltip title="Export Report">
                 <IconButton sx={{ 
                   backgroundColor: alpha(theme.palette.success.main, 0.1),
@@ -623,10 +601,10 @@ const Dashboard = () => {
               <Speed sx={{ color: theme.palette.success.main }} />
             </Badge>
             <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
-              Last updated: {format(lastUpdated, 'MMM dd, yyyy HH:mm:ss')}
+              Real-time updates via WebSocket
             </Typography>
             <Chip 
-              label="Live Data" 
+              label="Real-Time Data" 
               size="small" 
               color="success" 
               icon={<FlashOn />}

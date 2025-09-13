@@ -45,20 +45,46 @@ class ZKBioTimeWebSocketProxy {
     try {
       console.log('🔐 Authenticating with ZKBio Time...');
       
-      const response = await axios.get('http://182.180.55.96:85/', {
-        auth: {
-          username: 'superuser',
-          password: 'SGCit123456'
-        },
+      // Step 1: Get login page and extract CSRF token
+      const loginPageResponse = await axios.get('http://182.180.55.96:85/login/', {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         },
-        timeout: 10000 // 10 second timeout
+        timeout: 10000
       });
 
-      if (response.status === 200) {
-        const cookies = response.headers['set-cookie'];
+      // Extract CSRF token from the page
+      const csrfMatch = loginPageResponse.data.match(/name="csrfmiddlewaretoken" value="([^"]+)"/);
+      if (!csrfMatch) {
+        console.log('❌ Could not extract CSRF token');
+        return false;
+      }
+      
+      const csrfToken = csrfMatch[1];
+      console.log(`✅ CSRF token extracted: ${csrfToken.substring(0, 20)}...`);
+
+      // Step 2: Authenticate with proper form data
+      const authResponse = await axios.post('http://182.180.55.96:85/login/', 
+        new URLSearchParams({
+          username: 'superuser',
+          password: 'SGCit123456',
+          csrfmiddlewaretoken: csrfToken
+        }),
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': 'http://182.180.55.96:85/login/',
+            'Cookie': loginPageResponse.headers['set-cookie']?.join('; ') || ''
+          },
+          maxRedirects: 0,
+          validateStatus: (status) => status < 400,
+          timeout: 10000
+        }
+      );
+
+      if (authResponse.status === 200) {
+        const cookies = authResponse.headers['set-cookie'];
         if (cookies && cookies.length > 0) {
           this.sessionCookies = cookies.join('; ');
           console.log('✅ Authentication successful, cookies obtained');
@@ -93,7 +119,11 @@ class ZKBioTimeWebSocketProxy {
         headers: {
           'Origin': 'http://182.180.55.96:85',
           'Cookie': this.sessionCookies,
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
         }
       });
 
@@ -127,7 +157,10 @@ class ZKBioTimeWebSocketProxy {
               photoPath: row[6],    // photo path
               location: row[7],     // location/device
               timestamp: new Date().toISOString(),
-              score: message.score
+              score: message.score,
+              // Add proxied image URLs
+              employeePhoto: row[6] ? `/api/images/zkbio-image${row[6]}` : null,
+              attendanceImage: row[5] ? `/api/images/zkbio-image${row[5]}` : null
             }));
 
             console.log(`📊 Received ${processedPunches.length} new attendance events`);

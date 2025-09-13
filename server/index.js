@@ -57,6 +57,7 @@ const zktecoRoutes = require('./routes/zkteco');
 const hiringRoutes = require('./routes/hiring');
 const employeeOnboardingRoutes = require('./routes/employeeOnboarding');
 const zkbioTimeRoutes = require('./routes/zkbioTimeRoutes');
+const { router: imageProxyRoutes, setZKBioTimeWebSocketProxy } = require('./routes/imageProxy');
 const vehicleRoutes = require('./routes/vehicles');
 const groceryRoutes = require('./routes/groceries');
 const supplierRoutes = require('./routes/suppliers');
@@ -219,6 +220,7 @@ app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
 app.use('/api/zkteco', zktecoRoutes);
 app.use('/api/zkbio', zkbioTimeRoutes);
+app.use('/api/images', imageProxyRoutes);
 app.use('/api/vehicles', authMiddleware, vehicleRoutes);
 app.use('/api/groceries', authMiddleware, groceryRoutes);
 app.use('/api/suppliers', authMiddleware, supplierRoutes);
@@ -269,6 +271,9 @@ mongoose.connection.once('open', async () => {
     console.log('🔌 Initializing ZKBio Time WebSocket Proxy...');
     zkbioTimeWebSocketProxy = new ZKBioTimeWebSocketProxy();
     zkbioTimeWebSocketProxy.initializeSocketIO(server);
+    
+    // Connect image proxy to WebSocket proxy
+    setZKBioTimeWebSocketProxy(zkbioTimeWebSocketProxy);
     
     // Connect to ZKBio Time WebSocket
     setTimeout(() => {

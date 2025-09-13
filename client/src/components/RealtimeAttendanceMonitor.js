@@ -30,6 +30,7 @@ import {
   Error
 } from '@mui/icons-material';
 import { io } from 'socket.io-client';
+import api from '../services/api';
 
 const RealtimeAttendanceMonitor = () => {
   const theme = useTheme();
@@ -41,6 +42,51 @@ const RealtimeAttendanceMonitor = () => {
     connected: false,
     message: 'Connecting to ZKBio Time...'
   });
+
+  // Load today's attendance data from ZKBio Time (same as Attendance Management page)
+  const loadHistoricalAttendance = useCallback(async () => {
+    try {
+      console.log('📊 Loading today\'s attendance data from ZKBio Time...');
+      
+      const response = await api.get('/zkbio/zkbio/today');
+      
+      console.log('📋 ZKBio Time Today API Response:', {
+        success: response.data.success,
+        message: response.data.message,
+        dataLength: response.data.data?.length || 0,
+        count: response.data.count,
+        hasData: !!response.data.data
+      });
+      
+      if (response.data.success && response.data.data) {
+        // Map data exactly like Attendance Management page
+        const historicalData = response.data.data.map(record => ({
+          id: record._id || record.id || Date.now() + Math.random(),
+          empCode: record.employee?.employeeId || record.deviceUserId || record.userId || record.uid || 'N/A',
+          name: record.employee?.firstName || record.employee?.lastName || record.name || record.userName || record.fullName || 'Unknown Employee',
+          time: record.originalRecord?.punch_time || record.recordTime || new Date().toISOString(),
+          state: record.originalRecord?.punch_state_display || 'Unknown',
+          location: record.originalRecord?.area_alias || 'N/A',
+          timestamp: record.originalRecord?.punch_time || record.recordTime || new Date().toISOString()
+        }));
+        
+        // Sort by timestamp (most recent first) and limit to 50
+        const sortedData = historicalData
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+          .slice(0, 50);
+        
+        console.log(`✅ Loaded ${sortedData.length} ZKBio Time today records`);
+        console.log('📋 Sample records:', sortedData.slice(0, 3));
+        setAttendanceEvents(sortedData);
+      } else {
+        console.log('⚠️  No ZKBio Time today data available');
+        console.log('   This might mean no attendance records for today');
+      }
+    } catch (error) {
+      console.error('❌ Error loading ZKBio Time today attendance:', error);
+      console.error('   Error details:', error.response?.data || error.message);
+    }
+  }, []);
 
   // Initialize Socket.IO connection
   useEffect(() => {
@@ -54,6 +100,7 @@ const RealtimeAttendanceMonitor = () => {
 
     newSocket.on('connect', () => {
       console.log('✅ Connected to server');
+      console.log('🔍 Socket ID:', newSocket.id);
       setIsConnected(true);
     });
 
@@ -64,15 +111,47 @@ const RealtimeAttendanceMonitor = () => {
 
     newSocket.on('zkbioConnectionStatus', (status) => {
       console.log('📡 ZKBio Time status:', status);
+      console.log('🔍 ZKBio Time connected:', status.connected);
       setConnectionStatus(status);
     });
 
     newSocket.on('liveAttendanceUpdate', (data) => {
+      console.log('🎉 LIVE ATTENDANCE UPDATE RECEIVED!');
       console.log('📊 Live attendance update:', data);
       
       if (data.events && data.events.length > 0) {
-        // Add new events to the list
-        setAttendanceEvents(prev => [...data.events, ...prev.slice(0, 19)]);
+        console.log('🔍 REAL-TIME EVENT DEBUGGING:');
+        console.log('Raw event data:', data.events[0]);
+        console.log('Number of events:', data.events.length);
+        
+        // Map real-time events to include image data from ZKBio Time
+        const mappedEvents = data.events.map(event => {
+          console.log(`🖼️ Processing REAL-TIME event for ${event.name}:`);
+          console.log(`   Original imagePath: ${event.imagePath}`);
+          console.log(`   Original photoPath: ${event.photoPath}`);
+          console.log(`   Event type: REAL-TIME (should have images)`);
+          
+          const employeePhoto = event.employeePhoto || (event.photoPath ? `/api/images/zkbio-image${event.photoPath}` : null);
+          const attendanceImage = event.attendanceImage || (event.imagePath ? `/api/images/zkbio-image${event.imagePath}` : null);
+          
+          console.log(`   Constructed employeePhoto: ${employeePhoto}`);
+          console.log(`   Constructed attendanceImage: ${attendanceImage}`);
+          
+          return {
+            ...event,
+            // Use pre-constructed image URLs from server or fallback to local construction
+            employeePhoto,
+            attendanceImage,
+            method: event.method || 'Unknown',
+            isRealTime: true // Mark as real-time event
+          };
+        });
+        
+        console.log('✅ Mapped REAL-TIME events with images:', mappedEvents);
+        
+        // Add new events to the beginning of the list (most recent first)
+        // Keep only latest 50 records total (new events + existing historical data)
+        setAttendanceEvents(prev => [...mappedEvents, ...prev.slice(0, 49)]);
         
         // Show new events notification
         setNewEvents(data.events.slice(0, 3));
@@ -88,6 +167,11 @@ const RealtimeAttendanceMonitor = () => {
       console.error('❌ Socket error:', error);
     });
 
+    // Listen for all Socket.IO events to debug
+    newSocket.onAny((eventName, ...args) => {
+      console.log(`🔍 Socket.IO Event Received: ${eventName}`, args);
+    });
+
     setSocket(newSocket);
 
     return () => {
@@ -95,17 +179,40 @@ const RealtimeAttendanceMonitor = () => {
     };
   }, []);
 
+  // Load historical attendance data on component mount
+  useEffect(() => {
+    loadHistoricalAttendance();
+  }, [loadHistoricalAttendance]);
+
   const handleRefresh = useCallback(() => {
     if (socket) {
       socket.emit('requestStatus');
     }
-  }, [socket]);
+    // Also reload historical data
+    loadHistoricalAttendance();
+  }, [socket, loadHistoricalAttendance]);
 
   const formatTime = (timeString) => {
     try {
-      return new Date(timeString).toLocaleTimeString();
-    } catch {
-      return timeString;
+      if (!timeString) return 'N/A';
+      
+      const date = new Date(timeString);
+      
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return timeString; // Return original string if not a valid date
+      }
+      
+      // Format exactly like Attendance Management page
+      return date.toLocaleTimeString('en-US', { 
+        hour12: false, 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      });
+    } catch (error) {
+      console.error('Error formatting time:', error);
+      return timeString || 'N/A';
     }
   };
 
@@ -130,6 +237,20 @@ const RealtimeAttendanceMonitor = () => {
         border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
         position: 'relative',
         overflow: 'hidden',
+        '@keyframes pulse': {
+          '0%': {
+            boxShadow: `0 0 8px ${alpha(theme.palette.success.main, 0.6)}`,
+            transform: 'scale(1)'
+          },
+          '50%': {
+            boxShadow: `0 0 16px ${alpha(theme.palette.success.main, 0.8)}`,
+            transform: 'scale(1.1)'
+          },
+          '100%': {
+            boxShadow: `0 0 8px ${alpha(theme.palette.success.main, 0.6)}`,
+            transform: 'scale(1)'
+          }
+        },
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -253,14 +374,180 @@ const RealtimeAttendanceMonitor = () => {
                       }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ 
-                          backgroundColor: alpha(theme.palette.success.main, 0.2), 
-                          color: theme.palette.success.main,
-                          width: 32,
-                          height: 32
-                        }}>
-                          <PersonIcon />
-                        </Avatar>
+                        {/* Employee Avatar for Real-Time Events */}
+                        <Box sx={{ position: 'relative' }}>
+                          {event.employeePhoto || event.attendanceImage ? (
+                            <Tooltip
+                              title={
+                                <Box sx={{ 
+                                  textAlign: 'center', 
+                                  p: 2,
+                                  position: 'relative',
+                                  overflow: 'hidden',
+                                  '&::before': {
+                                    content: '""',
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    background: `linear-gradient(135deg, 
+                                      ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.1)} 0%, 
+                                      ${alpha(theme.palette.common.black, 0.8)} 50%, 
+                                      ${alpha(theme.palette.common.black, 0.95)} 100%)`,
+                                    zIndex: -1
+                                  }
+                                }}>
+                                  <Box
+                                    component="img"
+                                    src={event.employeePhoto || event.attendanceImage}
+                                    alt={`${event.name} - ${event.state}`}
+                                    sx={{
+                                      width: 240,
+                                      height: 240,
+                                      borderRadius: 4,
+                                      objectFit: 'cover',
+                                      border: `4px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
+                                      boxShadow: `
+                                        0 0 0 2px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)},
+                                        0 12px 40px ${alpha(theme.palette.common.black, 0.4)},
+                                        0 0 60px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.2)},
+                                        inset 0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                      `,
+                                      mb: 2,
+                                      position: 'relative',
+                                      transition: 'all 0.3s ease',
+                                      '&::after': {
+                                        content: '""',
+                                        position: 'absolute',
+                                        top: -2,
+                                        left: -2,
+                                        right: -2,
+                                        bottom: -2,
+                                        background: `linear-gradient(45deg, 
+                                          ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}, 
+                                          ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.5)})`,
+                                        borderRadius: 4,
+                                        zIndex: -1,
+                                        opacity: 0.6
+                                      }
+                                    }}
+                                  />
+                                  <Box sx={{ position: 'relative', zIndex: 1 }}>
+                                    <Typography variant="h6" sx={{ 
+                                      fontWeight: 700, 
+                                      color: 'white',
+                                      textShadow: `0 2px 8px ${alpha(theme.palette.common.black, 0.8)}`,
+                                      mb: 0.5,
+                                      fontSize: '1.1rem'
+                                    }}>
+                                      {event.name}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ 
+                                      color: 'white', 
+                                      opacity: 0.9,
+                                      textShadow: `0 1px 4px ${alpha(theme.palette.common.black, 0.6)}`,
+                                      mb: 1,
+                                      fontWeight: 500
+                                    }}>
+                                      {event.state} • {formatTime(event.time)}
+                                    </Typography>
+                                    <Box sx={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 0.5,
+                                      px: 1.5,
+                                      py: 0.5,
+                                      borderRadius: 2,
+                                      background: `linear-gradient(135deg, 
+                                        ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.2)}, 
+                                        ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.1)})`,
+                                      border: `1px solid ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)}`,
+                                      backdropFilter: 'blur(10px)'
+                                    }}>
+                                      <Box sx={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: '50%',
+                                        background: getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main,
+                                        boxShadow: `0 0 8px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.6)}`,
+                                        animation: 'pulse 2s infinite'
+                                      }} />
+                                      <Typography variant="caption" sx={{ 
+                                        color: 'white', 
+                                        fontWeight: 600,
+                                        textShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.5)}`
+                                      }}>
+                                        LIVE ATTENDANCE
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                </Box>
+                              }
+                              placement="top"
+                              arrow
+                              componentsProps={{
+                                tooltip: {
+                                  sx: {
+                                    bgcolor: 'transparent',
+                                    backdropFilter: 'blur(20px)',
+                                    borderRadius: 4,
+                                    p: 0,
+                                    maxWidth: 'none',
+                                    boxShadow: `
+                                      0 20px 60px ${alpha(theme.palette.common.black, 0.4)},
+                                      0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                    `,
+                                    border: `1px solid ${alpha(theme.palette.common.white, 0.1)}`
+                                  }
+                                },
+                                arrow: {
+                                  sx: {
+                                    color: alpha(theme.palette.common.black, 0.9),
+                                    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))'
+                                  }
+                                }
+                              }}
+                            >
+                              <Avatar 
+                                src={event.employeePhoto || event.attendanceImage}
+                                sx={{ 
+                                  width: 32,
+                                  height: 32,
+                                  border: `2px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.3s ease',
+                                  '&:hover': {
+                                    transform: 'scale(1.1)',
+                                    boxShadow: `0 4px 16px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.4)}`
+                                  }
+                                }}
+                                onLoad={() => {
+                                  console.log(`✅ Real-time image loaded for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  console.log(`🖼️ Avatar should now be visible with image`);
+                                }}
+                                onError={(e) => {
+                                  console.log(`❌ Real-time image failed for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  if (e.target) {
+                                    e.target.style.display = 'none';
+                                  }
+                                  if (e.target && e.target.nextSibling) {
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            </Tooltip>
+                          ) : null}
+                          <Avatar sx={{ 
+                            backgroundColor: alpha(theme.palette.success.main, 0.2), 
+                            color: theme.palette.success.main,
+                            width: 32,
+                            height: 32,
+                            display: (event.employeePhoto || event.attendanceImage) ? 'none' : 'flex'
+                          }}>
+                            <PersonIcon />
+                          </Avatar>
+                        </Box>
                         <Box sx={{ flex: 1 }}>
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>
                             {event.name} - {event.state}
@@ -334,15 +621,181 @@ const RealtimeAttendanceMonitor = () => {
                       }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar sx={{ 
-                          backgroundColor: alpha(theme.palette.primary.main, 0.1), 
-                          color: theme.palette.primary.main,
-                          width: 40,
-                          height: 40,
-                          fontSize: '0.9rem'
-                        }}>
-                          {event.name ? event.name.charAt(0).toUpperCase() : 'E'}
-                        </Avatar>
+                        {/* Employee Avatar for All Events */}
+                        <Box sx={{ position: 'relative' }}>
+                          {event.employeePhoto || event.attendanceImage ? (
+                            <Tooltip
+                              title={
+                                <Box sx={{ 
+                                  textAlign: 'center', 
+                                  p: 2,
+                                  position: 'relative',
+                                  overflow: 'hidden',
+                                  '&::before': {
+                                    content: '""',
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    background: `linear-gradient(135deg, 
+                                      ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.1)} 0%, 
+                                      ${alpha(theme.palette.common.black, 0.8)} 50%, 
+                                      ${alpha(theme.palette.common.black, 0.95)} 100%)`,
+                                    zIndex: -1
+                                  }
+                                }}>
+                                  <Box
+                                    component="img"
+                                    src={event.employeePhoto || event.attendanceImage}
+                                    alt={`${event.name} - ${event.state}`}
+                                    sx={{
+                                      width: 240,
+                                      height: 240,
+                                      borderRadius: 4,
+                                      objectFit: 'cover',
+                                      border: `4px solid ${event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main}`,
+                                      boxShadow: `
+                                        0 0 0 2px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.3)},
+                                        0 12px 40px ${alpha(theme.palette.common.black, 0.4)},
+                                        0 0 60px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.2)},
+                                        inset 0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                      `,
+                                      mb: 2,
+                                      position: 'relative',
+                                      transition: 'all 0.3s ease',
+                                      '&::after': {
+                                        content: '""',
+                                        position: 'absolute',
+                                        top: -2,
+                                        left: -2,
+                                        right: -2,
+                                        bottom: -2,
+                                        background: `linear-gradient(45deg, 
+                                          ${event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main}, 
+                                          ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.5)})`,
+                                        borderRadius: 4,
+                                        zIndex: -1,
+                                        opacity: 0.6
+                                      }
+                                    }}
+                                  />
+                                  <Box sx={{ position: 'relative', zIndex: 1 }}>
+                                    <Typography variant="h6" sx={{ 
+                                      fontWeight: 700, 
+                                      color: 'white',
+                                      textShadow: `0 2px 8px ${alpha(theme.palette.common.black, 0.8)}`,
+                                      mb: 0.5,
+                                      fontSize: '1.1rem'
+                                    }}>
+                                      {event.name}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ 
+                                      color: 'white', 
+                                      opacity: 0.9,
+                                      textShadow: `0 1px 4px ${alpha(theme.palette.common.black, 0.6)}`,
+                                      mb: 1,
+                                      fontWeight: 500
+                                    }}>
+                                      {event.state} • {formatTime(event.time)}
+                                    </Typography>
+                                    <Box sx={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 0.5,
+                                      px: 1.5,
+                                      py: 0.5,
+                                      borderRadius: 2,
+                                      background: `linear-gradient(135deg, 
+                                        ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.2)}, 
+                                        ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.1)})`,
+                                      border: `1px solid ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.3)}`,
+                                      backdropFilter: 'blur(10px)'
+                                    }}>
+                                      <Box sx={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: '50%',
+                                        background: event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main,
+                                        boxShadow: `0 0 8px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.6)}`,
+                                        animation: event.isRealTime ? 'pulse 2s infinite' : 'none'
+                                      }} />
+                                      <Typography variant="caption" sx={{ 
+                                        color: 'white', 
+                                        fontWeight: 600,
+                                        textShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.5)}`
+                                      }}>
+                                        {event.isRealTime ? 'LIVE ATTENDANCE' : 'ATTENDANCE RECORD'}
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                </Box>
+                              }
+                              placement="top"
+                              arrow
+                              componentsProps={{
+                                tooltip: {
+                                  sx: {
+                                    bgcolor: 'transparent',
+                                    backdropFilter: 'blur(20px)',
+                                    borderRadius: 4,
+                                    p: 0,
+                                    maxWidth: 'none',
+                                    boxShadow: `
+                                      0 20px 60px ${alpha(theme.palette.common.black, 0.4)},
+                                      0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                    `,
+                                    border: `1px solid ${alpha(theme.palette.common.white, 0.1)}`
+                                  }
+                                },
+                                arrow: {
+                                  sx: {
+                                    color: alpha(theme.palette.common.black, 0.9),
+                                    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))'
+                                  }
+                                }
+                              }}
+                            >
+                              <Avatar 
+                                src={event.employeePhoto || event.attendanceImage}
+                                sx={{ 
+                                  width: 40,
+                                  height: 40,
+                                  border: `2px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.3s ease',
+                                  '&:hover': {
+                                    transform: 'scale(1.1)',
+                                    boxShadow: `0 4px 16px ${alpha(theme.palette.primary.main, 0.4)}`
+                                  }
+                                }}
+                                onLoad={() => {
+                                  console.log(`✅ Main Avatar image loaded for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  console.log(`🖼️ Main Avatar should now be visible with image`);
+                                }}
+                                onError={(e) => {
+                                  console.log(`❌ Main Avatar image failed for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  if (e.target) {
+                                    e.target.style.display = 'none';
+                                  }
+                                  if (e.target && e.target.nextSibling) {
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            </Tooltip>
+                          ) : null}
+                          <Avatar sx={{ 
+                            backgroundColor: alpha(theme.palette.primary.main, 0.1), 
+                            color: theme.palette.primary.main,
+                            width: 40,
+                            height: 40,
+                            fontSize: '0.9rem',
+                            display: (event.employeePhoto || event.attendanceImage) ? 'none' : 'flex'
+                          }}>
+                            {event.name ? event.name.charAt(0).toUpperCase() : 'E'}
+                          </Avatar>
+                        </Box>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Typography variant="body2" sx={{ 
                             fontWeight: 600, 
@@ -400,10 +853,10 @@ const RealtimeAttendanceMonitor = () => {
                       <>
                         <Timeline sx={{ fontSize: 48, opacity: 0.3, mb: 2 }} />
                         <Typography variant="body2">
-                          Waiting for attendance events...
+                          Loading attendance data...
                         </Typography>
                         <Typography variant="caption">
-                          Real-time updates will appear here
+                          Fetching latest 50 records from ZKBio Time
                         </Typography>
                       </>
                     ) : (
