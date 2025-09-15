@@ -3,8 +3,8 @@ module.exports = {
     {
       name: 'sgc-erp-backend',
       script: 'server/index.js',
-      instances: 'max',
-      exec_mode: 'cluster',
+      instances: 1, // Single instance for WebSocket compatibility
+      exec_mode: 'fork', // Use fork mode instead of cluster for WebSocket support
       env: {
         NODE_ENV: 'production',
         PORT: 5001

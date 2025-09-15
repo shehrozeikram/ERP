@@ -1,225 +1,193 @@
+#!/usr/bin/env node
+
+/**
+ * ZKBio Time Connection Test Script
+ * This script tests the connection to ZKBio Time from the production server
+ * Run this on the production server to diagnose connection issues
+ */
+
 const axios = require('axios');
 const WebSocket = require('ws');
 
-/**
- * Comprehensive ZKBio Time Connection Diagnostic Script
- * Tests authentication, WebSocket connection, and real-time data flow
- */
+// Configuration
+const ZKBIO_BASE_URL = 'http://182.180.55.96:85';
+const ZKBIO_WEBSOCKET_URL = 'ws://182.180.55.96:85/base/dashboard/realtime_punch/';
+const USERNAME = 'superuser';
+const PASSWORD = 'SGCit123456';
 
-class ZKBioTimeDiagnostic {
-  constructor() {
-    this.baseURL = 'http://182.180.55.96:85';
-    this.websocketURL = 'ws://182.180.55.96:85/base/dashboard/realtime_punch/';
-    this.credentials = {
-      username: 'superuser',
-      password: 'SGCit123456'
-    };
-    this.sessionCookies = null;
-    this.ws = null;
-  }
+console.log('🧪 ZKBio Time Connection Test');
+console.log('============================');
+console.log(`🌐 Base URL: ${ZKBIO_BASE_URL}`);
+console.log(`🔌 WebSocket URL: ${ZKBIO_WEBSOCKET_URL}`);
+console.log(`👤 Username: ${USERNAME}`);
+console.log('');
 
-  async runDiagnostic() {
-    console.log('🔍 Starting ZKBio Time Connection Diagnostic...\n');
-    
-    try {
-      // Step 1: Test basic connectivity
-      await this.testBasicConnectivity();
-      
-      // Step 2: Test authentication
-      await this.testAuthentication();
-      
-      // Step 3: Test WebSocket connection
-      await this.testWebSocketConnection();
-      
-      // Step 4: Monitor real-time data
-      await this.monitorRealtimeData();
-      
-    } catch (error) {
-      console.error('❌ Diagnostic failed:', error.message);
-    }
-  }
-
-  async testBasicConnectivity() {
-    console.log('📡 Step 1: Testing basic connectivity...');
-    
-    try {
-      const response = await axios.get(this.baseURL, {
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
-      });
-      
-      console.log(`✅ Basic connectivity OK - Status: ${response.status}`);
-      console.log(`   Response headers: ${JSON.stringify(response.headers, null, 2)}`);
-      
-    } catch (error) {
-      console.error('❌ Basic connectivity failed:', error.message);
-      throw error;
-    }
-  }
-
-  async testAuthentication() {
-    console.log('\n🔐 Step 2: Testing authentication...');
-    
-    try {
-      const response = await axios.get(this.baseURL, {
-        auth: {
-          username: this.credentials.username,
-          password: this.credentials.password
-        },
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        },
-        timeout: 10000
-      });
-
-      console.log(`✅ Authentication successful - Status: ${response.status}`);
-      
-      // Extract cookies
-      const cookies = response.headers['set-cookie'];
-      if (cookies && cookies.length > 0) {
-        this.sessionCookies = cookies.join('; ');
-        console.log(`✅ Session cookies obtained: ${cookies.length} cookies`);
-        console.log(`   Cookie preview: ${this.sessionCookies.substring(0, 100)}...`);
-      } else {
-        console.log('⚠️  No cookies received - authentication might not be working properly');
-      }
-      
-    } catch (error) {
-      console.error('❌ Authentication failed:', error.message);
-      throw error;
-    }
-  }
-
-  async testWebSocketConnection() {
-    console.log('\n🔌 Step 3: Testing WebSocket connection...');
-    
-    if (!this.sessionCookies) {
-      throw new Error('No session cookies available for WebSocket connection');
-    }
-
-    return new Promise((resolve, reject) => {
-      try {
-        console.log(`   Connecting to: ${this.websocketURL}`);
-        console.log(`   Using cookies: ${this.sessionCookies.substring(0, 50)}...`);
-        
-        this.ws = new WebSocket(this.websocketURL, {
-          headers: {
-            'Origin': this.baseURL,
-            'Cookie': this.sessionCookies,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-          }
-        });
-
-        this.ws.on('open', () => {
-          console.log('✅ WebSocket connection established successfully!');
-          console.log('   Ready to receive real-time attendance data...');
-          resolve();
-        });
-
-        this.ws.on('error', (error) => {
-          console.error('❌ WebSocket connection error:', error.message);
-          reject(error);
-        });
-
-        this.ws.on('close', (code, reason) => {
-          console.log(`🔌 WebSocket closed: ${code} - ${reason}`);
-        });
-
-        // Set timeout for connection
-        setTimeout(() => {
-          if (this.ws.readyState !== WebSocket.OPEN) {
-            reject(new Error('WebSocket connection timeout'));
-          }
-        }, 10000);
-
-      } catch (error) {
-        console.error('❌ WebSocket connection failed:', error.message);
-        reject(error);
+async function testHttpConnection() {
+  console.log('1️⃣ Testing HTTP Connection...');
+  try {
+    const response = await axios.get(`${ZKBIO_BASE_URL}/login/`, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
       }
     });
-  }
-
-  async monitorRealtimeData() {
-    console.log('\n📊 Step 4: Monitoring real-time data...');
-    console.log('   Waiting for attendance events (will monitor for 60 seconds)...\n');
     
-    let eventCount = 0;
-    let lastEventTime = null;
-
-    this.ws.on('message', (data) => {
-      try {
-        const message = JSON.parse(data.toString());
-        eventCount++;
-        lastEventTime = new Date();
-        
-        console.log(`📊 Event #${eventCount} received at ${lastEventTime.toLocaleTimeString()}`);
-        
-        if (message.data && message.data.length > 0) {
-          console.log(`   📋 Processing ${message.data.length} attendance records:`);
-          
-          message.data.forEach((row, index) => {
-            const event = {
-              id: row[0],
-              empCode: row[1],
-              name: row[2],
-              time: row[3],
-              state: row[4],
-              location: row[7]
-            };
-            
-            console.log(`   ${index + 1}. ${event.name} (${event.empCode}) - ${event.state} at ${event.time}`);
-            if (event.location) {
-              console.log(`      📍 Location: ${event.location}`);
-            }
-          });
-          
-          console.log(`   ✅ Successfully processed ${message.data.length} events\n`);
-        } else {
-          console.log('   ⚠️  Empty data received\n');
-        }
-        
-      } catch (error) {
-        console.error('❌ Error processing message:', error.message);
-        console.log('   Raw data:', data.toString().substring(0, 200) + '...');
-      }
-    });
-
-    // Monitor for 60 seconds
-    setTimeout(() => {
-      console.log('\n📈 Monitoring Summary:');
-      console.log(`   Total events received: ${eventCount}`);
-      console.log(`   Last event time: ${lastEventTime ? lastEventTime.toLocaleTimeString() : 'None'}`);
-      
-      if (eventCount > 0) {
-        console.log('✅ Real-time data flow is working correctly!');
-        console.log('   The connection matches ZKBio Time system behavior.');
-      } else {
-        console.log('⚠️  No events received during monitoring period.');
-        console.log('   This could mean:');
-        console.log('   - No employees are currently punching in/out');
-        console.log('   - The system is in idle state');
-        console.log('   - There might be a data format issue');
-      }
-      
-      this.cleanup();
-    }, 60000);
-  }
-
-  cleanup() {
-    if (this.ws) {
-      this.ws.close();
-      console.log('\n🔌 WebSocket connection closed');
+    console.log(`✅ HTTP Connection: SUCCESS (Status: ${response.status})`);
+    return true;
+  } catch (error) {
+    console.log(`❌ HTTP Connection: FAILED`);
+    console.log(`   Error: ${error.message}`);
+    if (error.code) {
+      console.log(`   Code: ${error.code}`);
     }
-    console.log('\n✅ Diagnostic completed');
+    return false;
   }
 }
 
-// Run the diagnostic
-const diagnostic = new ZKBioTimeDiagnostic();
-diagnostic.runDiagnostic().catch(error => {
-  console.error('❌ Diagnostic failed:', error.message);
+async function testAuthentication() {
+  console.log('\n2️⃣ Testing Authentication...');
+  try {
+    // Get login page to extract CSRF token
+    const loginPageResponse = await axios.get(`${ZKBIO_BASE_URL}/login/`, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      }
+    });
+
+    // Extract CSRF token
+    const csrfMatch = loginPageResponse.data.match(/name=['"]csrfmiddlewaretoken['"] value=['"]([^'"]+)['"]/);
+    if (!csrfMatch) {
+      console.log('❌ Authentication: FAILED (No CSRF token found)');
+      return false;
+    }
+
+    const csrfToken = csrfMatch[1];
+    console.log(`✅ CSRF Token extracted: ${csrfToken.substring(0, 10)}...`);
+
+    // Perform login
+    const loginData = new URLSearchParams({
+      'username': USERNAME,
+      'password': PASSWORD,
+      'csrfmiddlewaretoken': csrfToken
+    });
+
+    const loginResponse = await axios.post(`${ZKBIO_BASE_URL}/login/`, loginData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Referer': `${ZKBIO_BASE_URL}/login/`,
+        'Origin': ZKBIO_BASE_URL,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Cookie': `csrftoken=${csrfToken}`
+      },
+      maxRedirects: 0,
+      validateStatus: (status) => status >= 200 && status < 400
+    });
+
+    // Check if login was successful (should redirect to dashboard)
+    const cookies = loginResponse.headers['set-cookie'];
+    if (cookies && cookies.length > 0) {
+      console.log('✅ Authentication: SUCCESS');
+      console.log(`   Cookies received: ${cookies.length}`);
+      return cookies;
+    } else {
+      console.log('❌ Authentication: FAILED (No cookies received)');
+      return false;
+    }
+  } catch (error) {
+    console.log(`❌ Authentication: FAILED`);
+    console.log(`   Error: ${error.message}`);
+    return false;
+  }
+}
+
+async function testWebSocketConnection(cookies) {
+  console.log('\n3️⃣ Testing WebSocket Connection...');
+  
+  return new Promise((resolve) => {
+    const cookieString = cookies.map(cookie => cookie.split(';')[0]).join('; ');
+    
+    const ws = new WebSocket(ZKBIO_WEBSOCKET_URL, {
+      headers: {
+        'Origin': 'http://182.180.55.96:85',
+        'Cookie': cookieString,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+      },
+      handshakeTimeout: 10000
+    });
+
+    const timeout = setTimeout(() => {
+      console.log('❌ WebSocket Connection: TIMEOUT');
+      ws.close();
+      resolve(false);
+    }, 15000);
+
+    ws.on('open', () => {
+      console.log('✅ WebSocket Connection: SUCCESS');
+      clearTimeout(timeout);
+      ws.close();
+      resolve(true);
+    });
+
+    ws.on('error', (error) => {
+      console.log('❌ WebSocket Connection: FAILED');
+      console.log(`   Error: ${error.message}`);
+      if (error.code) {
+        console.log(`   Code: ${error.code}`);
+      }
+      clearTimeout(timeout);
+      resolve(false);
+    });
+
+    ws.on('close', (code, reason) => {
+      console.log(`🔌 WebSocket closed: ${code} - ${reason}`);
+    });
+  });
+}
+
+async function runTests() {
+  console.log('Starting connection tests...\n');
+  
+  // Test 1: HTTP Connection
+  const httpSuccess = await testHttpConnection();
+  if (!httpSuccess) {
+    console.log('\n❌ HTTP connection failed. Cannot proceed with other tests.');
+    process.exit(1);
+  }
+  
+  // Test 2: Authentication
+  const cookies = await testAuthentication();
+  if (!cookies) {
+    console.log('\n❌ Authentication failed. Cannot proceed with WebSocket test.');
+    process.exit(1);
+  }
+  
+  // Test 3: WebSocket Connection
+  const wsSuccess = await testWebSocketConnection(cookies);
+  
+  // Summary
+  console.log('\n📊 Test Summary');
+  console.log('================');
+  console.log(`HTTP Connection: ${httpSuccess ? '✅ PASS' : '❌ FAIL'}`);
+  console.log(`Authentication: ${cookies ? '✅ PASS' : '❌ FAIL'}`);
+  console.log(`WebSocket Connection: ${wsSuccess ? '✅ PASS' : '❌ FAIL'}`);
+  
+  if (httpSuccess && cookies && wsSuccess) {
+    console.log('\n🎉 All tests passed! ZKBio Time connection is working.');
+    process.exit(0);
+  } else {
+    console.log('\n⚠️  Some tests failed. Check the errors above.');
+    process.exit(1);
+  }
+}
+
+// Run the tests
+runTests().catch(error => {
+  console.error('❌ Test script failed:', error);
   process.exit(1);
 });

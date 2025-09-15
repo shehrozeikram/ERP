@@ -60,9 +60,17 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     pm2 save
     
     # Quick health check
-    sleep 3
+    sleep 5
     if pm2 list | grep -q "sgc-erp-backend.*online"; then
         echo "✅ App started successfully"
+        
+        # Test ZKBio Time connection
+        echo "🧪 Testing ZKBio Time connection..."
+        if node server/scripts/test-zkbio-connection.js; then
+            echo "✅ ZKBio Time connection test passed"
+        else
+            echo "⚠️  ZKBio Time connection test failed - check logs"
+        fi
     else
         echo "❌ App failed to start - rolling back..."
         pm2 stop sgc-erp-backend 2>/dev/null || true

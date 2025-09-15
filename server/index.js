@@ -275,9 +275,18 @@ mongoose.connection.once('open', async () => {
     // Connect image proxy to WebSocket proxy
     setZKBioTimeWebSocketProxy(zkbioTimeWebSocketProxy);
     
-    // Connect to ZKBio Time WebSocket
-    setTimeout(() => {
-      zkbioTimeWebSocketProxy.connectToZKBioTime();
+    // Test and connect to ZKBio Time WebSocket
+    setTimeout(async () => {
+      console.log('🧪 Testing ZKBio Time connection before starting WebSocket...');
+      const connectionTest = await zkbioTimeWebSocketProxy.testConnection();
+      
+      if (connectionTest) {
+        console.log('✅ Connection test passed, starting WebSocket connection...');
+        zkbioTimeWebSocketProxy.connectToZKBioTime();
+      } else {
+        console.log('⚠️  Connection test failed, will attempt WebSocket connection anyway...');
+        zkbioTimeWebSocketProxy.connectToZKBioTime();
+      }
     }, 2000); // Wait 2 seconds for server to be fully ready
     
     console.log('✅ ZKBio Time WebSocket Proxy initialized');

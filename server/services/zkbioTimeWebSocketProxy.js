@@ -18,9 +18,12 @@ class ZKBioTimeWebSocketProxy {
   initializeSocketIO(server) {
     this.socketIO = new Server(server, {
       cors: {
-        origin: process.env.NODE_ENV === 'production' ? false : "http://localhost:3000",
-        methods: ["GET", "POST"]
-      }
+        origin: process.env.NODE_ENV === 'production' ? ["https://tovus.net", "https://www.tovus.net"] : "http://localhost:3000",
+        methods: ["GET", "POST"],
+        credentials: true
+      },
+      transports: ['websocket', 'polling'],
+      allowEIO3: true
     });
 
     this.socketIO.on('connection', (socket) => {
@@ -114,6 +117,8 @@ class ZKBioTimeWebSocketProxy {
       }
 
       console.log('🔌 Connecting to ZKBio Time WebSocket...');
+      console.log('🌐 Environment:', process.env.NODE_ENV);
+      console.log('🍪 Session cookies:', this.sessionCookies ? 'Present' : 'Missing');
       
       this.zkbioWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/realtime_punch/', {
         headers: {
@@ -124,7 +129,9 @@ class ZKBioTimeWebSocketProxy {
           'Accept-Language': 'en-US,en;q=0.9',
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
-        }
+        },
+        handshakeTimeout: 10000,
+        perMessageDeflate: false
       });
 
       this.zkbioWs.on('open', () => {
@@ -180,16 +187,25 @@ class ZKBioTimeWebSocketProxy {
       });
 
       this.zkbioWs.on('error', (error) => {
-        console.error('❌ ZKBio Time WebSocket error:', error.message);
+        console.error('❌ ZKBio Time WebSocket error:', error);
+        console.error('❌ Error details:', {
+          code: error.code,
+          message: error.message,
+          type: error.type,
+          target: error.target?.url
+        });
         this.isConnected = false;
         
         // Notify frontend clients
         if (this.socketIO) {
           this.socketIO.emit('zkbioConnectionStatus', {
             connected: false,
-            message: 'Connection error: ' + error.message
+            message: `Connection error: ${error.message} (Code: ${error.code || 'Unknown'})`
           });
         }
+        
+        // Attempt reconnection
+        this.attemptReconnection();
       });
 
       this.zkbioWs.on('close', (code, reason) => {
@@ -212,6 +228,33 @@ class ZKBioTimeWebSocketProxy {
       console.error('❌ Failed to connect to ZKBio Time:', error.message);
       this.isConnected = false;
       this.attemptReconnection();
+    }
+  }
+
+  // Test ZKBio Time connection
+  async testConnection() {
+    try {
+      console.log('🧪 Testing ZKBio Time connection...');
+      
+      // Test HTTP connection first
+      const axios = require('axios');
+      const response = await axios.get('http://182.180.55.96:85/login/', {
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+      });
+      
+      console.log('✅ HTTP connection test passed:', response.status);
+      
+      // Test authentication
+      const authSuccess = await this.authenticateWithZKBioTime();
+      console.log('✅ Authentication test:', authSuccess ? 'PASSED' : 'FAILED');
+      
+      return authSuccess;
+    } catch (error) {
+      console.error('❌ Connection test failed:', error.message);
+      return false;
     }
   }
 
