@@ -262,7 +262,7 @@ const RealtimeAttendanceMonitor = () => {
           borderRadius: '16px 16px 0 0'
         }
       }}>
-        <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <CardContent sx={{ p: 3, minHeight: '700px', display: 'flex', flexDirection: 'column' }}>
           {/* Header */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -585,7 +585,7 @@ const RealtimeAttendanceMonitor = () => {
             </Typography>
             
             <Box sx={{ 
-              height: '400px', 
+              height: '600px', 
               overflowY: 'auto',
               '&::-webkit-scrollbar': {
                 width: '6px'

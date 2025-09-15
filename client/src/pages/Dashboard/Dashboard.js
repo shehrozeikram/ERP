@@ -58,6 +58,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { PERMISSIONS, MODULES } from '../../utils/permissions';
 import api from '../../services/api';
 import RealtimeAttendanceMonitor from '../../components/RealtimeAttendanceMonitor';
+import PresentChart from '../../components/PresentChart';
+import DeviceStatusChart from '../../components/DeviceStatusChart';
+import DepartmentChart from '../../components/DepartmentChart';
 
 const Dashboard = () => {
   const theme = useTheme();
@@ -852,12 +855,34 @@ const Dashboard = () => {
           </Grid>
         </Grid>
 
-        {/* Real-Time Monitor and System Health */}
-        <Grid container spacing={4}>
-          <Grid item xs={12} md={8}>
+        {/* Real-Time Attendance Charts and Monitor */}
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          {/* Left Column: Present, Device Status, and Department Charts */}
+          <Grid item xs={12} md={6}>
+            <Grid container spacing={2}>
+              {/* Top Row: Present and Device Status Charts */}
+              <Grid item xs={6}>
+                <PresentChart />
+              </Grid>
+              <Grid item xs={6}>
+                <DeviceStatusChart />
+              </Grid>
+              {/* Bottom Row: Department Chart */}
+              <Grid item xs={12}>
+                <DepartmentChart />
+              </Grid>
+            </Grid>
+          </Grid>
+          
+          {/* Right Column: Real-Time Monitor */}
+          <Grid item xs={12} md={6}>
             <RealtimeAttendanceMonitor />
           </Grid>
-          <Grid item xs={12} md={4}>
+        </Grid>
+
+        {/* System Health */}
+        <Grid container spacing={4}>
+          <Grid item xs={12}>
             <Fade in={animateCards} timeout={1400}>
               <Card sx={{ 
                 height: '100%', 
