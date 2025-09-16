@@ -8,53 +8,185 @@ import {
   Tooltip,
   alpha,
   useTheme,
-  Zoom
+  Zoom,
+  Chip
 } from '@mui/material';
 import {
   Refresh,
   Devices,
-  Download
+  Download,
+  FlashOn
 } from '@mui/icons-material';
 import * as echarts from 'echarts';
+import { io } from 'socket.io-client';
 
 const DeviceStatusChart = () => {
   const theme = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [chartData, setChartData] = useState(null);
+  const [isLive, setIsLive] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
+  const socketRef = useRef(null);
   
-  const deviceData = [
+  // Default fallback data (only used if no real data received)
+  const defaultData = [
     { 
       name: 'Online', 
-      value: 17, 
-      itemStyle: { color: '#2ed573' }
+      value: 0, 
+      itemStyle: { color: '#91CB74' }
     },
     { 
       name: 'Offline', 
-      value: 3, 
-      itemStyle: { color: '#ff4757' }
+      value: 0, 
+      itemStyle: { color: '#ED6766' }
+    },
+    { 
+      name: 'Unauthorized', 
+      value: 0, 
+      itemStyle: { color: '#ffa502' }
     }
   ];
 
   const handleRefresh = () => {
     setIsRefreshing(true);
+    setIsLoading(true);
+    
+    // Request fresh data from server
+    if (socketRef.current) {
+      socketRef.current.emit('requestDeviceData');
+    }
+    
     setTimeout(() => {
       setIsRefreshing(false);
-      // Refresh chart data if needed
-      if (chartInstance.current) {
-        chartInstance.current.setOption({
-          series: [{
-            data: deviceData
-          }]
-        });
-      }
     }, 1000);
   };
+
+  // Initialize WebSocket connection for real-time device data
+  useEffect(() => {
+    const baseURL = process.env.NODE_ENV === 'production' 
+      ? 'https://tovus.net' 
+      : 'http://localhost:5001';
+    
+    const socket = io(baseURL, {
+      transports: ['websocket', 'polling']
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      // Request initial device data
+      socket.emit('requestDeviceData');
+    });
+
+    socket.on('zkbioConnectionStatus', (status) => {
+      if (!status.connected && isLoading) {
+        // If ZKBio Time is not connected, reduce loading time
+        setTimeout(() => {
+          if (isLoading && !chartData) {
+            setIsLoading(false);
+          }
+        }, 2000); // Only wait 2 seconds if ZKBio Time is not connected
+      }
+    });
+
+    socket.on('liveDeviceStatusUpdate', (data) => {
+      if (data.type === 'deviceStatus' && data.data) {
+        let newChartData = [];
+        
+        // Handle different possible data structures from ZKBio Time
+        if (data.data.series && data.data.series[0] && data.data.series[0].data) {
+          // Structure: { series: [{ data: [...] }] }
+          const seriesData = data.data.series[0].data;
+          newChartData = seriesData.map(item => ({
+            name: item.name,
+            value: item.value,
+            itemStyle: { 
+              color: item.name === 'Online' ? '#91CB74' : 
+                     item.name === 'Offline' ? '#ED6766' : '#ffa502'
+            }
+          }));
+        } else if (Array.isArray(data.data)) {
+          // Structure: [{ name: 'Online', value: 10 }, { name: 'Offline', value: 5 }]
+          newChartData = data.data.map(item => ({
+            name: item.name,
+            value: item.value,
+            itemStyle: { 
+              color: item.name === 'Online' ? '#91CB74' : 
+                     item.name === 'Offline' ? '#ED6766' : '#ffa502'
+            }
+          }));
+        } else if (data.data.online !== undefined || data.data.offline !== undefined || data.data.unauthorized !== undefined) {
+          // Structure: { online: 10, offline: 5, unauthorized: 2 }
+          newChartData = [
+            {
+              name: 'Online',
+              value: data.data.online || 0,
+              itemStyle: { color: '#91CB74' }
+            },
+            {
+              name: 'Offline', 
+              value: data.data.offline || 0,
+              itemStyle: { color: '#ED6766' }
+            },
+            {
+              name: 'Unauthorized', 
+              value: data.data.unauthorized || 0,
+              itemStyle: { color: '#ffa502' }
+            }
+          ];
+        }
+
+        if (newChartData.length > 0) {
+          setChartData(newChartData);
+          setIsLive(true);
+          setIsLoading(false); // Stop loading when real data is received
+          
+          // Update chart if it exists
+          if (chartInstance.current) {
+            chartInstance.current.setOption({
+              series: [{
+                data: newChartData
+              }]
+            });
+          }
+        }
+      }
+    });
+
+    socket.on('disconnect', () => {
+      setIsLive(false);
+      // Don't set loading to false on disconnect, keep trying
+    });
+
+    socket.on('error', (error) => {
+      // Error handled silently to maintain clean user experience
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  // Fallback timeout - if no data received within 5 seconds, stop loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (isLoading && !chartData) {
+        setIsLoading(false);
+      }
+    }, 5000); // 5 second timeout
+
+    return () => clearTimeout(timeout);
+  }, [isLoading, chartData]);
 
   useEffect(() => {
     if (chartRef.current) {
       // Initialize ECharts instance
       chartInstance.current = echarts.init(chartRef.current);
+      
+      // Only show data if we have real data, otherwise show empty
+      const currentData = chartData || [];
       
       const option = {
         tooltip: {
@@ -78,7 +210,7 @@ const DeviceStatusChart = () => {
           type: 'pie',
           radius: '70%',
           center: ['50%', '50%'],
-          data: deviceData,
+          data: currentData,
           emphasis: {
             scale: true,
             scaleSize: 5,
@@ -94,7 +226,9 @@ const DeviceStatusChart = () => {
             formatter: '{c} ({d}%)',
             fontSize: 12,
             fontWeight: 'bold',
-            color: '#666'
+            color: '#666',
+            overflow: 'none',
+            ellipsis: false
           },
           labelLine: {
             show: true,
@@ -127,7 +261,7 @@ const DeviceStatusChart = () => {
         }
       };
     }
-  }, []);
+  }, [chartData, isLoading]);
 
   return (
     <Zoom in timeout={700}>
@@ -192,6 +326,24 @@ const DeviceStatusChart = () => {
               }}>
                 Device Status
               </Typography>
+              {isLive && (
+                <Chip 
+                  label="LIVE" 
+                  size="small" 
+                  color="success" 
+                  icon={<FlashOn />}
+                  sx={{ 
+                    fontSize: '0.7rem',
+                    height: 20,
+                    animation: 'pulse 2s infinite',
+                    '@keyframes pulse': {
+                      '0%': { opacity: 1 },
+                      '50%': { opacity: 0.7 },
+                      '100%': { opacity: 1 }
+                    }
+                  }}
+                />
+              )}
             </Box>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
               <Tooltip title="Refresh Data">
@@ -265,6 +417,44 @@ const DeviceStatusChart = () => {
               position: 'relative'
             }}
           />
+          
+          {/* Loading Overlay */}
+          {isLoading && (
+            <Box sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: alpha(theme.palette.background.paper, 0.8),
+              backdropFilter: 'blur(10px)',
+              borderRadius: 2
+            }}>
+              <Box sx={{
+                width: 40,
+                height: 40,
+                border: `3px solid ${alpha(theme.palette.info.main, 0.3)}`,
+                borderTop: `3px solid ${theme.palette.info.main}`,
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                '@keyframes spin': {
+                  '0%': { transform: 'rotate(0deg)' },
+                  '100%': { transform: 'rotate(360deg)' }
+                }
+              }} />
+              <Typography variant="body2" sx={{ 
+                mt: 2, 
+                color: theme.palette.text.secondary,
+                fontWeight: 500
+              }}>
+                {isRefreshing ? 'Refreshing device data...' : 'Loading latest device data from ZKBio Time...'}
+              </Typography>
+            </Box>
+          )}
         </CardContent>
       </Card>
     </Zoom>

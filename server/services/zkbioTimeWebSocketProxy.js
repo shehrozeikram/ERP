@@ -6,12 +6,24 @@ const http = require('http');
 class ZKBioTimeWebSocketProxy {
   constructor() {
     this.zkbioWs = null;
+    this.chartWs = null;
+    this.deviceWs = null;
+    this.deptWs = null;
     this.socketIO = null;
     this.isConnected = false;
+    this.chartConnected = false;
+    this.deviceConnected = false;
+    this.deptConnected = false;
     this.reconnectAttempts = 0;
+    this.chartReconnectAttempts = 0;
+    this.deviceReconnectAttempts = 0;
+    this.deptReconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
     this.reconnectDelay = 5000;
     this.sessionCookies = null;
+    this.lastChartData = null; // Store last chart data
+    this.lastDeviceData = null; // Store last device data
+    this.lastDeptData = null; // Store last department data
   }
 
   // Initialize Socket.IO server
@@ -33,6 +45,60 @@ class ZKBioTimeWebSocketProxy {
       socket.emit('zkbioConnectionStatus', {
         connected: this.isConnected,
         message: this.isConnected ? 'Connected to ZKBio Time' : 'Disconnected from ZKBio Time'
+      });
+
+      // Send last chart data immediately if available
+      if (this.lastChartData) {
+        console.log('📊 Sending cached chart data to new client');
+        socket.emit('liveChartUpdate', {
+          data: this.lastChartData,
+          timestamp: new Date().toISOString(),
+          type: 'presentChart'
+        });
+      }
+
+      // Send last device data immediately if available
+      if (this.lastDeviceData) {
+        console.log('📱 Sending cached device data to new client');
+        socket.emit('liveDeviceStatusUpdate', {
+          data: this.lastDeviceData,
+          timestamp: new Date().toISOString(),
+          type: 'deviceStatus'
+        });
+      }
+
+      // Send last department data immediately if available
+      if (this.lastDeptData) {
+        console.log('🏢 Sending cached department data to new client');
+        socket.emit('liveDepartmentUpdate', {
+          data: this.lastDeptData,
+          timestamp: new Date().toISOString(),
+          type: 'departmentAttendance'
+        });
+      }
+
+      // Handle manual chart data refresh request
+      socket.on('requestChartData', () => {
+        console.log('📊 Manual chart data refresh requested');
+        if (this.chartWs && this.chartWs.readyState === WebSocket.OPEN) {
+          this.chartWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        }
+      });
+
+      // Handle manual device data refresh request
+      socket.on('requestDeviceData', () => {
+        console.log('📱 Manual device data refresh requested');
+        if (this.deviceWs && this.deviceWs.readyState === WebSocket.OPEN) {
+          this.deviceWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        }
+      });
+
+      // Handle manual department data refresh request
+      socket.on('requestDepartmentData', () => {
+        console.log('🏢 Manual department data refresh requested');
+        if (this.deptWs && this.deptWs.readyState === WebSocket.OPEN) {
+          this.deptWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        }
       });
 
       socket.on('disconnect', () => {
@@ -180,6 +246,11 @@ class ZKBioTimeWebSocketProxy {
                 count: processedPunches.length
               });
             }
+            
+            // Trigger chart data refresh when new attendance events are received
+            if (this.chartWs && this.chartWs.readyState === WebSocket.OPEN) {
+              this.chartWs.send(JSON.stringify({ action: 'get_chart_data' }));
+            }
           }
         } catch (error) {
           console.error('❌ Error processing WebSocket message:', error.message);
@@ -228,6 +299,298 @@ class ZKBioTimeWebSocketProxy {
       console.error('❌ Failed to connect to ZKBio Time:', error.message);
       this.isConnected = false;
       this.attemptReconnection();
+    }
+  }
+
+  // Connect to ZKBio Time Chart WebSocket
+  async connectToChartWebSocket() {
+    try {
+      // Use existing authentication if available
+      if (!this.sessionCookies) {
+        const authSuccess = await this.authenticateWithZKBioTime();
+        if (!authSuccess) {
+          throw new Error('Authentication failed for chart WebSocket');
+        }
+      }
+
+      console.log('📊 Connecting to ZKBio Time Chart WebSocket...');
+      
+      this.chartWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/punch_present_chart/', {
+        headers: {
+          'Origin': 'http://182.180.55.96:85',
+          'Cookie': this.sessionCookies,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        handshakeTimeout: 10000,
+        perMessageDeflate: false
+      });
+
+      this.chartWs.on('open', () => {
+        console.log('✅ Connected to ZKBio Time Chart WebSocket');
+        this.chartConnected = true;
+        this.chartReconnectAttempts = 0;
+        
+        // Send trigger message to get initial chart data
+        console.log('📤 Sending trigger message for chart data...');
+        this.chartWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        
+        // Set up periodic refresh every 30 seconds to ensure chart stays updated
+        this.chartRefreshInterval = setInterval(() => {
+          if (this.chartWs && this.chartWs.readyState === WebSocket.OPEN) {
+            this.chartWs.send(JSON.stringify({ action: 'get_chart_data' }));
+          }
+        }, 30000); // 30 seconds
+        
+        console.log('📊 Chart WebSocket ready - automatic updates + 30s periodic refresh');
+      });
+
+      this.chartWs.on('message', (data) => {
+        try {
+          const chartData = JSON.parse(data.toString());
+          
+          // Store the last chart data for immediate delivery to new clients
+          this.lastChartData = chartData;
+          
+          // Broadcast chart data to all connected frontend clients
+          if (this.socketIO) {
+            this.socketIO.emit('liveChartUpdate', {
+              data: chartData,
+              timestamp: new Date().toISOString(),
+              type: 'presentChart'
+            });
+          }
+        } catch (error) {
+          // Error handled silently to maintain clean logs
+        }
+      });
+
+      this.chartWs.on('error', (error) => {
+        console.error('❌ ZKBio Time Chart WebSocket error:', error);
+        this.chartConnected = false;
+        this.attemptChartReconnection();
+      });
+
+      this.chartWs.on('close', (code, reason) => {
+        console.log(`📊 ZKBio Time Chart WebSocket closed: ${code} - ${reason}`);
+        this.chartConnected = false;
+        
+        // Clear the periodic refresh interval
+        if (this.chartRefreshInterval) {
+          clearInterval(this.chartRefreshInterval);
+          this.chartRefreshInterval = null;
+        }
+        
+        this.attemptChartReconnection();
+      });
+
+    } catch (error) {
+      console.error('❌ Failed to connect to ZKBio Time Chart:', error.message);
+      this.chartConnected = false;
+      this.attemptChartReconnection();
+    }
+  }
+
+  // Attempt to reconnect chart WebSocket
+  attemptChartReconnection() {
+    if (this.chartReconnectAttempts < this.maxReconnectAttempts) {
+      this.chartReconnectAttempts++;
+      console.log(`🔄 Attempting chart reconnection ${this.chartReconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay/1000}s...`);
+      
+      setTimeout(() => {
+        this.connectToChartWebSocket();
+      }, this.reconnectDelay);
+    } else {
+      console.log('❌ Max chart reconnection attempts reached.');
+    }
+  }
+
+  // Connect to ZKBio Time Device Status WebSocket
+  async connectToDeviceWebSocket() {
+    try {
+      // Use existing authentication if available
+      if (!this.sessionCookies) {
+        const authSuccess = await this.authenticateWithZKBioTime();
+        if (!authSuccess) {
+          throw new Error('Authentication failed for device WebSocket');
+        }
+      }
+
+      console.log('📱 Connecting to ZKBio Time Device Status WebSocket...');
+      
+      this.deviceWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/device_status_chart/', {
+        headers: {
+          'Origin': 'http://182.180.55.96:85',
+          'Cookie': this.sessionCookies,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        handshakeTimeout: 10000,
+        perMessageDeflate: false
+      });
+
+      this.deviceWs.on('open', () => {
+        console.log('✅ Connected to ZKBio Time Device Status WebSocket');
+        this.deviceConnected = true;
+        this.deviceReconnectAttempts = 0;
+        
+        // Send trigger message to get initial device data
+        console.log('📤 Sending trigger message for device data...');
+        this.deviceWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        
+        // No periodic refresh - let ZKBio Time server push updates automatically
+        console.log('📱 Device Status WebSocket ready - waiting for automatic updates from ZKBio Time');
+      });
+
+      this.deviceWs.on('message', (data) => {
+        try {
+          const deviceData = JSON.parse(data.toString());
+          
+          // Store the last device data for immediate delivery to new clients
+          this.lastDeviceData = deviceData;
+          
+          // Broadcast device data to all connected frontend clients
+          if (this.socketIO) {
+            this.socketIO.emit('liveDeviceStatusUpdate', {
+              data: deviceData,
+              timestamp: new Date().toISOString(),
+              type: 'deviceStatus'
+            });
+          }
+        } catch (error) {
+          // Error handled silently to maintain clean logs
+        }
+      });
+
+      this.deviceWs.on('error', (error) => {
+        console.error('❌ ZKBio Time Device WebSocket error:', error);
+        this.deviceConnected = false;
+        this.attemptDeviceReconnection();
+      });
+
+      this.deviceWs.on('close', (code, reason) => {
+        console.log(`📱 ZKBio Time Device WebSocket closed: ${code} - ${reason}`);
+        this.deviceConnected = false;
+        this.attemptDeviceReconnection();
+      });
+
+    } catch (error) {
+      console.error('❌ Failed to connect to ZKBio Time Device:', error.message);
+      this.deviceConnected = false;
+      this.attemptDeviceReconnection();
+    }
+  }
+
+  // Attempt to reconnect device WebSocket
+  attemptDeviceReconnection() {
+    if (this.deviceReconnectAttempts < this.maxReconnectAttempts) {
+      this.deviceReconnectAttempts++;
+      console.log(`🔄 Attempting device reconnection ${this.deviceReconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay/1000}s...`);
+      
+      setTimeout(() => {
+        this.connectToDeviceWebSocket();
+      }, this.reconnectDelay);
+    } else {
+      console.log('❌ Max device reconnection attempts reached.');
+    }
+  }
+
+  // Connect to ZKBio Time Department Attendance WebSocket
+  async connectToDepartmentWebSocket() {
+    try {
+      // Use existing authentication if available
+      if (!this.sessionCookies) {
+        const authSuccess = await this.authenticateWithZKBioTime();
+        if (!authSuccess) {
+          throw new Error('Authentication failed for department WebSocket');
+        }
+      }
+
+      console.log('🏢 Connecting to ZKBio Time Department Attendance WebSocket...');
+      
+      this.deptWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/punch_dept_att_chart/', {
+        headers: {
+          'Origin': 'http://182.180.55.96:85',
+          'Cookie': this.sessionCookies,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        },
+        handshakeTimeout: 10000,
+        perMessageDeflate: false
+      });
+
+      this.deptWs.on('open', () => {
+        console.log('✅ Connected to ZKBio Time Department Attendance WebSocket');
+        this.deptConnected = true;
+        this.deptReconnectAttempts = 0;
+        
+        // Send trigger message to get initial department data
+        console.log('📤 Sending trigger message for department data...');
+        this.deptWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        
+        // No periodic refresh - let ZKBio Time server push updates automatically
+        console.log('🏢 Department Attendance WebSocket ready - waiting for automatic updates from ZKBio Time');
+      });
+
+      this.deptWs.on('message', (data) => {
+        try {
+          const deptData = JSON.parse(data.toString());
+          
+          // Store the last department data for immediate delivery to new clients
+          this.lastDeptData = deptData;
+          
+          // Broadcast department data to all connected frontend clients
+          if (this.socketIO) {
+            this.socketIO.emit('liveDepartmentUpdate', {
+              data: deptData,
+              timestamp: new Date().toISOString(),
+              type: 'departmentAttendance'
+            });
+          }
+        } catch (error) {
+          // Error handled silently to maintain clean logs
+        }
+      });
+
+      this.deptWs.on('error', (error) => {
+        console.error('❌ ZKBio Time Department WebSocket error:', error);
+        this.deptConnected = false;
+        this.attemptDepartmentReconnection();
+      });
+
+      this.deptWs.on('close', (code, reason) => {
+        console.log(`🏢 ZKBio Time Department WebSocket closed: ${code} - ${reason}`);
+        this.deptConnected = false;
+        this.attemptDepartmentReconnection();
+      });
+
+    } catch (error) {
+      console.error('❌ Failed to connect to ZKBio Time Department:', error.message);
+      this.deptConnected = false;
+      this.attemptDepartmentReconnection();
+    }
+  }
+
+  // Attempt to reconnect department WebSocket
+  attemptDepartmentReconnection() {
+    if (this.deptReconnectAttempts < this.maxReconnectAttempts) {
+      this.deptReconnectAttempts++;
+      console.log(`🔄 Attempting department reconnection ${this.deptReconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay/1000}s...`);
+      
+      setTimeout(() => {
+        this.connectToDepartmentWebSocket();
+      }, this.reconnectDelay);
+    } else {
+      console.log('❌ Max department reconnection attempts reached.');
     }
   }
 
@@ -348,15 +711,40 @@ class ZKBioTimeWebSocketProxy {
       this.zkbioWs.close();
       this.zkbioWs = null;
     }
+    if (this.chartWs) {
+      this.chartWs.close();
+      this.chartWs = null;
+    }
+    if (this.chartRefreshInterval) {
+      clearInterval(this.chartRefreshInterval);
+      this.chartRefreshInterval = null;
+    }
+    if (this.deviceWs) {
+      this.deviceWs.close();
+      this.deviceWs = null;
+    }
+    if (this.deptWs) {
+      this.deptWs.close();
+      this.deptWs = null;
+    }
     this.isConnected = false;
-    console.log('🔌 Disconnected from ZKBio Time');
+    this.chartConnected = false;
+    this.deviceConnected = false;
+    this.deptConnected = false;
+    console.log('🔌 Disconnected from ZKBio Time (all WebSockets)');
   }
 
   // Get connection status
   getStatus() {
     return {
       connected: this.isConnected,
+      chartConnected: this.chartConnected,
+      deviceConnected: this.deviceConnected,
+      deptConnected: this.deptConnected,
       reconnectAttempts: this.reconnectAttempts,
+      chartReconnectAttempts: this.chartReconnectAttempts,
+      deviceReconnectAttempts: this.deviceReconnectAttempts,
+      deptReconnectAttempts: this.deptReconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts
     };
   }

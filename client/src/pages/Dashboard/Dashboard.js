@@ -139,7 +139,7 @@ const Dashboard = () => {
       // Trigger card animations
       setTimeout(() => setAnimateCards(true), 100);
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      // Error handled silently to maintain clean user experience
     } finally {
       setLoading(false);
     }

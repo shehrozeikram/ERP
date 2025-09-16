@@ -365,23 +365,36 @@ const RealtimeAttendanceMonitor = () => {
                   <Fade in timeout={500 + index * 200} key={index}>
                     <Paper
                       sx={{
-                        p: 2,
-                        mb: 1,
-                        borderRadius: 2,
-                        background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.1)} 0%, ${alpha(theme.palette.success.main, 0.05)} 100%)`,
-                        border: `1px solid ${alpha(theme.palette.success.main, 0.3)}`,
-                        animation: 'slideInRight 0.5s ease-out'
+                        p: 3,
+                        mb: 2,
+                        borderRadius: 4,
+                        background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.15)} 0%, ${alpha(theme.palette.success.main, 0.08)} 100%)`,
+                        border: `2px solid ${alpha(theme.palette.success.main, 0.4)}`,
+                        animation: 'slideInRight 0.5s ease-out',
+                        boxShadow: `0 8px 32px ${alpha(theme.palette.success.main, 0.2)}`,
+                        position: 'relative',
+                        overflow: 'hidden',
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: '4px',
+                          background: `linear-gradient(90deg, ${theme.palette.success.main}, ${alpha(theme.palette.success.main, 0.7)})`,
+                          borderRadius: '16px 16px 0 0'
+                        }
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        {/* Employee Avatar for Real-Time Events */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        {/* Enhanced Employee Avatar for Real-Time Events */}
                         <Box sx={{ position: 'relative' }}>
                           {event.employeePhoto || event.attendanceImage ? (
                             <Tooltip
                               title={
                                 <Box sx={{ 
                                   textAlign: 'center', 
-                                  p: 2,
+                                  p: 3,
                                   position: 'relative',
                                   overflow: 'hidden',
                                   '&::before': {
@@ -392,8 +405,8 @@ const RealtimeAttendanceMonitor = () => {
                                     right: 0,
                                     bottom: 0,
                                     background: `linear-gradient(135deg, 
-                                      ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.1)} 0%, 
-                                      ${alpha(theme.palette.common.black, 0.8)} 50%, 
+                                      ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.15)} 0%, 
+                                      ${alpha(theme.palette.common.black, 0.85)} 50%, 
                                       ${alpha(theme.palette.common.black, 0.95)} 100%)`,
                                     zIndex: -1
                                   }
@@ -403,80 +416,81 @@ const RealtimeAttendanceMonitor = () => {
                                     src={event.employeePhoto || event.attendanceImage}
                                     alt={`${event.name} - ${event.state}`}
                                     sx={{
-                                      width: 240,
-                                      height: 240,
-                                      borderRadius: 4,
+                                      width: 320,
+                                      height: 320,
+                                      borderRadius: 6,
                                       objectFit: 'cover',
-                                      border: `4px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
+                                      border: `6px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
                                       boxShadow: `
-                                        0 0 0 2px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)},
-                                        0 12px 40px ${alpha(theme.palette.common.black, 0.4)},
-                                        0 0 60px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.2)},
-                                        inset 0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                        0 0 0 3px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.4)},
+                                        0 16px 60px ${alpha(theme.palette.common.black, 0.5)},
+                                        0 0 80px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)},
+                                        inset 0 0 0 2px ${alpha(theme.palette.common.white, 0.15)}
                                       `,
-                                      mb: 2,
+                                      mb: 3,
                                       position: 'relative',
-                                      transition: 'all 0.3s ease',
+                                      transition: 'all 0.4s ease',
                                       '&::after': {
                                         content: '""',
                                         position: 'absolute',
-                                        top: -2,
-                                        left: -2,
-                                        right: -2,
-                                        bottom: -2,
+                                        top: -3,
+                                        left: -3,
+                                        right: -3,
+                                        bottom: -3,
                                         background: `linear-gradient(45deg, 
                                           ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}, 
-                                          ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.5)})`,
-                                        borderRadius: 4,
+                                          ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.6)})`,
+                                        borderRadius: 6,
                                         zIndex: -1,
-                                        opacity: 0.6
+                                        opacity: 0.7
                                       }
                                     }}
                                   />
                                   <Box sx={{ position: 'relative', zIndex: 1 }}>
-                                    <Typography variant="h6" sx={{ 
-                                      fontWeight: 700, 
+                                    <Typography variant="h5" sx={{ 
+                                      fontWeight: 800, 
                                       color: 'white',
-                                      textShadow: `0 2px 8px ${alpha(theme.palette.common.black, 0.8)}`,
-                                      mb: 0.5,
-                                      fontSize: '1.1rem'
+                                      textShadow: `0 3px 12px ${alpha(theme.palette.common.black, 0.9)}`,
+                                      mb: 1,
+                                      fontSize: '1.4rem'
                                     }}>
                                       {event.name}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ 
+                                    <Typography variant="h6" sx={{ 
                                       color: 'white', 
-                                      opacity: 0.9,
-                                      textShadow: `0 1px 4px ${alpha(theme.palette.common.black, 0.6)}`,
-                                      mb: 1,
-                                      fontWeight: 500
+                                      opacity: 0.95,
+                                      textShadow: `0 2px 6px ${alpha(theme.palette.common.black, 0.7)}`,
+                                      mb: 2,
+                                      fontWeight: 600
                                     }}>
                                       {event.state} • {formatTime(event.time)}
                                     </Typography>
                                     <Box sx={{
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: 0.5,
-                                      px: 1.5,
-                                      py: 0.5,
-                                      borderRadius: 2,
+                                      gap: 1,
+                                      px: 2,
+                                      py: 1,
+                                      borderRadius: 3,
                                       background: `linear-gradient(135deg, 
-                                        ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.2)}, 
-                                        ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.1)})`,
-                                      border: `1px solid ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)}`,
-                                      backdropFilter: 'blur(10px)'
+                                        ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)}, 
+                                        ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.15)})`,
+                                      border: `2px solid ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.4)}`,
+                                      backdropFilter: 'blur(15px)'
                                     }}>
                                       <Box sx={{
-                                        width: 8,
-                                        height: 8,
+                                        width: 12,
+                                        height: 12,
                                         borderRadius: '50%',
                                         background: getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main,
-                                        boxShadow: `0 0 8px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.6)}`,
+                                        boxShadow: `0 0 12px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.8)}`,
                                         animation: 'pulse 2s infinite'
                                       }} />
-                                      <Typography variant="caption" sx={{ 
+                                      <Typography variant="body1" sx={{ 
                                         color: 'white', 
-                                        fontWeight: 600,
-                                        textShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.5)}`
+                                        fontWeight: 700,
+                                        textShadow: `0 2px 4px ${alpha(theme.palette.common.black, 0.6)}`,
+                                        fontSize: '0.9rem'
                                       }}>
                                         LIVE ATTENDANCE
                                       </Typography>
@@ -490,21 +504,21 @@ const RealtimeAttendanceMonitor = () => {
                                 tooltip: {
                                   sx: {
                                     bgcolor: 'transparent',
-                                    backdropFilter: 'blur(20px)',
-                                    borderRadius: 4,
+                                    backdropFilter: 'blur(25px)',
+                                    borderRadius: 6,
                                     p: 0,
                                     maxWidth: 'none',
                                     boxShadow: `
-                                      0 20px 60px ${alpha(theme.palette.common.black, 0.4)},
-                                      0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                      0 25px 80px ${alpha(theme.palette.common.black, 0.5)},
+                                      0 0 0 2px ${alpha(theme.palette.common.white, 0.15)}
                                     `,
-                                    border: `1px solid ${alpha(theme.palette.common.white, 0.1)}`
+                                    border: `2px solid ${alpha(theme.palette.common.white, 0.15)}`
                                   }
                                 },
                                 arrow: {
                                   sx: {
-                                    color: alpha(theme.palette.common.black, 0.9),
-                                    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))'
+                                    color: alpha(theme.palette.common.black, 0.95),
+                                    filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.4))'
                                   }
                                 }
                               }}
@@ -512,14 +526,15 @@ const RealtimeAttendanceMonitor = () => {
                               <Avatar 
                                 src={event.employeePhoto || event.attendanceImage}
                                 sx={{ 
-                                  width: 32,
-                                  height: 32,
-                                  border: `2px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
+                                  width: 60,
+                                  height: 60,
+                                  border: `3px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
                                   cursor: 'pointer',
-                                  transition: 'all 0.3s ease',
+                                  transition: 'all 0.4s ease',
+                                  boxShadow: `0 8px 25px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.3)}`,
                                   '&:hover': {
-                                    transform: 'scale(1.1)',
-                                    boxShadow: `0 4px 16px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.4)}`
+                                    transform: 'scale(1.15)',
+                                    boxShadow: `0 12px 35px ${alpha(getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main, 0.5)}`
                                   }
                                 }}
                                 onLoad={() => {
@@ -541,26 +556,46 @@ const RealtimeAttendanceMonitor = () => {
                           <Avatar sx={{ 
                             backgroundColor: alpha(theme.palette.success.main, 0.2), 
                             color: theme.palette.success.main,
-                            width: 32,
-                            height: 32,
+                            width: 60,
+                            height: 60,
+                            fontSize: '1.5rem',
                             display: (event.employeePhoto || event.attendanceImage) ? 'none' : 'flex'
                           }}>
                             <PersonIcon />
                           </Avatar>
                         </Box>
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                            {event.name} - {event.state}
+                          <Typography variant="h6" sx={{ 
+                            fontWeight: 700,
+                            color: theme.palette.text.primary,
+                            mb: 1
+                          }}>
+                            {event.name}
                           </Typography>
-                          <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+                          <Typography variant="body1" sx={{ 
+                            color: theme.palette.text.secondary,
+                            mb: 1,
+                            fontWeight: 600
+                          }}>
+                            {event.state}
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            color: theme.palette.text.secondary,
+                            fontWeight: 500
+                          }}>
                             {formatTime(event.time)}
                           </Typography>
                         </Box>
                         <Chip 
                           label="NEW" 
-                          size="small" 
+                          size="medium" 
                           color="success" 
-                          sx={{ fontSize: '0.7rem' }}
+                          sx={{ 
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            height: 32,
+                            px: 2
+                          }}
                         />
                       </Box>
                     </Paper>
@@ -607,28 +642,46 @@ const RealtimeAttendanceMonitor = () => {
                   <Fade in timeout={800 + index * 100} key={event.id || index}>
                     <Paper
                       sx={{
-                        p: 2,
-                        borderRadius: 2,
-                        background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.8)} 0%, ${alpha(theme.palette.background.paper, 0.6)} 100%)`,
-                        backdropFilter: 'blur(10px)',
-                        border: `1px solid ${alpha(theme.palette.grey[300], 0.2)}`,
-                        transition: 'all 0.3s ease',
+                        p: 3,
+                        borderRadius: 4,
+                        background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.9)} 0%, ${alpha(theme.palette.background.paper, 0.7)} 100%)`,
+                        backdropFilter: 'blur(15px)',
+                        border: `2px solid ${alpha(theme.palette.grey[300], 0.3)}`,
+                        transition: 'all 0.4s ease',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        boxShadow: `0 4px 20px ${alpha(theme.palette.grey[300], 0.1)}`,
                         '&:hover': {
-                          transform: 'translateX(4px)',
-                          boxShadow: `0 4px 12px ${alpha(theme.palette.primary.main, 0.15)}`,
-                          border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`
+                          transform: 'translateX(8px)',
+                          boxShadow: `0 8px 30px ${alpha(theme.palette.primary.main, 0.2)}`,
+                          border: `2px solid ${alpha(theme.palette.primary.main, 0.4)}`,
+                          '&::before': {
+                            opacity: 1
+                          }
+                        },
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: '4px',
+                          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${alpha(theme.palette.primary.main, 0.7)})`,
+                          borderRadius: '16px 16px 0 0',
+                          opacity: 0,
+                          transition: 'opacity 0.3s ease'
                         }
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        {/* Employee Avatar for All Events */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        {/* Enhanced Employee Avatar for All Events */}
                         <Box sx={{ position: 'relative' }}>
                           {event.employeePhoto || event.attendanceImage ? (
                             <Tooltip
                               title={
                                 <Box sx={{ 
                                   textAlign: 'center', 
-                                  p: 2,
+                                  p: 3,
                                   position: 'relative',
                                   overflow: 'hidden',
                                   '&::before': {
@@ -639,8 +692,8 @@ const RealtimeAttendanceMonitor = () => {
                                     right: 0,
                                     bottom: 0,
                                     background: `linear-gradient(135deg, 
-                                      ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.1)} 0%, 
-                                      ${alpha(theme.palette.common.black, 0.8)} 50%, 
+                                      ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.15)} 0%, 
+                                      ${alpha(theme.palette.common.black, 0.85)} 50%, 
                                       ${alpha(theme.palette.common.black, 0.95)} 100%)`,
                                     zIndex: -1
                                   }
@@ -650,80 +703,81 @@ const RealtimeAttendanceMonitor = () => {
                                     src={event.employeePhoto || event.attendanceImage}
                                     alt={`${event.name} - ${event.state}`}
                                     sx={{
-                                      width: 240,
-                                      height: 240,
-                                      borderRadius: 4,
+                                      width: 300,
+                                      height: 300,
+                                      borderRadius: 6,
                                       objectFit: 'cover',
-                                      border: `4px solid ${event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main}`,
+                                      border: `6px solid ${event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main}`,
                                       boxShadow: `
-                                        0 0 0 2px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.3)},
-                                        0 12px 40px ${alpha(theme.palette.common.black, 0.4)},
-                                        0 0 60px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.2)},
-                                        inset 0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                        0 0 0 3px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.4)},
+                                        0 16px 60px ${alpha(theme.palette.common.black, 0.5)},
+                                        0 0 80px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.3)},
+                                        inset 0 0 0 2px ${alpha(theme.palette.common.white, 0.15)}
                                       `,
-                                      mb: 2,
+                                      mb: 3,
                                       position: 'relative',
-                                      transition: 'all 0.3s ease',
+                                      transition: 'all 0.4s ease',
                                       '&::after': {
                                         content: '""',
                                         position: 'absolute',
-                                        top: -2,
-                                        left: -2,
-                                        right: -2,
-                                        bottom: -2,
+                                        top: -3,
+                                        left: -3,
+                                        right: -3,
+                                        bottom: -3,
                                         background: `linear-gradient(45deg, 
                                           ${event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main}, 
-                                          ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.5)})`,
-                                        borderRadius: 4,
+                                          ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.6)})`,
+                                        borderRadius: 6,
                                         zIndex: -1,
-                                        opacity: 0.6
+                                        opacity: 0.7
                                       }
                                     }}
                                   />
                                   <Box sx={{ position: 'relative', zIndex: 1 }}>
-                                    <Typography variant="h6" sx={{ 
-                                      fontWeight: 700, 
+                                    <Typography variant="h5" sx={{ 
+                                      fontWeight: 800, 
                                       color: 'white',
-                                      textShadow: `0 2px 8px ${alpha(theme.palette.common.black, 0.8)}`,
-                                      mb: 0.5,
-                                      fontSize: '1.1rem'
+                                      textShadow: `0 3px 12px ${alpha(theme.palette.common.black, 0.9)}`,
+                                      mb: 1,
+                                      fontSize: '1.3rem'
                                     }}>
                                       {event.name}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ 
+                                    <Typography variant="h6" sx={{ 
                                       color: 'white', 
-                                      opacity: 0.9,
-                                      textShadow: `0 1px 4px ${alpha(theme.palette.common.black, 0.6)}`,
-                                      mb: 1,
-                                      fontWeight: 500
+                                      opacity: 0.95,
+                                      textShadow: `0 2px 6px ${alpha(theme.palette.common.black, 0.7)}`,
+                                      mb: 2,
+                                      fontWeight: 600
                                     }}>
                                       {event.state} • {formatTime(event.time)}
                                     </Typography>
                                     <Box sx={{
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: 0.5,
-                                      px: 1.5,
-                                      py: 0.5,
-                                      borderRadius: 2,
+                                      gap: 1,
+                                      px: 2,
+                                      py: 1,
+                                      borderRadius: 3,
                                       background: `linear-gradient(135deg, 
-                                        ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.2)}, 
-                                        ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.1)})`,
-                                      border: `1px solid ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.3)}`,
-                                      backdropFilter: 'blur(10px)'
+                                        ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.3)}, 
+                                        ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.15)})`,
+                                      border: `2px solid ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.4)}`,
+                                      backdropFilter: 'blur(15px)'
                                     }}>
                                       <Box sx={{
-                                        width: 8,
-                                        height: 8,
+                                        width: 12,
+                                        height: 12,
                                         borderRadius: '50%',
                                         background: event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main,
-                                        boxShadow: `0 0 8px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.6)}`,
+                                        boxShadow: `0 0 12px ${alpha(event.isRealTime ? (getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main) : theme.palette.primary.main, 0.8)}`,
                                         animation: event.isRealTime ? 'pulse 2s infinite' : 'none'
                                       }} />
-                                      <Typography variant="caption" sx={{ 
+                                      <Typography variant="body1" sx={{ 
                                         color: 'white', 
-                                        fontWeight: 600,
-                                        textShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.5)}`
+                                        fontWeight: 700,
+                                        textShadow: `0 2px 4px ${alpha(theme.palette.common.black, 0.6)}`,
+                                        fontSize: '0.9rem'
                                       }}>
                                         {event.isRealTime ? 'LIVE ATTENDANCE' : 'ATTENDANCE RECORD'}
                                       </Typography>
@@ -737,21 +791,21 @@ const RealtimeAttendanceMonitor = () => {
                                 tooltip: {
                                   sx: {
                                     bgcolor: 'transparent',
-                                    backdropFilter: 'blur(20px)',
-                                    borderRadius: 4,
+                                    backdropFilter: 'blur(25px)',
+                                    borderRadius: 6,
                                     p: 0,
                                     maxWidth: 'none',
                                     boxShadow: `
-                                      0 20px 60px ${alpha(theme.palette.common.black, 0.4)},
-                                      0 0 0 1px ${alpha(theme.palette.common.white, 0.1)}
+                                      0 25px 80px ${alpha(theme.palette.common.black, 0.5)},
+                                      0 0 0 2px ${alpha(theme.palette.common.white, 0.15)}
                                     `,
-                                    border: `1px solid ${alpha(theme.palette.common.white, 0.1)}`
+                                    border: `2px solid ${alpha(theme.palette.common.white, 0.15)}`
                                   }
                                 },
                                 arrow: {
                                   sx: {
-                                    color: alpha(theme.palette.common.black, 0.9),
-                                    filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))'
+                                    color: alpha(theme.palette.common.black, 0.95),
+                                    filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.4))'
                                   }
                                 }
                               }}
@@ -759,14 +813,15 @@ const RealtimeAttendanceMonitor = () => {
                               <Avatar 
                                 src={event.employeePhoto || event.attendanceImage}
                                 sx={{ 
-                                  width: 40,
-                                  height: 40,
-                                  border: `2px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                                  width: 60,
+                                  height: 60,
+                                  border: `3px solid ${alpha(theme.palette.primary.main, 0.4)}`,
                                   cursor: 'pointer',
-                                  transition: 'all 0.3s ease',
+                                  transition: 'all 0.4s ease',
+                                  boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.2)}`,
                                   '&:hover': {
-                                    transform: 'scale(1.1)',
-                                    boxShadow: `0 4px 16px ${alpha(theme.palette.primary.main, 0.4)}`
+                                    transform: 'scale(1.15)',
+                                    boxShadow: `0 12px 35px ${alpha(theme.palette.primary.main, 0.4)}`
                                   }
                                 }}
                                 onLoad={() => {
@@ -786,38 +841,46 @@ const RealtimeAttendanceMonitor = () => {
                             </Tooltip>
                           ) : null}
                           <Avatar sx={{ 
-                            backgroundColor: alpha(theme.palette.primary.main, 0.1), 
+                            backgroundColor: alpha(theme.palette.primary.main, 0.15), 
                             color: theme.palette.primary.main,
-                            width: 40,
-                            height: 40,
-                            fontSize: '0.9rem',
+                            width: 60,
+                            height: 60,
+                            fontSize: '1.5rem',
+                            fontWeight: 700,
                             display: (event.employeePhoto || event.attendanceImage) ? 'none' : 'flex'
                           }}>
                             {event.name ? event.name.charAt(0).toUpperCase() : 'E'}
                           </Avatar>
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography variant="body2" sx={{ 
-                            fontWeight: 600, 
+                          <Typography variant="h6" sx={{ 
+                            fontWeight: 700, 
                             color: theme.palette.text.primary,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
+                            whiteSpace: 'nowrap',
+                            mb: 1
                           }}>
                             {event.name || `Employee ${event.empCode}`}
                           </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                            <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                            <Typography variant="body1" sx={{ 
+                              color: theme.palette.text.secondary,
+                              fontWeight: 600
+                            }}>
                               {formatTime(event.time)}
                             </Typography>
                             {event.location && (
                               <>
-                                <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+                                <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
                                   •
                                 </Typography>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <LocationOn sx={{ fontSize: 12, color: theme.palette.text.secondary }} />
-                                  <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
+                                  <LocationOn sx={{ fontSize: 16, color: theme.palette.text.secondary }} />
+                                  <Typography variant="body2" sx={{ 
+                                    color: theme.palette.text.secondary,
+                                    fontWeight: 500
+                                  }}>
                                     {event.location}
                                   </Typography>
                                 </Box>
@@ -825,17 +888,22 @@ const RealtimeAttendanceMonitor = () => {
                             )}
                           </Box>
                         </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                           <Chip
                             label={event.state || 'Present'}
-                            size="small"
+                            size="medium"
                             color={getStatusColor(event.state)}
-                            sx={{ fontSize: '0.7rem', fontWeight: 600 }}
+                            sx={{ 
+                              fontSize: '0.8rem', 
+                              fontWeight: 700,
+                              height: 32,
+                              px: 2
+                            }}
                           />
                           <CameraAlt sx={{ 
-                            fontSize: 16, 
+                            fontSize: 20, 
                             color: theme.palette.text.secondary,
-                            opacity: 0.7
+                            opacity: 0.8
                           }} />
                         </Box>
                       </Box>

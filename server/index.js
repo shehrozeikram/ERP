@@ -281,11 +281,32 @@ mongoose.connection.once('open', async () => {
       const connectionTest = await zkbioTimeWebSocketProxy.testConnection();
       
       if (connectionTest) {
-        console.log('✅ Connection test passed, starting WebSocket connection...');
+        console.log('✅ Connection test passed, starting WebSocket connections...');
         zkbioTimeWebSocketProxy.connectToZKBioTime();
+        // Start chart WebSocket connection after a short delay
+        setTimeout(() => {
+          zkbioTimeWebSocketProxy.connectToChartWebSocket();
+        }, 1000);
+        // Start device WebSocket connection after another delay
+        setTimeout(() => {
+          zkbioTimeWebSocketProxy.connectToDeviceWebSocket();
+        }, 2000);
+        // Start department WebSocket connection after another delay
+        setTimeout(() => {
+          zkbioTimeWebSocketProxy.connectToDepartmentWebSocket();
+        }, 3000);
       } else {
-        console.log('⚠️  Connection test failed, will attempt WebSocket connection anyway...');
+        console.log('⚠️  Connection test failed, will attempt WebSocket connections anyway...');
         zkbioTimeWebSocketProxy.connectToZKBioTime();
+        setTimeout(() => {
+          zkbioTimeWebSocketProxy.connectToChartWebSocket();
+        }, 1000);
+        setTimeout(() => {
+          zkbioTimeWebSocketProxy.connectToDeviceWebSocket();
+        }, 2000);
+        setTimeout(() => {
+          zkbioTimeWebSocketProxy.connectToDepartmentWebSocket();
+        }, 3000);
       }
     }, 2000); // Wait 2 seconds for server to be fully ready
     

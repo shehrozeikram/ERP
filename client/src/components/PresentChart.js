@@ -8,53 +8,194 @@ import {
   Tooltip,
   alpha,
   useTheme,
-  Zoom
+  Zoom,
+  Chip
 } from '@mui/material';
 import {
   Refresh,
   People,
-  Download
+  Download,
+  FlashOn
 } from '@mui/icons-material';
 import * as echarts from 'echarts';
+import { io } from 'socket.io-client';
 
 const PresentChart = () => {
   const theme = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [chartData, setChartData] = useState(null);
+  const [isLive, setIsLive] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
+  const socketRef = useRef(null);
   
-  const presentData = [
+  // Default fallback data (only used if no real data received)
+  const defaultData = [
     { 
       name: 'Absent', 
-      value: 9, 
-      itemStyle: { color: '#ff4757' }
+      value: 0, 
+      itemStyle: { color: '#ED6766' }
     },
     { 
       name: 'Present', 
-      value: 517, 
-      itemStyle: { color: '#2ed573' }
+      value: 0, 
+      itemStyle: { color: '#91CB74' }
     }
   ];
 
   const handleRefresh = () => {
     setIsRefreshing(true);
+    setIsLoading(true);
+    
+    // Request fresh data from server
+    if (socketRef.current) {
+      socketRef.current.emit('requestChartData');
+    }
+    
     setTimeout(() => {
       setIsRefreshing(false);
-      // Refresh chart data if needed
-      if (chartInstance.current) {
-        chartInstance.current.setOption({
-          series: [{
-            data: presentData
-          }]
-        });
-      }
     }, 1000);
   };
+
+  // Initialize WebSocket connection for real-time chart data
+  useEffect(() => {
+    const baseURL = process.env.NODE_ENV === 'production' 
+      ? 'https://tovus.net' 
+      : 'http://localhost:5001';
+    
+    const socket = io(baseURL, {
+      transports: ['websocket', 'polling']
+    });
+
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('📊 PresentChart: Connected to server');
+      // Request initial chart data
+      socket.emit('requestChartData');
+    });
+
+    socket.on('zkbioConnectionStatus', (status) => {
+      console.log('📊 PresentChart: ZKBio Time status:', status);
+      if (!status.connected && isLoading) {
+        console.log('📊 PresentChart: ZKBio Time not connected, reducing loading time');
+        // If ZKBio Time is not connected, reduce loading time
+        setTimeout(() => {
+          if (isLoading && !chartData) {
+            setIsLoading(false);
+          }
+        }, 2000); // Only wait 2 seconds if ZKBio Time is not connected
+      }
+    });
+
+    socket.on('liveChartUpdate', (data) => {
+      console.log('📊 PresentChart: Received chart data:', data);
+      console.log('📊 PresentChart: Data type:', typeof data);
+      console.log('📊 PresentChart: Data.data structure:', data.data);
+      console.log('📊 PresentChart: Data.data.series:', data.data?.series);
+      
+      if (data.type === 'presentChart' && data.data) {
+        let newChartData = [];
+        
+        // Handle different possible data structures from ZKBio Time
+        if (data.data.series && data.data.series[0] && data.data.series[0].data) {
+          // Structure: { series: [{ data: [...] }] }
+          const seriesData = data.data.series[0].data;
+          console.log('📊 PresentChart: Series data from ZKBio Time:', seriesData);
+          newChartData = seriesData.map(item => ({
+            name: item.name,
+            value: item.value,
+            itemStyle: { 
+              color: item.name === 'Present' ? '#91CB74' : '#ED6766' 
+            }
+          }));
+        } else if (Array.isArray(data.data)) {
+          // Structure: [{ name: 'Present', value: 10 }, { name: 'Absent', value: 5 }]
+          newChartData = data.data.map(item => ({
+            name: item.name,
+            value: item.value,
+            itemStyle: { 
+              color: item.name === 'Present' ? '#91CB74' : '#ED6766' 
+            }
+          }));
+        } else if (data.data.present !== undefined || data.data.absent !== undefined) {
+          // Structure: { present: 10, absent: 5 }
+          newChartData = [
+            {
+              name: 'Present',
+              value: data.data.present || 0,
+              itemStyle: { color: '#91CB74' }
+            },
+            {
+              name: 'Absent', 
+              value: data.data.absent || 0,
+              itemStyle: { color: '#ED6766' }
+            }
+          ];
+        }
+
+        if (newChartData.length > 0) {
+          console.log('📊 PresentChart: Updated chart data:', newChartData);
+          setChartData(newChartData);
+          setIsLive(true);
+          setIsLoading(false); // Stop loading when real data is received
+          
+          // Update chart if it exists
+          if (chartInstance.current) {
+            chartInstance.current.setOption({
+              series: [{
+                data: newChartData
+              }]
+            });
+          }
+        } else {
+          console.log('📊 PresentChart: No valid chart data found in received data');
+        }
+      } else {
+        console.log('📊 PresentChart: Invalid data structure received:', data);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('📊 PresentChart: Disconnected from server');
+      setIsLive(false);
+      // Don't set loading to false on disconnect, keep trying
+    });
+
+    socket.on('error', (error) => {
+      console.error('📊 PresentChart: Socket error:', error);
+    });
+
+    // Listen for all Socket.IO events to debug
+    socket.onAny((eventName, ...args) => {
+      console.log(`🔍 PresentChart Socket.IO Event Received: ${eventName}`, args);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  // Fallback timeout - if no data received within 5 seconds, stop loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (isLoading && !chartData) {
+        console.log('📊 PresentChart: Timeout - no data received, stopping loading');
+        setIsLoading(false);
+      }
+    }, 5000); // 5 second timeout
+
+    return () => clearTimeout(timeout);
+  }, [isLoading, chartData]);
 
   useEffect(() => {
     if (chartRef.current) {
       // Initialize ECharts instance
       chartInstance.current = echarts.init(chartRef.current);
+      
+      // Only show data if we have real data, otherwise show empty
+      const currentData = chartData || [];
       
       const option = {
         tooltip: {
@@ -78,7 +219,7 @@ const PresentChart = () => {
           type: 'pie',
           radius: '70%',
           center: ['50%', '50%'],
-          data: presentData,
+          data: currentData,
           emphasis: {
             scale: true,
             scaleSize: 5,
@@ -94,7 +235,9 @@ const PresentChart = () => {
             formatter: '{c} ({d}%)',
             fontSize: 12,
             fontWeight: 'bold',
-            color: '#666'
+            color: '#666',
+            overflow: 'none',
+            ellipsis: false
           },
           labelLine: {
             show: true,
@@ -127,7 +270,7 @@ const PresentChart = () => {
         }
       };
     }
-  }, []);
+  }, [chartData, isLoading]);
 
   return (
     <Zoom in timeout={600}>
@@ -192,6 +335,24 @@ const PresentChart = () => {
               }}>
                 Present Status
               </Typography>
+              {isLive && (
+                <Chip 
+                  label="LIVE" 
+                  size="small" 
+                  color="success" 
+                  icon={<FlashOn />}
+                  sx={{ 
+                    fontSize: '0.7rem',
+                    height: 20,
+                    animation: 'pulse 2s infinite',
+                    '@keyframes pulse': {
+                      '0%': { opacity: 1 },
+                      '50%': { opacity: 0.7 },
+                      '100%': { opacity: 1 }
+                    }
+                  }}
+                />
+              )}
             </Box>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
               <Tooltip title="Refresh Data">
@@ -265,6 +426,44 @@ const PresentChart = () => {
               position: 'relative'
             }}
           />
+          
+          {/* Loading Overlay */}
+          {isLoading && (
+            <Box sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: alpha(theme.palette.background.paper, 0.8),
+              backdropFilter: 'blur(10px)',
+              borderRadius: 2
+            }}>
+              <Box sx={{
+                width: 40,
+                height: 40,
+                border: `3px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                borderTop: `3px solid ${theme.palette.primary.main}`,
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                '@keyframes spin': {
+                  '0%': { transform: 'rotate(0deg)' },
+                  '100%': { transform: 'rotate(360deg)' }
+                }
+              }} />
+              <Typography variant="body2" sx={{ 
+                mt: 2, 
+                color: theme.palette.text.secondary,
+                fontWeight: 500
+              }}>
+                {isRefreshing ? 'Refreshing data...' : 'Loading latest data from ZKBio Time...'}
+              </Typography>
+            </Box>
+          )}
 
 
         </CardContent>
