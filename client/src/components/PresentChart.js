@@ -217,7 +217,7 @@ const PresentChart = () => {
         },
         series: [{
           type: 'pie',
-          radius: '70%',
+          radius: '50%',
           center: ['50%', '50%'],
           data: currentData,
           emphasis: {
@@ -233,7 +233,7 @@ const PresentChart = () => {
             show: true,
             position: 'outside',
             formatter: '{c} ({d}%)',
-            fontSize: 12,
+            fontSize: 9,
             fontWeight: 'bold',
             color: '#666',
             overflow: 'none',
@@ -421,9 +421,10 @@ const PresentChart = () => {
           <Box 
             ref={chartRef}
             sx={{ 
-              height: 250, 
+              height: 280, 
               width: '100%',
-              position: 'relative'
+              position: 'relative',
+              padding: '10px'
             }}
           />
           

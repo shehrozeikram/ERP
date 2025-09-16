@@ -158,6 +158,7 @@ if (NODE_ENV === 'development') {
 
 // Static files
 app.use('/uploads', express.static('uploads'));
+app.use('/images', express.static(path.join(__dirname, '../client/public/images')));
 
 // Note: React build files are now served by nginx, not by Node.js
 

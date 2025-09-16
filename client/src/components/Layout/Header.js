@@ -66,7 +66,7 @@ const StyledInputBase = styled(InputBase)(({ theme }) => ({
 
 const Header = () => {
   const theme = useTheme();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
   const [notificationsAnchor, setNotificationsAnchor] = useState(null);
@@ -147,7 +147,16 @@ const Header = () => {
           onClick={handleProfileMenuOpen}
           color="inherit"
         >
-          <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+          <Avatar 
+            src={user?.profileImage}
+            sx={{ 
+              width: 32, 
+              height: 32, 
+              bgcolor: 'primary.main',
+              border: '2px solid',
+              borderColor: 'primary.dark'
+            }}
+          >
             <Person />
           </Avatar>
         </IconButton>

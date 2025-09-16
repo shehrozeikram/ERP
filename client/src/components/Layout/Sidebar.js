@@ -13,6 +13,7 @@ import {
   useTheme,
   useMediaQuery,
   Badge,
+  alpha,
   Tooltip,
   Snackbar,
   Alert
@@ -140,12 +141,17 @@ const Sidebar = () => {
       sx={{
         width: drawerWidth,
         flexShrink: 0,
+        height: '100vh',
         '& .MuiDrawer-paper': {
           width: drawerWidth,
+          height: '100vh',
           boxSizing: 'border-box',
           borderRight: '1px solid',
           borderColor: 'divider',
-          bgcolor: 'background.paper'
+          bgcolor: 'background.paper',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
         },
       }}
     >
@@ -164,28 +170,122 @@ const Sidebar = () => {
         </Typography>
       </Box>
 
-      {/* User Info */}
-      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-          <Avatar sx={{ mr: 2, bgcolor: 'secondary.main' }}>
+      {/* User Info - Fixed Position */}
+      <Box sx={{ 
+        p: 3, 
+        borderBottom: '1px solid', 
+        borderColor: 'divider',
+        background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(theme.palette.primary.main, 0.02)} 100%)`,
+        position: 'relative',
+        overflow: 'hidden',
+        flexShrink: 0,
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '3px',
+          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${alpha(theme.palette.primary.main, 0.7)})`,
+          borderRadius: '0 0 8px 8px'
+        }
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <Avatar 
+            src={user?.profileImage}
+            sx={{ 
+              mr: 2.5, 
+              bgcolor: 'secondary.main',
+              width: 56,
+              height: 56,
+              border: '3px solid',
+              borderColor: 'primary.main',
+              boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.25)}`,
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'scale(1.05)',
+                boxShadow: `0 12px 35px ${alpha(theme.palette.primary.main, 0.35)}`
+              }
+            }}
+          >
             <Person />
           </Avatar>
-          <Box>
-            <Typography variant="subtitle2" noWrap>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography 
+              variant="subtitle1" 
+              noWrap
+              sx={{ 
+                fontWeight: 'bold',
+                color: 'text.primary',
+                fontSize: '1rem',
+                mb: 0.5
+              }}
+            >
               {user?.fullName || 'User'}
             </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'primary.main',
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}
+            >
               {user?.role || 'Employee'}
             </Typography>
           </Box>
         </Box>
-        <Typography variant="caption" color="text.secondary" noWrap>
-          {typeof user?.department === 'object' ? user?.department?.name : user?.department || 'Department'}
-        </Typography>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1,
+          px: 1,
+          py: 0.5,
+          borderRadius: 2,
+          background: alpha(theme.palette.primary.main, 0.08),
+          border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`
+        }}>
+          <Box sx={{ 
+            width: 8, 
+            height: 8, 
+            borderRadius: '50%', 
+            bgcolor: 'success.main',
+            boxShadow: `0 0 8px ${alpha(theme.palette.success.main, 0.6)}`
+          }} />
+          <Typography 
+            variant="caption" 
+            sx={{ 
+              color: 'text.secondary',
+              fontWeight: 500,
+              fontSize: '0.75rem'
+            }}
+          >
+            {typeof user?.department === 'object' ? user?.department?.name : user?.department || 'Department'}
+          </Typography>
+        </Box>
       </Box>
 
-      {/* Navigation Menu */}
-      <List sx={{ flexGrow: 1, pt: 1 }}>
+      {/* Navigation Menu - Scrollable */}
+      <Box sx={{ 
+        flexGrow: 1, 
+        overflow: 'auto',
+        '&::-webkit-scrollbar': {
+          width: '6px',
+        },
+        '&::-webkit-scrollbar-track': {
+          background: alpha(theme.palette.grey[300], 0.1),
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: alpha(theme.palette.primary.main, 0.3),
+          borderRadius: '3px',
+          '&:hover': {
+            background: alpha(theme.palette.primary.main, 0.5),
+          },
+        },
+      }}>
+        <List sx={{ pt: 1 }}>
         {getMenuItems(user?.role).map((item) => (
           <Box key={item.text}>
             <ListItem disablePadding>
@@ -385,10 +485,17 @@ const Sidebar = () => {
         ))}
 
         
-      </List>
+        </List>
+      </Box>
 
-      {/* Footer Actions */}
-      <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+      {/* Footer Actions - Fixed at Bottom */}
+      <Box sx={{ 
+        p: 2, 
+        borderTop: '1px solid', 
+        borderColor: 'divider',
+        flexShrink: 0,
+        bgcolor: 'background.paper'
+      }}>
         <List>
           <ListItem disablePadding>
             <ListItemButton onClick={() => navigate('/profile')}>
