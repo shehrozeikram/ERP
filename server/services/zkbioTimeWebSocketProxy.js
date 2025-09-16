@@ -115,7 +115,7 @@ class ZKBioTimeWebSocketProxy {
       console.log('🔐 Authenticating with ZKBio Time...');
       
       // Step 1: Get login page and extract CSRF token
-      const loginPageResponse = await axios.get('http://182.180.55.96:85/login/', {
+      const loginPageResponse = await axios.get('http://45.115.86.139:85/login/', {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         },
@@ -133,7 +133,7 @@ class ZKBioTimeWebSocketProxy {
       console.log(`✅ CSRF token extracted: ${csrfToken.substring(0, 20)}...`);
 
       // Step 2: Authenticate with proper form data
-      const authResponse = await axios.post('http://182.180.55.96:85/login/', 
+      const authResponse = await axios.post('http://45.115.86.139:85/login/', 
         new URLSearchParams({
           username: 'superuser',
           password: 'SGCit123456',
@@ -143,7 +143,7 @@ class ZKBioTimeWebSocketProxy {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': 'http://182.180.55.96:85/login/',
+            'Referer': 'http://45.115.86.139:85/login/',
             'Cookie': loginPageResponse.headers['set-cookie']?.join('; ') || ''
           },
           maxRedirects: 0,
@@ -186,9 +186,9 @@ class ZKBioTimeWebSocketProxy {
       console.log('🌐 Environment:', process.env.NODE_ENV);
       console.log('🍪 Session cookies:', this.sessionCookies ? 'Present' : 'Missing');
       
-      this.zkbioWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/realtime_punch/', {
+      this.zkbioWs = new WebSocket('ws://45.115.86.139:85/base/dashboard/realtime_punch/', {
         headers: {
-          'Origin': 'http://182.180.55.96:85',
+          'Origin': 'http://45.115.86.139:85',
           'Cookie': this.sessionCookies,
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           'Accept': '*/*',
@@ -315,9 +315,9 @@ class ZKBioTimeWebSocketProxy {
 
       console.log('📊 Connecting to ZKBio Time Chart WebSocket...');
       
-      this.chartWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/punch_present_chart/', {
+      this.chartWs = new WebSocket('ws://45.115.86.139:85/base/dashboard/punch_present_chart/', {
         headers: {
-          'Origin': 'http://182.180.55.96:85',
+          'Origin': 'http://45.115.86.139:85',
           'Cookie': this.sessionCookies,
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           'Accept': '*/*',
@@ -421,9 +421,9 @@ class ZKBioTimeWebSocketProxy {
 
       console.log('📱 Connecting to ZKBio Time Device Status WebSocket...');
       
-      this.deviceWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/device_status_chart/', {
+      this.deviceWs = new WebSocket('ws://45.115.86.139:85/base/dashboard/device_status_chart/', {
         headers: {
-          'Origin': 'http://182.180.55.96:85',
+          'Origin': 'http://45.115.86.139:85',
           'Cookie': this.sessionCookies,
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           'Accept': '*/*',
@@ -514,9 +514,9 @@ class ZKBioTimeWebSocketProxy {
 
       console.log('🏢 Connecting to ZKBio Time Department Attendance WebSocket...');
       
-      this.deptWs = new WebSocket('ws://182.180.55.96:85/base/dashboard/punch_dept_att_chart/', {
+      this.deptWs = new WebSocket('ws://45.115.86.139:85/base/dashboard/punch_dept_att_chart/', {
         headers: {
-          'Origin': 'http://182.180.55.96:85',
+          'Origin': 'http://45.115.86.139:85',
           'Cookie': this.sessionCookies,
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
           'Accept': '*/*',
@@ -601,7 +601,7 @@ class ZKBioTimeWebSocketProxy {
       
       // Test HTTP connection first
       const axios = require('axios');
-      const response = await axios.get('http://182.180.55.96:85/login/', {
+      const response = await axios.get('http://45.115.86.139:85/login/', {
         timeout: 5000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'

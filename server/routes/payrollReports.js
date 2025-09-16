@@ -227,6 +227,10 @@ router.get('/monthly',
         confirmationDate: employee.confirmationDate || null,
         // Salary fields from Excel data
         grossSalary: employee.excelGrossSalary || 0,
+        // Calculated salary components (66.66% basic, 10% medical, 23.34% house rent)
+        basicSalary: Math.round((employee.excelGrossSalary || 0) * 0.6666),
+        houseRent: Math.round((employee.excelGrossSalary || 0) * 0.2334),
+        medical: Math.round((employee.excelGrossSalary || 0) * 0.10),
         arrears: employee.arrears || 0,
         conveyanceAllowance: employee.excelConveyanceAllowance || 0,
         houseAllowance: employee.excelHouseAllowance || 0,
@@ -242,7 +246,6 @@ router.get('/monthly',
         // Additional fields for display
         deductions: (employee.incomeTax || 0) + (employee.companyLoan || 0) + (employee.vehicleLoan || 0) + (employee.eobiDeduction || 0),
         netPay: employee.netPayable || 0,
-        basicSalary: employee.excelGrossSalary || 0,
         allowances: (employee.excelConveyanceAllowance || 0) + (employee.excelHouseAllowance || 0) + (employee.excelFoodAllowance || 0) + (employee.excelVehicleFuelAllowance || 0) + (employee.excelMedicalAllowance || 0),
         overtime: 0,
         tax: employee.incomeTax || 0,
@@ -576,6 +579,9 @@ function convertToCSV(reportData) {
     'Date of Appointment',
     'Confirmation Date',
     'Gross Salary',
+    'Basic Salary',
+    'House Rent',
+    'Medical',
     'Arrears',
     'Conveyance Allowance',
     'House Allowance',
@@ -621,6 +627,9 @@ function convertToCSV(reportData) {
       row.appointmentDate ? new Date(row.appointmentDate).toLocaleDateString() : 'N/A', // Date of Appointment
       row.confirmationDate ? new Date(row.confirmationDate).toLocaleDateString() : 'N/A', // Confirmation Date
       row.grossSalary || 0, // Gross Salary
+      row.basicSalary || 0, // Basic Salary
+      row.houseRent || 0, // House Rent
+      row.medical || 0, // Medical
       row.arrears || 0, // Arrears
       row.conveyanceAllowance || 0, // Conveyance Allowance
       row.houseAllowance || 0, // House Allowance

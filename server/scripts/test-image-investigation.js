@@ -48,8 +48,8 @@ console.log('=' .repeat(60));
 const mappedEvents = mockWebSocketData.events.map(event => ({
   ...event,
   // Add image support for real-time events
-  employeePhoto: event.photoPath ? `http://182.180.55.96:85${event.photoPath}` : null,
-  attendanceImage: event.imagePath ? `http://182.180.55.96:85${event.imagePath}` : null,
+  employeePhoto: event.photoPath ? `http://45.115.86.139:85${event.photoPath}` : null,
+  attendanceImage: event.imagePath ? `http://45.115.86.139:85${event.imagePath}` : null,
   method: event.method || 'Unknown'
 }));
 
@@ -65,7 +65,7 @@ mappedEvents.forEach((event, index) => {
 console.log('\n🌐 Image URL Construction Test:');
 console.log('=' .repeat(60));
 
-const baseURL = 'http://182.180.55.96:85';
+const baseURL = 'http://45.115.86.139:85';
 const testPaths = [
   '/media/attendance_images/20250113103000-EMP001.jpg',
   '/media/employee_photos/EMP001.jpg',
@@ -93,9 +93,9 @@ console.log('=' .repeat(60));
 
 // Test if we can construct valid URLs
 const testImageURLs = [
-  'http://182.180.55.96:85/media/attendance_images/20250113111545-5588.jpg',
-  'http://182.180.55.96:85/media/employee_photos/EMP001.jpg',
-  'http://182.180.55.96:85/static/images/userimage.gif'
+  'http://45.115.86.139:85/media/attendance_images/20250113111545-5588.jpg',
+  'http://45.115.86.139:85/media/employee_photos/EMP001.jpg',
+  'http://45.115.86.139:85/static/images/userimage.gif'
 ];
 
 testImageURLs.forEach((url, index) => {

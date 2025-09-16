@@ -14,8 +14,8 @@ All components are working perfectly and ready for deployment.
 ```
 🧪 ZKBio Time Connection Test
 ============================
-🌐 Base URL: http://182.180.55.96:85
-🔌 WebSocket URL: ws://182.180.55.96:85/base/dashboard/realtime_punch/
+🌐 Base URL: http://45.115.86.139:85
+🔌 WebSocket URL: ws://45.115.86.139:85/base/dashboard/realtime_punch/
 👤 Username: superuser
 
 📊 Test Summary

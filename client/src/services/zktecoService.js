@@ -2,7 +2,7 @@ import api from './api';
 
 class ZKTecoService {
   constructor() {
-    this.baseURL = 'http://182.180.55.96:85';
+    this.baseURL = 'http://45.115.86.139:85';
     this.token = null;
   }
 

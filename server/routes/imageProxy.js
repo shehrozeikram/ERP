@@ -31,7 +31,7 @@ function getZKBioSessionCookies() {
 router.get('/zkbio-image/:path(*)', async (req, res) => {
   try {
     const imagePath = req.params.path;
-    const fullImageUrl = `http://182.180.55.96:85/${imagePath}`;
+    const fullImageUrl = `http://45.115.86.139:85/${imagePath}`;
     
     console.log(`🖼️ Proxying image: ${fullImageUrl}`);
     
@@ -46,7 +46,7 @@ router.get('/zkbio-image/:path(*)', async (req, res) => {
       headers: {
         'Cookie': cookies,
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'http://182.180.55.96:85/'
+        'Referer': 'http://45.115.86.139:85/'
       },
       responseType: 'stream',
       timeout: 10000

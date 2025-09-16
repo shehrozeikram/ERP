@@ -53,9 +53,9 @@ console.log('🔍 REAL-TIME EVENT DEBUGGING:');
 console.log('🖼️ Processing REAL-TIME event for [Name]:');
 console.log('   Original imagePath: /media/attendance_images/...');
 console.log('   Original photoPath: /media/employee_photos/...');
-console.log('   Constructed employeePhoto: http://182.180.55.96:85/media/...');
-console.log('   Constructed attendanceImage: http://182.180.55.96:85/media/...');
-console.log('✅ Image loaded successfully for [Name]: http://182.180.55.96:85/media/...');
+console.log('   Constructed employeePhoto: http://45.115.86.139:85/media/...');
+console.log('   Constructed attendanceImage: http://45.115.86.139:85/media/...');
+console.log('✅ Image loaded successfully for [Name]: http://45.115.86.139:85/media/...');
 
 console.log('\n🎯 TESTING SCENARIOS:');
 console.log('=' .repeat(60));

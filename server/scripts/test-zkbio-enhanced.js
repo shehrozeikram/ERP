@@ -8,8 +8,8 @@ const WebSocket = require('ws');
 
 class EnhancedZKBioTimeDiagnostic {
   constructor() {
-    this.baseURL = 'http://182.180.55.96:85';
-    this.websocketURL = 'ws://182.180.55.96:85/base/dashboard/realtime_punch/';
+    this.baseURL = 'http://45.115.86.139:85';
+    this.websocketURL = 'ws://45.115.86.139:85/base/dashboard/realtime_punch/';
     this.credentials = {
       username: 'superuser',
       password: 'SGCit123456'

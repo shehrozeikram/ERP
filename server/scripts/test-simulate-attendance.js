@@ -54,7 +54,7 @@ async function simulateAttendanceEvent() {
 async function testImageURLs() {
   console.log('\n🎯 Step 3: Testing image URL construction...');
   
-  const baseURL = 'http://182.180.55.96:85';
+  const baseURL = 'http://45.115.86.139:85';
   const testPaths = [
     '/media/attendance_images/20250113103000-EMP001.jpg',
     '/media/employee_photos/EMP001.jpg'

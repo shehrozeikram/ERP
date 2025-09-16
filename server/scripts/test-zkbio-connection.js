@@ -10,8 +10,8 @@ const axios = require('axios');
 const WebSocket = require('ws');
 
 // Configuration
-const ZKBIO_BASE_URL = 'http://182.180.55.96:85';
-const ZKBIO_WEBSOCKET_URL = 'ws://182.180.55.96:85/base/dashboard/realtime_punch/';
+const ZKBIO_BASE_URL = 'http://45.115.86.139:85';
+const ZKBIO_WEBSOCKET_URL = 'ws://45.115.86.139:85/base/dashboard/realtime_punch/';
 const USERNAME = 'superuser';
 const PASSWORD = 'SGCit123456';
 
@@ -114,7 +114,7 @@ async function testWebSocketConnection(cookies) {
     
     const ws = new WebSocket(ZKBIO_WEBSOCKET_URL, {
       headers: {
-        'Origin': 'http://182.180.55.96:85',
+        'Origin': 'http://45.115.86.139:85',
         'Cookie': cookieString,
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
       },

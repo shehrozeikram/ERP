@@ -86,8 +86,8 @@ Created `server/scripts/test-zkbio-connection.js` to diagnose connection issues.
 ### Network Requirements:
 
 The Digital Ocean server must be able to connect to:
-- **HTTP**: `http://182.180.55.96:85/login/`
-- **WebSocket**: `ws://182.180.55.96:85/base/dashboard/realtime_punch/`
+- **HTTP**: `http://45.115.86.139:85/login/`
+- **WebSocket**: `ws://45.115.86.139:85/base/dashboard/realtime_punch/`
 
 ### Monitoring:
 
@@ -101,13 +101,13 @@ Check these logs for issues:
 1. **Firewall blocking outbound connections**
    ```bash
    # Check if port 85 is accessible
-   telnet 182.180.55.96 85
+   telnet 45.115.86.139 85
    ```
 
 2. **DNS resolution issues**
    ```bash
    # Test DNS resolution
-   nslookup 182.180.55.96
+   nslookup 45.115.86.139
    ```
 
 3. **PM2 not restarting properly**

@@ -29,7 +29,7 @@ async function testZKBioTimeDirect() {
     console.log('\n🔍 Step 2: Testing direct connection to ZKBio Time...');
     
     // Test if ZKBio Time is accessible
-    const zkbioResponse = await axios.get('http://182.180.55.96:85/', {
+    const zkbioResponse = await axios.get('http://45.115.86.139:85/', {
       timeout: 10000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'

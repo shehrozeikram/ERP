@@ -10,8 +10,8 @@ const mapWebSocketEvent = (event) => {
   return {
     ...event,
     // Add image support for real-time events
-    employeePhoto: event.photoPath ? `http://182.180.55.96:85${event.photoPath}` : null,
-    attendanceImage: event.imagePath ? `http://182.180.55.96:85${event.imagePath}` : null,
+    employeePhoto: event.photoPath ? `http://45.115.86.139:85${event.photoPath}` : null,
+    attendanceImage: event.imagePath ? `http://45.115.86.139:85${event.imagePath}` : null,
     method: event.method || 'Unknown'
   };
 };
@@ -88,7 +88,7 @@ console.log('• Real-time WebSocket events with imagePath will show attendance 
 console.log('• Real-time WebSocket events with photoPath will show employee photos');
 console.log('• Events with both will prioritize attendance images');
 console.log('• Events without images will show default avatars with initials');
-console.log('• Images will be loaded from ZKBio Time server at http://182.180.55.96:85');
+console.log('• Images will be loaded from ZKBio Time server at http://45.115.86.139:85');
 
 console.log('\n🚀 REAL-TIME MONITOR FEATURES:');
 console.log('✅ Real-Time Images: WebSocket events show actual ZKBio Time images');

@@ -9,9 +9,9 @@ const getAttendanceConfig = () => {
     // ZKTeco Device settings (legacy)
     zkteco: {
       device: {
-        host: process.env.ZKTECO_HOST || '182.180.55.96',
+        host: process.env.ZKTECO_HOST || '45.115.86.139',
         port: parseInt(process.env.ZKTECO_PORT) || 85,
-        websocketUrl: process.env.ZKTECO_WEBSOCKET_URL || 'ws://182.180.55.96:85/base/dashboard/realtime_punch/',
+        websocketUrl: process.env.ZKTECO_WEBSOCKET_URL || 'ws://45.115.86.139:85/base/dashboard/realtime_punch/',
         timeout: parseInt(process.env.ZKTECO_TIMEOUT) || 10000,
         inMsgDelay: parseInt(process.env.ZKTECO_MSG_DELAY) || 4000
       }
@@ -19,7 +19,7 @@ const getAttendanceConfig = () => {
 
     // ZKBio Time System settings (new)
     zkbioTime: {
-      baseURL: process.env.ZKBIO_BASE_URL || 'http://182.180.55.96:85',
+      baseURL: process.env.ZKBIO_BASE_URL || 'http://45.115.86.139:85',
       credentials: {
         username: process.env.ZKBIO_USERNAME || 'superuser',
         password: process.env.ZKBIO_PASSWORD || 'SGCit123456'

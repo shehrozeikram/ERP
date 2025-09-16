@@ -1,7 +1,7 @@
 # Attendance System Configuration Guide
 
 ## Problem Identified
-The attendance system is currently configured to connect to `182.180.55.96:85`, which is likely a local/internal IP address that only works from your local network. When users access the system from different networks (like through the domain `tovus.net`), they can't reach this internal IP address.
+The attendance system is currently configured to connect to `45.115.86.139:85`, which is likely a local/internal IP address that only works from your local network. When users access the system from different networks (like through the domain `tovus.net`), they can't reach this internal IP address.
 
 ## Solution Implemented
 I've made the attendance system configuration environment-based so you can easily configure different URLs for different environments.
@@ -37,7 +37,7 @@ If your server can access the attendance system but external users can't:
 ## Steps to Fix
 
 1. **Identify the correct URL for your attendance system:**
-   - Check if `182.180.55.96` has a public domain name
+   - Check if `45.115.86.139` has a public domain name
    - Verify if the attendance system is accessible from your server
    - Test connectivity from your server to the attendance system
 

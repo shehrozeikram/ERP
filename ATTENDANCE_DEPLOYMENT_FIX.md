@@ -10,7 +10,7 @@ The attendance record page (`/hr/attendance-record/:employeeId`) works locally b
 - **Authentication Failure**: When cookies expire, the system can't authenticate with ZKBio Time
 
 ### Evidence
-- `182.180.55.96` is accessible (public IP, responds to ping/curl)
+- `45.115.86.139` is accessible (public IP, responds to ping/curl)
 - The issue occurs specifically on deployed machines
 - Local environment works because it has valid session cookies
 
@@ -94,7 +94,7 @@ The attendance record page (`/hr/attendance-record/:employeeId`) works locally b
 2. **Test authentication manually:**
    ```bash
    # SSH to your server and test:
-   curl -v http://182.180.55.96:85/login/
+   curl -v http://45.115.86.139:85/login/
    ```
 
 3. **Verify credentials:**
@@ -104,7 +104,7 @@ The attendance record page (`/hr/attendance-record/:employeeId`) works locally b
 ## Environment Variables (No Changes Needed)
 Your existing environment variables are fine:
 ```bash
-ZKBIO_BASE_URL=http://182.180.55.96:85
+ZKBIO_BASE_URL=http://45.115.86.139:85
 ZKBIO_USERNAME=superuser
 ZKBIO_PASSWORD=SGCit123456
 ZKBIO_TIMEOUT=10000

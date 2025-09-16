@@ -13,7 +13,7 @@ const router = express.Router();
 router.all('/zkbio-proxy/*', async (req, res) => {
   try {
     const path = req.path.replace('/zkbio-proxy', '');
-    const targetUrl = `http://182.180.55.96:85${path}`;
+    const targetUrl = `http://45.115.86.139:85${path}`;
     
     console.log(`🔄 Proxying request: ${req.method} ${targetUrl}`);
     
@@ -23,9 +23,9 @@ router.all('/zkbio-proxy/*', async (req, res) => {
       url: targetUrl,
       headers: {
         ...req.headers,
-        host: '182.180.55.96:85',
-        origin: 'http://182.180.55.96:85',
-        referer: 'http://182.180.55.96:85'
+        host: '45.115.86.139:85',
+        origin: 'http://45.115.86.139:85',
+        referer: 'http://45.115.86.139:85'
       },
       timeout: 30000,
       maxRedirects: 5

@@ -10,8 +10,8 @@ console.log('🔍 Testing WebSocket Connection and Image Data Flow...\n');
 
 class ZKBioTimeTester {
   constructor() {
-    this.baseURL = 'http://182.180.55.96:85';
-    this.wsURL = 'ws://182.180.55.96:85/base/dashboard/realtime_punch/';
+    this.baseURL = 'http://45.115.86.139:85';
+    this.wsURL = 'ws://45.115.86.139:85/base/dashboard/realtime_punch/';
     this.sessionCookies = null;
     this.ws = null;
   }

@@ -141,29 +141,58 @@ const Dashboard = () => {
       const [
         employeesResponse,
         payrollResponse,
+        payrollReportResponse,
         attendanceResponse
       ] = await Promise.allSettled([
         api.get('/hr/employees?limit=1000'),
         api.get('/payroll?limit=100'),
+        api.get(`/hr/reports/payroll/monthly?month=${new Date().getMonth() + 1}&year=${new Date().getFullYear()}`),
         api.get('/attendance')
       ]);
 
       // Process data with error handling
       const employees = employeesResponse.status === 'fulfilled' ? employeesResponse.value.data.data : [];
       const payrolls = payrollResponse.status === 'fulfilled' ? payrollResponse.value.data.data : [];
+      const payrollReportData = payrollReportResponse.status === 'fulfilled' ? payrollReportResponse.value.data : null;
       const attendance = attendanceResponse.status === 'fulfilled' ? attendanceResponse.value.data.data : [];
+
+      // Debug payroll data
+      console.log('Payroll Response Status:', payrollResponse.status);
+      console.log('Payroll Report Response Status:', payrollReportResponse.status);
+      console.log('Payroll Report Data:', payrollReportData);
+      console.log('Regular Payroll Data Length:', payrolls.length);
+      console.log('Current Month:', new Date().getMonth() + 1);
+      console.log('Current Year:', new Date().getFullYear());
 
       // Calculate comprehensive metrics
       const totalEmployees = employees.length;
       const activeEmployees = employees.filter(emp => emp.status === 'active' || !emp.status).length;
       const totalDepartments = [...new Set(employees.map(emp => emp.department?.name).filter(Boolean))].length;
       
-      // Payroll metrics
-      const currentMonthPayrolls = payrolls.filter(p => 
-        new Date(p.createdAt).getMonth() === new Date().getMonth() &&
-        new Date(p.createdAt).getFullYear() === new Date().getFullYear()
-      );
-      const totalPayrollAmount = currentMonthPayrolls.reduce((sum, p) => sum + (p.netSalary || 0), 0);
+      // Payroll metrics - try multiple data sources
+      let totalPayrollAmount = 0;
+      
+      if (payrollReportData?.summary?.netPay) {
+        // Use payroll report data (preferred)
+        totalPayrollAmount = payrollReportData.summary.netPay;
+        console.log('Using payroll report data:', totalPayrollAmount);
+      } else if (payrolls.length > 0) {
+        // Fallback: Use regular payroll data
+        const currentMonthPayrolls = payrolls.filter(p => 
+          new Date(p.createdAt).getMonth() === new Date().getMonth() &&
+          new Date(p.createdAt).getFullYear() === new Date().getFullYear()
+        );
+        totalPayrollAmount = currentMonthPayrolls.reduce((sum, p) => sum + (p.netSalary || 0), 0);
+        console.log('Using regular payroll data:', totalPayrollAmount, 'from', currentMonthPayrolls.length, 'records');
+      } else {
+        // Final fallback: Calculate from employee data
+        console.log('No payroll data available, using employee data fallback');
+        totalPayrollAmount = employees.reduce((sum, emp) => {
+          return sum + (emp.excelGrossSalary || 0);
+        }, 0);
+        console.log('Employee data fallback result:', totalPayrollAmount);
+      }
+      
       const averageSalary = totalEmployees > 0 ? totalPayrollAmount / totalEmployees : 0;
       
       // Attendance metrics
@@ -192,7 +221,7 @@ const Dashboard = () => {
         },
         performance: performanceMetrics,
         recentActivity: [
-          { type: 'payroll', message: `${currentMonthPayrolls.length} payrolls processed this month`, time: '2 hours ago', icon: <AttachMoney />, color: 'success' },
+          { type: 'payroll', message: `${payrollReportData?.summary?.totalEmployees || payrolls.length || 0} employees in payroll this month`, time: '2 hours ago', icon: <AttachMoney />, color: 'success' },
           { type: 'employee', message: `${activeEmployees} active employees`, time: '1 day ago', icon: <People />, color: 'primary' },
           { type: 'attendance', message: `${attendanceRate.toFixed(1)}% attendance rate today`, time: '3 hours ago', icon: <Schedule />, color: 'warning' },
           { type: 'performance', message: 'System performance optimized', time: '5 hours ago', icon: <Speed />, color: 'info' }
