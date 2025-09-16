@@ -362,91 +362,201 @@ const Dashboard = () => {
     </Zoom>
   );
 
-  // Advanced Performance Chart Component
+  // Clean Professional Performance Chart Component
   const AdvancedPerformanceChart = ({ title, data, color, icon }) => (
     <Fade in={animateCards} timeout={800}>
       <Card sx={{ 
         height: '100%', 
         borderRadius: 4,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.9)} 0%, ${alpha(theme.palette.background.paper, 0.7)} 100%)`,
+        background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.98)} 0%, ${alpha(theme.palette.background.paper, 0.95)} 100%)`,
         backdropFilter: 'blur(20px)',
-        border: `1px solid ${alpha(color, 0.1)}`,
+        border: `1px solid ${alpha(color, 0.06)}`,
         position: 'relative',
         overflow: 'hidden',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '3px',
-          background: `linear-gradient(90deg, ${color}, ${alpha(color, 0.5)})`,
-          borderRadius: '16px 16px 0 0'
+        boxShadow: `0 8px 32px ${alpha(color, 0.08)}, 0 4px 16px ${alpha(theme.palette.common.black, 0.06)}`,
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        '&:hover': {
+          transform: 'translateY(-4px)',
+          boxShadow: `0 16px 48px ${alpha(color, 0.15)}, 0 8px 24px ${alpha(theme.palette.common.black, 0.1)}`,
+          border: `1px solid ${alpha(color, 0.1)}`
         }
       }}>
         <CardContent sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          {/* Clean Header */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 2, 
+            mb: 3
+          }}>
             <Box
               sx={{
                 p: 1.5,
                 borderRadius: 2,
-                background: `linear-gradient(135deg, ${alpha(color, 0.2)} 0%, ${alpha(color, 0.1)} 100%)`,
-                color: color
+                background: `linear-gradient(135deg, ${alpha(color, 0.1)} 0%, ${alpha(color, 0.05)} 100%)`,
+                color: color,
+                border: `1px solid ${alpha(color, 0.1)}`
               }}
             >
               {icon}
             </Box>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
-              {title}
-            </Typography>
+            <Box>
+              <Typography variant="h6" sx={{
+                fontWeight: 700,
+                color: theme.palette.text.primary,
+                mb: 0.5
+              }}>
+                {title}
+              </Typography>
+              <Typography variant="body2" sx={{
+                color: theme.palette.text.secondary,
+                fontWeight: 500
+              }}>
+                Performance Overview
+              </Typography>
+            </Box>
           </Box>
-          <Stack spacing={3}>
+
+          {/* Clean Data Display */}
+          <Stack spacing={2.5}>
             {data.map((item, index) => (
-              <Box key={index}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
-                  <Typography variant="body1" sx={{ fontWeight: 600, color: theme.palette.text.primary }}>
+              <Box key={index} sx={{
+                animation: `slideInUp 0.5s ease-out ${index * 0.1}s both`,
+                p: 2,
+                borderRadius: 2,
+                background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.8)} 0%, ${alpha(theme.palette.background.paper, 0.6)} 100%)`,
+                border: `1px solid ${alpha(theme.palette.divider, 0.05)}`,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  background: `linear-gradient(135deg, ${alpha(color, 0.05)} 0%, ${alpha(color, 0.02)} 100%)`,
+                  border: `1px solid ${alpha(color, 0.08)}`
+                }
+              }}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  mb: 1.5 
+                }}>
+                  <Typography variant="body1" sx={{ 
+                    fontWeight: 600, 
+                    color: theme.palette.text.primary,
+                    fontSize: '0.95rem'
+                  }}>
                     {item.label}
                   </Typography>
-                  <Typography variant="body1" sx={{ 
-                    fontWeight: 'bold', 
-                    color: color,
-                    fontSize: '1.1rem'
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1
                   }}>
-                    {item.value}%
-                  </Typography>
+                    <Typography variant="h6" sx={{ 
+                      fontWeight: 700, 
+                      color: color,
+                      fontSize: '1.1rem'
+                    }}>
+                      {item.value}%
+                    </Typography>
+                    <Box sx={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: item.value >= 90 ? theme.palette.success.main : 
+                                  item.value >= 75 ? theme.palette.warning.main : 
+                                  theme.palette.error.main
+                    }} />
+                  </Box>
                 </Box>
+                
+                {/* Clean Progress Bar */}
                 <Box sx={{ position: 'relative' }}>
                   <LinearProgress
                     variant="determinate"
                     value={item.value}
                     sx={{
-                      height: 12,
-                      borderRadius: 6,
-                      backgroundColor: alpha(color, 0.1),
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: alpha(theme.palette.grey[300], 0.3),
                       '& .MuiLinearProgress-bar': {
                         background: `linear-gradient(90deg, ${color} 0%, ${alpha(color, 0.8)} 100%)`,
-                        borderRadius: 6,
-                        boxShadow: `0 2px 8px ${alpha(color, 0.3)}`
+                        borderRadius: 4
                       }
                     }}
                   />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: -2,
-                      right: `${100 - item.value}%`,
-                      width: 16,
-                      height: 16,
-                      borderRadius: '50%',
-                      background: `linear-gradient(135deg, ${color} 0%, ${alpha(color, 0.8)} 100%)`,
-                      border: `3px solid ${theme.palette.background.paper}`,
-                      boxShadow: `0 2px 8px ${alpha(color, 0.4)}`
-                    }}
-                  />
+                </Box>
+
+                {/* Performance Status */}
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  mt: 1
+                }}>
+                  <Typography variant="caption" sx={{
+                    color: theme.palette.text.secondary,
+                    fontWeight: 500,
+                    fontSize: '0.75rem'
+                  }}>
+                    {item.value >= 90 ? 'Excellent' : 
+                     item.value >= 75 ? 'Good' : 
+                     item.value >= 60 ? 'Average' : 'Needs Improvement'}
+                  </Typography>
+                  <Box sx={{
+                    display: 'flex',
+                    gap: 0.3
+                  }}>
+                    {[...Array(5)].map((_, starIndex) => (
+                      <Box
+                        key={starIndex}
+                        sx={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: starIndex < Math.floor(item.value / 20) ? 
+                            color : alpha(theme.palette.grey[400], 0.3)
+                        }}
+                      />
+                    ))}
+                  </Box>
                 </Box>
               </Box>
             ))}
           </Stack>
+
+          {/* Clean Footer */}
+          <Box sx={{
+            mt: 3,
+            pt: 2,
+            borderTop: `1px solid ${alpha(theme.palette.divider, 0.05)}`,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <Typography variant="caption" sx={{
+              color: theme.palette.text.secondary,
+              fontWeight: 500
+            }}>
+              Updated: {new Date().toLocaleTimeString()}
+            </Typography>
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5
+            }}>
+              <Box sx={{
+                width: 4,
+                height: 4,
+                borderRadius: '50%',
+                background: theme.palette.success.main
+              }} />
+              <Typography variant="caption" sx={{
+                color: theme.palette.success.main,
+                fontWeight: 600
+              }}>
+                Live
+              </Typography>
+            </Box>
+          </Box>
         </CardContent>
       </Card>
     </Fade>
@@ -813,7 +923,7 @@ const Dashboard = () => {
                         fontWeight: 500
                       }}>
                         Personal Information & Status
-                      </Typography>
+                    </Typography>
                   </Box>
                   </Box>
 
@@ -909,7 +1019,7 @@ const Dashboard = () => {
                           fontSize: 90,
                           filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.2))'
                         }} />
-                      </Avatar>
+                    </Avatar>
                     </Box>
 
                     {/* Enhanced User Information - Below the MASSIVE Avatar */}
