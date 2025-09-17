@@ -343,42 +343,59 @@ const DepartmentChart = () => {
 
       // Add zoom event listener to adjust label intervals dynamically
       chartInstance.current.on('dataZoom', function(params) {
-        const zoomEnd = params.batch[0].end;
-        const zoomStart = params.batch[0].start;
-        const visibleRange = zoomEnd - zoomStart;
-        
-        // Calculate how many departments are currently visible
-        const visibleDepartments = Math.round((currentData.length * visibleRange) / 100);
-        
-        // Calculate appropriate label interval based on zoom level
-        let labelInterval = 0;
-        if (visibleRange < 30) {
-          labelInterval = 0; // Show all labels when zoomed in
-        } else if (visibleRange < 60) {
-          labelInterval = 1; // Show every other label
-        } else {
-          labelInterval = Math.ceil(visibleRange / 20); // Show fewer labels when zoomed out
-        }
-        
-        // Update chart with new label interval and bar label visibility
-        chartInstance.current.setOption({
-          xAxis: {
-            axisLabel: {
-              interval: labelInterval
-            }
-          },
-          series: [{
-            label: {
-              formatter: function(params) {
-                // Only show percentage if 9 or fewer departments are visible
-                if (visibleDepartments <= 9) {
-                  return params.value + '%';
-                }
-                return ''; // Hide percentage labels when more than 9 departments
+        try {
+          // Handle different parameter structures safely
+          let zoomData;
+          if (params.batch && params.batch[0]) {
+            // Inside zoom or batch zoom
+            zoomData = params.batch[0];
+          } else if (params.start !== undefined && params.end !== undefined) {
+            // Direct slider zoom
+            zoomData = params;
+          } else {
+            console.warn('DepartmentChart: Unknown dataZoom parameter structure:', params);
+            return;
+          }
+
+          const zoomEnd = zoomData.end;
+          const zoomStart = zoomData.start;
+          const visibleRange = zoomEnd - zoomStart;
+          
+          // Calculate how many departments are currently visible
+          const visibleDepartments = Math.round((currentData.length * visibleRange) / 100);
+          
+          // Calculate appropriate label interval based on zoom level
+          let labelInterval = 0;
+          if (visibleRange < 30) {
+            labelInterval = 0; // Show all labels when zoomed in
+          } else if (visibleRange < 60) {
+            labelInterval = 1; // Show every other label
+          } else {
+            labelInterval = Math.ceil(visibleRange / 20); // Show fewer labels when zoomed out
+          }
+          
+          // Update chart with new label interval and bar label visibility
+          chartInstance.current.setOption({
+            xAxis: {
+              axisLabel: {
+                interval: labelInterval
               }
-            }
-          }]
-        });
+            },
+            series: [{
+              label: {
+                formatter: function(params) {
+                  // Only show percentage if 9 or fewer departments are visible
+                  if (visibleDepartments <= 9) {
+                    return params.value + '%';
+                  }
+                  return ''; // Hide percentage labels when more than 9 departments
+                }
+              }
+            }]
+          });
+        } catch (error) {
+          console.error('DepartmentChart: Error in dataZoom handler:', error);
+        }
       });
 
       // Handle window resize

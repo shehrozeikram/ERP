@@ -262,9 +262,9 @@ const RealtimeAttendanceMonitor = () => {
           borderRadius: '16px 16px 0 0'
         }
       }}>
-        <CardContent sx={{ p: 3, minHeight: '700px', display: 'flex', flexDirection: 'column' }}>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 2.5 }, minHeight: { xs: '400px', sm: '500px', md: '600px' }, display: 'flex', flexDirection: 'column' }}>
           {/* Header */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: { xs: 2, sm: 2.5, md: 3 } }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Box
                 sx={{
@@ -365,8 +365,8 @@ const RealtimeAttendanceMonitor = () => {
                   <Fade in timeout={500 + index * 200} key={index}>
                     <Paper
                       sx={{
-                        p: 3,
-                        mb: 2,
+                        p: { xs: 2, sm: 2.5, md: 3 },
+                        mb: { xs: 1, sm: 1.5, md: 2 },
                         borderRadius: 4,
                         background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.15)} 0%, ${alpha(theme.palette.success.main, 0.08)} 100%)`,
                         border: `2px solid ${alpha(theme.palette.success.main, 0.4)}`,
@@ -386,7 +386,7 @@ const RealtimeAttendanceMonitor = () => {
                         }
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 2, sm: 2.5, md: 3 } }}>
                         {/* Enhanced Employee Avatar for Real-Time Events */}
                         <Box sx={{ position: 'relative' }}>
                           {event.employeePhoto || event.attendanceImage ? (
@@ -526,8 +526,8 @@ const RealtimeAttendanceMonitor = () => {
                               <Avatar 
                                 src={event.employeePhoto || event.attendanceImage}
                                 sx={{ 
-                                  width: 60,
-                                  height: 60,
+                                  width: { xs: 45, sm: 50, md: 55 },
+                                  height: { xs: 45, sm: 50, md: 55 },
                                   border: `3px solid ${getStatusColor(event.state) === 'success' ? theme.palette.success.main : theme.palette.error.main}`,
                                   cursor: 'pointer',
                                   transition: 'all 0.4s ease',
@@ -620,7 +620,7 @@ const RealtimeAttendanceMonitor = () => {
             </Typography>
             
             <Box sx={{ 
-              height: '600px', 
+              height: { xs: '450px', sm: '550px', md: '650px' }, 
               overflowY: 'auto',
               '&::-webkit-scrollbar': {
                 width: '6px'
@@ -637,12 +637,12 @@ const RealtimeAttendanceMonitor = () => {
                 }
               }
             }}>
-              <Stack spacing={1.5}>
+              <Stack spacing={{ xs: 0.5, sm: 0.6, md: 0.8 }}>
                 {attendanceEvents.map((event, index) => (
                   <Fade in timeout={800 + index * 100} key={event.id || index}>
                     <Paper
                       sx={{
-                        p: 3,
+                        p: { xs: 1, sm: 1.2, md: 1.5 },
                         borderRadius: 4,
                         background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.9)} 0%, ${alpha(theme.palette.background.paper, 0.7)} 100%)`,
                         backdropFilter: 'blur(15px)',
@@ -673,7 +673,7 @@ const RealtimeAttendanceMonitor = () => {
                         }
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1.2, sm: 1.5, md: 2 } }}>
                         {/* Enhanced Employee Avatar for All Events */}
                         <Box sx={{ position: 'relative' }}>
                           {event.employeePhoto || event.attendanceImage ? (
@@ -813,15 +813,15 @@ const RealtimeAttendanceMonitor = () => {
                               <Avatar 
                                 src={event.employeePhoto || event.attendanceImage}
                                 sx={{ 
-                                  width: 60,
-                                  height: 60,
-                                  border: `3px solid ${alpha(theme.palette.primary.main, 0.4)}`,
+                                  width: { xs: 35, sm: 40, md: 45 },
+                                  height: { xs: 35, sm: 40, md: 45 },
+                                  border: `2px solid ${alpha(theme.palette.primary.main, 0.4)}`,
                                   cursor: 'pointer',
                                   transition: 'all 0.4s ease',
-                                  boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.2)}`,
+                                  boxShadow: `0 6px 20px ${alpha(theme.palette.primary.main, 0.2)}`,
                                   '&:hover': {
-                                    transform: 'scale(1.15)',
-                                    boxShadow: `0 12px 35px ${alpha(theme.palette.primary.main, 0.4)}`
+                                    transform: 'scale(1.1)',
+                                    boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.4)}`
                                   }
                                 }}
                                 onLoad={() => {
@@ -843,9 +843,9 @@ const RealtimeAttendanceMonitor = () => {
                           <Avatar sx={{ 
                             backgroundColor: alpha(theme.palette.primary.main, 0.15), 
                             color: theme.palette.primary.main,
-                            width: 60,
-                            height: 60,
-                            fontSize: '1.5rem',
+                            width: 45,
+                            height: 45,
+                            fontSize: '1.2rem',
                             fontWeight: 700,
                             display: (event.employeePhoto || event.attendanceImage) ? 'none' : 'flex'
                           }}>
@@ -853,20 +853,22 @@ const RealtimeAttendanceMonitor = () => {
                           </Avatar>
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography variant="h6" sx={{ 
-                            fontWeight: 700, 
+                          <Typography variant="subtitle1" sx={{ 
+                            fontWeight: 600, 
                             color: theme.palette.text.primary,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
-                            mb: 1
+                            mb: 0.5,
+                            fontSize: { xs: '0.9rem', sm: '1rem', md: '1.1rem' }
                           }}>
                             {event.name || `Employee ${event.empCode}`}
                           </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-                            <Typography variant="body1" sx={{ 
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <Typography variant="body2" sx={{ 
                               color: theme.palette.text.secondary,
-                              fontWeight: 600
+                              fontWeight: 500,
+                              fontSize: { xs: '0.75rem', sm: '0.8rem', md: '0.85rem' }
                             }}>
                               {formatTime(event.time)}
                             </Typography>
@@ -875,11 +877,12 @@ const RealtimeAttendanceMonitor = () => {
                                 <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
                                   •
                                 </Typography>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                  <LocationOn sx={{ fontSize: 16, color: theme.palette.text.secondary }} />
-                                  <Typography variant="body2" sx={{ 
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                                  <LocationOn sx={{ fontSize: 12, color: theme.palette.text.secondary }} />
+                                  <Typography variant="caption" sx={{ 
                                     color: theme.palette.text.secondary,
-                                    fontWeight: 500
+                                    fontWeight: 500,
+                                    fontSize: { xs: '0.7rem', sm: '0.75rem', md: '0.8rem' }
                                   }}>
                                     {event.location}
                                   </Typography>
@@ -888,22 +891,22 @@ const RealtimeAttendanceMonitor = () => {
                             )}
                           </Box>
                         </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Chip
                             label={event.state || 'Present'}
-                            size="medium"
+                            size="small"
                             color={getStatusColor(event.state)}
                             sx={{ 
-                              fontSize: '0.8rem', 
-                              fontWeight: 700,
-                              height: 32,
-                              px: 2
+                              fontSize: { xs: '0.7rem', sm: '0.75rem', md: '0.8rem' }, 
+                              fontWeight: 600,
+                              height: 24,
+                              px: 1.5
                             }}
                           />
                           <CameraAlt sx={{ 
-                            fontSize: 20, 
+                            fontSize: 16, 
                             color: theme.palette.text.secondary,
-                            opacity: 0.8
+                            opacity: 0.7
                           }} />
                         </Box>
                       </Box>

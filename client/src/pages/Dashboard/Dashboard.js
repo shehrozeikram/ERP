@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Grid,
@@ -10,13 +10,11 @@ import {
   LinearProgress,
   IconButton,
   Tooltip,
-  Paper,
   Divider,
   Stack,
   alpha,
   useTheme,
   Fade,
-  Zoom,
   CircularProgress,
   Alert,
   List,
@@ -24,7 +22,8 @@ import {
   ListItemIcon,
   ListItemText,
   Badge,
-  Container
+  Container,
+  Skeleton
 } from '@mui/material';
 import {
   TrendingUp,
@@ -41,7 +40,6 @@ import {
   Speed,
   Analytics,
   Business,
-  Timeline,
   BarChart,
   ShowChart,
   Dashboard as DashboardIcon,
@@ -53,7 +51,7 @@ import {
   FlashOn,
   EmojiEvents
 } from '@mui/icons-material';
-import { format } from 'date-fns';
+import { io } from 'socket.io-client';
 import { useAuth } from '../../contexts/AuthContext';
 import { PERMISSIONS, MODULES } from '../../utils/permissions';
 import api from '../../services/api';
@@ -131,66 +129,64 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState(null);
   const [animateCards, setAnimateCards] = useState(false);
+  const [presentChartData, setPresentChartData] = useState(null);
+  const presentChartDataRef = useRef(null);
 
   // Fetch comprehensive dashboard data
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       
-      // Fetch multiple data sources in parallel for optimal performance
+      // Fetch only essential data for optimal performance
       const [
         employeesResponse,
-        payrollResponse,
+        employeesCountResponse,
         payrollReportResponse,
         attendanceResponse
       ] = await Promise.allSettled([
-        api.get('/hr/employees?limit=1000'),
-        api.get('/payroll?limit=100'),
-        api.get(`/hr/reports/payroll/monthly?month=${new Date().getMonth() + 1}&year=${new Date().getFullYear()}`),
-        api.get('/attendance')
+        api.get('/hr/employees?limit=100'), // Sample data for active ratio calculation
+        api.get('/hr/employees?limit=1'), // Get total count from response headers
+        api.get('/hr/reports/payroll/monthly', {
+          params: {
+            month: 9, // September 2025 (same as Reports module)
+            year: 2025,
+            department: '',
+            format: 'json'
+          }
+        }),
+        api.get('/attendance?limit=100') // Reduced limit - only need today's data
       ]);
 
       // Process data with error handling
       const employees = employeesResponse.status === 'fulfilled' ? employeesResponse.value.data.data : [];
-      const payrolls = payrollResponse.status === 'fulfilled' ? payrollResponse.value.data.data : [];
-      const payrollReportData = payrollReportResponse.status === 'fulfilled' ? payrollReportResponse.value.data : null;
+      const employeesCountData = employeesCountResponse.status === 'fulfilled' ? employeesCountResponse.value.data : null;
+      const payrollReportData = payrollReportResponse.status === 'fulfilled' && payrollReportResponse.value.data.success 
+        ? payrollReportResponse.value.data.data 
+        : null;
       const attendance = attendanceResponse.status === 'fulfilled' ? attendanceResponse.value.data.data : [];
 
-      // Debug payroll data
-      console.log('Payroll Response Status:', payrollResponse.status);
-      console.log('Payroll Report Response Status:', payrollReportResponse.status);
-      console.log('Payroll Report Data:', payrollReportData);
-      console.log('Regular Payroll Data Length:', payrolls.length);
-      console.log('Current Month:', new Date().getMonth() + 1);
-      console.log('Current Year:', new Date().getFullYear());
 
       // Calculate comprehensive metrics
-      const totalEmployees = employees.length;
-      const activeEmployees = employees.filter(emp => emp.status === 'active' || !emp.status).length;
+      // Use payroll report data for accurate total count, fallback to employee data
+      const totalEmployees = payrollReportData?.summary?.totalEmployees || employees.length;
+      
+      // Calculate active employees ratio from sample data and apply to total
+      const sampleActiveCount = employees.filter(emp => emp.status === 'active' || !emp.status).length;
+      const sampleTotalCount = employees.length;
+      const activeRatio = sampleTotalCount > 0 ? sampleActiveCount / sampleTotalCount : 1;
+      const activeEmployees = Math.round(totalEmployees * activeRatio);
+      
       const totalDepartments = [...new Set(employees.map(emp => emp.department?.name).filter(Boolean))].length;
       
-      // Payroll metrics - try multiple data sources
+      // Payroll metrics - Use Reports module data (same as Monthly Payroll Summary)
       let totalPayrollAmount = 0;
       
       if (payrollReportData?.summary?.netPay) {
-        // Use payroll report data (preferred)
+        // Use Reports module data (same as Monthly Payroll Summary)
         totalPayrollAmount = payrollReportData.summary.netPay;
-        console.log('Using payroll report data:', totalPayrollAmount);
-      } else if (payrolls.length > 0) {
-        // Fallback: Use regular payroll data
-        const currentMonthPayrolls = payrolls.filter(p => 
-          new Date(p.createdAt).getMonth() === new Date().getMonth() &&
-          new Date(p.createdAt).getFullYear() === new Date().getFullYear()
-        );
-        totalPayrollAmount = currentMonthPayrolls.reduce((sum, p) => sum + (p.netSalary || 0), 0);
-        console.log('Using regular payroll data:', totalPayrollAmount, 'from', currentMonthPayrolls.length, 'records');
       } else {
-        // Final fallback: Calculate from employee data
-        console.log('No payroll data available, using employee data fallback');
-        totalPayrollAmount = employees.reduce((sum, emp) => {
-          return sum + (emp.excelGrossSalary || 0);
-        }, 0);
-        console.log('Employee data fallback result:', totalPayrollAmount);
+        // Fallback: Use employee gross salary estimation if Reports data unavailable
+        totalPayrollAmount = employees.reduce((sum, emp) => sum + (emp.grossSalary || 0), 0);
       }
       
       const averageSalary = totalEmployees > 0 ? totalPayrollAmount / totalEmployees : 0;
@@ -199,6 +195,23 @@ const Dashboard = () => {
       const presentToday = attendance.filter(a => a.status === 'Present').length;
       const absentToday = attendance.filter(a => a.status === 'Absent').length;
       const attendanceRate = totalEmployees > 0 ? (presentToday / totalEmployees) * 100 : 0;
+      
+      // Present percentage (use WebSocket data if available, same as PresentChart)
+      let presentPercentage = 0;
+      
+      if (presentChartDataRef.current && presentChartDataRef.current.length > 0) {
+        // Use WebSocket data (same as PresentChart)
+        const presentItem = presentChartDataRef.current.find(item => item.name === 'Present');
+        const absentItem = presentChartDataRef.current.find(item => item.name === 'Absent');
+        const presentCount = presentItem ? presentItem.value : 0;
+        const absentCount = absentItem ? absentItem.value : 0;
+        const totalCount = presentCount + absentCount;
+        presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
+      } else {
+        // Fallback to API data
+        const totalAttendance = presentToday + absentToday;
+        presentPercentage = totalAttendance > 0 ? (presentToday / totalAttendance) * 100 : 0;
+      }
       
       // Performance indicators
       const performanceMetrics = {
@@ -217,21 +230,26 @@ const Dashboard = () => {
           averageSalary,
           attendanceRate,
           presentToday,
-          absentToday
+          absentToday,
+          presentPercentage
         },
         performance: performanceMetrics,
         recentActivity: [
-          { type: 'payroll', message: `${payrollReportData?.summary?.totalEmployees || payrolls.length || 0} employees in payroll this month`, time: '2 hours ago', icon: <AttachMoney />, color: 'success' },
+          { type: 'payroll', message: `${totalEmployees} employees in latest payroll`, time: '2 hours ago', icon: <AttachMoney />, color: 'success' },
           { type: 'employee', message: `${activeEmployees} active employees`, time: '1 day ago', icon: <People />, color: 'primary' },
           { type: 'attendance', message: `${attendanceRate.toFixed(1)}% attendance rate today`, time: '3 hours ago', icon: <Schedule />, color: 'warning' },
           { type: 'performance', message: 'System performance optimized', time: '5 hours ago', icon: <Speed />, color: 'info' }
         ]
       });
       
+      console.log('✅ Dashboard: Data set successfully');
+      console.log('✅ Dashboard: Overview data:', { totalEmployees, activeEmployees, totalPayrollAmount, presentPercentage });
+      
       // Trigger card animations
       setTimeout(() => setAnimateCards(true), 100);
     } catch (error) {
-      // Error handled silently to maintain clean user experience
+      console.error('❌ Dashboard: Error fetching data:', error);
+      console.error('❌ Dashboard: Error details:', error.message);
     } finally {
       setLoading(false);
     }
@@ -240,7 +258,114 @@ const Dashboard = () => {
   useEffect(() => {
     fetchDashboardData();
     // Removed auto-refresh polling - now purely real-time via WebSocket
-  }, [fetchDashboardData]);
+  }, []);
+
+  // WebSocket connection to get Present Chart data (same as PresentChart component)
+  useEffect(() => {
+    const baseURL = process.env.NODE_ENV === 'production' 
+      ? 'https://tovus.net' 
+      : 'http://localhost:5001';
+    
+    const socket = io(baseURL, {
+      transports: ['websocket', 'polling'],
+      timeout: 5000, // Reduced timeout for faster connection
+      forceNew: true
+    });
+
+    socket.on('connect', () => {
+      console.log('📊 Dashboard: Connected to server for Present data');
+      socket.emit('requestChartData');
+    });
+
+    socket.on('zkbioConnectionStatus', (status) => {
+      console.log('📊 Dashboard: ZKBio Time status:', status);
+    });
+
+    socket.on('liveChartUpdate', (data) => {
+      if (data.type === 'presentChart' && data.data) {
+        let presentData = null;
+        
+        // Handle different possible data structures from ZKBio Time
+        if (data.data.series && data.data.series[0] && data.data.series[0].data) {
+          const seriesData = data.data.series[0].data;
+          presentData = seriesData.map(item => ({
+            name: item.name,
+            value: item.value
+          }));
+        } else if (Array.isArray(data.data)) {
+          presentData = data.data.map(item => ({
+            name: item.name,
+            value: item.value
+          }));
+        } else if (data.data.present !== undefined || data.data.absent !== undefined) {
+          presentData = [
+            { name: 'Present', value: data.data.present || 0 },
+            { name: 'Absent', value: data.data.absent || 0 }
+          ];
+        }
+
+        if (presentData && presentData.length > 0) {
+          console.log('📊 Dashboard: Received Present Chart data:', presentData);
+          setPresentChartData(presentData);
+          presentChartDataRef.current = presentData;
+          
+          // Calculate and log the Present percentage
+          const presentItem = presentData.find(item => item.name === 'Present');
+          const absentItem = presentData.find(item => item.name === 'Absent');
+          const presentCount = presentItem ? presentItem.value : 0;
+          const absentCount = absentItem ? absentItem.value : 0;
+          const totalCount = presentCount + absentCount;
+          const presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
+          
+          console.log('📊 Dashboard: Calculated Present percentage:', {
+            presentCount,
+            absentCount,
+            totalCount,
+            presentPercentage: presentPercentage.toFixed(2) + '%'
+          });
+        }
+      }
+    });
+
+    socket.on('disconnect', () => {
+      // Handle disconnect
+    });
+
+    socket.on('error', (error) => {
+      console.error('📊 Dashboard: Socket error:', error);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  // Update dashboard data when Present Chart data changes
+  useEffect(() => {
+    if (presentChartData && dashboardData) {
+      console.log('📊 Dashboard: Updating Present percentage with WebSocket data');
+      
+      // Recalculate Present percentage with WebSocket data
+      const presentItem = presentChartData.find(item => item.name === 'Present');
+      const absentItem = presentChartData.find(item => item.name === 'Absent');
+      const presentCount = presentItem ? presentItem.value : 0;
+      const absentCount = absentItem ? absentItem.value : 0;
+      const totalCount = presentCount + absentCount;
+      const presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
+      
+      console.log('📊 Dashboard: Updating dashboard with Present percentage:', presentPercentage.toFixed(2) + '%');
+      
+      // Update dashboard data with new Present percentage
+      setDashboardData(prevData => ({
+        ...prevData,
+        overview: {
+          ...prevData.overview,
+          presentPercentage
+        }
+      }));
+      
+    }
+  }, [presentChartData]);
 
   const getAccessibleModules = () => {
     if (!user?.role) return [];
@@ -286,16 +411,15 @@ const Dashboard = () => {
 
   // Premium KPI Card Component with Glassmorphism
   const PremiumKPICard = ({ title, value, change, icon, color, trend, subtitle, delay = 0 }) => (
-    <Zoom in={animateCards} timeout={500 + delay}>
-      <Card
-        sx={{
-          height: '100%',
-          background: `linear-gradient(135deg, ${alpha(color, 0.15)} 0%, ${alpha(color, 0.05)} 100%)`,
-          backdropFilter: 'blur(20px)',
-          border: `1px solid ${alpha(color, 0.2)}`,
-          borderRadius: 4,
-          position: 'relative',
-          overflow: 'hidden',
+    <Card
+      sx={{
+        height: '100%',
+        background: `linear-gradient(135deg, ${alpha(color, 0.15)} 0%, ${alpha(color, 0.05)} 100%)`,
+        backdropFilter: 'blur(20px)',
+        border: `1px solid ${alpha(color, 0.2)}`,
+        borderRadius: 4,
+        position: 'relative',
+        overflow: 'hidden',
           transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
           '&:hover': {
             transform: 'translateY(-8px) scale(1.02)',
@@ -331,7 +455,7 @@ const Dashboard = () => {
             transition: 'opacity 0.3s ease'
           }}
         />
-        <CardContent sx={{ p: 3, position: 'relative', zIndex: 1 }}>
+        <CardContent sx={{ p: { xs: 2, sm: 2.5, md: 3 }, position: 'relative', zIndex: 1 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
             <Box
               sx={{
@@ -388,13 +512,11 @@ const Dashboard = () => {
           )}
         </CardContent>
       </Card>
-    </Zoom>
   );
 
   // Clean Professional Performance Chart Component
   const AdvancedPerformanceChart = ({ title, data, color, icon }) => (
-    <Fade in={animateCards} timeout={800}>
-      <Card sx={{ 
+    <Card sx={{ 
         height: '100%', 
         borderRadius: 4,
         background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.98)} 0%, ${alpha(theme.palette.background.paper, 0.95)} 100%)`,
@@ -410,7 +532,7 @@ const Dashboard = () => {
           border: `1px solid ${alpha(color, 0.1)}`
         }
       }}>
-        <CardContent sx={{ p: 3 }}>
+        <CardContent sx={{ p: { xs: 2, sm: 2.5, md: 3 } }}>
           {/* Clean Header */}
           <Box sx={{ 
             display: 'flex', 
@@ -588,102 +710,6 @@ const Dashboard = () => {
           </Box>
         </CardContent>
       </Card>
-    </Fade>
-  );
-
-  // Premium Activity Feed Component
-  const PremiumActivityFeed = () => (
-    <Fade in={animateCards} timeout={1000}>
-      <Card sx={{ 
-        height: '100%', 
-        borderRadius: 4,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.9)} 0%, ${alpha(theme.palette.background.paper, 0.7)} 100%)`,
-        backdropFilter: 'blur(20px)',
-        border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
-        position: 'relative',
-        overflow: 'hidden',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '3px',
-          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${alpha(theme.palette.primary.main, 0.5)})`,
-          borderRadius: '16px 16px 0 0'
-        }
-      }}>
-        <CardContent sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-            <Box
-              sx={{
-                p: 1.5,
-                borderRadius: 2,
-                background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.2)} 0%, ${alpha(theme.palette.primary.main, 0.1)} 100%)`,
-                color: theme.palette.primary.main
-              }}
-            >
-              <Timeline />
-            </Box>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
-              Live Activity Feed
-            </Typography>
-          </Box>
-          <Stack spacing={2}>
-            {dashboardData?.recentActivity?.map((activity, index) => (
-              <Fade in={animateCards} timeout={1200 + index * 200} key={index}>
-                <Paper
-                  sx={{
-                    p: 2.5,
-                    borderRadius: 3,
-                    background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.8)} 0%, ${alpha(theme.palette.background.paper, 0.6)} 100%)`,
-                    backdropFilter: 'blur(10px)',
-                    border: `1px solid ${alpha(theme.palette[activity.color].main, 0.1)}`,
-                    position: 'relative',
-                    overflow: 'hidden',
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      transform: 'translateX(8px)',
-                      boxShadow: `0 8px 25px ${alpha(theme.palette[activity.color].main, 0.2)}`,
-                      border: `1px solid ${alpha(theme.palette[activity.color].main, 0.3)}`
-                    },
-                    '&::before': {
-                      content: '""',
-                      position: 'absolute',
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: '4px',
-                      background: `linear-gradient(180deg, ${theme.palette[activity.color].main} 0%, ${alpha(theme.palette[activity.color].main, 0.5)} 100%)`,
-                      borderRadius: '0 2px 2px 0'
-                    }
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ 
-                      backgroundColor: alpha(theme.palette[activity.color].main, 0.1), 
-                      color: theme.palette[activity.color].main,
-                      width: 40,
-                      height: 40
-                    }}>
-                      {activity.icon}
-                    </Avatar>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body1" sx={{ fontWeight: 600, color: theme.palette.text.primary }}>
-                        {activity.message}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: theme.palette.text.secondary }}>
-                        {activity.time}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Paper>
-              </Fade>
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
-    </Fade>
   );
 
   const accessibleModules = getAccessibleModules();
@@ -691,32 +717,190 @@ const Dashboard = () => {
   if (loading) {
     return (
       <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
         minHeight: '100vh',
-        background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(theme.palette.secondary.main, 0.05)} 100%)`
+        background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+        p: 3
       }}>
-        <Box sx={{ textAlign: 'center' }}>
-          <CircularProgress 
-            size={60} 
-            sx={{ 
-              mb: 3,
-              color: theme.palette.primary.main
-            }} 
-          />
-          <Typography variant="h5" sx={{ 
-            color: theme.palette.text.secondary,
-            fontWeight: 600
-          }}>
-            Loading Premium Dashboard...
-          </Typography>
-        </Box>
+        <Container maxWidth="xl">
+          {/* Welcome Section Skeleton */}
+          <Box sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
+            <Skeleton variant="text" width={{ xs: 250, sm: 300, md: 300 }} height={{ xs: 32, sm: 36, md: 40 }} sx={{ mb: 1 }} />
+            <Skeleton variant="text" width={{ xs: 180, sm: 200, md: 200 }} height={{ xs: 20, sm: 22, md: 24 }} />
+          </Box>
+
+          {/* User Profile and Modules Skeleton */}
+          <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: '100%', borderRadius: 6 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Skeleton variant="circular" width={60} height={60} />
+                    <Box sx={{ flexGrow: 1 }}>
+                      <Skeleton variant="text" width={150} height={24} sx={{ mb: 1 }} />
+                      <Skeleton variant="text" width={100} height={20} />
+                    </Box>
+                  </Box>
+                  <Skeleton variant="rectangular" width="100%" height={40} sx={{ borderRadius: 2, mb: 2 }} />
+                  <Skeleton variant="rectangular" width="100%" height={40} sx={{ borderRadius: 2 }} />
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: '100%', borderRadius: 4 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Skeleton variant="text" width={120} height={28} sx={{ mb: 2 }} />
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {[1, 2, 3, 4].map((i) => (
+                      <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Skeleton variant="circular" width={24} height={24} />
+                        <Skeleton variant="text" width={120} height={20} />
+                      </Box>
+                    ))}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* KPI Cards Skeleton */}
+          <Grid container spacing={4} sx={{ mb: 4 }}>
+            {[1, 2, 3, 4].map((i) => (
+              <Grid item xs={12} sm={6} md={3} key={i}>
+                <Card sx={{ height: '100%', borderRadius: 4 }}>
+                  <CardContent sx={{ p: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                      <Skeleton variant="text" width={100} height={20} />
+                      <Skeleton variant="circular" width={40} height={40} />
+                    </Box>
+                    <Skeleton variant="text" width={80} height={32} sx={{ mb: 1 }} />
+                    <Skeleton variant="text" width={60} height={16} />
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+
+          {/* Charts Section Skeleton */}
+          <Grid container spacing={4} sx={{ mb: 4 }}>
+            <Grid item xs={12} md={6}>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <Card sx={{ height: 280, borderRadius: 4 }}>
+                    <CardContent sx={{ p: 2 }}>
+                      <Skeleton variant="text" width={100} height={24} sx={{ mb: 2 }} />
+                      <Skeleton variant="circular" width={200} height={200} sx={{ mx: 'auto' }} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={6}>
+                  <Card sx={{ height: 280, borderRadius: 4 }}>
+                    <CardContent sx={{ p: 2 }}>
+                      <Skeleton variant="text" width={100} height={24} sx={{ mb: 2 }} />
+                      <Skeleton variant="circular" width={200} height={200} sx={{ mx: 'auto' }} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12}>
+                  <Card sx={{ height: 200, borderRadius: 4 }}>
+                    <CardContent sx={{ p: 2 }}>
+                      <Skeleton variant="text" width={120} height={24} sx={{ mb: 2 }} />
+                      <Skeleton variant="rectangular" width="100%" height={120} sx={{ borderRadius: 2 }} />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: '100%', borderRadius: 4 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Skeleton variant="text" width={150} height={28} sx={{ mb: 3 }} />
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Skeleton variant="circular" width={40} height={40} />
+                        <Box sx={{ flexGrow: 1 }}>
+                          <Skeleton variant="text" width={120} height={16} sx={{ mb: 0.5 }} />
+                          <Skeleton variant="text" width={80} height={14} />
+                        </Box>
+                        <Skeleton variant="text" width={60} height={16} />
+                      </Box>
+                    ))}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* System Health Skeleton */}
+          <Grid container spacing={4} sx={{ mb: 4 }}>
+            <Grid item xs={12}>
+              <Card sx={{ borderRadius: 4 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Skeleton variant="circular" width={40} height={40} />
+                    <Skeleton variant="text" width={120} height={28} />
+                  </Box>
+                  <Grid container spacing={2}>
+                    {[1, 2, 3, 4].map((i) => (
+                      <Grid item xs={6} sm={3} key={i}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <Skeleton variant="circular" width={24} height={24} />
+                          <Skeleton variant="text" width={100} height={20} />
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* Performance Metrics Skeleton */}
+          <Grid container spacing={4}>
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: '100%', borderRadius: 4 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Skeleton variant="circular" width={40} height={40} />
+                    <Skeleton variant="text" width={150} height={28} />
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Skeleton variant="text" width={120} height={20} />
+                        <Skeleton variant="text" width={60} height={20} />
+                      </Box>
+                    ))}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: '100%', borderRadius: 4 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Skeleton variant="circular" width={40} height={40} />
+                    <Skeleton variant="text" width={120} height={28} />
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Skeleton variant="text" width={120} height={20} />
+                        <Skeleton variant="text" width={60} height={20} />
+                      </Box>
+                    ))}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Container>
       </Box>
     );
   }
 
   if (!dashboardData) {
+    console.log('❌ Dashboard: dashboardData is null');
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error" sx={{ borderRadius: 3 }}>
@@ -725,6 +909,10 @@ const Dashboard = () => {
       </Box>
     );
   }
+
+  console.log('✅ Dashboard: dashboardData loaded:', dashboardData);
+  console.log('✅ Dashboard: overview data:', dashboardData.overview);
+  console.log('✅ Dashboard: animateCards state:', animateCards);
 
   return (
     <Box sx={{ 
@@ -743,13 +931,14 @@ const Dashboard = () => {
         zIndex: -1
       }
     }}>
-      <Container maxWidth="xl" sx={{ p: 3 }}>
+      <Container maxWidth="xl" sx={{ p: { xs: 1.5, sm: 2, md: 2.5 } }}>
         {/* Premium Header */}
-        <Box sx={{ mb: 5 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: { xs: 1.5, sm: 2, md: 2.5 } }}>
             <Box>
               <Typography variant="h2" sx={{ 
                 fontWeight: 'bold', 
+                fontSize: { xs: '1.8rem', sm: '2.2rem', md: '2.5rem' },
                 background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
                 backgroundClip: 'text',
                 WebkitBackgroundClip: 'text',
@@ -760,7 +949,8 @@ const Dashboard = () => {
               </Typography>
               <Typography variant="h5" sx={{ 
                 color: theme.palette.text.secondary,
-                fontWeight: 500
+                fontWeight: 500,
+                fontSize: { xs: '1rem', sm: '1.2rem', md: '1.4rem' }
               }}>
                 Premium Executive Dashboard - Advanced Business Intelligence
               </Typography>
@@ -819,7 +1009,7 @@ const Dashboard = () => {
         </Box>
 
         {/* Premium KPI Cards */}
-        <Grid container spacing={4} sx={{ mb: 4 }}>
+        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
           <Grid item xs={12} sm={6} md={3}>
             <PremiumKPICard
               title="Total Employees"
@@ -846,13 +1036,12 @@ const Dashboard = () => {
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
             <PremiumKPICard
-              title="Attendance Rate"
-              value={`${dashboardData.overview.attendanceRate.toFixed(1)}%`}
+              title="Present Percentage"
+              value={`${dashboardData.overview.presentPercentage.toFixed(1)}%`}
               change="2.5"
               trend="up"
               icon={<Schedule />}
-              color={theme.palette.warning.main}
-              subtitle={`${dashboardData.overview.presentToday} present today`}
+              color={theme.palette.success.main}
               delay={200}
             />
           </Grid>
@@ -871,10 +1060,9 @@ const Dashboard = () => {
         </Grid>
 
         {/* User Profile and Modules */}
-        <Grid container spacing={4} sx={{ mb: 4 }}>
+        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
           <Grid item xs={12} md={6}>
-            <Fade in={animateCards} timeout={600}>
-              <Card sx={{ 
+            <Card sx={{ 
                 height: '100%', 
                 borderRadius: 6,
                 background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.primary.main, 0.03)} 50%, ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
@@ -1187,12 +1375,10 @@ const Dashboard = () => {
                   </Box>
                 </CardContent>
               </Card>
-            </Fade>
           </Grid>
 
           <Grid item xs={12} md={6}>
-            <Fade in={animateCards} timeout={800}>
-              <Card sx={{ 
+            <Card sx={{ 
                 height: '100%', 
                 borderRadius: 4,
                 background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.9)} 0%, ${alpha(theme.palette.background.paper, 0.7)} 100%)`,
@@ -1253,12 +1439,11 @@ const Dashboard = () => {
                   </List>
                 </CardContent>
               </Card>
-            </Fade>
           </Grid>
         </Grid>
 
         {/* Real-Time Attendance Charts and Monitor */}
-        <Grid container spacing={4} sx={{ mb: 4 }}>
+        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
           {/* Left Column: Present, Device Status, and Department Charts */}
           <Grid item xs={12} md={6}>
             <Grid container spacing={2}>
@@ -1283,10 +1468,9 @@ const Dashboard = () => {
         </Grid>
 
         {/* System Health */}
-        <Grid container spacing={4} sx={{ mb: 4 }}>
+        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
           <Grid item xs={12}>
-            <Fade in={animateCards} timeout={1400}>
-              <Card sx={{ 
+            <Card sx={{ 
                 height: '100%', 
                 borderRadius: 4,
                 background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.9)} 0%, ${alpha(theme.palette.background.paper, 0.7)} 100%)`,
@@ -1341,12 +1525,11 @@ const Dashboard = () => {
                   </Stack>
                 </CardContent>
               </Card>
-            </Fade>
           </Grid>
         </Grid>
 
         {/* Advanced Performance Metrics - Moved to End */}
-        <Grid container spacing={4} sx={{ mb: 4 }}>
+        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }}>
           <Grid item xs={12} md={6}>
             <AdvancedPerformanceChart
               title="Department Performance"
