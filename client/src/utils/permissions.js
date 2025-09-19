@@ -189,7 +189,8 @@ export const MODULES = {
       { name: 'Grocery Management', path: '/admin/groceries' },
       { name: 'Petty Cash Management', path: '/admin/petty-cash' },
       { name: 'Event Management', path: '/admin/events' },
-      { name: 'Staff Management', path: '/admin/staff-management' }
+      { name: 'Staff Management', path: '/admin/staff-management' },
+      { name: 'Utility Bills Management', path: '/admin/utility-bills' }
     ]
   }
 };

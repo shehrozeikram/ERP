@@ -9,7 +9,6 @@ const sectionSchema = new mongoose.Schema({
   },
   code: {
     type: String,
-    required: [true, 'Section code is required'],
     unique: true,
     trim: true,
     uppercase: true,
@@ -58,5 +57,34 @@ sectionSchema.statics.findActive = function() {
 sectionSchema.statics.findByDepartment = function(departmentId) {
   return this.find({ department: departmentId, isActive: true }).sort({ name: 1 });
 };
+
+// Pre-save middleware to auto-generate code
+sectionSchema.pre('save', async function(next) {
+  if (!this.code) {
+    try {
+      // Find the last section to get the highest code
+      const lastSection = await this.constructor.findOne({}, { code: 1 })
+        .sort({ code: -1 });
+
+      let nextCode = 'SEC001';
+      
+      if (lastSection && lastSection.code) {
+        // Extract the number from the last code (e.g., "SEC123" -> 123)
+        const lastNumber = parseInt(lastSection.code.replace(/^SEC/, ''));
+        const nextNumber = lastNumber + 1;
+        // Format as SEC + 3-digit number
+        nextCode = `SEC${nextNumber.toString().padStart(3, '0')}`;
+      }
+
+      this.code = nextCode.toUpperCase();
+      console.log(`Generated new Section code: ${this.code}`);
+    } catch (error) {
+      console.error('Error generating Section code:', error);
+      // Fallback to timestamp-based code
+      this.code = `SEC${Date.now().toString().slice(-3)}`.toUpperCase();
+    }
+  }
+  next();
+});
 
 module.exports = mongoose.model('Section', sectionSchema); 

@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
@@ -55,21 +57,31 @@ async function generatePayslipPDF(payslip, res) {
     const pageWidth = doc.page.width - 40;
     const pageHeight = doc.page.height - 40;
 
-    // Professional Header - Clean and minimal with proper spacing (moved to left to avoid overlap)
+    // Professional Header with Logo - Clean and minimal with proper spacing
+    // Add SGC Logo
+    const logoPath = path.join(__dirname, '../../client/public/images/sgc-logo.png');
+    try {
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, 30, 20, { width: 60, height: 60 });
+      }
+    } catch (error) {
+      console.log('⚠️ Could not load SGC logo:', error.message);
+    }
+
     doc.fontSize(20)
        .font('Helvetica-Bold')
        .fillColor('#2c3e50')
-       .text('SARDAR GROUP OF COMPANIES', 30, 25, { align: 'left' });
+       .text('SARDAR GROUP OF COMPANIES', 100, 25, { align: 'left' });
 
     doc.fontSize(16)
        .font('Helvetica-Bold')
        .fillColor('#34495e')
-       .text('PAY SLIP', 30, 50, { align: 'left' });
+       .text('PAY SLIP', 100, 50, { align: 'left' });
 
     doc.fontSize(12)
        .font('Helvetica')
        .fillColor('#7f8c8d')
-       .text(`For the month of ${formatDate(new Date(payslip.year, payslip.month - 1))}`, 30, 70, { align: 'left' });
+       .text(`For the month of ${formatDate(new Date(payslip.year, payslip.month - 1))}`, 100, 70, { align: 'left' });
 
     // Right side - Payslip details in properly positioned box (moved further right to avoid overlap)
     const boxX = pageWidth - 130; // Moved further right to avoid overlap with company name
@@ -178,39 +190,85 @@ async function generatePayslipPDF(payslip, res) {
     // Optimized earnings and deductions rendering
     doc.fontSize(9).font('Helvetica').fillColor('#2c3e50');
     
-    const earnings = [
-      ['Basic Salary', payslip.earnings.basicSalary],
-      ['House Rent', payslip.earnings.houseRent],
-      ['Medical Allowance', payslip.earnings.medicalAllowance],
-      ['Conveyance Allowance', payslip.earnings.conveyanceAllowance],
-      ['Special Allowance', payslip.earnings.specialAllowance],
-      ['Overtime', payslip.earnings.overtime],
-      ['Bonus', payslip.earnings.bonus]
-    ];
+    // Dynamic earnings array - only include items with values > 0
+    const earnings = [];
     
-    const deductions = [
-      ['Provident Fund', payslip.deductions.providentFund],
-      ['EOBI', payslip.deductions.eobi],
-      ['Income Tax', payslip.deductions.incomeTax],
-      ['Attendance Deduction', payslip.deductions.absentDeduction],
-      ['Loan Deduction', payslip.deductions.loanDeduction],
-      ['Other Deductions', payslip.deductions.otherDeductions]
-    ];
+    // Add basic salary components
+    if (payslip.earnings.basicSalary > 0) {
+      earnings.push(['Basic Salary', payslip.earnings.basicSalary]);
+    }
+    if (payslip.earnings.houseRent > 0) {
+      earnings.push(['House Rent Allowance', payslip.earnings.houseRent]);
+    }
+    if (payslip.earnings.medicalAllowance > 0) {
+      earnings.push(['Medical Allowance', payslip.earnings.medicalAllowance]);
+    }
+    if (payslip.earnings.conveyanceAllowance > 0) {
+      earnings.push(['Conveyance Allowance', payslip.earnings.conveyanceAllowance]);
+    }
+    if (payslip.earnings.vehicleFuelAllowance > 0) {
+      earnings.push(['Vehicle & Fuel Allowance', payslip.earnings.vehicleFuelAllowance]);
+    }
+    if (payslip.earnings.foodAllowance > 0) {
+      earnings.push(['Food Allowance', payslip.earnings.foodAllowance]);
+    }
+    if (payslip.earnings.specialAllowance > 0) {
+      earnings.push(['Special Allowance', payslip.earnings.specialAllowance]);
+    }
+    if (payslip.earnings.otherAllowances > 0) {
+      earnings.push(['Other Allowances', payslip.earnings.otherAllowances]);
+    }
+    if (payslip.earnings.overtime > 0) {
+      earnings.push(['Overtime', payslip.earnings.overtime]);
+    }
+    if (payslip.earnings.bonus > 0) {
+      earnings.push(['Bonus', payslip.earnings.bonus]);
+    }
+    if (payslip.earnings.incentives > 0) {
+      earnings.push(['Incentives', payslip.earnings.incentives]);
+    }
+    if (payslip.earnings.arrears > 0) {
+      earnings.push(['Arrears', payslip.earnings.arrears]);
+    }
+    if (payslip.earnings.otherEarnings > 0) {
+      earnings.push(['Other Earnings', payslip.earnings.otherEarnings]);
+    }
+    
+    // Dynamic deductions array - only include items with values > 0
+    const deductions = [];
+    
+    if (payslip.deductions.eobi > 0) {
+      deductions.push(['EOBI', payslip.deductions.eobi]);
+    }
+    if (payslip.deductions.incomeTax > 0) {
+      deductions.push(['Income Tax', payslip.deductions.incomeTax]);
+    }
+    if (payslip.deductions.absentDeduction > 0) {
+      deductions.push(['Attendance Deduction', payslip.deductions.absentDeduction]);
+    }
+    if (payslip.deductions.loanDeduction > 0) {
+      deductions.push(['Loan Deduction', payslip.deductions.loanDeduction]);
+    }
+    if (payslip.deductions.advanceDeduction > 0) {
+      deductions.push(['Advance Deduction', payslip.deductions.advanceDeduction]);
+    }
+    if (payslip.deductions.lateDeduction > 0) {
+      deductions.push(['Late Deduction', payslip.deductions.lateDeduction]);
+    }
+    if (payslip.deductions.otherDeductions > 0) {
+      deductions.push(['Other Deductions', payslip.deductions.otherDeductions]);
+    }
     
     let earningsY = currentY;
     earnings.forEach(([label, amount]) => {
-      if (amount > 0) {
-        doc.text(label, 40, earningsY).text(formatCurrency(amount), 170, earningsY);
-        earningsY += 12;
-      }
+      doc.text(label, 40, earningsY).text(formatCurrency(amount), 170, earningsY);
+      earningsY += 12;
     });
     
     let deductionsY = currentY;
     deductions.forEach(([label, amount]) => {
-      if (amount > 0) {
-        doc.text(label, 290, deductionsY).text(formatCurrency(amount), 430, deductionsY);
-        deductionsY += 12;
-      }
+      doc.text(label, 290, deductionsY).text(formatCurrency(amount), 430, deductionsY);
+      deductionsY += 12;
     });
 
     // Summary section - Professional and clean with proper spacing
@@ -223,32 +281,54 @@ async function generatePayslipPDF(payslip, res) {
        .fill()
        .stroke('#dee2e6');
 
-    // Gross Salary
+    // Total Earnings (replaced Gross Salary)
     doc.fontSize(11)
        .font('Helvetica-Bold')
        .fillColor('#495057')
-       .text('Gross Salary:', 40, currentY + 10)
-       .text(formatCurrency(payslip.grossSalary), 200, currentY + 10);
+       .text('Total Earnings:', 40, currentY + 10)
+       .text(formatCurrency(payslip.totalEarnings), 200, currentY + 10);
 
     // Total Deductions
     doc.text('Total Deductions:', 40, currentY + 25)
        .text(formatCurrency(payslip.totalDeductions), 200, currentY + 25);
 
-    // Net Salary with properly positioned highlight
-    const netSalaryY = currentY + 40;
-    doc.rect(30, netSalaryY, pageWidth - 30, 20)
-       .fillColor('#e8f5e8')
-       .fill()
-       .stroke('#c3e6c3');
+    // Net Salary
+    doc.text('Net Salary:', 40, currentY + 40)
+       .text(formatCurrency(payslip.netSalary), 200, currentY + 40);
 
-    doc.fontSize(13)
+    // Attendance section - Professional and clean
+    currentY += 70;
+    
+    // Attendance background - properly sized
+    const attendanceHeight = 50;
+    doc.rect(30, currentY, pageWidth - 30, attendanceHeight)
+       .fillColor('#f8f9fa')
+       .fill()
+       .stroke('#dee2e6');
+
+    // Attendance header
+    doc.fontSize(11)
        .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Attendance Summary', 40, currentY + 8);
+
+    // Attendance details in two columns
+    doc.fontSize(10)
+       .font('Helvetica-Bold')
+       .fillColor('#495057')
+       .text('Total Working Days:', 40, currentY + 25)
+       .text('Present Days:', 200, currentY + 25)
+       .text('Absent Days:', 360, currentY + 25);
+
+    doc.fontSize(10)
+       .font('Helvetica')
        .fillColor('#2c3e50')
-       .text('Net Salary:', 40, netSalaryY + 5)
-       .text(formatCurrency(payslip.netSalary), 200, netSalaryY + 5);
+       .text(payslip.totalDays || 0, 150, currentY + 25)
+       .text(payslip.presentDays || 0, 280, currentY + 25)
+       .text(payslip.absentDays || 0, 440, currentY + 25);
 
     // Amount in words - properly positioned
-    currentY += 75;
+    currentY += 70;
     doc.fontSize(10)
        .font('Helvetica')
        .fillColor('#6c757d')
@@ -371,7 +451,14 @@ router.get('/',
     }
 
     let query = Payroll.find(matchStage)
-      .populate('employee', 'firstName lastName employeeId department position')
+      .populate({
+        path: 'employee',
+        select: 'firstName lastName employeeId department position placementProject',
+        populate: {
+          path: 'placementProject',
+          select: 'name'
+        }
+      })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName')
       .sort({ createdAt: -1 });
@@ -747,7 +834,14 @@ router.get('/:id',
     }
 
     const payroll = await Payroll.findById(req.params.id)
-      .populate('employee', 'firstName lastName employeeId department position salary')
+      .populate({
+        path: 'employee',
+        select: 'firstName lastName employeeId department position salary placementProject',
+        populate: {
+          path: 'placementProject',
+          select: 'name'
+        }
+      })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -1776,7 +1870,14 @@ router.patch('/:id/approve',
     await payroll.approve(req.user.id);
 
     const updatedPayroll = await Payroll.findById(payroll._id)
-      .populate('employee', 'firstName lastName employeeId department position')
+      .populate({
+        path: 'employee',
+        select: 'firstName lastName employeeId department position placementProject',
+        populate: {
+          path: 'placementProject',
+          select: 'name'
+        }
+      })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -1871,7 +1972,14 @@ router.patch('/:id/mark-unpaid',
     await payroll.markAsUnpaid();
 
     const updatedPayroll = await Payroll.findById(payroll._id)
-      .populate('employee', 'firstName lastName employeeId department position')
+      .populate({
+        path: 'employee',
+        select: 'firstName lastName employeeId department position placementProject',
+        populate: {
+          path: 'placementProject',
+          select: 'name'
+        }
+      })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -1956,7 +2064,14 @@ router.get('/:id/download',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const payroll = await Payroll.findById(req.params.id)
-      .populate('employee', 'employeeId firstName lastName email phone department position')
+      .populate({
+      path: 'employee',
+      select: 'employeeId firstName lastName email phone department position placementProject',
+      populate: {
+        path: 'placementProject',
+        select: 'name'
+      }
+    })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName');
 
@@ -2491,10 +2606,10 @@ router.post('/:id/generate-payslip',
       const payroll = await Payroll.findById(payrollId)
         .populate({
           path: 'employee',
-          select: 'firstName lastName employeeId department position',
+          select: 'firstName lastName employeeId department position placementDesignation',
           populate: [
             { path: 'department', select: 'name' },
-            { path: 'position', select: 'title' }
+            { path: 'placementDesignation', select: 'title' }
           ]
         });
       
@@ -2507,7 +2622,15 @@ router.post('/:id/generate-payslip',
       
       // Extract department and position names efficiently
       const departmentName = payroll.employee?.department?.name || 'Not Specified';
-      const positionName = payroll.employee?.position?.title || 'Not Specified';
+      const positionName = payroll.employee?.placementDesignation?.title || payroll.employee?.position || 'Not Specified';
+      
+      // Debug logging for designation
+      console.log(`📋 Payslip Designation Debug:`);
+      console.log(`   Employee: ${payroll.employee?.firstName} ${payroll.employee?.lastName}`);
+      console.log(`   Placement Designation Object:`, payroll.employee?.placementDesignation);
+      console.log(`   Placement Designation Title: ${payroll.employee?.placementDesignation?.title}`);
+      console.log(`   Position Field: ${payroll.employee?.position}`);
+      console.log(`   Final Designation: ${positionName}`);
       
       // Validate employee data
       if (!payroll.employee?.employeeId) {
@@ -2535,6 +2658,8 @@ router.post('/:id/generate-payslip',
         houseRent: payroll.houseRentAllowance || 0,
         medicalAllowance: payroll.medicalAllowance || 0,
         conveyanceAllowance: payroll.allowances?.conveyance?.amount || 0,
+        vehicleFuelAllowance: payroll.allowances?.vehicleFuel?.amount || 0,
+        foodAllowance: payroll.allowances?.food?.amount || 0,
         specialAllowance: payroll.allowances?.special?.amount || 0,
         otherAllowances: payroll.allowances?.other?.amount || 0,
         
@@ -2544,6 +2669,8 @@ router.post('/:id/generate-payslip',
           houseRent: payroll.houseRentAllowance || 0,
           medicalAllowance: payroll.medicalAllowance || 0,
           conveyanceAllowance: payroll.allowances?.conveyance?.amount || 0,
+          vehicleFuelAllowance: payroll.allowances?.vehicleFuel?.amount || 0,
+          foodAllowance: payroll.allowances?.food?.amount || 0,
           specialAllowance: payroll.allowances?.special?.amount || 0,
           otherAllowances: payroll.allowances?.other?.amount || 0,
           overtime: payroll.overtimeAmount || 0,

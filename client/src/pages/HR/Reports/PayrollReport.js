@@ -56,11 +56,14 @@ const PayrollReport = () => {
   const [reportData, setReportData] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [departments, setDepartments] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(false);
   const [filters, setFilters] = useState({
-    month: 9, // September 2025 (has data)
+    month: 8, // August 2025 (has complete data for all 679 employees)
     year: 2025,
     department: '',
+    project: '',
     format: 'json'
   });
 
@@ -122,6 +125,21 @@ const PayrollReport = () => {
     }
   };
 
+  // Load projects
+  const loadProjects = async () => {
+    setLoadingProjects(true);
+    try {
+      const response = await api.get('/projects');
+      if (response.data.success) {
+        setProjects(response.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading projects:', error);
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
   // Load report data
   const loadReportData = async () => {
     setLoading(true);
@@ -131,6 +149,7 @@ const PayrollReport = () => {
           month: filters.month,
           year: filters.year,
           department: filters.department,
+          project: filters.project,
           format: 'json'
         }
       });
@@ -156,6 +175,7 @@ const PayrollReport = () => {
           month: filters.month,
           year: filters.year,
           department: filters.department,
+          project: filters.project,
           format: format
         },
         responseType: format === 'csv' ? 'blob' : 'json'
@@ -181,8 +201,9 @@ const PayrollReport = () => {
 
   useEffect(() => {
     loadDepartments();
+    loadProjects();
     loadReportData();
-  }, [reportType, filters.month, filters.year, filters.department]);
+  }, [reportType, filters.month, filters.year, filters.department, filters.project]);
 
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
@@ -202,7 +223,8 @@ const PayrollReport = () => {
     return reportData.data.filter(row => 
       (row.employeeName && row.employeeName.toLowerCase().includes(term)) ||
       (row.employeeId && row.employeeId.toString().includes(term)) ||
-      (row.department && row.department.toLowerCase().includes(term))
+      (row.department && row.department.toLowerCase().includes(term)) ||
+      (row.project && row.project.toLowerCase().includes(term))
     );
   };
 
@@ -302,7 +324,7 @@ const PayrollReport = () => {
           {/* Search Bar */}
           <TextField
             fullWidth
-            placeholder="Search by employee name, ID, or department..."
+            placeholder="Search by employee name, ID, department, or project..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             sx={{ mb: 3 }}
@@ -320,6 +342,7 @@ const PayrollReport = () => {
                   <TableCell sx={{ fontWeight: 'bold' }}>Employee ID</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Employee Name</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Department</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Project</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Gross Salary</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Deductions</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>Net Pay</TableCell>
@@ -333,6 +356,7 @@ const PayrollReport = () => {
                     </TableCell>
                     <TableCell>{row.employeeName || 'N/A'}</TableCell>
                     <TableCell>{row.department || 'N/A'}</TableCell>
+                    <TableCell>{row.project || 'N/A'}</TableCell>
                     <TableCell>{formatPKR(row.grossSalary || 0)}</TableCell>
                     <TableCell>{formatPKR(row.deductions || 0)}</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>
@@ -439,6 +463,28 @@ const PayrollReport = () => {
                       {dept.name}
                     </MenuItem>
                   ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Project</InputLabel>
+                <Select
+                  value={filters.project}
+                  label="Project"
+                  onChange={(e) => handleFilterChange('project', e.target.value)}
+                  disabled={loadingProjects}
+                >
+                  <MenuItem value="">
+                    <em>All Projects</em>
+                  </MenuItem>
+                  {projects
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((project) => (
+                      <MenuItem key={project._id} value={project._id}>
+                        {project.name}
+                      </MenuItem>
+                    ))}
                 </Select>
               </FormControl>
             </Grid>

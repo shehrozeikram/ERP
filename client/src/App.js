@@ -61,6 +61,10 @@ import StaffManagementDashboard from './pages/Admin/StaffManagement/StaffManagem
 import StaffAssignmentList from './pages/Admin/StaffManagement/StaffAssignmentList';
 import StaffAssignmentForm from './pages/Admin/StaffManagement/StaffAssignmentForm';
 import LocationManagement from './pages/Admin/StaffManagement/LocationManagement';
+import UtilityBillDashboard from './pages/Admin/UtilityBillManagement/UtilityBillDashboard';
+import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList';
+import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
+import UtilityBillDetails from './pages/Admin/UtilityBillManagement/UtilityBillDetails';
 import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
@@ -749,6 +753,28 @@ function App() {
             <Route 
               path="/admin/staff-management/locations" 
               element={<ProtectedRoute requiredRole="admin"><LocationManagement /></ProtectedRoute>} 
+            />
+
+            {/* Utility Bills Management Routes */}
+            <Route 
+              path="/admin/utility-bills" 
+              element={<ProtectedRoute requiredRole="admin"><UtilityBillDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/utility-bills/list" 
+              element={<ProtectedRoute requiredRole="admin"><UtilityBillList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/utility-bills/new" 
+              element={<ProtectedRoute requiredRole="admin"><UtilityBillForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/utility-bills/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><UtilityBillForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/utility-bills/:id" 
+              element={<ProtectedRoute requiredRole="admin"><UtilityBillDetails /></ProtectedRoute>} 
             />
 
 

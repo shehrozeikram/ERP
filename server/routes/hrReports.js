@@ -40,7 +40,7 @@ router.get('/',
     } = req.query;
 
     // Build base filter
-    const baseFilter = {};
+    const baseFilter = { isDeleted: false }; // Exclude deleted employees
     
     if (department) baseFilter.department = department;
     if (designation) baseFilter.position = designation;

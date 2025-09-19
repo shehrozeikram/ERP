@@ -495,12 +495,13 @@ export const DataProvider = ({ children }) => {
       // Load data directly without using the fetch functions to avoid dependency issues
       const loadData = async () => {
         try {
-          const [departmentsRes, employeesRes, positionsRes, banksRes, companiesRes] = await Promise.all([
+          const [departmentsRes, employeesRes, positionsRes, banksRes, companiesRes, projectsRes] = await Promise.all([
             api.get('/hr/departments'),
             api.get('/hr/employees?getAll=true'),
             api.get('/positions'),
             api.get('/hr/banks'),
-            api.get('/hr/companies')
+            api.get('/hr/companies'),
+            api.get('/projects')
           ]);
           
           setDepartments(departmentsRes.data.data || []);
@@ -508,6 +509,7 @@ export const DataProvider = ({ children }) => {
           setPositions(positionsRes.data.data || []);
           setBanks(banksRes.data.data || []);
           setCompanies(companiesRes.data.data || []);
+          setProjects(projectsRes.data.data || []);
           
           // Set cache timestamps
           const now = Date.now();
@@ -517,7 +519,8 @@ export const DataProvider = ({ children }) => {
             employees: now,
             positions: now,
             banks: now,
-            companies: now
+            companies: now,
+            projects: now
           }));
           
           console.log('✅ Essential HR data preloaded successfully');

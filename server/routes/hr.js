@@ -95,18 +95,26 @@ router.get('/employees/next-id',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     try {
-      // Find the last employee to get the highest ID
-      const lastEmployee = await Employee.findOne({}, { employeeId: 1 })
-        .sort({ employeeId: -1 });
-
-      let nextId = '1';
+      // Find all employees to get the highest numeric ID
+      const allEmployees = await Employee.find({ isDeleted: false }, { employeeId: 1 }).lean();
       
-      if (lastEmployee && lastEmployee.employeeId) {
-        // Extract the number from the last ID (e.g., "123" -> 123)
-        const lastNumber = parseInt(lastEmployee.employeeId);
-        const nextNumber = lastNumber + 1;
-        nextId = nextNumber.toString();
-      }
+      let highestId = 0;
+      
+      // Convert all employee IDs to numbers and find the highest
+      allEmployees.forEach(emp => {
+        if (emp.employeeId) {
+          // Remove leading zeros and convert to number
+          const numericId = parseInt(emp.employeeId.replace(/^0+/, ''));
+          if (!isNaN(numericId) && numericId > highestId) {
+            highestId = numericId;
+          }
+        }
+      });
+      
+      // Next ID is the highest + 1
+      const nextNumber = highestId + 1;
+      // Format as 5-digit string with leading zeros
+      const nextId = nextNumber.toString().padStart(5, '0');
 
       res.json({
         success: true,
@@ -257,6 +265,7 @@ router.post('/employees', [
   body('maritalStatus').isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
   body('qualification').notEmpty().withMessage('Qualification is required'),
   body('bankName').notEmpty().withMessage('Bank name is required'),
+  body('bankAccountNumber').notEmpty().withMessage('Bank account number is required'),
   body('spouseName').custom((value, { req }) => {
     if (req.body.maritalStatus === 'Married' && !value) {
       throw new Error('Spouse name is required when marital status is Married');
@@ -631,6 +640,7 @@ router.put('/employees/:id', [
   body('maritalStatus').optional().isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
   body('qualification').optional().notEmpty().withMessage('Qualification is required'),
   body('bankName').optional().notEmpty().withMessage('Bank name is required'),
+  body('bankAccountNumber').optional().notEmpty().withMessage('Bank account number is required'),
   body('spouseName').optional().custom((value, { req }) => {
     if (req.body.maritalStatus === 'Married' && !value) {
       throw new Error('Spouse name is required when marital status is Married');
@@ -1358,8 +1368,6 @@ router.get('/sectors',
 router.post('/sectors', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Sector name is required'),
-  body('code').trim().notEmpty().withMessage('Sector code is required'),
-  body('description').trim().notEmpty().withMessage('Sector description is required'),
   body('industry').trim().notEmpty().withMessage('Industry is required')
 ],
   asyncHandler(async (req, res) => {
@@ -1713,7 +1721,6 @@ router.get('/sections',
 router.post('/sections', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Section name is required'),
-  body('code').trim().notEmpty().withMessage('Section code is required'),
   body('department').notEmpty().withMessage('Department is required')
 ],
   asyncHandler(async (req, res) => {

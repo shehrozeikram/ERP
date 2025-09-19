@@ -79,7 +79,14 @@ const checkPermission = (permission) => {
         location_create: ['admin'],
         location_update: ['admin'],
         location_delete: ['admin'],
-        location_view: ['admin']
+        location_view: ['admin'],
+        
+        // Utility Bills Management
+        utility: ['admin'],
+        utility_create: ['admin'],
+        utility_update: ['admin'],
+        utility_delete: ['admin'],
+        utility_view: ['admin']
       };
 
       const allowedRoles = permissionMappings[permission];

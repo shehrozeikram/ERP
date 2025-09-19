@@ -45,12 +45,14 @@ import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import { useData } from '../../contexts/DataContext';
 
 const steps = ['Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
 
 const EmployeeForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { fetchEmployees } = useData();
   const [activeStep, setActiveStep] = useState(0);
   const [departments, setDepartments] = useState([]);
 
@@ -90,9 +92,7 @@ const EmployeeForm = () => {
 
   const [newSectorData, setNewSectorData] = useState({
     name: '',
-    code: '',
-    industry: 'Technology',
-    description: ''
+    industry: 'Technology'
   });
 
   const [newProjectData, setNewProjectData] = useState({
@@ -108,9 +108,7 @@ const EmployeeForm = () => {
   });
 
   const [newSectionData, setNewSectionData] = useState({
-    name: '',
-    code: '',
-    description: ''
+    name: ''
   });
 
   const [newDesignationData, setNewDesignationData] = useState({
@@ -150,6 +148,7 @@ const EmployeeForm = () => {
     employeeId: Yup.string(),
     qualification: Yup.string().required('Qualification is required'),
     bankName: Yup.string().required('Bank name is required'),
+    bankAccountNumber: Yup.string().required('Bank account number is required'),
     foreignBankAccount: Yup.string(),
     spouseName: Yup.string().when('maritalStatus', {
       is: 'Married',
@@ -193,6 +192,10 @@ const EmployeeForm = () => {
       medical: Yup.object({
         isActive: Yup.boolean(),
         amount: Yup.number().min(0, 'Medical allowance must be positive')
+      }),
+      houseRent: Yup.object({
+        isActive: Yup.boolean(),
+        amount: Yup.number().min(0, 'House allowance must be positive')
       }),
       special: Yup.object({
         isActive: Yup.boolean(),
@@ -494,6 +497,7 @@ const EmployeeForm = () => {
       const formData = {
         ...employeeData,
         bankName: employeeData.bankName?._id || employeeData.bankName || '',
+        bankAccountNumber: employeeData.bankAccountNumber || '',
         placementCompany: employeeData.placementCompany?._id || employeeData.placementCompany || '',
         placementSector: employeeData.placementSector?._id || employeeData.placementSector || '',
         placementProject: employeeData.placementProject?._id || employeeData.placementProject || '',
@@ -522,6 +526,10 @@ const EmployeeForm = () => {
           medical: {
             isActive: employeeData.allowances?.medical?.isActive || false,
             amount: employeeData.allowances?.medical?.amount || 0
+          },
+          houseRent: {
+            isActive: employeeData.allowances?.houseRent?.isActive || false,
+            amount: employeeData.allowances?.houseRent?.amount || 0
           },
           special: {
             isActive: employeeData.allowances?.special?.isActive || false,
@@ -663,7 +671,7 @@ const EmployeeForm = () => {
 
   // Update formik values when nextEmployeeId is fetched
   useEffect(() => {
-    if (nextEmployeeId && !id) {
+    if (nextEmployeeId && (!id || id === 'add')) {
       formik.setFieldValue('employeeId', nextEmployeeId);
     }
   }, [nextEmployeeId, id]);
@@ -681,9 +689,10 @@ const EmployeeForm = () => {
       profileImage: '',
       religion: 'Islam',
       maritalStatus: 'Single',
-      employeeId: id ? '' : nextEmployeeId, // Empty for editing, nextEmployeeId for new
+      employeeId: (id && id !== 'add') ? '' : nextEmployeeId, // Empty for editing, nextEmployeeId for new
       qualification: '',
       bankName: '',
+      bankAccountNumber: '',
       foreignBankAccount: '',
       spouseName: '',
       appointmentDate: '',
@@ -839,6 +848,9 @@ const EmployeeForm = () => {
           });
         }
         
+        // Refresh employee data immediately
+        await fetchEmployees(true);
+        
         setTimeout(() => {
           navigate('/hr/employees');
         }, 1500);
@@ -965,7 +977,7 @@ const EmployeeForm = () => {
 
   const handleSaveNewSector = async () => {
     try {
-      if (!newSectorData.name || !newSectorData.code) {
+      if (!newSectorData.name) {
         setSnackbar({
           open: true,
           message: 'Please fill in all required fields',
@@ -983,7 +995,7 @@ const EmployeeForm = () => {
       });
 
       setShowAddSectorDialog(false);
-      setNewSectorData({ name: '', code: '', industry: 'Technology', description: '' });
+      setNewSectorData({ name: '', industry: 'Technology' });
       
       // Refresh sectors
       await fetchSectors();
@@ -1086,10 +1098,19 @@ const EmployeeForm = () => {
 
   const handleSaveNewSection = async () => {
     try {
-      if (!newSectionData.name || !newSectionData.code) {
+      if (!newSectionData.name) {
         setSnackbar({
           open: true,
           message: 'Please fill in all required fields',
+          severity: 'error'
+        });
+        return;
+      }
+
+      if (!formik.values.placementDepartment) {
+        setSnackbar({
+          open: true,
+          message: 'Please select a department first',
           severity: 'error'
         });
         return;
@@ -1109,7 +1130,7 @@ const EmployeeForm = () => {
       });
 
       setShowAddSectionDialog(false);
-      setNewSectionData({ name: '', code: '', description: '' });
+      setNewSectionData({ name: '' });
       
       // Refresh sections
       await fetchSectionsByDepartment(formik.values.placementDepartment);
@@ -1510,11 +1531,11 @@ const EmployeeForm = () => {
                 fullWidth
                 name="employeeId"
                 label="Employee ID"
-                value={id ? (formik.values.employeeId || 'Loading...') : (nextEmployeeId || 'Loading...')}
+                value={(id && id !== 'add') ? (formik.values.employeeId || 'Loading...') : (nextEmployeeId || 'Loading...')}
                 InputProps={{
                   readOnly: true,
                 }}
-                helperText={id ? "Employee ID (cannot be changed)" : "Employee ID will be auto-generated"}
+                helperText={(id && id !== 'add') ? "Employee ID (cannot be changed)" : "Employee ID will be auto-generated"}
               />
             </Grid>
 
@@ -1699,6 +1720,37 @@ const EmployeeForm = () => {
                   label="Medical Allowance Amount"
                   type="number"
                   value={formik.values.allowances?.medical?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* House Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.houseRent?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.houseRent.isActive', e.target.checked)}
+                      name="allowances.houseRent.isActive"
+                    />
+                  }
+                  label="House Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.houseRent?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.houseRent.amount"
+                  label="House Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.houseRent?.amount || ''}
                   onChange={formik.handleChange}
                   InputProps={{
                     startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
@@ -2064,6 +2116,17 @@ const EmployeeForm = () => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
+                name="bankAccountNumber"
+                label="Bank Account Number"
+                value={formik.values.bankAccountNumber}
+                onChange={formik.handleChange}
+                error={formik.touched.bankAccountNumber && Boolean(formik.errors.bankAccountNumber)}
+                helperText={formik.touched.bankAccountNumber && formik.errors.bankAccountNumber}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
                 name="foreignBankAccount"
                 label="Foreign Bank Account (Optional)"
                 value={formik.values.foreignBankAccount}
@@ -2148,7 +2211,7 @@ const EmployeeForm = () => {
                 >
                   {sectors.map((sector) => (
                     <MenuItem key={sector._id} value={sector._id}>
-                      {safeRenderText(sector.name)} ({safeRenderText(sector.industry)})
+                      {safeRenderText(sector.name)}
                     </MenuItem>
                   ))}
                   <MenuItem 
@@ -2302,7 +2365,7 @@ const EmployeeForm = () => {
                 >
                   {sections.map((section) => (
                     <MenuItem key={section._id} value={section._id}>
-                      {safeRenderText(section.name)} - {safeRenderText(section.department?.name)}
+                      {safeRenderText(section.name)}
                     </MenuItem>
                   ))}
                   {safeFormValue(formik.values.placementSector) && (
@@ -2707,6 +2770,11 @@ const EmployeeForm = () => {
                             🏥 Medical Allowance: {formatPKR(formik.values.allowances.medical.amount || 0)}
                           </Typography>
                         )}
+                        {formik.values.allowances?.houseRent?.isActive && (
+                          <Typography variant="body2" color="success.main">
+                            🏠 House Allowance: {formatPKR(formik.values.allowances.houseRent.amount || 0)}
+                          </Typography>
+                        )}
                         {formik.values.allowances?.special?.isActive && (
                           <Typography variant="body2" color="success.main">
                             ⭐ Special: {formatPKR(formik.values.allowances.special.amount || 0)}
@@ -3023,15 +3091,6 @@ const EmployeeForm = () => {
                 />
               </Grid>
               <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Sector Code"
-                  value={newSectorData.code}
-                  onChange={(e) => handleNewSectorChange('code', e.target.value)}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
                   <InputLabel>Industry</InputLabel>
                   <Select
@@ -3049,16 +3108,6 @@ const EmployeeForm = () => {
                     <MenuItem value="Other">Other</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Description"
-                  value={newSectorData.description}
-                  onChange={(e) => handleNewSectorChange('description', e.target.value)}
-                  multiline
-                  rows={3}
-                />
               </Grid>
             </Grid>
           </Box>
@@ -3169,32 +3218,13 @@ const EmployeeForm = () => {
         <DialogContent>
           <Box sx={{ pt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Section Name"
                   value={newSectionData.name}
                   onChange={(e) => handleNewSectionChange('name', e.target.value)}
                   required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Section Code"
-                  value={newSectionData.code}
-                  onChange={(e) => handleNewSectionChange('code', e.target.value)}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Description"
-                  value={newSectionData.description}
-                  onChange={(e) => handleNewSectionChange('description', e.target.value)}
-                  multiline
-                  rows={3}
                 />
               </Grid>
             </Grid>

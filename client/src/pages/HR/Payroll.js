@@ -30,7 +30,8 @@ import {
   Tooltip,
   Fab,
   Collapse,
-  InputAdornment
+  InputAdornment,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -72,7 +73,7 @@ const months = [
 
 const Payroll = () => {
   const navigate = useNavigate();
-  const { employees, departments, positions, loading: dataLoading } = useData();
+  const { employees, departments, positions, projects, loading: dataLoading } = useData();
   const [payrolls, setPayrolls] = useState([]);
   const [monthlyPayrolls, setMonthlyPayrolls] = useState([]);
   const [paginatedMonthlyPayrolls, setPaginatedMonthlyPayrolls] = useState([]);
@@ -88,6 +89,7 @@ const Payroll = () => {
     employeeId: '',
     department: '',
     position: '',
+    project: '',
     startDate: '',
     endDate: '',
     searchQuery: ''
@@ -143,10 +145,20 @@ const Payroll = () => {
 
   const fetchStats = useCallback(async () => {
     try {
-      const response = await api.get('/payroll/stats');
-      setStats(response.data.data || {});
+      // Get General Payroll statistics from current overview instead of historical payrolls
+      const response = await api.get('/payroll/current-overview');
+      const overviewData = response.data.data || {};
+      
+      // Transform current overview data to match the expected stats format
+      setStats({
+        totalPayrolls: overviewData.totalEmployees || 0,
+        totalGrossSalary: overviewData.totalGrossSalary || 0,
+        totalNetSalary: overviewData.totalNetSalary || 0,
+        averageNetSalary: overviewData.totalEmployees > 0 ? 
+          (overviewData.totalNetSalary / overviewData.totalEmployees) : 0
+      });
     } catch (error) {
-      console.error('Error fetching stats:', error);
+      console.error('Error fetching General Payroll stats:', error);
     }
   }, []);
 
@@ -187,6 +199,11 @@ const Payroll = () => {
       filtered = filtered.filter(p => p.employee?.position === filters.position);
     }
 
+    // Filter by project
+    if (filters.project) {
+      filtered = filtered.filter(p => p.employee?.placementProject === filters.project);
+    }
+
     // Filter by search query - Updated to include both monthly and general payroll
     if (filters.searchQuery) {
       const query = filters.searchQuery.toLowerCase();
@@ -197,7 +214,8 @@ const Payroll = () => {
         p.employee?.lastName?.toLowerCase().includes(query) ||
         p.employee?.employeeId?.toLowerCase().includes(query) ||
         p.employee?.department?.toLowerCase().includes(query) ||
-        p.employee?.position?.toLowerCase().includes(query)
+        p.employee?.position?.toLowerCase().includes(query) ||
+        p.employee?.placementProject?.name?.toLowerCase().includes(query)
       );
       
       // Also filter general payroll overview if it exists
@@ -207,7 +225,8 @@ const Payroll = () => {
           emp.lastName?.toLowerCase().includes(query) ||
           emp.employeeId?.toLowerCase().includes(query) ||
           emp.placementDepartment?.name?.toLowerCase().includes(query) ||
-          emp.designation?.name?.toLowerCase().includes(query)
+          emp.designation?.name?.toLowerCase().includes(query) ||
+          emp.placementProject?.name?.toLowerCase().includes(query)
         );
         
         // Update current overview with filtered results for search
@@ -838,11 +857,96 @@ Do you want to:
 
   if ((loading && payrolls.length === 0) || dataLoading.employees || dataLoading.departments || dataLoading.positions) {
     return (
-      <PageLoading 
-        message="Loading payrolls..." 
-        showSkeleton={true}
-        skeletonType="table"
-      />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box sx={{ mb: 3 }}>
+          <Skeleton variant="text" width={200} height={40} sx={{ mb: 2 }} />
+          <Skeleton variant="text" width={300} height={24} />
+        </Box>
+
+        {/* Stats Cards Skeleton */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={12} sm={6} md={3} key={i}>
+              <Card sx={{ borderRadius: 3 }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Skeleton variant="circular" width={40} height={40} sx={{ mr: 2 }} />
+                    <Skeleton variant="text" width={120} height={24} />
+                  </Box>
+                  <Skeleton variant="text" width={80} height={32} sx={{ mb: 1 }} />
+                  <Skeleton variant="text" width={100} height={20} />
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Filter Controls Skeleton */}
+        <Card sx={{ mb: 3, borderRadius: 3 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+              <Skeleton variant="circular" width={24} height={24} />
+              <Skeleton variant="text" width={100} height={24} />
+            </Box>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* Table Skeleton */}
+        <Card sx={{ borderRadius: 3 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Skeleton variant="text" width={150} height={28} />
+              <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+            </Box>
+            
+            <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
+                      <TableCell key={i}>
+                        <Skeleton variant="text" width={80} height={20} />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((row) => (
+                    <TableRow key={row}>
+                      {[1, 2, 3, 4, 5, 6].map((cell) => (
+                        <TableCell key={cell}>
+                          <Skeleton variant="text" width={cell === 1 ? 100 : 80} height={20} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            
+            {/* Pagination Skeleton */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
+              <Skeleton variant="text" width={120} height={20} />
+              <Skeleton variant="rectangular" width={200} height={32} sx={{ borderRadius: 1 }} />
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
     );
   }
 
@@ -902,7 +1006,7 @@ Do you want to:
                 <AccountBalanceIcon sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
                 <Box>
                   <Typography color="textSecondary" gutterBottom>
-                    Total Payrolls
+                    Total Employees
                   </Typography>
                   <Typography variant="h4">
                     {stats.totalPayrolls || 0}
@@ -1953,7 +2057,38 @@ Do you want to:
               </FormControl>
             </Grid>
 
-            {/* Date Range - Row 3 */}
+            {/* Project - Row 3 */}
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Project</InputLabel>
+                <Select
+                  value={filters.project}
+                  onChange={(e) => handleFilterChange('project', e.target.value)}
+                  label="Project"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                    }
+                  }}
+                >
+                  <MenuItem value="">
+                    <em>All Projects</em>
+                  </MenuItem>
+                  {projects
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((project) => (
+                      <MenuItem key={project._id} value={project._id}>
+                        {project.name}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              {/* Empty grid item for layout balance */}
+            </Grid>
+
+            {/* Date Range - Row 4 */}
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
@@ -2032,6 +2167,15 @@ Do you want to:
                         size="small" 
                         onDelete={() => handleFilterChange('position', '')}
                         color="warning"
+                        variant="outlined"
+                      />
+                    )}
+                    {filters.project && (
+                      <Chip 
+                        label={`Project: ${projects.find(p => p._id === filters.project)?.name}`} 
+                        size="small" 
+                        onDelete={() => handleFilterChange('project', '')}
+                        color="secondary"
                         variant="outlined"
                       />
                     )}

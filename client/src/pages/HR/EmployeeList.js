@@ -44,11 +44,12 @@ import { PageLoading } from '../../components/LoadingSpinner';
 import api from '../../services/api';
 
 const EmployeeList = () => {
-  const { employees, departments, loading: dataLoading } = useData();
+  const { employees, departments, projects, loading: dataLoading, fetchEmployees } = useData();
   const [paginationLoading, setPaginationLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -95,10 +96,16 @@ const EmployeeList = () => {
     setPage(0); // Reset to first page when status filter changes
   }, []);
 
+  const handleProjectFilterChange = useCallback((value) => {
+    setProjectFilter(value);
+    setPage(0); // Reset to first page when project filter changes
+  }, []);
+
   const clearAllFilters = useCallback(() => {
     setSearchTerm('');
     setDepartmentFilter('');
     setStatusFilter('');
+    setProjectFilter('');
     setPage(0); // Reset to first page when clearing filters
   }, []);
 
@@ -117,6 +124,10 @@ const EmployeeList = () => {
       const employeeDepartment = typeof employee.placementDepartment === 'object' ? employee.placementDepartment?.name : employee.placementDepartment;
       const matchesDepartment = !departmentFilter || employeeDepartment === departmentFilter;
       
+      // Handle project filter
+      const employeeProject = typeof employee.placementProject === 'object' ? employee.placementProject?.name : employee.placementProject;
+      const matchesProject = !projectFilter || employeeProject === projectFilter;
+      
       // Handle status filter
       let matchesStatus = true;
       if (statusFilter) {
@@ -129,9 +140,9 @@ const EmployeeList = () => {
         }
       }
 
-      return matchesSearch && matchesDepartment && matchesStatus;
+      return matchesSearch && matchesDepartment && matchesProject && matchesStatus;
     });
-  }, [employees, searchTerm, departmentFilter, statusFilter]);
+  }, [employees, searchTerm, departmentFilter, projectFilter, statusFilter]);
 
   // Sort filtered employees by status first (inactive/draft at top), then by Employee ID
   const sortedEmployees = useMemo(() => {
@@ -195,6 +206,8 @@ const EmployeeList = () => {
       });
       setDeleteDialogOpen(false);
       setSelectedEmployee(null);
+      // Refresh the employee data immediately
+      await fetchEmployees(true);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -202,7 +215,7 @@ const EmployeeList = () => {
         severity: 'error'
       });
     }
-  }, [selectedEmployee]);
+  }, [selectedEmployee, fetchEmployees]);
 
   const getStatusColor = (employee) => {
     if (employee.isActive === true && employee.employmentStatus === 'Active') {
@@ -349,7 +362,7 @@ const EmployeeList = () => {
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <TextField
               fullWidth
               placeholder="Search employees..."
@@ -364,7 +377,7 @@ const EmployeeList = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={2.5}>
             <FormControl fullWidth>
               <InputLabel>Department</InputLabel>
               <Select
@@ -391,7 +404,36 @@ const EmployeeList = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={2.5}>
+            <FormControl fullWidth>
+              <InputLabel>Project</InputLabel>
+              <Select
+                value={projectFilter}
+                onChange={(e) => handleProjectFilterChange(e.target.value)}
+                label="Project"
+                sx={{
+                  '& .MuiSelect-select': {
+                    paddingRight: '32px',
+                  },
+                  '& .MuiSelect-icon': {
+                    right: '8px',
+                  }
+                }}
+              >
+                <MenuItem value="">
+                  <em>All Projects</em>
+                </MenuItem>
+                {projects
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((project) => (
+                    <MenuItem key={project._id} value={project.name}>
+                      {project.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} md={2}>
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>
               <Select
@@ -427,7 +469,7 @@ const EmployeeList = () => {
         </Grid>
         
         {/* Search Results Summary */}
-        {(searchTerm || departmentFilter || statusFilter) && (
+        {(searchTerm || departmentFilter || projectFilter || statusFilter) && (
           <Box sx={{ mt: 2, p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
             <Typography variant="body2" color="info.main" sx={{ fontWeight: 500 }}>
               🔍 Filtered Results: Found {totalItems} employee(s)
@@ -438,6 +480,7 @@ const EmployeeList = () => {
             <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
               {searchTerm && `Search: "${searchTerm}"`}
               {departmentFilter && ` • Department: ${departmentFilter}`}
+              {projectFilter && ` • Project: ${projectFilter}`}
               {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : statusFilter === 'draft' ? 'Draft' : 'Inactive'}`}
             </Typography>
           </Box>
@@ -506,6 +549,7 @@ const EmployeeList = () => {
                 <TableCell>Marital Status</TableCell>
                 <TableCell>Qualification</TableCell>
                 <TableCell>Bank Name</TableCell>
+                <TableCell>Bank Account Number</TableCell>
                 <TableCell>Spouse Name</TableCell>
                 <TableCell>Appointment Date</TableCell>
                 <TableCell>Probation Period</TableCell>
@@ -572,6 +616,7 @@ const EmployeeList = () => {
                     <TableCell>{employee.maritalStatus || 'N/A'}</TableCell>
                     <TableCell>{employee.qualification || 'N/A'}</TableCell>
                     <TableCell>{typeof employee.bankName === 'object' ? employee.bankName?.name : employee.bankName || 'N/A'}</TableCell>
+                    <TableCell>{employee.accountNumber || 'N/A'}</TableCell>
                     <TableCell>{employee.spouseName || 'N/A'}</TableCell>
                     <TableCell>{employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}</TableCell>
                     <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>

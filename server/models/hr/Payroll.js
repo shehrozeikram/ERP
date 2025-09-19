@@ -70,6 +70,17 @@ const payrollSchema = new mongoose.Schema({
         min: [0, 'Medical allowance cannot be negative']
       }
     },
+    houseRent: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'House rent allowance cannot be negative']
+      }
+    },
     special: {
       isActive: {
         type: Boolean,
@@ -342,6 +353,9 @@ payrollSchema.virtual('totalAllowances').get(function() {
     }
     if (this.allowances.medical?.isActive) {
       total += this.allowances.medical.amount || 0;
+    }
+    if (this.allowances.houseRent?.isActive) {
+      total += this.allowances.houseRent.amount || 0;
     }
     if (this.allowances.special?.isActive) {
       total += this.allowances.special.amount || 0;
@@ -643,6 +657,10 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
       isActive: employeeAllowances.medical?.isActive || false,
       amount: employeeAllowances.medical?.isActive ? employeeAllowances.medical.amount : 0
     },
+    houseRent: {
+      isActive: employeeAllowances.houseRent?.isActive || false,
+      amount: employeeAllowances.houseRent?.isActive ? employeeAllowances.houseRent.amount : 0
+    },
     special: {
       isActive: employeeAllowances.special?.isActive || false,
       amount: employeeAllowances.special?.isActive ? employeeAllowances.special.amount : 0
@@ -660,6 +678,10 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   
   const grossSalary = basicSalary + totalAllowances;
   
+  // Calculate automatic allowances based on gross salary
+  const automaticMedicalAllowance = Math.round(grossSalary * 0.10); // 10% of gross salary
+  const automaticHouseRentAllowance = Math.round(grossSalary * 0.2334); // 23.34% of gross salary
+  
   // Calculate daily rate for attendance deduction (26-day basis)
   const dailyRate = grossSalary / 26; // Simple: Gross Salary ÷ 26
   const attendanceDeduction = absentDays * dailyRate; // Deduct for each absent day
@@ -669,6 +691,8 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     (payrollAllowances.conveyance.isActive ? payrollAllowances.conveyance.amount : 0) +
     (payrollAllowances.food.isActive ? payrollAllowances.food.amount : 0) +
     (payrollAllowances.vehicleFuel.isActive ? payrollAllowances.vehicleFuel.amount : 0) +
+    (payrollAllowances.medical.isActive ? payrollAllowances.medical.amount : 0) +
+    (payrollAllowances.houseRent.isActive ? payrollAllowances.houseRent.amount : 0) +
     (payrollAllowances.special.isActive ? payrollAllowances.special.amount : 0) +
     (payrollAllowances.other.isActive ? payrollAllowances.other.amount : 0);
   
@@ -691,6 +715,13 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     year: year,
     basicSalary: basicSalary,
     allowances: payrollAllowances,
+    // Set direct allowance fields for backward compatibility
+    conveyanceAllowance: payrollAllowances.conveyance.isActive ? payrollAllowances.conveyance.amount : 0,
+    foodAllowance: payrollAllowances.food.isActive ? payrollAllowances.food.amount : 0,
+    vehicleFuelAllowance: payrollAllowances.vehicleFuel.isActive ? payrollAllowances.vehicleFuel.amount : 0,
+    // Automatic allowances based on gross salary
+    houseRentAllowance: automaticHouseRentAllowance,
+    medicalAllowance: automaticMedicalAllowance,
     overtimeHours: overtimeHours,
     overtimeRate: overtimeRate,
     overtimeAmount: overtimeAmount,

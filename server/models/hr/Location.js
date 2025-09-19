@@ -7,6 +7,10 @@ const locationSchema = new mongoose.Schema({
     unique: true,
     default: () => `LOC${Date.now().toString().slice(-6)}`
   },
+  code: {
+    type: String,
+    trim: true
+  },
   name: {
     type: String,
     required: true,
@@ -20,7 +24,6 @@ const locationSchema = new mongoose.Schema({
   },
   address: {
     type: String,
-    required: true,
     trim: true
   },
   city: {
@@ -86,8 +89,7 @@ const locationSchema = new mongoose.Schema({
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   }
 }, {
   timestamps: true

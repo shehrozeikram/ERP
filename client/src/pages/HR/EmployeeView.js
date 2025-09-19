@@ -34,10 +34,12 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/api';
+import { useData } from '../../contexts/DataContext';
 
 const EmployeeView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { fetchEmployees } = useData();
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -127,6 +129,8 @@ const EmployeeView = () => {
         message: `Employee ${statusDialog.newStatus ? 'activated' : 'deactivated'} successfully`,
         severity: 'success'
       });
+      // Refresh the employee data immediately
+      await fetchEmployees(true);
     } catch (error) {
       console.error('Error updating employee status:', error);
       setSnackbar({
@@ -325,6 +329,10 @@ const EmployeeView = () => {
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Bank Name</Typography>
                   <Typography variant="body1">{safeRenderText(employee.bankName)}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Bank Account Number</Typography>
+                  <Typography variant="body1">{safeRenderText(employee.accountNumber)}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Hire Date</Typography>

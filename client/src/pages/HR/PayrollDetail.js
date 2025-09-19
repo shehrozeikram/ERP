@@ -23,12 +23,14 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
-  TablePagination
+  TablePagination,
+  Snackbar
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   Edit as EditIcon,
   CheckCircle as ApproveIcon,
+  CheckCircle,
   Payment as PaymentIcon,
   Cancel as CancelIcon,
   Download as DownloadIcon,
@@ -49,6 +51,8 @@ const PayrollDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+  const [downloadSuccess, setDownloadSuccess] = useState(false);
   
   // Modal states for attendance history
   const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
@@ -136,7 +140,8 @@ const PayrollDetail = () => {
 
   const handleGeneratePayslip = async () => {
     try {
-      setActionLoading(true);
+      setDownloadLoading(true);
+      setDownloadSuccess(false);
       
       // Make request to generate payslip and get PDF
       const response = await api.post(`/payroll/${id}/generate-payslip`, {}, {
@@ -171,31 +176,19 @@ const PayrollDetail = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
       
-      // Show success message
-      alert('Payslip PDF downloaded successfully!');
+      // Show success feedback
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 3000);
       
     } catch (error) {
       console.error('Error generating payslip:', error);
       
-      if (error.response?.status === 404) {
-        alert('Error: Payroll not found. Please refresh the page and try again.');
-      } else if (error.response?.status === 400) {
-        if (error.response?.data?.message?.includes('already exists')) {
-          alert(`Error: ${error.response.data.message}`);
-        } else if (error.response?.data?.message?.includes('Employee data not found')) {
-          alert('Error: Employee data is missing from this payroll. Please contact administrator.');
-        } else if (error.response?.data?.message?.includes('Invalid payroll ID')) {
-          alert('Error: Invalid payroll ID. Please refresh the page and try again.');
-        } else {
-          alert(`Error: ${error.response.data.message || 'Invalid request'}`);
-        }
-      } else if (error.response?.data?.message) {
-        alert(`Error: ${error.response.data.message}`);
-      } else {
-        alert('Failed to generate payslip. Please try again.');
-      }
+      // Show error message
+      const errorMessage = error.response?.data?.message || 'Failed to download payslip PDF';
+      setError(errorMessage);
+      
     } finally {
-      setActionLoading(false);
+      setDownloadLoading(false);
     }
   };
 
@@ -413,12 +406,24 @@ const PayrollDetail = () => {
           </Button>
           <Button
             variant="contained"
-            color="secondary"
-            startIcon={<ReceiptIcon />}
+            color={downloadSuccess ? "success" : "secondary"}
+            startIcon={downloadSuccess ? <CheckCircle /> : <ReceiptIcon />}
             onClick={handleGeneratePayslip}
-            disabled={actionLoading}
+            disabled={downloadLoading || actionLoading}
+            sx={{
+              transition: 'all 0.3s ease',
+              transform: downloadSuccess ? 'scale(1.05)' : 'scale(1)',
+              ...(downloadSuccess && {
+                animation: 'pulse 0.6s ease-in-out',
+                '@keyframes pulse': {
+                  '0%': { transform: 'scale(1)' },
+                  '50%': { transform: 'scale(1.05)' },
+                  '100%': { transform: 'scale(1)' }
+                }
+              })
+            }}
           >
-            Download Payslip PDF
+            {downloadLoading ? 'Downloading...' : downloadSuccess ? 'Downloaded!' : 'Download Payslip PDF'}
           </Button>
           {!payroll.isApproved && (
             <Button
@@ -1232,6 +1237,22 @@ const PayrollDetail = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Success/Error Snackbar */}
+      <Snackbar
+        open={downloadSuccess}
+        autoHideDuration={3000}
+        onClose={() => setDownloadSuccess(false)}
+        message="Payslip PDF downloaded successfully!"
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        sx={{
+          '& .MuiSnackbarContent-root': {
+            backgroundColor: '#4caf50',
+            color: 'white',
+            fontWeight: 'bold'
+          }
+        }}
+      />
     </Box>
   );
 };

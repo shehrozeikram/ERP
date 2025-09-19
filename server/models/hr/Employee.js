@@ -157,31 +157,6 @@ const employeeSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Arrears cannot be negative']
   },
-  excelConveyanceAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Conveyance allowance cannot be negative']
-  },
-  excelHouseAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'House allowance cannot be negative']
-  },
-  excelFoodAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Food allowance cannot be negative']
-  },
-  excelVehicleFuelAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Vehicle & fuel allowance cannot be negative']
-  },
-  excelMedicalAllowance: {
-    type: Number,
-    default: 0,
-    min: [0, 'Medical allowance cannot be negative']
-  },
   totalEarnings: {
     type: Number,
     default: 0,
@@ -218,6 +193,13 @@ const employeeSchema = new mongoose.Schema({
     required: function() {
       return this.employmentStatus !== 'Draft';
     }
+  },
+  bankAccountNumber: {
+    type: String,
+    required: function() {
+      return this.employmentStatus !== 'Draft';
+    },
+    trim: true
   },
   foreignBankAccount: {
     type: String,
@@ -370,6 +352,17 @@ const employeeSchema = new mongoose.Schema({
         type: Number,
         default: 0,
         min: [0, 'Medical allowance cannot be negative']
+      }
+    },
+    houseRent: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'House rent allowance cannot be negative']
       }
     },
     special: {
@@ -775,7 +768,7 @@ employeeSchema.pre('save', async function(next) {
   if (!this.employeeId) {
     try {
       // Find all employees and sort by numeric ID to get the highest one
-      const allEmployees = await this.constructor.find({}, { employeeId: 1 }).lean();
+      const allEmployees = await this.constructor.find({ isDeleted: false }, { employeeId: 1 }).lean();
       
       let highestId = 0;
       
@@ -793,8 +786,8 @@ employeeSchema.pre('save', async function(next) {
       // Next ID is the highest + 1
       const nextId = highestId + 1;
       
-      // Format: 1, 2, 3, etc. (no leading zeros)
-      this.employeeId = nextId.toString();
+      // Format as 5-digit string with leading zeros (e.g., 00001, 00002, 06381, 06382)
+      this.employeeId = nextId.toString().padStart(5, '0');
       
       console.log(`Generated new Employee ID: ${this.employeeId} (previous highest: ${highestId})`);
     } catch (error) {
