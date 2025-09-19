@@ -95,8 +95,9 @@ router.get('/employees/next-id',
   authorize('admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     try {
-      // Find all employees to get the highest numeric ID
-      const allEmployees = await Employee.find({ isDeleted: false }, { employeeId: 1 }).lean();
+      // Find ALL employees (including deleted ones) to get the highest ID ever created
+      // This ensures no ID is ever reused, even if employee is deleted
+      const allEmployees = await Employee.find({}, { employeeId: 1 }).lean();
       
       let highestId = 0;
       
@@ -111,7 +112,7 @@ router.get('/employees/next-id',
         }
       });
       
-      // Next ID is the highest + 1
+      // Next ID is the highest + 1 (regardless of deletion status)
       const nextNumber = highestId + 1;
       // Format as 5-digit string with leading zeros
       const nextId = nextNumber.toString().padStart(5, '0');
@@ -1733,17 +1734,51 @@ router.post('/sections', [
       });
     }
 
-    const section = new Section(req.body);
-    await section.save();
+    try {
+      const section = new Section(req.body);
+      await section.save();
 
-    const populatedSection = await Section.findById(section._id)
-      .populate('department', 'name code');
+      const populatedSection = await Section.findById(section._id)
+        .populate('department', 'name code');
 
-    res.status(201).json({
-      success: true,
-      message: 'Section created successfully',
-      data: populatedSection
-    });
+      res.status(201).json({
+        success: true,
+        message: 'Section created successfully',
+        data: populatedSection
+      });
+    } catch (error) {
+      console.error('Error creating section:', error);
+      
+      // Handle duplicate key error (code already exists)
+      if (error.code === 11000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Section code already exists. Please try again.',
+          error: 'DUPLICATE_CODE'
+        });
+      }
+      
+      // Handle other validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = Object.values(error.errors).map(err => ({
+          field: err.path,
+          message: err.message
+        }));
+        
+        return res.status(400).json({
+          success: false,
+          message: 'Validation failed',
+          errors: validationErrors
+        });
+      }
+      
+      // Generic error
+      res.status(500).json({
+        success: false,
+        message: 'Error creating section',
+        error: error.message
+      });
+    }
   })
 );
 

@@ -767,8 +767,9 @@ employeeSchema.pre('save', async function(next) {
   // Auto-generate Employee ID if not provided
   if (!this.employeeId) {
     try {
-      // Find all employees and sort by numeric ID to get the highest one
-      const allEmployees = await this.constructor.find({ isDeleted: false }, { employeeId: 1 }).lean();
+      // Find ALL employees (including deleted ones) to get the highest ID ever created
+      // This ensures no ID is ever reused, even if employee is deleted
+      const allEmployees = await this.constructor.find({}, { employeeId: 1 }).lean();
       
       let highestId = 0;
       
@@ -783,13 +784,13 @@ employeeSchema.pre('save', async function(next) {
         }
       });
       
-      // Next ID is the highest + 1
+      // Next ID is the highest + 1 (regardless of deletion status)
       const nextId = highestId + 1;
       
       // Format as 5-digit string with leading zeros (e.g., 00001, 00002, 06381, 06382)
       this.employeeId = nextId.toString().padStart(5, '0');
       
-      console.log(`Generated new Employee ID: ${this.employeeId} (previous highest: ${highestId})`);
+      console.log(`Generated new Employee ID: ${this.employeeId} (highest existing ID: ${highestId})`);
     } catch (error) {
       console.error('Error generating Employee ID:', error);
       // Fallback to timestamp-based ID

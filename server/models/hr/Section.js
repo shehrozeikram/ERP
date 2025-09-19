@@ -62,18 +62,41 @@ sectionSchema.statics.findByDepartment = function(departmentId) {
 sectionSchema.pre('save', async function(next) {
   if (!this.code) {
     try {
-      // Find the last section to get the highest code
-      const lastSection = await this.constructor.findOne({}, { code: 1 })
-        .sort({ code: -1 });
-
-      let nextCode = 'SEC001';
+      let attempts = 0;
+      let nextCode;
+      let isUnique = false;
       
-      if (lastSection && lastSection.code) {
-        // Extract the number from the last code (e.g., "SEC123" -> 123)
-        const lastNumber = parseInt(lastSection.code.replace(/^SEC/, ''));
-        const nextNumber = lastNumber + 1;
-        // Format as SEC + 3-digit number
-        nextCode = `SEC${nextNumber.toString().padStart(3, '0')}`;
+      while (!isUnique && attempts < 10) {
+        // Find the last section to get the highest code
+        const lastSection = await this.constructor.findOne({}, { code: 1 })
+          .sort({ code: -1 });
+
+        if (!lastSection || !lastSection.code) {
+          nextCode = 'SEC001';
+        } else {
+          // Extract the number from the last code (e.g., "SEC123" -> 123)
+          const lastNumber = parseInt(lastSection.code.replace(/^SEC/, ''));
+          if (isNaN(lastNumber)) {
+            nextCode = 'SEC001';
+          } else {
+            const nextNumber = lastNumber + 1 + attempts;
+            // Format as SEC + 3-digit number
+            nextCode = `SEC${nextNumber.toString().padStart(3, '0')}`;
+          }
+        }
+
+        // Check if this code already exists
+        const existingSection = await this.constructor.findOne({ code: nextCode });
+        if (!existingSection) {
+          isUnique = true;
+        } else {
+          attempts++;
+        }
+      }
+
+      if (!isUnique) {
+        // Fallback to timestamp-based code if we can't find a unique sequential code
+        nextCode = `SEC${Date.now().toString().slice(-3)}`;
       }
 
       this.code = nextCode.toUpperCase();

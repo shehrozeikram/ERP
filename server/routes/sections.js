@@ -75,7 +75,7 @@ router.get('/:id',
 router.post('/', [
   authorize('admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Section name is required'),
-  body('code').trim().notEmpty().withMessage('Section code is required'),
+  body('code').optional().trim().notEmpty().withMessage('Section code cannot be empty if provided'),
   body('department').isMongoId().withMessage('Valid department ID is required')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -116,7 +116,7 @@ router.post('/', [
 router.put('/:id', [
   authorize('admin', 'hr_manager'),
   body('name').optional().trim().notEmpty().withMessage('Section name is required'),
-  body('code').optional().trim().notEmpty().withMessage('Section code is required'),
+  body('code').optional().trim().notEmpty().withMessage('Section code cannot be empty if provided'),
   body('department').optional().isMongoId().withMessage('Valid department ID is required')
 ], asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
