@@ -648,7 +648,7 @@ router.get('/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances');
+        .select('firstName lastName employeeId salary allowances arrears');
 
       if (!employee) {
         return res.status(404).json({
@@ -672,8 +672,38 @@ router.get('/employee/:employeeId',
                                  (employee.allowances?.special?.amount || 0) +
                                  (employee.allowances?.other?.amount || 0);
       
-      // Total earnings = Gross salary + additional allowances
-      const totalEarnings = gross + additionalAllowances;
+      // Get current month arrears from employee record
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth() + 1; // 1-12
+      const currentYear = currentDate.getFullYear();
+      let employeeArrears = 0;
+      const arrearsDetails = [];
+      
+      if (employee.arrears) {
+        const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+        
+        for (const arrearsType of arrearsTypes) {
+          const arrearsData = employee.arrears[arrearsType];
+          if (arrearsData && arrearsData.isActive && 
+              arrearsData.month === currentMonth && 
+              arrearsData.year === currentYear && 
+              arrearsData.status !== 'Paid' && 
+              arrearsData.status !== 'Cancelled') {
+            employeeArrears += arrearsData.amount || 0;
+            
+            // Add to arrears details for UI display
+            arrearsDetails.push({
+              type: `Arrears - ${arrearsType.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}`,
+              amount: arrearsData.amount || 0,
+              description: arrearsData.description || '',
+              status: arrearsData.status || 'Pending'
+            });
+          }
+        }
+      }
+      
+      // Total earnings = Gross salary + additional allowances + arrears
+      const totalEarnings = gross + additionalAllowances + employeeArrears;
       
       // Taxable income = Total earnings - Medical allowance (10% of total earnings)
       const taxableIncome = totalEarnings - (totalEarnings * 0.1);
@@ -704,6 +734,8 @@ router.get('/employee/:employeeId',
             basicSalary: Math.round(basic),
             grossSalary: Math.round(gross),
             additionalAllowances: Math.round(additionalAllowances),
+            arrears: Math.round(employeeArrears),
+            arrearsDetails: arrearsDetails,
             totalEarnings: Math.round(totalEarnings),
             medicalAllowance: Math.round(medical),
             houseRentAllowance: Math.round(houseRent),
@@ -743,7 +775,7 @@ router.get('/view/employee/:employeeId',
       const employee = await Employee.findById(req.params.employeeId)
         .populate('department', 'name code')
         .populate('position', 'title level')
-        .select('firstName lastName employeeId salary allowances');
+        .select('firstName lastName employeeId salary allowances arrears');
 
       if (!employee) {
         return res.status(404).json({
@@ -767,8 +799,38 @@ router.get('/view/employee/:employeeId',
                                  (employee.allowances?.special?.amount || 0) +
                                  (employee.allowances?.other?.amount || 0);
       
-      // Total earnings = Gross salary + additional allowances
-      const totalEarnings = gross + additionalAllowances;
+      // Get current month arrears from employee record
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth() + 1; // 1-12
+      const currentYear = currentDate.getFullYear();
+      let employeeArrears = 0;
+      const arrearsDetails = [];
+      
+      if (employee.arrears) {
+        const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+        
+        for (const arrearsType of arrearsTypes) {
+          const arrearsData = employee.arrears[arrearsType];
+          if (arrearsData && arrearsData.isActive && 
+              arrearsData.month === currentMonth && 
+              arrearsData.year === currentYear && 
+              arrearsData.status !== 'Paid' && 
+              arrearsData.status !== 'Cancelled') {
+            employeeArrears += arrearsData.amount || 0;
+            
+            // Add to arrears details for UI display
+            arrearsDetails.push({
+              type: `Arrears - ${arrearsType.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}`,
+              amount: arrearsData.amount || 0,
+              description: arrearsData.description || '',
+              status: arrearsData.status || 'Pending'
+            });
+          }
+        }
+      }
+      
+      // Total earnings = Gross salary + additional allowances + arrears
+      const totalEarnings = gross + additionalAllowances + employeeArrears;
       
       // Taxable income = Total earnings - Medical allowance (10% of total earnings)
       const taxableIncome = totalEarnings - (totalEarnings * 0.1);
@@ -799,6 +861,8 @@ router.get('/view/employee/:employeeId',
             basicSalary: Math.round(basic),
             grossSalary: Math.round(gross),
             additionalAllowances: Math.round(additionalAllowances),
+            arrears: Math.round(employeeArrears),
+            arrearsDetails: arrearsDetails,
             totalEarnings: Math.round(totalEarnings),
             medicalAllowance: Math.round(medical),
             houseRentAllowance: Math.round(houseRent),
@@ -905,7 +969,7 @@ router.post('/', [
     const activeEmployees = await Employee.find({
       employmentStatus: 'Active',
       'salary.gross': { $exists: true, $gt: 0 }
-    }).select('firstName lastName employeeId salary allowances department position');
+    }).select('firstName lastName employeeId salary allowances arrears department position');
 
     if (activeEmployees.length === 0) {
       return res.status(404).json({
@@ -988,8 +1052,25 @@ router.post('/', [
             (employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0) +
             (employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
           
-          // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses
-          const totalEarnings = grossSalary + additionalAllowances;
+          // Get current month arrears from employee record
+          let employeeArrears = 0;
+          if (employee.arrears) {
+            const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+            
+            for (const arrearsType of arrearsTypes) {
+              const arrearsData = employee.arrears[arrearsType];
+              if (arrearsData && arrearsData.isActive && 
+                  arrearsData.month === month && 
+                  arrearsData.year === year && 
+                  arrearsData.status !== 'Paid' && 
+                  arrearsData.status !== 'Cancelled') {
+                employeeArrears += arrearsData.amount || 0;
+              }
+            }
+          }
+          
+          // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses + Arrears
+          const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
           
           // 🔧 INCOME TAX CALCULATION (User's Formula)
           const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
@@ -1090,7 +1171,7 @@ router.post('/', [
             overtimeAmount: 0,
             performanceBonus: 0,
             otherBonus: 0,
-            arrears: 0,
+            arrears: employeeArrears,
             providentFund,
             incomeTax: monthlyTax,
             healthInsurance: 0,
@@ -1208,6 +1289,49 @@ router.post('/', [
     const insertedPayrolls = await Payroll.insertMany(createdPayrolls);
     console.log(`✅ Bulk insert completed: ${insertedPayrolls.length} payroll records created`);
     
+    // 🔧 UPDATE ARREARS STATUS TO 'PAID' FOR ALL CREATED PAYROLLS
+    console.log('💰 Updating arrears status to "Paid" for created payrolls...');
+    let arrearsUpdatedCount = 0;
+    
+    for (const payroll of insertedPayrolls) {
+      try {
+        // Find the employee for this payroll
+        const employee = await Employee.findById(payroll.employee);
+        
+        if (employee && employee.arrears) {
+          const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+          let employeeArrearsUpdated = false;
+          
+          // Check all arrears types for the current month and mark as paid
+          for (const arrearsType of arrearsTypes) {
+            const arrearsData = employee.arrears[arrearsType];
+            if (arrearsData && arrearsData.isActive &&
+                arrearsData.month === month &&
+                arrearsData.year === year &&
+                arrearsData.status !== 'Paid' &&
+                arrearsData.status !== 'Cancelled') {
+              
+              console.log(`💰 Marking ${arrearsType} arrears as 'Paid' for employee ${employee.employeeId} - ${month}/${year}`);
+              arrearsData.status = 'Paid';
+              arrearsData.paidDate = new Date();
+              employeeArrearsUpdated = true;
+            }
+          }
+          
+          // Save the updated employee record if any arrears were updated
+          if (employeeArrearsUpdated) {
+            await employee.save();
+            arrearsUpdatedCount++;
+            console.log(`✅ Employee ${employee.employeeId} arrears updated to 'Paid' status for ${month}/${year}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Error updating arrears for employee ${payroll.employee}:`, error.message);
+      }
+    }
+    
+    console.log(`💰 Arrears status update completed: ${arrearsUpdatedCount} employees updated`);
+    
     // 🚀 BULK POPULATE FOR RESPONSE (Performance optimization)
     console.log('🔧 Populating employee details for response...');
     const populatedPayrolls = await Payroll.find({
@@ -1224,6 +1348,7 @@ router.post('/', [
     console.log(`   Payrolls Created: ${populatedPayrolls.length}`);
     console.log(`   Skipped (Duplicates): ${skippedEmployees.length}`);
     console.log(`   Errors: ${errors.length}`);
+    console.log(`   Arrears Updated to 'Paid': ${arrearsUpdatedCount} employees`);
     console.log(`   Total Gross Salary: Rs. ${totalGrossSalary.toLocaleString()}`);
     console.log(`   Total Net Salary: Rs. ${totalNetSalary.toLocaleString()}`);
     console.log(`   Total Tax Collected: Rs. ${totalTax.toLocaleString()}`);
@@ -1238,6 +1363,7 @@ router.post('/', [
           payrollsCreated: populatedPayrolls.length,
           skippedEmployees: skippedEmployees.length,
           errors: errors.length,
+          arrearsUpdated: arrearsUpdatedCount,
           totalGrossSalary,
           totalNetSalary,
           totalTax
@@ -1474,7 +1600,7 @@ router.put('/:id', [
   // Note: Overtime, bonuses, and additional allowances are NOT part of gross salary (base)
   // They are added to calculate Total Earnings
 
-  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
+  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses + Arrears)
   // Now use the updated payroll.allowances (which contains the frontend data)
   const additionalAllowances = 
     (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
@@ -1491,11 +1617,15 @@ router.put('/:id', [
   console.log('   Other:', payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
   console.log('   Total Additional Allowances:', additionalAllowances);
   
-  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
+  // Get current arrears amount from payroll
+  const currentArrears = updateData.arrears !== undefined ? updateData.arrears : (payroll.arrears || 0);
+  
+  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses + Arrears
   const totalEarnings = updateData.grossSalary + additionalAllowances + 
     (updateData.overtimeAmount || payroll.overtimeAmount) + 
     (updateData.performanceBonus || payroll.performanceBonus) + 
-    (updateData.otherBonus || payroll.otherBonus);
+    (updateData.otherBonus || payroll.otherBonus) +
+    currentArrears;
   
   // Store total earnings for reference
   updateData.totalEarnings = totalEarnings;
@@ -1509,6 +1639,7 @@ router.put('/:id', [
   console.log('   Overtime Amount:', updateData.overtimeAmount || payroll.overtimeAmount);
   console.log('   Performance Bonus:', updateData.performanceBonus || payroll.performanceBonus);
   console.log('   Other Bonus:', updateData.otherBonus || payroll.otherBonus);
+  console.log('   Arrears:', currentArrears);
   console.log('   Total Earnings:', totalEarnings);
   
   // Medical allowance is 10% of total earnings (tax-exempt)

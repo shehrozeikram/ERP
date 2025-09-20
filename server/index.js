@@ -66,6 +66,7 @@ const eventRoutes = require('./routes/events');
 const staffAssignmentRoutes = require('./routes/staffAssignments');
 const attendanceProxyRoutes = require('./routes/attendanceProxy');
 const utilityBillRoutes = require('./routes/utilityBills');
+const arrearsRoutes = require('./routes/arrears');
 
 
 // Import services
@@ -231,6 +232,7 @@ app.use('/api/events', authMiddleware, eventRoutes);
 app.use('/api/staff-assignments', authMiddleware, staffAssignmentRoutes);
 app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, utilityBillRoutes);
+app.use('/api/hr/arrears', authMiddleware, arrearsRoutes);
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {

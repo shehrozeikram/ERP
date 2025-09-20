@@ -686,7 +686,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   const dailyRate = grossSalary / 26; // Simple: Gross Salary ÷ 26
   const attendanceDeduction = absentDays * dailyRate; // Deduct for each absent day
 
-  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses)
+  // Calculate Total Earnings (Gross Salary Base + Additional Allowances + Overtime + Bonuses + Arrears)
   const additionalAllowances = 
     (payrollAllowances.conveyance.isActive ? payrollAllowances.conveyance.amount : 0) +
     (payrollAllowances.food.isActive ? payrollAllowances.food.amount : 0) +
@@ -696,8 +696,33 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     (payrollAllowances.special.isActive ? payrollAllowances.special.amount : 0) +
     (payrollAllowances.other.isActive ? payrollAllowances.other.amount : 0);
   
-  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses
-  const totalEarnings = grossSalary + additionalAllowances;
+  // Get arrears from employee record (for current month only)
+  const currentMonth = month;
+  const currentYear = year;
+  let employeeArrears = 0;
+  
+  // Check if employee has arrears for the current month
+  if (employee.arrears) {
+    // Check all arrears types for the current month
+    const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+    
+    for (const arrearsType of arrearsTypes) {
+      const arrearsData = employee.arrears[arrearsType];
+      if (arrearsData && arrearsData.isActive && 
+          arrearsData.month === currentMonth && 
+          arrearsData.year === currentYear && 
+          arrearsData.status !== 'Paid' && 
+          arrearsData.status !== 'Cancelled') {
+        employeeArrears += arrearsData.amount || 0;
+        console.log(`💰 Found ${arrearsType} arrears for ${currentMonth}/${currentYear}: Rs. ${arrearsData.amount || 0}`);
+      }
+    }
+  }
+  
+  console.log(`💰 Total employee arrears for ${currentMonth}/${currentYear}: Rs. ${employeeArrears}`);
+  
+  // Total Earnings = Gross Salary (Base) + Additional Allowances + Overtime + Bonuses + Arrears
+  const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
 
   // Calculate overtime (if any)
   const overtimeHours = attendanceData.overtimeHours || 0;
@@ -727,7 +752,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     overtimeAmount: overtimeAmount,
     performanceBonus: attendanceData.performanceBonus || 0,
     otherBonus: attendanceData.otherBonus || 0,
-    arrears: attendanceData.arrears || 0,
+    arrears: employeeArrears,
     providentFund: attendanceData.providentFund || Math.round((basicSalary * 8.34) / 100),
     incomeTax: attendanceData.incomeTax || 0,
     healthInsurance: attendanceData.healthInsurance || 0,
@@ -879,6 +904,36 @@ payrollSchema.methods.approve = async function(approvedByUserId) {
   this.approvedBy = approvedByUserId;
   this.approvedAt = new Date();
   
+  // Update employee's arrears status to 'Paid' for this month when payroll is approved
+  const Employee = mongoose.model('Employee');
+  const employee = await Employee.findById(this.employee);
+  
+  if (employee && employee.arrears && this.arrears > 0) {
+    const currentMonth = this.month;
+    const currentYear = this.year;
+    
+    // Check all arrears types for the current month and mark as paid
+    const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+    
+    for (const arrearsType of arrearsTypes) {
+      const arrearsData = employee.arrears[arrearsType];
+      if (arrearsData && arrearsData.isActive && 
+          arrearsData.month === currentMonth && 
+          arrearsData.year === currentYear && 
+          arrearsData.status !== 'Paid' && 
+          arrearsData.status !== 'Cancelled') {
+        
+        console.log(`💰 Marking ${arrearsType} arrears as 'Paid' for employee ${employee.employeeId} - ${currentMonth}/${currentYear} (Payroll Approved)`);
+        arrearsData.status = 'Paid';
+        arrearsData.paidDate = new Date();
+      }
+    }
+    
+    // Save the updated employee record
+    await employee.save();
+    console.log(`✅ Employee ${employee.employeeId} arrears updated to 'Paid' status for ${currentMonth}/${currentYear} (Payroll Approved)`);
+  }
+  
   return await this.save();
 };
 
@@ -891,6 +946,42 @@ payrollSchema.methods.markAsPaid = async function(paymentMethod = 'Bank Transfer
   this.status = 'Paid';
   this.paymentMethod = paymentMethod;
   this.paymentDate = new Date();
+  
+  // Reset arrears to 0 after payroll is processed
+  if (this.arrears > 0) {
+    console.log(`💰 Resetting arrears to 0 for employee ${this.employee} after payroll processing for ${this.month}/${this.year}`);
+    this.arrears = 0;
+  }
+  
+  // Update employee's arrears status to 'Paid' for this month
+  const Employee = mongoose.model('Employee');
+  const employee = await Employee.findById(this.employee);
+  
+  if (employee && employee.arrears) {
+    const currentMonth = this.month;
+    const currentYear = this.year;
+    
+    // Check all arrears types for the current month and mark as paid
+    const arrearsTypes = ['salaryAdjustment', 'bonusPayment', 'overtimePayment', 'allowanceAdjustment', 'deductionReversal', 'other'];
+    
+    for (const arrearsType of arrearsTypes) {
+      const arrearsData = employee.arrears[arrearsType];
+      if (arrearsData && arrearsData.isActive && 
+          arrearsData.month === currentMonth && 
+          arrearsData.year === currentYear && 
+          arrearsData.status !== 'Paid' && 
+          arrearsData.status !== 'Cancelled') {
+        
+        console.log(`💰 Marking ${arrearsType} arrears as 'Paid' for employee ${employee.employeeId} - ${currentMonth}/${currentYear}`);
+        arrearsData.status = 'Paid';
+        arrearsData.paidDate = new Date();
+      }
+    }
+    
+    // Save the updated employee record
+    await employee.save();
+    console.log(`✅ Employee ${employee.employeeId} arrears updated to 'Paid' status for ${currentMonth}/${currentYear}`);
+  }
   
   return await this.save();
 };

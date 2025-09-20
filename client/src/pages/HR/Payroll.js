@@ -680,6 +680,10 @@ Do you want to:
         message += `• Total Net Salary: Rs. ${summary.totalNetSalary.toLocaleString()}\n`;
         message += `• Total Tax: Rs. ${summary.totalTax.toLocaleString()}\n`;
         
+        if (summary.arrearsUpdated > 0) {
+          message += `\n💰 Arrears Status Updated: ${summary.arrearsUpdated} employees marked as 'Paid'`;
+        }
+        
         if (skippedCount > 0) {
           message += `\n⏭️  Skipped: ${skippedCount} employees (already had payrolls)`;
         }

@@ -152,10 +152,206 @@ const employeeSchema = new mongoose.Schema({
     type: Number,
     min: [0, 'Gross salary cannot be negative']
   },
+  // Arrears Structure (similar to allowances)
   arrears: {
-    type: Number,
-    default: 0,
-    min: [0, 'Arrears cannot be negative']
+    salaryAdjustment: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Salary adjustment arrears cannot be negative']
+      },
+      month: {
+        type: Number,
+        min: [1, 'Month must be between 1 and 12'],
+        max: [12, 'Month must be between 1 and 12']
+      },
+      year: {
+        type: Number,
+        min: [2020, 'Year must be 2020 or later']
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Overdue', 'Cancelled'],
+        default: 'Pending'
+      },
+      createdDate: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    bonusPayment: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Bonus payment arrears cannot be negative']
+      },
+      month: {
+        type: Number,
+        min: [1, 'Month must be between 1 and 12'],
+        max: [12, 'Month must be between 1 and 12']
+      },
+      year: {
+        type: Number,
+        min: [2020, 'Year must be 2020 or later']
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Overdue', 'Cancelled'],
+        default: 'Pending'
+      },
+      createdDate: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    overtimePayment: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Overtime payment arrears cannot be negative']
+      },
+      month: {
+        type: Number,
+        min: [1, 'Month must be between 1 and 12'],
+        max: [12, 'Month must be between 1 and 12']
+      },
+      year: {
+        type: Number,
+        min: [2020, 'Year must be 2020 or later']
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Overdue', 'Cancelled'],
+        default: 'Pending'
+      },
+      createdDate: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    allowanceAdjustment: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Allowance adjustment arrears cannot be negative']
+      },
+      month: {
+        type: Number,
+        min: [1, 'Month must be between 1 and 12'],
+        max: [12, 'Month must be between 1 and 12']
+      },
+      year: {
+        type: Number,
+        min: [2020, 'Year must be 2020 or later']
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Overdue', 'Cancelled'],
+        default: 'Pending'
+      },
+      createdDate: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    deductionReversal: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Deduction reversal arrears cannot be negative']
+      },
+      month: {
+        type: Number,
+        min: [1, 'Month must be between 1 and 12'],
+        max: [12, 'Month must be between 1 and 12']
+      },
+      year: {
+        type: Number,
+        min: [2020, 'Year must be 2020 or later']
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Overdue', 'Cancelled'],
+        default: 'Pending'
+      },
+      createdDate: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    other: {
+      isActive: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Other arrears cannot be negative']
+      },
+      month: {
+        type: Number,
+        min: [1, 'Month must be between 1 and 12'],
+        max: [12, 'Month must be between 1 and 12']
+      },
+      year: {
+        type: Number,
+        min: [2020, 'Year must be 2020 or later']
+      },
+      description: {
+        type: String,
+        trim: true
+      },
+      status: {
+        type: String,
+        enum: ['Pending', 'Paid', 'Overdue', 'Cancelled'],
+        default: 'Pending'
+      },
+      createdDate: {
+        type: Date,
+        default: Date.now
+      }
+    }
   },
   totalEarnings: {
     type: Number,

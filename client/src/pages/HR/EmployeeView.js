@@ -35,6 +35,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/api';
 import { useData } from '../../contexts/DataContext';
+import ArrearsDialog from '../../components/ArrearsDialog';
 
 const EmployeeView = () => {
   const { id } = useParams();
@@ -46,6 +47,7 @@ const EmployeeView = () => {
   const [updatingPayrolls, setUpdatingPayrolls] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusDialog, setStatusDialog] = useState({ open: false, newStatus: null });
+  const [arrearsDialog, setArrearsDialog] = useState({ open: false });
 
   const fetchEmployee = async () => {
     if (!id) return;
@@ -63,8 +65,59 @@ const EmployeeView = () => {
     
     try {
       setLoading(true);
-      const response = await api.get(`/hr/employees/${id}`);
-      setEmployee(response.data.data);
+      
+      // Fetch employee data and arrears data in parallel
+      const [employeeResponse, arrearsResponse, statsResponse] = await Promise.all([
+        api.get(`/hr/employees/${id}`),
+        api.get(`/hr/arrears/${id}`),
+        api.get(`/hr/arrears/stats/${id}`)
+      ]);
+      
+      const employeeData = employeeResponse.data.data;
+      const arrearsData = arrearsResponse.data.data || [];
+      const statsData = statsResponse.data.data || {};
+      
+      // Process arrears data for display
+      employeeData.arrearsMonths = arrearsData.map(arrear => ({
+        _id: arrear._id,
+        monthName: arrear.monthName,
+        year: arrear.year,
+        month: arrear.month,
+        amount: arrear.amount,
+        status: arrear.status,
+        description: arrear.description,
+        type: arrear.type,
+        createdDate: arrear.createdDate,
+        updatedDate: arrear.updatedDate
+      }));
+      
+      // Set arrears statistics
+      employeeData.totalArrears = statsData.totalArrears || 0;
+      employeeData.arrearsPaid = statsData.totalPaid || 0;
+      employeeData.arrearsPending = statsData.totalPending || 0;
+      employeeData.arrearsOverdue = statsData.overdueMonths || 0;
+      employeeData.monthsWithArrears = statsData.monthsWithArrears || 0;
+      
+      // Calculate current month arrears (most recent month)
+      const currentMonth = new Date().getMonth() + 1;
+      const currentYear = new Date().getFullYear();
+      const currentMonthArrear = arrearsData.find(a => 
+        a.month === currentMonth && a.year === currentYear && a.status !== 'Paid'
+      );
+      employeeData.currentMonthArrears = currentMonthArrear ? currentMonthArrear.amount : 0;
+      
+      // Set overall arrears status
+      if (statsData.totalOverdue > 0) {
+        employeeData.arrearsStatus = 'Overdue';
+      } else if (statsData.totalPending > 0) {
+        employeeData.arrearsStatus = 'Pending';
+      } else if (statsData.totalPaid > 0 && statsData.totalPending === 0) {
+        employeeData.arrearsStatus = 'Paid';
+      } else {
+        employeeData.arrearsStatus = 'None';
+      }
+      
+      setEmployee(employeeData);
     } catch (error) {
       console.error('Error fetching employee:', error);
       setSnackbar({
@@ -523,7 +576,202 @@ const EmployeeView = () => {
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Arrears Information */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <AssignmentIcon />
+                Arrears Information
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="h6" color="warning.main" gutterBottom>
+                    Total Outstanding: {formatPKR(employee.totalArrears || 0)}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">
+                    Current Month
+                  </Typography>
+                  <Typography variant="body1" color="warning.main" fontWeight="medium">
+                    {formatPKR(employee.currentMonthArrears || 0)}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">
+                    Previous Months
+                  </Typography>
+                  <Typography variant="body1" color="textSecondary">
+                    {formatPKR((employee.totalArrears || 0) - (employee.currentMonthArrears || 0))}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">
+                    Total Paid
+                  </Typography>
+                  <Typography variant="body1" color="success.main" fontWeight="medium">
+                    {formatPKR(employee.arrearsPaid || 0)}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">
+                    Status
+                  </Typography>
+                  <Chip
+                    label={employee.arrearsStatus || 'None'}
+                    color={
+                      employee.arrearsStatus === 'Paid' ? 'success' :
+                      employee.arrearsStatus === 'Pending' ? 'warning' :
+                      employee.arrearsStatus === 'Overdue' ? 'error' : 'default'
+                    }
+                    size="small"
+                  />
+                </Grid>
+              </Grid>
+              <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                Outstanding payments and adjustments
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
+
+      {/* Detailed Arrears Management Section */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AssignmentIcon />
+            Arrears Management
+          </Typography>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
+            Detailed month-wise arrears tracking and management
+          </Typography>
+          
+          {/* Arrears Summary Cards */}
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                <Typography variant="h6">{formatPKR(employee.totalArrears || 0)}</Typography>
+                <Typography variant="body2">Total Outstanding</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'info.light', color: 'info.contrastText' }}>
+                <Typography variant="h6">{employee.monthsWithArrears || 0}</Typography>
+                <Typography variant="body2">Months with Arrears</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
+                <Typography variant="h6">{formatPKR(employee.arrearsPaid || 0)}</Typography>
+                <Typography variant="body2">Total Paid</Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'error.light', color: 'error.contrastText' }}>
+                <Typography variant="h6">{employee.arrearsOverdue || 0}</Typography>
+                <Typography variant="body2">Overdue Months</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {/* Month-wise Arrears Table */}
+          <Box sx={{ overflow: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f5f5f5' }}>
+                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Month/Year</th>
+                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Type</th>
+                  <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #ddd' }}>Amount</th>
+                  <th style={{ padding: '12px', textAlign: 'center', borderBottom: '1px solid #ddd' }}>Status</th>
+                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Description</th>
+                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Created Date</th>
+                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {employee.arrearsMonths && employee.arrearsMonths.length > 0 ? (
+                  employee.arrearsMonths.map((arrear, index) => (
+                    <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '12px' }}>
+                        <Typography variant="body2" fontWeight="medium">
+                          {arrear.monthName} {arrear.year}
+                        </Typography>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <Chip
+                          label={arrear.type || 'Other'}
+                          color="primary"
+                          size="small"
+                          variant="outlined"
+                        />
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                        <Typography variant="body2" color="warning.main" fontWeight="medium">
+                          {formatPKR(arrear.amount)}
+                        </Typography>
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'center' }}>
+                        <Chip
+                          label={arrear.status}
+                          color={
+                            arrear.status === 'Paid' ? 'success' :
+                            arrear.status === 'Pending' ? 'warning' :
+                            arrear.status === 'Overdue' ? 'error' : 'default'
+                          }
+                          size="small"
+                        />
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <Typography variant="body2" color="textSecondary">
+                          {arrear.description || 'Monthly arrears'}
+                        </Typography>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <Typography variant="body2" color="textSecondary">
+                          {formatDate(arrear.createdDate)}
+                        </Typography>
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Button size="small" variant="outlined" color="primary">
+                            Edit
+                          </Button>
+                          <Button size="small" variant="outlined" color="success">
+                            Mark Paid
+                          </Button>
+                        </Box>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="7" style={{ padding: '24px', textAlign: 'center' }}>
+                      <Typography variant="body2" color="textSecondary">
+                        No arrears records found
+                      </Typography>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </Box>
+
+          {/* Add New Arrears Button */}
+          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AssignmentIcon />}
+              onClick={() => setArrearsDialog({ open: true })}
+            >
+              Add New Arrears
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
 
       {/* Snackbar */}
       <Snackbar
@@ -575,6 +823,22 @@ const EmployeeView = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Arrears Dialog */}
+      <ArrearsDialog
+        open={arrearsDialog.open}
+        onClose={() => setArrearsDialog({ open: false })}
+        employee={employee}
+        onSuccess={(message) => {
+          setSnackbar({
+            open: true,
+            message,
+            severity: 'success'
+          });
+          // Refresh employee data
+          fetchEmployee();
+        }}
+      />
     </Box>
   );
 };

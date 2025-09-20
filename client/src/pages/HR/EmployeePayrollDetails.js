@@ -313,6 +313,26 @@ const EmployeePayrollDetails = () => {
                     {formatCurrency(currentPayroll.additionalAllowances)}
                   </Typography>
                 </Box>
+                {/* Display individual arrears types */}
+                {currentPayroll.arrearsDetails && currentPayroll.arrearsDetails.length > 0 ? (
+                  currentPayroll.arrearsDetails.map((arrear, index) => (
+                    <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                      <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                        {arrear.type}
+                      </Typography>
+                      <Typography variant="body2" fontWeight={600} color="warning.main">
+                        {formatCurrency(arrear.amount)}
+                      </Typography>
+                    </Box>
+                  ))
+                ) : (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography variant="body2">Arrears</Typography>
+                    <Typography variant="body2" fontWeight={600} color="warning.main">
+                      {formatCurrency(currentPayroll.arrears || 0)}
+                    </Typography>
+                  </Box>
+                )}
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Typography variant="body2">Total Earnings</Typography>

@@ -560,6 +560,12 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR(payroll.otherBonus || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
+                      <TableCell>Arrears</TableCell>
+                      <TableCell align="right" sx={{ color: 'warning.main', fontWeight: 600 }}>
+                        {formatPKR(payroll.arrears || 0)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
                       <TableCell>Total Earnings</TableCell>
                       <TableCell align="right">{formatPKR(payroll.totalEarnings || 0)}</TableCell>
                     </TableRow>
