@@ -21,7 +21,7 @@ import {
 import { formatPKR } from '../utils/currency';
 import api from '../services/api';
 
-const ArrearsDialog = ({ open, onClose, employee, onSuccess }) => {
+const ArrearsDialog = ({ open, onClose, employee, onSuccess, editData = null }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
@@ -56,18 +56,30 @@ const ArrearsDialog = ({ open, onClose, employee, onSuccess }) => {
 
   useEffect(() => {
     if (open) {
-      // Reset form when dialog opens
-      setFormData({
-        month: '',
-        year: new Date().getFullYear(),
-        amount: '',
-        description: '',
-        status: 'Pending',
-        type: 'Salary Adjustment'
-      });
+      if (editData) {
+        // Populate form with edit data
+        setFormData({
+          month: editData.monthName || '',
+          year: editData.year || new Date().getFullYear(),
+          amount: editData.amount || '',
+          description: editData.description || '',
+          status: editData.status || 'Pending',
+          type: editData.type || 'Salary Adjustment'
+        });
+      } else {
+        // Reset form when dialog opens for new arrears
+        setFormData({
+          month: '',
+          year: new Date().getFullYear(),
+          amount: '',
+          description: '',
+          status: 'Pending',
+          type: 'Salary Adjustment'
+        });
+      }
       setError('');
     }
-  }, [open]);
+  }, [open, editData]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -103,11 +115,18 @@ const ArrearsDialog = ({ open, onClose, employee, onSuccess }) => {
         type: formData.type
       };
 
-      // Call the actual API endpoint
-      const response = await api.post('/hr/arrears', arrearsData);
+      // Call the appropriate API endpoint
+      if (editData) {
+        // Update existing arrears
+        const response = await api.put(`/hr/arrears/${editData._id}`, arrearsData);
+        onSuccess('Arrears updated successfully');
+      } else {
+        // Add new arrears
+        const response = await api.post('/hr/arrears', arrearsData);
+        onSuccess('Arrears added successfully');
+      }
       
       setLoading(false);
-      onSuccess('Arrears added successfully');
       onClose();
 
     } catch (err) {
@@ -119,7 +138,7 @@ const ArrearsDialog = ({ open, onClose, employee, onSuccess }) => {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
         <DialogTitle>
-          <Typography variant="h6">Add New Arrears</Typography>
+          <Typography variant="h6">{editData ? 'Edit Arrears' : 'Add New Arrears'}</Typography>
           <Typography variant="body2" color="textSecondary">
             Employee: {employee?.firstName} {employee?.lastName} ({employee?.employeeId})
           </Typography>
@@ -279,7 +298,7 @@ const ArrearsDialog = ({ open, onClose, employee, onSuccess }) => {
             disabled={loading}
             startIcon={loading ? <CircularProgress size={20} /> : null}
           >
-            {loading ? 'Adding...' : 'Add Arrears'}
+            {loading ? (editData ? 'Updating...' : 'Adding...') : (editData ? 'Update Arrears' : 'Add Arrears')}
           </Button>
         </DialogActions>
       </Dialog>

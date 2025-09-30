@@ -542,6 +542,14 @@ const PayrollDetail = () => {
                       <TableCell>Other Allowance</TableCell>
                       <TableCell align="right">{formatPKR(payroll.allowances.other.amount || 0)}</TableCell>
                     </TableRow>
+                    <TableRow>
+                      <TableCell>Medical Allowance (from allowances)</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.allowances?.medical?.amount || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>House Rent Allowance (from allowances)</TableCell>
+                      {console.log('house rent allowance',payroll.allowances)}                      <TableCell align="right">{formatPKR(payroll.allowances?.houseRent?.amount || 0)}</TableCell>
+                    </TableRow>
                     
                     <TableRow>
                       <TableCell>Gross Salary</TableCell>
@@ -587,8 +595,16 @@ const PayrollDetail = () => {
                 <Table size="small">
                   <TableBody>
                     <TableRow>
-                      <TableCell>Income Tax</TableCell>
+                      <TableCell>Income Tax (Main Salary)</TableCell>
                       <TableCell align="right">{formatPKR(payroll.incomeTax || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Income Tax (Arrears)</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.taxCalculation?.arrearsTax || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell><strong>Total Income Tax</strong></TableCell>
+                      <TableCell align="right"><strong>{formatPKR((payroll.incomeTax || 0) + (payroll.taxCalculation?.arrearsTax || 0))}</strong></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>EOBI</TableCell>
@@ -607,12 +623,24 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR((payroll.dailyRate || 0) * (payroll.leaveDays || 0))}</TableCell>
                     </TableRow>
                     <TableRow>
+                      <TableCell>Provident Fund</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.providentFund || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Vehicle Loan Deduction</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.vehicleLoanDeduction || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Company Loan Deduction</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.companyLoanDeduction || 0)}</TableCell>
+                    </TableRow>
+                    <TableRow>
                       <TableCell>Other Deductions</TableCell>
                       <TableCell align="right">{formatPKR(payroll.otherDeductions || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Total Deductions</TableCell>
-                      <TableCell align="right">{formatPKR(payroll.totalDeductions || 0)}</TableCell>
+                      <TableCell><strong>Total Deductions</strong></TableCell>
+                      <TableCell align="right"><strong>{formatPKR(payroll.totalDeductions || 0)}</strong></TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>

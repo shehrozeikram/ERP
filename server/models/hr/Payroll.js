@@ -260,6 +260,22 @@ const payrollSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Leave deduction amount cannot be negative']
   },
+  // Leave integration fields
+  leaveDays: {
+    type: Number,
+    default: 0,
+    min: [0, 'Leave days cannot be negative']
+  },
+  unpaidLeaveDays: {
+    type: Number,
+    default: 0,
+    min: [0, 'Unpaid leave days cannot be negative']
+  },
+  leaveDeduction: {
+    type: Number,
+    default: 0,
+    min: [0, 'Leave deduction cannot be negative']
+  },
   // Calculations
   grossSalary: {
     type: Number,
@@ -297,6 +313,34 @@ const payrollSchema = new mongoose.Schema({
   transactionId: {
     type: String,
     trim: true
+  },
+  // Tax calculation breakdown
+  taxCalculation: {
+    mainTax: {
+      type: Number,
+      default: 0,
+      min: [0, 'Main tax cannot be negative']
+    },
+    arrearsTax: {
+      type: Number,
+      default: 0,
+      min: [0, 'Arrears tax cannot be negative']
+    },
+    totalTax: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total tax cannot be negative']
+    },
+    mainTaxableIncome: {
+      type: Number,
+      default: 0,
+      min: [0, 'Main taxable income cannot be negative']
+    },
+    arrearsTaxableIncome: {
+      type: Number,
+      default: 0,
+      min: [0, 'Arrears taxable income cannot be negative']
+    }
   },
   // Metadata
   currency: {
@@ -535,6 +579,7 @@ payrollSchema.pre('save', function(next) {
     (this.companyLoanDeduction || 0) +
     (this.eobi || 0) + 
     (this.attendanceDeduction || 0) + // Attendance deduction (26-day basis)
+    (this.leaveDeduction || 0) + // Leave deduction
     (this.otherDeductions || 0);
   
   // Log the Total Deductions calculation breakdown
@@ -1025,5 +1070,8 @@ payrollSchema.methods.calculateAttendanceDeduction = function() {
 payrollSchema.index({ employee: 1, month: 1, year: 1 }, { unique: true });
 payrollSchema.index({ status: 1 });
 payrollSchema.index({ month: 1, year: 1 });
+payrollSchema.index({ createdAt: -1 }); // For sorting by creation date
+payrollSchema.index({ employee: 1, status: 1 }); // For employee-specific queries
+payrollSchema.index({ year: -1, month: -1 }); // For date range queries
 
 module.exports = mongoose.model('Payroll', payrollSchema); 

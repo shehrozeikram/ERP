@@ -9,10 +9,11 @@ const { authorize } = require('../middleware/auth');
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
 const Payslip = require('../models/hr/Payslip');
-const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../utils/taxCalculator');
+const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected, calculateTaxWithSeparateArrears } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Attendance = require('../models/hr/Attendance');
 const AttendanceIntegrationService = require('../services/attendanceIntegrationService');
+const incrementService = require('../services/incrementService');
 
 const router = express.Router();
 
@@ -453,7 +454,7 @@ router.get('/',
     let query = Payroll.find(matchStage)
       .populate({
         path: 'employee',
-        select: 'firstName lastName employeeId department position placementProject',
+        select: 'firstName lastName employeeId placementProject',
         populate: {
           path: 'placementProject',
           select: 'name'
@@ -461,7 +462,7 @@ router.get('/',
       })
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName')
-      .sort({ createdAt: -1 });
+      .sort({ year: -1, month: -1, createdAt: -1 });
     
     // Handle limit=0 case (get all records)
     if (limit > 0) {
@@ -481,6 +482,51 @@ router.get('/',
         totalItems: total,
         itemsPerPage: limit
       }
+    });
+  })
+);
+
+// @route   GET /api/payroll/monthly
+// @desc    Get payrolls grouped by month (optimized for monthly view)
+// @access  Private (HR and Admin)
+router.get('/monthly',
+  authorize('admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { status, employeeId, startDate, endDate } = req.query;
+
+    const matchStage = {};
+    
+    if (status) matchStage.status = status;
+    if (employeeId) matchStage.employee = employeeId;
+    
+    if (startDate && endDate) {
+      const startDateObj = new Date(startDate);
+      const endDateObj = new Date(endDate);
+      
+      matchStage.$or = [
+        {
+          year: { $gte: startDateObj.getFullYear(), $lte: endDateObj.getFullYear() },
+          month: { $gte: startDateObj.getMonth() + 1, $lte: endDateObj.getMonth() + 1 }
+        }
+      ];
+    }
+
+    // Get all payrolls for monthly grouping (no pagination limit)
+    const payrolls = await Payroll.find(matchStage)
+      .populate({
+        path: 'employee',
+        select: 'firstName lastName employeeId placementProject',
+        populate: {
+          path: 'placementProject',
+          select: 'name'
+        }
+      })
+      .sort({ year: -1, month: -1, createdAt: -1 })
+      .lean(); // Use lean() for better performance since we don't need Mongoose documents
+
+    res.json({
+      success: true,
+      data: payrolls
     });
   })
 );
@@ -517,7 +563,7 @@ router.get('/current-overview',
       const activeEmployees = await Employee.find({
         employmentStatus: 'Active',
         'salary.gross': { $exists: true, $gt: 0 }
-      }).select('firstName lastName employeeId salary allowances department position');
+      }).select('firstName lastName employeeId salary allowances placementDepartment placementProject');
 
       if (activeEmployees.length === 0) {
         return res.json({
@@ -544,8 +590,36 @@ router.get('/current-overview',
 
       const employeeDetails = [];
 
+      // Get all latest increments for active employees in one query
+      const employeeIds = activeEmployees.map(emp => emp._id);
+      const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
+      const latestIncrements = await EmployeeIncrement.aggregate([
+        {
+          $match: {
+            employee: { $in: employeeIds },
+            status: 'implemented'
+          }
+        },
+        {
+          $sort: { effectiveDate: -1 }
+        },
+        {
+          $group: {
+            _id: '$employee',
+            latestIncrement: { $first: '$$ROOT' }
+          }
+        }
+      ]);
+
+      // Create a map for quick lookup
+      const incrementMap = new Map();
+      latestIncrements.forEach(inc => {
+        incrementMap.set(inc._id.toString(), inc.latestIncrement.newSalary);
+      });
+
       for (const employee of activeEmployees) {
-        const gross = employee.salary.gross;
+        // Get current salary (with latest increment applied) - use map for O(1) lookup
+        const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
         
         // Calculate salary breakdown (66.66% basic, 10% medical, 23.34% house rent)
         const basic = gross * 0.6666;
@@ -556,6 +630,8 @@ router.get('/current-overview',
         const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
                                    (employee.allowances?.food?.amount || 0) +
                                    (employee.allowances?.vehicleFuel?.amount || 0) +
+                                   (employee.allowances?.medical?.amount || 0) +
+                                   (employee.allowances?.houseRent?.amount || 0) +
                                    (employee.allowances?.special?.amount || 0) +
                                    (employee.allowances?.other?.amount || 0);
         
@@ -669,6 +745,8 @@ router.get('/employee/:employeeId',
       const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
                                  (employee.allowances?.food?.amount || 0) +
                                  (employee.allowances?.vehicleFuel?.amount || 0) +
+                                 (employee.allowances?.medical?.amount || 0) +
+                                 (employee.allowances?.houseRent?.amount || 0) +
                                  (employee.allowances?.special?.amount || 0) +
                                  (employee.allowances?.other?.amount || 0);
       
@@ -705,14 +783,14 @@ router.get('/employee/:employeeId',
       // Total earnings = Gross salary + additional allowances + arrears
       const totalEarnings = gross + additionalAllowances + employeeArrears;
       
-      // Taxable income = Total earnings - Medical allowance (10% of total earnings)
-      const taxableIncome = totalEarnings - (totalEarnings * 0.1);
+      // 🔧 NEW SEPARATE TAX CALCULATION
+      // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
+      // Arrears: taxed at 100% (full amount)
+      const mainSalary = gross + additionalAllowances;
+      const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
       
-      // Calculate monthly tax using FBR 2025-2026 tax slabs
-      const monthlyTax = calculateMonthlyTax(taxableIncome);
-      
-      // Net salary = Total earnings - tax
-      const netSalary = totalEarnings - monthlyTax;
+      // Net salary = Total earnings - tax - EOBI
+      const netSalary = taxCalculation.totalNetSalary - 370;
 
       // Get existing payrolls for this employee
       const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
@@ -739,9 +817,78 @@ router.get('/employee/:employeeId',
             totalEarnings: Math.round(totalEarnings),
             medicalAllowance: Math.round(medical),
             houseRentAllowance: Math.round(houseRent),
-            taxableIncome: Math.round(taxableIncome),
-            monthlyTax: Math.round(monthlyTax),
-            netSalary: Math.round(netSalary)
+            taxableIncome: Math.round(taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome),
+            monthlyTax: Math.round(taxCalculation.totalTax),
+            netSalary: Math.round(netSalary),
+            // Allowances breakdown
+            allowances: {
+              conveyance: {
+                isActive: employee.allowances?.conveyance?.isActive || false,
+                amount: employee.allowances?.conveyance?.amount || 0
+              },
+              food: {
+                isActive: employee.allowances?.food?.isActive || false,
+                amount: employee.allowances?.food?.amount || 0
+              },
+              vehicleFuel: {
+                isActive: employee.allowances?.vehicleFuel?.isActive || false,
+                amount: employee.allowances?.vehicleFuel?.amount || 0
+              },
+              medical: {
+                isActive: employee.allowances?.medical?.isActive || false,
+                amount: employee.allowances?.medical?.amount || 0
+              },
+              houseRent: {
+                isActive: employee.allowances?.houseRent?.isActive || false,
+                amount: employee.allowances?.houseRent?.amount || 0
+              },
+              special: {
+                isActive: employee.allowances?.special?.isActive || false,
+                amount: employee.allowances?.special?.amount || 0
+              },
+              other: {
+                isActive: employee.allowances?.other?.isActive || false,
+                amount: employee.allowances?.other?.amount || 0
+              }
+            },
+            // Overtime and bonuses
+            overtimeHours: 0,
+            overtimeAmount: 0,
+            performanceBonus: 0,
+            otherBonus: 0,
+            // Deductions
+            incomeTax: Math.round(taxCalculation.totalTax),
+            eobi: 370,
+            healthInsurance: 0,
+            providentFund: Math.round((basic * 8.34) / 100),
+            vehicleLoanDeduction: 0,
+            companyLoanDeduction: 0,
+            attendanceDeduction: 0,
+            leaveDeduction: 0,
+            otherDeductions: 0,
+            totalDeductions: Math.round(taxCalculation.totalTax + 370),
+            // Attendance details
+            totalWorkingDays: 26,
+            presentDays: 26,
+            absentDays: 0,
+            leaveDays: 0,
+            dailyRate: Math.round(gross / 26),
+            // Leave deductions breakdown
+            leaveDeductions: {
+              unpaidLeave: 0,
+              sickLeave: 0,
+              casualLeave: 0,
+              annualLeave: 0,
+              otherLeave: 0,
+              totalLeaveDays: 0
+            },
+            taxCalculation: {
+              mainTax: Math.round(taxCalculation.mainTax),
+              arrearsTax: Math.round(taxCalculation.arrearsTax),
+              totalTax: Math.round(taxCalculation.totalTax),
+              mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
+              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
+            }
           },
           existingPayrolls: existingPayrolls
         }
@@ -796,6 +943,8 @@ router.get('/view/employee/:employeeId',
       const additionalAllowances = (employee.allowances?.conveyance?.amount || 0) +
                                  (employee.allowances?.food?.amount || 0) +
                                  (employee.allowances?.vehicleFuel?.amount || 0) +
+                                 (employee.allowances?.medical?.amount || 0) +
+                                 (employee.allowances?.houseRent?.amount || 0) +
                                  (employee.allowances?.special?.amount || 0) +
                                  (employee.allowances?.other?.amount || 0);
       
@@ -832,14 +981,14 @@ router.get('/view/employee/:employeeId',
       // Total earnings = Gross salary + additional allowances + arrears
       const totalEarnings = gross + additionalAllowances + employeeArrears;
       
-      // Taxable income = Total earnings - Medical allowance (10% of total earnings)
-      const taxableIncome = totalEarnings - (totalEarnings * 0.1);
+      // 🔧 NEW SEPARATE TAX CALCULATION
+      // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
+      // Arrears: taxed at 100% (full amount)
+      const mainSalary = gross + additionalAllowances;
+      const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
       
-      // Calculate monthly tax using FBR 2025-2026 tax slabs
-      const monthlyTax = calculateMonthlyTax(taxableIncome);
-      
-      // Net salary = Total earnings - tax
-      const netSalary = totalEarnings - monthlyTax;
+      // Net salary = Total earnings - tax - EOBI
+      const netSalary = taxCalculation.totalNetSalary - 370;
 
       // Get existing payrolls for this employee
       const existingPayrolls = await Payroll.find({ employee: req.params.employeeId })
@@ -866,9 +1015,78 @@ router.get('/view/employee/:employeeId',
             totalEarnings: Math.round(totalEarnings),
             medicalAllowance: Math.round(medical),
             houseRentAllowance: Math.round(houseRent),
-            taxableIncome: Math.round(taxableIncome),
-            monthlyTax: Math.round(monthlyTax),
-            netSalary: Math.round(netSalary)
+            taxableIncome: Math.round(taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome),
+            monthlyTax: Math.round(taxCalculation.totalTax),
+            netSalary: Math.round(netSalary),
+            // Allowances breakdown
+            allowances: {
+              conveyance: {
+                isActive: employee.allowances?.conveyance?.isActive || false,
+                amount: employee.allowances?.conveyance?.amount || 0
+              },
+              food: {
+                isActive: employee.allowances?.food?.isActive || false,
+                amount: employee.allowances?.food?.amount || 0
+              },
+              vehicleFuel: {
+                isActive: employee.allowances?.vehicleFuel?.isActive || false,
+                amount: employee.allowances?.vehicleFuel?.amount || 0
+              },
+              medical: {
+                isActive: employee.allowances?.medical?.isActive || false,
+                amount: employee.allowances?.medical?.amount || 0
+              },
+              houseRent: {
+                isActive: employee.allowances?.houseRent?.isActive || false,
+                amount: employee.allowances?.houseRent?.amount || 0
+              },
+              special: {
+                isActive: employee.allowances?.special?.isActive || false,
+                amount: employee.allowances?.special?.amount || 0
+              },
+              other: {
+                isActive: employee.allowances?.other?.isActive || false,
+                amount: employee.allowances?.other?.amount || 0
+              }
+            },
+            // Overtime and bonuses
+            overtimeHours: 0,
+            overtimeAmount: 0,
+            performanceBonus: 0,
+            otherBonus: 0,
+            // Deductions
+            incomeTax: Math.round(taxCalculation.totalTax),
+            eobi: 370,
+            healthInsurance: 0,
+            providentFund: Math.round((basic * 8.34) / 100),
+            vehicleLoanDeduction: 0,
+            companyLoanDeduction: 0,
+            attendanceDeduction: 0,
+            leaveDeduction: 0,
+            otherDeductions: 0,
+            totalDeductions: Math.round(taxCalculation.totalTax + 370),
+            // Attendance details
+            totalWorkingDays: 26,
+            presentDays: 26,
+            absentDays: 0,
+            leaveDays: 0,
+            dailyRate: Math.round(gross / 26),
+            // Leave deductions breakdown
+            leaveDeductions: {
+              unpaidLeave: 0,
+              sickLeave: 0,
+              casualLeave: 0,
+              annualLeave: 0,
+              otherLeave: 0,
+              totalLeaveDays: 0
+            },
+            taxCalculation: {
+              mainTax: Math.round(taxCalculation.mainTax),
+              arrearsTax: Math.round(taxCalculation.arrearsTax),
+              totalTax: Math.round(taxCalculation.totalTax),
+              mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
+              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
+            }
           },
           existingPayrolls: existingPayrolls
         }
@@ -1037,7 +1255,9 @@ router.post('/', [
       // Process all employees in current batch in parallel
       const batchPromises = batch.map(async (employee) => {
         try {
-          const grossSalary = employee.salary.gross;
+          // Get current salary (with latest increment applied)
+          const currentSalaryResult = await incrementService.getEmployeeCurrentSalary(employee._id);
+          const grossSalary = currentSalaryResult.success ? currentSalaryResult.data.currentSalary : employee.salary.gross;
           
           // 🔧 SALARY BREAKDOWN CALCULATION (66.66% basic, 10% medical, 23.34% house rent)
           const basicSalary = Math.round(grossSalary * 0.6666);
@@ -1049,6 +1269,8 @@ router.post('/', [
             (employee.allowances?.conveyance?.isActive ? employee.allowances.conveyance.amount : 0) +
             (employee.allowances?.food?.isActive ? employee.allowances.food.amount : 0) +
             (employee.allowances?.vehicleFuel?.isActive ? employee.allowances.vehicleFuel.amount : 0) +
+            (employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0) +
+            (employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0) +
             (employee.allowances?.special?.isActive ? employee.allowances.special.amount : 0) +
             (employee.allowances?.other?.isActive ? employee.allowances.other.amount : 0);
           
@@ -1072,36 +1294,14 @@ router.post('/', [
           // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses + Arrears
           const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
           
-          // 🔧 INCOME TAX CALCULATION (User's Formula)
-          const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
-          const taxableIncome = totalEarnings - medicalAllowanceForTax;
+          // 🔧 NEW SEPARATE TAX CALCULATION
+          // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
+          // Arrears: taxed at 100% (full amount)
+          const mainSalary = grossSalary + additionalAllowances;
+          const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, employeeArrears);
           
           // Calculate monthly tax using FBR 2025-2026 rules
-          const annualTaxableIncome = taxableIncome * 12;
-          let annualTax = 0;
-          
-          if (annualTaxableIncome <= 600000) {
-            annualTax = 0;
-          } else if (annualTaxableIncome <= 1200000) {
-            annualTax = (annualTaxableIncome - 600000) * 0.01;
-          } else if (annualTaxableIncome <= 2200000) {
-            annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-          } else if (annualTaxableIncome <= 3200000) {
-            annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-          } else if (annualTaxableIncome <= 4100000) {
-            annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-          } else {
-            annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-          }
-          
-          // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-          if (annualTaxableIncome > 10000000) {
-            const surcharge = annualTax * 0.09;
-            annualTax += surcharge;
-          }
-          
-          // Convert to monthly tax
-          const monthlyTax = Math.round(annualTax / 12);
+          const monthlyTax = taxCalculation.totalTax;
           
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
           const providentFund = Math.round((basicSalary * 8.34) / 100);
@@ -1129,8 +1329,14 @@ router.post('/', [
           // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
           const totalDeductions = monthlyTax + eobi + attendanceDeduction;
           
-          // 🔧 NET SALARY = Total Earnings - Total Deductions
-          const netSalary = totalEarnings - totalDeductions;
+          // Define healthInsurance and otherDeductions
+          const healthInsurance = 0;
+          const otherDeductions = 0;
+          
+          // 🔧 NET SALARY = Total Earnings - Total Deductions (using separate tax calculation)
+          // taxCalculation.totalNetSalary already includes tax deduction, so subtract other deductions
+          // Note: Provident Fund is NOT deducted from net salary (display only)
+          const netSalary = taxCalculation.totalNetSalary - eobi - healthInsurance - otherDeductions;
           
           // Create payroll data
           const payrollData = {
@@ -1156,6 +1362,10 @@ router.post('/', [
               medical: {
                 isActive: employee.allowances?.medical?.isActive || false,
                 amount: employee.allowances?.medical?.isActive ? employee.allowances.medical.amount : 0
+              },
+              houseRent: {
+                isActive: employee.allowances?.houseRent?.isActive || false,
+                amount: employee.allowances?.houseRent?.isActive ? employee.allowances.houseRent.amount : 0
               },
               special: {
                 isActive: employee.allowances?.special?.isActive || false,
@@ -1189,6 +1399,14 @@ router.post('/', [
             totalEarnings,
             totalDeductions,
             netSalary,
+            // Tax calculation breakdown
+            taxCalculation: {
+              mainTax: Math.round(taxCalculation.mainTax),
+              arrearsTax: Math.round(taxCalculation.arrearsTax),
+              totalTax: Math.round(taxCalculation.totalTax),
+              mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
+              arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
+            },
             currency: 'PKR',
             remarks: `Monthly payroll generated for ${month}/${year}`,
             createdBy: req.user.id,
@@ -1585,6 +1803,10 @@ router.put('/:id', [
         isActive: req.body.allowances.medical?.isActive ?? false,
         amount: parseFloat(req.body.allowances.medical?.amount) || 0
       },
+      houseRent: {
+        isActive: req.body.allowances.houseRent?.isActive ?? false,
+        amount: parseFloat(req.body.allowances.houseRent?.amount) || 0
+      },
       special: {
         isActive: req.body.allowances.special?.isActive ?? false,
         amount: parseFloat(req.body.allowances.special?.amount) || 0
@@ -1606,6 +1828,8 @@ router.put('/:id', [
     (payroll.allowances?.conveyance?.isActive ? payroll.allowances.conveyance.amount : 0) +
     (payroll.allowances?.food?.isActive ? payroll.allowances.food.amount : 0) +
     (payroll.allowances?.vehicleFuel?.isActive ? payroll.allowances.vehicleFuel.amount : 0) +
+    (payroll.allowances?.medical?.isActive ? payroll.allowances.medical.amount : 0) +
+    (payroll.allowances?.houseRent?.isActive ? payroll.allowances.houseRent.amount : 0) +
     (payroll.allowances?.special?.isActive ? payroll.allowances.special.amount : 0) +
     (payroll.allowances?.other?.isActive ? payroll.allowances.other.amount : 0);
   
@@ -1642,58 +1866,28 @@ router.put('/:id', [
   console.log('   Arrears:', currentArrears);
   console.log('   Total Earnings:', totalEarnings);
   
-  // Medical allowance is 10% of total earnings (tax-exempt)
-  const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
-  
-  // Taxable Income = Total Earnings - Medical Allowance
-  const taxableIncome = totalEarnings - medicalAllowanceForTax;
+  // 🔧 NEW SEPARATE TAX CALCULATION
+  // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
+  // Arrears: taxed at 100% (full amount)
+  const mainSalary = totalEarnings - currentArrears;
+  const taxCalculation = calculateTaxWithSeparateArrears(mainSalary, currentArrears);
   
   // Auto-calculate tax when allowances change (always recalculate for accuracy)
   // This ensures tax is always updated when Total Earnings change
   try {
-    // Calculate tax using FBR 2025-2026 rules
-    const annualTaxableIncome = taxableIncome * 12;
-    
-    // FBR 2025-2026 Tax Slabs for Salaried Persons (Official Pakistan Tax Slabs)
-    let annualTax = 0;
-    
-    if (annualTaxableIncome <= 600000) {
-      // No tax for income up to 600,000
-      annualTax = 0;
-    } else if (annualTaxableIncome <= 1200000) {
-      // 1% on income from 600,001 to 1,200,000
-      annualTax = (annualTaxableIncome - 600000) * 0.01;
-    } else if (annualTaxableIncome <= 2200000) {
-      // Rs. 6,000 + 11% on income from 1,200,001 to 2,200,000
-      annualTax = 6000 + (annualTaxableIncome - 1200000) * 0.11;
-    } else if (annualTaxableIncome <= 3200000) {
-      // Rs. 116,000 + 23% on income from 2,200,001 to 3,200,000
-      annualTax = 116000 + (annualTaxableIncome - 2200000) * 0.23;
-    } else if (annualTaxableIncome <= 4100000) {
-      // Rs. 346,000 + 30% on income from 3,200,001 to 4,100,000
-      annualTax = 346000 + (annualTaxableIncome - 3200000) * 0.30;
-    } else {
-      // Rs. 616,000 + 35% on income above 4,100,000
-      annualTax = 616000 + (annualTaxableIncome - 4100000) * 0.35;
-    }
-    
-    // Apply 9% surcharge if annual taxable income exceeds Rs. 10,000,000
-    if (annualTaxableIncome > 10000000) {
-      const surcharge = annualTax * 0.09;
-      annualTax += surcharge;
-    }
-    
-    // Convert to monthly tax
-    updateData.incomeTax = Math.round(annualTax / 12);
+    // Use the new separate tax calculation
+    updateData.incomeTax = taxCalculation.totalTax;
     
     // 🔧 CRITICAL FIX: Update payroll.incomeTax with calculated value
     payroll.incomeTax = updateData.incomeTax;
     
-    console.log(`💰 Tax Calculation for Employee Update: Total Earnings: ${totalEarnings}, Medical (10%): ${medicalAllowanceForTax}, Taxable: ${taxableIncome}, Tax: ${updateData.incomeTax}`);
+    console.log(`💰 Tax Calculation for Employee Update: Main Salary: ${mainSalary}, Arrears: ${currentArrears}, Main Tax: ${taxCalculation.mainTax}, Arrears Tax: ${taxCalculation.arrearsTax}, Total Tax: ${updateData.incomeTax}`);
     
   } catch (error) {
     console.error('Error calculating tax:', error);
     // Fallback to old calculation
+    const medicalAllowanceForTax = Math.round(totalEarnings * 0.10);
+    const taxableIncome = totalEarnings - medicalAllowanceForTax;
     updateData.incomeTax = calculateMonthlyTax(taxableIncome);
     payroll.incomeTax = updateData.incomeTax;
   }

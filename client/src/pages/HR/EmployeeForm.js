@@ -497,7 +497,7 @@ const EmployeeForm = () => {
       const formData = {
         ...employeeData,
         bankName: employeeData.bankName?._id || employeeData.bankName || '',
-        bankAccountNumber: employeeData.bankAccountNumber || '',
+        bankAccountNumber: employeeData.bankAccountNumber || employeeData.accountNumber || '',
         placementCompany: employeeData.placementCompany?._id || employeeData.placementCompany || '',
         placementSector: employeeData.placementSector?._id || employeeData.placementSector || '',
         placementProject: employeeData.placementProject?._id || employeeData.placementProject || '',

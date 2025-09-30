@@ -23,11 +23,6 @@ const pettyCashFundSchema = new mongoose.Schema({
     min: 0,
     default: 0
   },
-  maxAmount: {
-    type: Number,
-    required: true,
-    min: 0
-  },
   custodian: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee',
@@ -35,8 +30,8 @@ const pettyCashFundSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Active', 'Inactive', 'Suspended'],
-    default: 'Active'
+    enum: ['Draft', 'Pending', 'Approved', 'Paid', 'Rejected'],
+    default: 'Draft'
   },
   location: {
     type: String,
@@ -48,6 +43,27 @@ const pettyCashFundSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: 500
+  },
+  fundDate: {
+    type: Date,
+    required: false,
+    default: Date.now
+  },
+  vendor: {
+    type: String,
+    required: false,
+    trim: true
+  },
+  paymentType: {
+    type: String,
+    required: false,
+    enum: ['Cash', 'Card', 'Bank Transfer', 'Cheque', 'Other'],
+    default: 'Cash'
+  },
+  paymentSubtype: {
+    type: String,
+    required: false,
+    trim: true
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

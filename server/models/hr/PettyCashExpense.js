@@ -34,8 +34,24 @@ const pettyCashExpenseSchema = new mongoose.Schema({
   },
   expenseDate: {
     type: Date,
-    required: true,
+    required: false,
     default: Date.now
+  },
+  vendor: {
+    type: String,
+    required: false,
+    trim: true
+  },
+  paymentType: {
+    type: String,
+    required: false,
+    enum: ['Cash', 'Card', 'Bank Transfer', 'Cheque', 'Other'],
+    default: 'Cash'
+  },
+  paymentSubtype: {
+    type: String,
+    required: false,
+    trim: true
   },
   requestedBy: {
     type: mongoose.Schema.Types.ObjectId,

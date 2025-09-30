@@ -53,6 +53,7 @@ import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
 import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
 import PettyCashDashboard from './pages/Admin/PettyCashManagement/PettyCashDashboard';
 import FundForm from './pages/Admin/PettyCashManagement/FundForm';
+import ExpenseForm from './pages/Admin/PettyCashManagement/ExpenseForm';
 import EventDashboard from './pages/Admin/EventManagement/EventDashboard';
 import EventList from './pages/Admin/EventManagement/EventList';
 import EventForm from './pages/Admin/EventManagement/EventForm';
@@ -108,6 +109,18 @@ import PublicApproval from './pages/Public/PublicApproval';
 import OfferAcceptance from './pages/Public/OfferAcceptance';
 import PublicJoiningDocument from './pages/Public/PublicJoiningDocument';
 import PublicEmployeeOnboarding from './pages/Public/PublicEmployeeOnboarding';
+
+// Increment Management Pages
+import IncrementList from './pages/Increments/IncrementList';
+import CreateIncrement from './pages/Increments/CreateIncrement';
+import IncrementHistory from './pages/Increments/IncrementHistory';
+import IncrementDetail from './pages/Increments/IncrementDetail';
+
+// Leave Management Pages
+import LeaveManagement from './pages/HR/Leaves/LeaveManagement';
+import LeaveApproval from './pages/HR/Leaves/LeaveApproval';
+import LeaveCalendar from './pages/HR/Leaves/LeaveCalendar';
+import LeaveReports from './pages/HR/Leaves/LeaveReports';
 
 // Component to handle role-based redirects
 const RoleBasedRedirect = () => {
@@ -376,6 +389,42 @@ function App() {
             <Route
               path="/hr/settlements/statistics"
               element={<ProtectedRoute><FinalSettlementStatistics /></ProtectedRoute>}
+            />
+
+            {/* Increment Management Routes */}
+            <Route 
+              path="/hr/increments" 
+              element={<ProtectedRoute><IncrementList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/increments/create" 
+              element={<ProtectedRoute><CreateIncrement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/increments/history" 
+              element={<ProtectedRoute><IncrementHistory /></ProtectedRoute>} 
+            />
+
+            {/* Leave Management Routes */}
+            <Route 
+              path="/hr/leaves" 
+              element={<ProtectedRoute><LeaveManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/leaves/approval" 
+              element={<ProtectedRoute requiredRole={['admin', 'hr_manager']}><LeaveApproval /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/leaves/calendar" 
+              element={<ProtectedRoute><LeaveCalendar /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/leaves/reports" 
+              element={<ProtectedRoute requiredRole={['admin', 'hr_manager']}><LeaveReports /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/increments/:id" 
+              element={<ProtectedRoute><IncrementDetail /></ProtectedRoute>} 
             />
 
             {/* Talent Acquisition Routes */}
@@ -705,6 +754,14 @@ function App() {
             <Route 
               path="/admin/petty-cash/funds/:id/edit" 
               element={<ProtectedRoute requiredRole="admin"><FundForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/petty-cash/expenses/new" 
+              element={<ProtectedRoute requiredRole="admin"><ExpenseForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/petty-cash/expenses/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><ExpenseForm /></ProtectedRoute>} 
             />
             
             {/* Event Management Routes */}

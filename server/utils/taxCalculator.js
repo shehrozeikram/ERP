@@ -210,6 +210,58 @@ function calculateTaxableIncomeCorrected(salary) {
 }
 
 /**
+ * Calculate tax with separate arrears taxation
+ * Main salary: taxed at 90% (after 10% medical allowance deduction)
+ * Arrears: taxed at 100% (full amount)
+ * @param {number} mainSalary - Main salary (gross + additional allowances)
+ * @param {number} arrears - Arrears amount
+ * @returns {Object} Tax calculation breakdown
+ */
+function calculateTaxWithSeparateArrears(mainSalary, arrears = 0) {
+  if (!mainSalary || mainSalary <= 0) {
+    return {
+      mainSalary: 0,
+      arrears: 0,
+      mainTaxableIncome: 0,
+      arrearsTaxableIncome: 0,
+      mainTax: 0,
+      arrearsTax: 0,
+      totalTax: 0,
+      mainNetSalary: 0,
+      arrearsNetAmount: 0,
+      totalNetSalary: 0
+    };
+  }
+
+  // Main salary tax calculation (90% taxable after 10% medical allowance)
+  const mainTaxableIncome = mainSalary - (mainSalary * 0.1);
+  const mainTax = calculateMonthlyTax(mainTaxableIncome);
+  const mainNetSalary = mainSalary - mainTax;
+
+  // Arrears tax calculation (100% taxable - no medical allowance deduction)
+  const arrearsTaxableIncome = arrears;
+  const arrearsTax = calculateMonthlyTax(arrearsTaxableIncome);
+  const arrearsNetAmount = arrears - arrearsTax;
+
+  // Total calculations
+  const totalTax = mainTax + arrearsTax;
+  const totalNetSalary = mainNetSalary + arrearsNetAmount;
+
+  return {
+    mainSalary,
+    arrears,
+    mainTaxableIncome,
+    arrearsTaxableIncome,
+    mainTax,
+    arrearsTax,
+    totalTax,
+    mainNetSalary,
+    arrearsNetAmount,
+    totalNetSalary
+  };
+}
+
+/**
  * Get tax slab information for a given annual income
  * @param {number} annualIncome - Annual income
  * @returns {Promise<Object>} Tax slab information
@@ -232,5 +284,6 @@ module.exports = {
   calculateMonthlyTaxImage,
   calculateTaxableIncome,
   calculateTax,
+  calculateTaxWithSeparateArrears,
   getTaxSlabInfo
 }; 

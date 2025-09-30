@@ -616,7 +616,7 @@ const EmployeeList = () => {
                     <TableCell>{employee.maritalStatus || 'N/A'}</TableCell>
                     <TableCell>{employee.qualification || 'N/A'}</TableCell>
                     <TableCell>{typeof employee.bankName === 'object' ? employee.bankName?.name : employee.bankName || 'N/A'}</TableCell>
-                    <TableCell>{employee.accountNumber || 'N/A'}</TableCell>
+                    <TableCell>{employee.bankAccountNumber || employee.accountNumber || 'N/A'}</TableCell>
                     <TableCell>{employee.spouseName || 'N/A'}</TableCell>
                     <TableCell>{employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}</TableCell>
                     <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>

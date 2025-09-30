@@ -69,9 +69,11 @@ const FinalSettlementForm = () => {
     const employeeName = employee.fullName || 
       `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || 
       'Unknown';
-    const departmentName = typeof employee.department === 'object' ? 
+    const departmentName = typeof employee.placementDepartment === 'object' ? 
+      (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') : 
+      typeof employee.department === 'object' ? 
       (employee.department?.name || employee.department?.title || 'Unknown') : 
-      (employee.department || 'Unknown');
+      (employee.placementDepartment || employee.department || 'Unknown');
     
     return (
       employee.employeeId?.toLowerCase().includes(searchTerm) ||
@@ -275,9 +277,11 @@ const FinalSettlementForm = () => {
         'Unknown';
       
       // Handle nested department object
-      const departmentName = typeof employee.department === 'object' ? 
+      const departmentName = typeof employee.placementDepartment === 'object' ? 
+        (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') : 
+        typeof employee.department === 'object' ? 
         (employee.department?.name || employee.department?.title || 'Unknown') : 
-        (employee.department || 'Unknown');
+        (employee.placementDepartment || employee.department || 'Unknown');
       
       // Handle nested designation object
       const designationName = typeof employee.designation === 'object' ? 
@@ -639,9 +643,11 @@ const FinalSettlementForm = () => {
                         'Unknown';
                       
                       // Handle nested department object
-                      const departmentName = typeof employee.department === 'object' ? 
+                      const departmentName = typeof employee.placementDepartment === 'object' ? 
+                        (employee.placementDepartment?.name || employee.placementDepartment?.title || 'Unknown') : 
+                        typeof employee.department === 'object' ? 
                         (employee.department?.name || employee.department?.title || 'Unknown') : 
-                        (employee.department || 'Unknown');
+                        (employee.placementDepartment || employee.department || 'Unknown');
                       
                       return (
                         <MenuItem key={employee._id} value={employee.employeeId}>

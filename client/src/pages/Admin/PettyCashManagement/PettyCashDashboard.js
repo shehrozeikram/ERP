@@ -20,14 +20,17 @@ import {
   DialogActions,
   Alert,
   CircularProgress,
-  Tabs,
-  Tab,
-  LinearProgress
+  LinearProgress,
+  TextField,
+  Grid
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  CheckCircle as ApproveIcon,
+  Payment as PayIcon,
+  Send as SubmitIcon,
   Receipt as ReceiptIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -39,19 +42,23 @@ const PettyCashDashboard = () => {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [tabValue, setTabValue] = useState(0);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, item: null, type: '' });
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM format
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [fundsResponse, expensesResponse] = await Promise.all([
-        pettyCashService.getFunds(),
-        pettyCashService.getExpenses()
-      ]);
+      const fundsResponse = await pettyCashService.getFunds();
       
-      setFunds(fundsResponse.data);
-      setExpenses(expensesResponse.data);
+      // Filter funds by selected month
+      const filteredFunds = fundsResponse.data.filter(fund => {
+        const fundDate = new Date(fund.fundDate || fund.createdAt);
+        const fundMonth = fundDate.toISOString().slice(0, 7); // YYYY-MM format
+        return fundMonth === selectedMonth;
+      });
+      
+      setFunds(filteredFunds);
+      setExpenses([]); // No longer using expenses
       setError(null);
     } catch (err) {
       setError('Failed to fetch petty cash data');
@@ -59,7 +66,7 @@ const PettyCashDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedMonth]);
 
   useEffect(() => {
     fetchData();
@@ -80,15 +87,23 @@ const PettyCashDashboard = () => {
     }
   };
 
+  const handleStatusUpdate = async (fundId, newStatus) => {
+    try {
+      await pettyCashService.updateFund(fundId, { status: newStatus });
+      fetchData();
+    } catch (err) {
+      setError(`Failed to update status to ${newStatus}`);
+      console.error('Error updating status:', err);
+    }
+  };
+
   const getStatusColor = (status) => {
     const colors = {
-      'Active': 'success',
-      'Inactive': 'default',
-      'Suspended': 'warning',
+      'Draft': 'default',
       'Pending': 'warning',
-      'Approved': 'success',
-      'Rejected': 'error',
-      'Paid': 'info'
+      'Approved': 'info',
+      'Paid': 'success',
+      'Rejected': 'error'
     };
     return colors[status] || 'default';
   };
@@ -121,14 +136,7 @@ const PettyCashDashboard = () => {
         <Typography variant="h4" component="h1">
           Petty Cash Management
         </Typography>
-        <Box display="flex" gap={2}>
-          <Button
-            variant="outlined"
-            startIcon={<ReceiptIcon />}
-            onClick={() => navigate('/admin/petty-cash/expenses')}
-          >
-            Manage Expenses
-          </Button>
+        <Box display="flex" gap={2} alignItems="center" mb={2}>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -136,6 +144,18 @@ const PettyCashDashboard = () => {
           >
             Add Fund
           </Button>
+          
+          <TextField
+            label="Select Month"
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            InputLabelProps={{
+              shrink: true,
+            }}
+            size="small"
+            sx={{ minWidth: 150 }}
+          />
         </Box>
       </Box>
 
@@ -147,21 +167,19 @@ const PettyCashDashboard = () => {
 
       <Card>
         <CardContent>
-          <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} sx={{ mb: 2 }}>
-            <Tab label="Funds Overview" />
-            <Tab label="Recent Expenses" />
-          </Tabs>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Funds Overview - {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </Typography>
 
-          {tabValue === 0 && (
-            <TableContainer component={Paper}>
+          <TableContainer component={Paper}>
               <Table>
                 <TableHead>
                   <TableRow>
                     <TableCell>Fund ID</TableCell>
                     <TableCell>Name</TableCell>
                     <TableCell>Current Balance</TableCell>
-                    <TableCell>Max Amount</TableCell>
-                    <TableCell>Utilization</TableCell>
+                    <TableCell>Vendor</TableCell>
+                    <TableCell>Payment Type</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Custodian</TableCell>
                     <TableCell>Actions</TableCell>
@@ -169,7 +187,6 @@ const PettyCashDashboard = () => {
                 </TableHead>
                 <TableBody>
                   {funds.map((fund) => {
-                    const utilization = ((fund.maxAmount - fund.currentBalance) / fund.maxAmount) * 100;
                     return (
                       <TableRow key={fund._id}>
                         <TableCell>
@@ -189,21 +206,13 @@ const PettyCashDashboard = () => {
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2">
-                            {formatCurrency(fund.maxAmount)}
+                            {fund.vendor || 'N/A'}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <LinearProgress
-                              variant="determinate"
-                              value={utilization}
-                              color={getUtilizationColor(utilization)}
-                              sx={{ width: 60, height: 8 }}
-                            />
-                            <Typography variant="caption">
-                              {utilization.toFixed(1)}%
-                            </Typography>
-                          </Box>
+                          <Typography variant="body2">
+                            {fund.paymentType || 'Cash'}
+                          </Typography>
                         </TableCell>
                         <TableCell>
                           <Chip
@@ -226,10 +235,44 @@ const PettyCashDashboard = () => {
                         <TableCell>
                           <IconButton
                             size="small"
-                            onClick={() => navigate(`/admin/petty-cash/funds/${fund._id}`)}
+                            onClick={() => navigate(`/admin/petty-cash/funds/${fund._id}/edit`)}
                           >
                             <EditIcon />
                           </IconButton>
+                          
+                          {fund.status === 'Draft' && (
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleStatusUpdate(fund._id, 'Pending')}
+                              title="Submit for Approval"
+                            >
+                              <SubmitIcon />
+                            </IconButton>
+                          )}
+                          
+                          {fund.status === 'Pending' && (
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => handleStatusUpdate(fund._id, 'Approved')}
+                              title="Approve"
+                            >
+                              <ApproveIcon />
+                            </IconButton>
+                          )}
+                          
+                          {fund.status === 'Approved' && (
+                            <IconButton
+                              size="small"
+                              color="info"
+                              onClick={() => handleStatusUpdate(fund._id, 'Paid')}
+                              title="Mark as Paid"
+                            >
+                              <PayIcon />
+                            </IconButton>
+                          )}
+                          
                           <IconButton
                             size="small"
                             color="error"
@@ -244,88 +287,7 @@ const PettyCashDashboard = () => {
                 </TableBody>
               </Table>
             </TableContainer>
-          )}
 
-          {tabValue === 1 && (
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Expense ID</TableCell>
-                    <TableCell>Description</TableCell>
-                    <TableCell>Amount</TableCell>
-                    <TableCell>Category</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Requested By</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {expenses.slice(0, 10).map((expense) => (
-                    <TableRow key={expense._id}>
-                      <TableCell>
-                        <Typography variant="subtitle2" fontWeight="bold">
-                          {expense.expenseId}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {expense.description}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight="bold">
-                          {formatCurrency(expense.amount)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={expense.category} size="small" />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={expense.status}
-                          color={getStatusColor(expense.status)}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {expense.requestedBy ? (
-                          <Typography variant="body2">
-                            {expense.requestedBy.firstName} {expense.requestedBy.lastName}
-                          </Typography>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            Unknown
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {new Date(expense.expenseDate).toLocaleDateString()}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <IconButton
-                          size="small"
-                          onClick={() => navigate(`/admin/petty-cash/expenses/${expense._id}`)}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => setDeleteDialog({ open: true, item: expense, type: 'expense' })}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
         </CardContent>
       </Card>
 

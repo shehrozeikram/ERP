@@ -162,9 +162,9 @@ const AttendanceRecordDetail = () => {
               <Typography variant="body1" color="textSecondary">
                 Employee ID: {typeof employee.employeeId === 'object' ? employee.employeeId.id || employee.employeeId.toString() : employee.employeeId || 'N/A'}
               </Typography>
-              {employee.department && (
+              {(employee.placementDepartment || employee.department) && (
                 <Typography variant="body2" color="textSecondary">
-                  Department: {typeof employee.department === 'object' ? employee.department.toString() : employee.department}
+                  Department: {typeof employee.placementDepartment === 'object' ? employee.placementDepartment?.name : typeof employee.department === 'object' ? employee.department?.name : employee.placementDepartment || employee.department}
                 </Typography>
               )}
             </Box>

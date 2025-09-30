@@ -78,6 +78,27 @@ export const MODULES = {
       { name: 'Loan Management', path: '/hr/loans' },
       { name: 'Final Settlement', path: '/hr/settlements' },
       { 
+        name: 'Increment Management', 
+        path: '/hr/increments',
+        icon: 'TrendingUp',
+        subItems: [
+          { name: 'All Increments', path: '/hr/increments' },
+          { name: 'Create Increment', path: '/hr/increments/create' },
+          { name: 'Increment History', path: '/hr/increments/history' }
+        ]
+      },
+      { 
+        name: 'Leave Management', 
+        path: '/hr/leaves',
+        icon: 'EventNote',
+        subItems: [
+          { name: 'All Leaves', path: '/hr/leaves' },
+          { name: 'Leave Approval', path: '/hr/leaves/approval' },
+          { name: 'Leave Calendar', path: '/hr/leaves/calendar' },
+          { name: 'Leave Reports', path: '/hr/leaves/reports' }
+        ]
+      },
+      { 
         name: 'Talent Acquisition', 
         path: '/hr/talent-acquisition',
         subItems: [

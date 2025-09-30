@@ -113,35 +113,9 @@ const Payroll = () => {
 
   // Define functions with useCallback to avoid dependency issues
   const fetchPayrolls = useCallback(async () => {
-    try {
-      setLoading(true);
-      
-      // For monthly grouping, we need ALL payrolls, not paginated
-      const params = new URLSearchParams({
-        limit: 0, // Get all payrolls for proper monthly grouping
-        ...filters
-      });
-
-      const response = await api.get(`/payroll?${params}`);
-      const payrollData = response.data.data || [];
-      
-      // Validate payroll data before setting state
-      const validatedPayrolls = payrollData.filter(payroll => 
-        payroll && 
-        typeof payroll.month === 'number' && 
-        typeof payroll.year === 'number' && 
-        payroll.employee
-      );
-      
-      setPayrolls(validatedPayrolls);
-      setTotalItems(validatedPayrolls.length);
-    } catch (error) {
-      console.error('Error fetching payrolls:', error);
-      setError('Failed to load payrolls');
-    } finally {
-      setLoading(false);
-    }
-  }, [filters]);
+    // This function is kept for backward compatibility but now calls fetchMonthlyPayrolls
+    return fetchMonthlyPayrolls();
+  }, []);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -161,6 +135,37 @@ const Payroll = () => {
       console.error('Error fetching General Payroll stats:', error);
     }
   }, []);
+
+  // Function to fetch monthly payrolls (all data for proper grouping)
+  const fetchMonthlyPayrolls = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      const params = new URLSearchParams({
+        ...filters
+        // No limit - get all data for proper monthly grouping
+      });
+
+      const response = await api.get(`/payroll/monthly?${params}`);
+      const payrollData = response.data.data || [];
+      
+      // Validate payroll data before setting state
+      const validatedPayrolls = payrollData.filter(payroll => 
+        payroll && 
+        typeof payroll.month === 'number' && 
+        typeof payroll.year === 'number' && 
+        payroll.employee
+      );
+      
+      setPayrolls(validatedPayrolls);
+      setTotalItems(validatedPayrolls.length);
+    } catch (error) {
+      console.error('Error fetching monthly payrolls:', error);
+      setError('Failed to load payroll data');
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
 
   const fetchCurrentOverview = useCallback(async () => {
     try {
@@ -262,18 +267,18 @@ const Payroll = () => {
     return filtered;
   }, [payrolls, filters, currentOverview]);
 
-  // Initial data fetch - only run once on mount
+  // Initial data fetch - use monthly endpoint to get all data for both sections
   useEffect(() => {
-    fetchPayrolls();
+    fetchMonthlyPayrolls();
     fetchStats();
-  }, [fetchPayrolls, fetchStats]); // Include dependencies
+  }, [fetchMonthlyPayrolls, fetchStats]); // Include dependencies
 
-  // Refetch payrolls when pagination or filters change
+  // Refetch monthly data when filters change
   useEffect(() => {
-    if (page > 0 || Object.values(filters).some(filter => filter !== '')) {
-      fetchPayrolls();
+    if (Object.values(filters).some(filter => filter !== '')) {
+      fetchMonthlyPayrolls();
     }
-  }, [page, rowsPerPage, filters, fetchPayrolls]);
+  }, [filters, fetchMonthlyPayrolls]);
 
   // Fetch current overview when component mounts and when general payroll is expanded
   useEffect(() => {

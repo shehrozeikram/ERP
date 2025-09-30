@@ -19,6 +19,8 @@ const fs = require('fs');
 const { calculateMonthlyTax, calculateTaxableIncome, getTaxSlabInfo } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Sector = require('../models/hr/Sector');
+const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
+const incrementService = require('../services/incrementService');
 
 const router = express.Router();
 
@@ -1924,5 +1926,119 @@ router.post('/locations', [
     });
   })
 );
+
+// ================================
+// EMPLOYEE INCREMENT ROUTES
+// ================================
+
+// Create increment request
+router.post('/increments', [
+  authorize('hr_manager', 'admin'),
+  body('employeeId').isMongoId().withMessage('Valid employee ID is required'),
+  body('incrementType').isIn(['annual', 'performance', 'special', 'market_adjustment']).withMessage('Valid increment type is required'),
+  body('newSalary').isNumeric().withMessage('Valid new salary is required'),
+  body('reason').optional().isString().withMessage('Reason must be a string'),
+  body('effectiveDate').isISO8601().withMessage('Valid effective date is required')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+
+  const result = await incrementService.createIncrementRequest(req.body, req.user.id);
+  
+  if (result.success) {
+    res.status(201).json(result);
+  } else {
+    res.status(400).json(result);
+  }
+}));
+
+// Get all increment requests
+router.get('/increments', [
+  authorize('hr_manager', 'admin')
+], asyncHandler(async (req, res) => {
+  const result = await incrementService.getAllIncrements();
+  res.json(result);
+}));
+
+// Get pending increment requests
+router.get('/increments/pending', [
+  authorize('hr_manager', 'admin')
+], asyncHandler(async (req, res) => {
+  const result = await incrementService.getPendingIncrements();
+  res.json(result);
+}));
+
+// Approve increment request
+router.put('/increments/:id/approve', [
+  authorize('hr_manager', 'admin'),
+  body('comments').optional().isString().withMessage('Comments must be a string')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+
+  const result = await incrementService.approveIncrement(req.params.id, req.user.id, req.body.comments);
+  
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+}));
+
+// Reject increment request
+router.put('/increments/:id/reject', [
+  authorize('hr_manager', 'admin'),
+  body('comments').optional().isString().withMessage('Comments must be a string')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      errors: errors.array()
+    });
+  }
+
+  const result = await incrementService.rejectIncrement(req.params.id, req.user.id, req.body.comments);
+  
+  if (result.success) {
+    res.json(result);
+  } else {
+    res.status(400).json(result);
+  }
+}));
+
+// Get employee increment history
+router.get('/increments/employee/:employeeId', [
+  authorize('hr_manager', 'admin', 'employee')
+], asyncHandler(async (req, res) => {
+  const result = await incrementService.getEmployeeIncrementHistory(req.params.employeeId);
+  res.json(result);
+}));
+
+// Get employee current salary
+router.get('/increments/employee/:employeeId/current-salary', [
+  authorize('hr_manager', 'admin', 'employee')
+], asyncHandler(async (req, res) => {
+  const result = await incrementService.getEmployeeCurrentSalary(req.params.employeeId);
+  res.json(result);
+}));
+
+// Get increment by ID
+router.get('/increments/:id', [
+  authorize('hr_manager', 'admin')
+], asyncHandler(async (req, res) => {
+  const result = await incrementService.getIncrementById(req.params.id);
+  res.json(result);
+}));
 
 module.exports = router; 

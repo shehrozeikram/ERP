@@ -70,8 +70,8 @@ const AttendanceDetail = () => {
         }
         
         // Set department and position from employee data
-        if (detailData.employee.department) {
-          setDepartment({ name: detailData.employee.department });
+        if (detailData.employee.placementDepartment || detailData.employee.department) {
+          setDepartment({ name: detailData.employee.placementDepartment?.name || detailData.employee.department?.name || detailData.employee.department });
         }
         if (detailData.employee.position) {
           setPosition({ name: detailData.employee.position });

@@ -294,7 +294,7 @@ const AttendanceList = () => {
       }
       
       // Department filter
-      if (filters.department && employee.department !== filters.department) {
+      if (filters.department && (employee.placementDepartment?.name || employee.department?.name || employee.department) !== filters.department) {
         return false;
       }
       
@@ -795,7 +795,7 @@ const AttendanceList = () => {
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
-                        {employee.department}
+                        {employee.placementDepartment?.name || employee.department?.name || employee.department}
                       </Typography>
                     </TableCell>
                     <TableCell>

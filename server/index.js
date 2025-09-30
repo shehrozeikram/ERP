@@ -198,6 +198,7 @@ app.use('/api/provinces', authMiddleware, provinceRoutes);
 app.use('/api/countries', authMiddleware, countryRoutes);
 app.use('/api/loans', authMiddleware, loanRoutes);
 app.use('/api/final-settlements', authMiddleware, finalSettlementRoutes);
+app.use('/api/leaves', authMiddleware, require('./routes/leaves'));
 app.use('/api/hr/reports/payroll', authMiddleware, payrollReportsRoutes);
 app.use('/api/hr/reports/attendance', authMiddleware, attendanceReportsRoutes);
 app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);

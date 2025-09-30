@@ -154,7 +154,7 @@ router.post('/',
 );
 
 // @route   PUT /api/hr/arrears/:id
-// @desc    Update arrears for a specific payroll
+// @desc    Update arrears for a specific employee arrears entry
 // @access  Private (HR and Admin)
 router.put('/:id',
   authorize('admin', 'hr_manager'),
@@ -174,44 +174,76 @@ router.put('/:id',
     }
 
     const { id } = req.params;
-    const { amount, status, description } = req.body;
+    const { amount, status, description, type, month, year } = req.body;
 
-    const payroll = await Payroll.findById(id);
-    if (!payroll) {
+    // Parse composite ID: employeeId_type_month_year
+    const idParts = id.split('_');
+    if (idParts.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid arrears ID format'
+      });
+    }
+
+    const [employeeId, arrearsType, arrearsMonth, arrearsYear] = idParts;
+
+    // Find the employee
+    const employee = await Employee.findById(employeeId);
+    if (!employee) {
       return res.status(404).json({
         success: false,
-        message: 'Payroll record not found'
+        message: 'Employee not found'
       });
     }
 
-    // Update fields
-    if (amount !== undefined) payroll.arrears = parseFloat(amount);
-    if (status !== undefined) payroll.arrearsStatus = status;
-    if (description !== undefined) payroll.arrearsDescription = description;
-    
-    payroll.updatedBy = req.user._id;
-    await payroll.save();
+    // Update the specific arrears entry in employee's arrears object
+    if (employee.arrears && employee.arrears[arrearsType]) {
+      const arrearsEntry = employee.arrears[arrearsType];
+      
+      // Verify this is the correct entry (month and year match)
+      if (arrearsEntry.month === parseInt(arrearsMonth) && arrearsEntry.year === parseInt(arrearsYear)) {
+        // Update fields
+        if (amount !== undefined) arrearsEntry.amount = parseFloat(amount);
+        if (status !== undefined) arrearsEntry.status = status;
+        if (description !== undefined) arrearsEntry.description = description;
+        if (month !== undefined) arrearsEntry.month = parseInt(month);
+        if (year !== undefined) arrearsEntry.year = parseInt(year);
+        
+        // Update the timestamp
+        arrearsEntry.updatedDate = new Date();
+        
+        await employee.save();
 
-    // Update employee's arrears object structure
-    const employee = await Employee.findById(payroll.employee);
-    if (employee && employee.arrears) {
-      // Find and update the specific arrears entry
-      Object.keys(employee.arrears).forEach(key => {
-        const arrearsEntry = employee.arrears[key];
-        if (arrearsEntry.isActive && arrearsEntry.month === payroll.month && arrearsEntry.year === payroll.year) {
-          if (amount !== undefined) arrearsEntry.amount = parseFloat(amount);
-          if (status !== undefined) arrearsEntry.status = status;
-          if (description !== undefined) arrearsEntry.description = description;
-        }
+        // Generate new composite ID if month or year changed
+        const newId = month !== undefined || year !== undefined 
+          ? `${employeeId}_${arrearsType}_${arrearsEntry.month}_${arrearsEntry.year}`
+          : id;
+
+        res.json({
+          success: true,
+          message: 'Arrears updated successfully',
+          data: {
+            _id: newId,
+            type: arrearsType,
+            month: arrearsEntry.month,
+            year: arrearsEntry.year,
+            amount: arrearsEntry.amount,
+            status: arrearsEntry.status,
+            description: arrearsEntry.description
+          }
+        });
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'Arrears entry not found for the specified month and year'
+        });
+      }
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: 'Arrears entry not found'
       });
-      await employee.save();
     }
-
-    res.json({
-      success: true,
-      message: 'Arrears updated successfully',
-      data: payroll
-    });
   })
 );
 

@@ -1,5 +1,7 @@
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
+const LeaveRequest = require('../models/hr/LeaveRequest');
+const Attendance = require('../models/hr/Attendance');
 
 /**
  * Payroll Service - Implements Two-Tier Allowance System
@@ -271,6 +273,163 @@ class PayrollService {
       return payroll;
     } catch (error) {
       throw new Error(`Error resetting to employee defaults: ${error.message}`);
+    }
+  }
+
+  /**
+   * Calculate leave deductions for payroll
+   * @param {string} employeeId - Employee ID
+   * @param {number} month - Month (1-12)
+   * @param {number} year - Year
+   * @returns {Object} Leave deduction details
+   */
+  static async calculateLeaveDeductions(employeeId, month, year) {
+    try {
+      const employee = await Employee.findById(employeeId);
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      // Get approved leave requests for the month
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0);
+
+      const leaveRequests = await LeaveRequest.find({
+        employee: employeeId,
+        status: 'approved',
+        isActive: true,
+        $or: [
+          {
+            startDate: { $lte: endDate },
+            endDate: { $gte: startDate }
+          }
+        ]
+      }).populate('leaveType');
+
+      let totalLeaveDays = 0;
+      let unpaidLeaveDays = 0;
+      let leaveDeduction = 0;
+
+      // Calculate leave days and deductions
+      for (const leaveRequest of leaveRequests) {
+        const leaveStart = new Date(leaveRequest.startDate);
+        const leaveEnd = new Date(leaveRequest.endDate);
+        
+        // Calculate actual leave days in this month
+        const monthStart = new Date(Math.max(leaveStart.getTime(), startDate.getTime()));
+        const monthEnd = new Date(Math.min(leaveEnd.getTime(), endDate.getTime()));
+        
+        if (monthStart <= monthEnd) {
+          const daysInMonth = Math.ceil((monthEnd - monthStart) / (1000 * 60 * 60 * 24)) + 1;
+          totalLeaveDays += daysInMonth;
+          
+          // Check if leave is unpaid
+          if (!leaveRequest.leaveType.isPaid) {
+            unpaidLeaveDays += daysInMonth;
+          }
+        }
+      }
+
+      // Calculate daily rate and deduction
+      if (unpaidLeaveDays > 0 && employee.salary?.basic) {
+        const dailyRate = employee.salary.basic / 26; // 26 working days per month
+        leaveDeduction = unpaidLeaveDays * dailyRate;
+      }
+
+      return {
+        totalLeaveDays,
+        unpaidLeaveDays,
+        leaveDeduction,
+        leaveRequests: leaveRequests.map(req => ({
+          id: req._id,
+          type: req.leaveType.name,
+          startDate: req.startDate,
+          endDate: req.endDate,
+          days: req.totalDays,
+          isPaid: req.leaveType.isPaid
+        }))
+      };
+    } catch (error) {
+      throw new Error(`Error calculating leave deductions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update payroll with leave deductions
+   * @param {string} payrollId - Payroll ID
+   * @returns {Object} Updated payroll
+   */
+  static async updatePayrollWithLeaveDeductions(payrollId) {
+    try {
+      const payroll = await Payroll.findById(payrollId);
+      if (!payroll) {
+        throw new Error('Payroll not found');
+      }
+
+      // Calculate leave deductions
+      const leaveDeductions = await this.calculateLeaveDeductions(
+        payroll.employee,
+        payroll.month,
+        payroll.year
+      );
+
+      // Update payroll with leave deductions
+      payroll.leaveDays = leaveDeductions.totalLeaveDays;
+      payroll.unpaidLeaveDays = leaveDeductions.unpaidLeaveDays;
+      payroll.leaveDeduction = leaveDeductions.leaveDeduction;
+
+      // Recalculate net payable
+      payroll.netPayable = payroll.totalEarnings - 
+        payroll.providentFund - 
+        payroll.incomeTax - 
+        payroll.healthInsurance - 
+        payroll.vehicleLoanDeduction - 
+        payroll.companyLoanDeduction - 
+        payroll.otherDeductions - 
+        payroll.leaveDeduction;
+
+      await payroll.save();
+      return payroll;
+    } catch (error) {
+      throw new Error(`Error updating payroll with leave deductions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate payroll with leave integration
+   * @param {string} employeeId - Employee ID
+   * @param {number} month - Month (1-12)
+   * @param {number} year - Year
+   * @param {Object} attendanceData - Attendance data
+   * @returns {Object} Generated payroll
+   */
+  static async generatePayrollWithLeaveIntegration(employeeId, month, year, attendanceData = {}) {
+    try {
+      // Generate base payroll
+      const payroll = await Payroll.generatePayroll(employeeId, month, year, attendanceData);
+      
+      // Calculate and apply leave deductions
+      const leaveDeductions = await this.calculateLeaveDeductions(employeeId, month, year);
+      
+      // Update payroll with leave data
+      payroll.leaveDays = leaveDeductions.totalLeaveDays;
+      payroll.unpaidLeaveDays = leaveDeductions.unpaidLeaveDays;
+      payroll.leaveDeduction = leaveDeductions.leaveDeduction;
+      
+      // Recalculate net payable
+      payroll.netPayable = payroll.totalEarnings - 
+        payroll.providentFund - 
+        payroll.incomeTax - 
+        payroll.healthInsurance - 
+        payroll.vehicleLoanDeduction - 
+        payroll.companyLoanDeduction - 
+        payroll.otherDeductions - 
+        payroll.leaveDeduction;
+
+      await payroll.save();
+      return payroll;
+    } catch (error) {
+      throw new Error(`Error generating payroll with leave integration: ${error.message}`);
     }
   }
 }

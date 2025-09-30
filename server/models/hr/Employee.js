@@ -808,26 +808,94 @@ const employeeSchema = new mongoose.Schema({
   },
   leaveBalance: {
     annual: {
-      type: Number,
-      default: 20
+      allocated: {
+        type: Number,
+        default: 14
+      },
+      used: {
+        type: Number,
+        default: 0
+      },
+      remaining: {
+        type: Number,
+        default: 14
+      },
+      carriedForward: {
+        type: Number,
+        default: 0
+      }
     },
-    sick: {
-      type: Number,
-      default: 10
+    casual: {
+      allocated: {
+        type: Number,
+        default: 10
+      },
+      used: {
+        type: Number,
+        default: 0
+      },
+      remaining: {
+        type: Number,
+        default: 10
+      },
+      carriedForward: {
+        type: Number,
+        default: 0
+      }
     },
-    personal: {
-      type: Number,
-      default: 5
+    medical: {
+      allocated: {
+        type: Number,
+        default: 8
+      },
+      used: {
+        type: Number,
+        default: 0
+      },
+      remaining: {
+        type: Number,
+        default: 8
+      },
+      carriedForward: {
+        type: Number,
+        default: 0
+      }
     },
     maternity: {
-      type: Number,
-      default: 0
+      allocated: {
+        type: Number,
+        default: 0
+      },
+      used: {
+        type: Number,
+        default: 0
+      },
+      remaining: {
+        type: Number,
+        default: 0
+      }
     },
     paternity: {
-      type: Number,
-      default: 0
+      allocated: {
+        type: Number,
+        default: 0
+      },
+      used: {
+        type: Number,
+        default: 0
+      },
+      remaining: {
+        type: Number,
+        default: 0
+      }
     }
   },
+  // Leave management integration
+  leaveRequests: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'LeaveRequest'
+  }],
+  lastLeaveBalanceUpdate: Date,
   isActive: {
     type: Boolean,
     default: true
@@ -848,7 +916,15 @@ const employeeSchema = new mongoose.Schema({
   onboardingId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'EmployeeOnboarding'
-  }
+  },
+  
+  // Increment Management Integration
+  incrementHistory: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EmployeeIncrement'
+  }],
+  lastIncrementDate: Date,
+  nextIncrementEligibleDate: Date
 }, {
   timestamps: true
 });

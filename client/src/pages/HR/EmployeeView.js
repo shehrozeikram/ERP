@@ -47,7 +47,7 @@ const EmployeeView = () => {
   const [updatingPayrolls, setUpdatingPayrolls] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusDialog, setStatusDialog] = useState({ open: false, newStatus: null });
-  const [arrearsDialog, setArrearsDialog] = useState({ open: false });
+  const [arrearsDialog, setArrearsDialog] = useState({ open: false, editData: null });
 
   const fetchEmployee = async () => {
     if (!id) return;
@@ -201,6 +201,31 @@ const EmployeeView = () => {
     setStatusDialog({ open: false, newStatus: null });
   };
 
+  const handleMarkPaid = async (arrear) => {
+    try {
+      // Update the arrears status to 'Paid'
+      await api.put(`/hr/arrears/${arrear._id}`, {
+        status: 'Paid'
+      });
+      
+      setSnackbar({
+        open: true,
+        message: 'Arrears marked as paid successfully',
+        severity: 'success'
+      });
+      
+      // Refresh employee data
+      fetchEmployee();
+    } catch (error) {
+      console.error('Error marking arrears as paid:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to mark arrears as paid',
+        severity: 'error'
+      });
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -296,7 +321,7 @@ const EmployeeView = () => {
                   size="small"
                 />
                 <Typography variant="body2" color="textSecondary">
-                  {safeRenderText(employee.department)} • {safeRenderText(employee.placementDesignation)}
+                  {safeRenderText(employee.placementDepartment?.name || employee.department?.name)} • {safeRenderText(employee.placementDesignation)}
                 </Typography>
               </Box>
             </Grid>
@@ -369,7 +394,7 @@ const EmployeeView = () => {
               <Grid container spacing={2}>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Department</Typography>
-                  <Typography variant="body1">{safeRenderText(employee.department)}</Typography>
+                  <Typography variant="body1">{safeRenderText(employee.placementDepartment?.name || employee.department?.name)}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Designation</Typography>
@@ -385,7 +410,7 @@ const EmployeeView = () => {
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Bank Account Number</Typography>
-                  <Typography variant="body1">{safeRenderText(employee.accountNumber)}</Typography>
+                  <Typography variant="body1">{safeRenderText(employee.bankAccountNumber || employee.accountNumber)}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Hire Date</Typography>
@@ -736,10 +761,20 @@ const EmployeeView = () => {
                       </td>
                       <td style={{ padding: '12px' }}>
                         <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Button size="small" variant="outlined" color="primary">
+                          <Button 
+                            size="small" 
+                            variant="outlined" 
+                            color="primary"
+                            onClick={() => setArrearsDialog({ open: true, editData: arrear })}
+                          >
                             Edit
                           </Button>
-                          <Button size="small" variant="outlined" color="success">
+                          <Button 
+                            size="small" 
+                            variant="outlined" 
+                            color="success"
+                            onClick={() => handleMarkPaid(arrear)}
+                          >
                             Mark Paid
                           </Button>
                         </Box>
@@ -765,7 +800,7 @@ const EmployeeView = () => {
               variant="contained"
               color="primary"
               startIcon={<AssignmentIcon />}
-              onClick={() => setArrearsDialog({ open: true })}
+              onClick={() => setArrearsDialog({ open: true, editData: null })}
             >
               Add New Arrears
             </Button>
@@ -827,8 +862,9 @@ const EmployeeView = () => {
       {/* Arrears Dialog */}
       <ArrearsDialog
         open={arrearsDialog.open}
-        onClose={() => setArrearsDialog({ open: false })}
+        onClose={() => setArrearsDialog({ open: false, editData: null })}
         employee={employee}
+        editData={arrearsDialog.editData}
         onSuccess={(message) => {
           setSnackbar({
             open: true,

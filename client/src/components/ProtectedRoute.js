@@ -71,26 +71,29 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
   }
 
   // Check specific role requirement if provided
-  if (requiredRole && user.role !== requiredRole) {
-    return (
-      <Box
-        display="flex"
-        justifyContent="center"
-        alignItems="center"
-        minHeight="100vh"
-        sx={{ p: 3 }}
-      >
-        <Alert severity="error" sx={{ maxWidth: 600 }}>
-          <Typography variant="h6" gutterBottom>
-            Insufficient Permissions
-          </Typography>
-          <Typography variant="body1">
-            This page requires the <strong>{requiredRole}</strong> role.
-            Your current role is <strong>{user.role}</strong>.
-          </Typography>
-        </Alert>
-      </Box>
-    );
+  if (requiredRole) {
+    const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (!allowedRoles.includes(user.role)) {
+      return (
+        <Box
+          display="flex"
+          justifyContent="center"
+          alignItems="center"
+          minHeight="100vh"
+          sx={{ p: 3 }}
+        >
+          <Alert severity="error" sx={{ maxWidth: 600 }}>
+            <Typography variant="h6" gutterBottom>
+              Insufficient Permissions
+            </Typography>
+            <Typography variant="body1">
+              This page requires one of the following roles: <strong>{allowedRoles.join(', ')}</strong>.
+              Your current role is <strong>{user.role}</strong>.
+            </Typography>
+          </Alert>
+        </Box>
+      );
+    }
   }
 
   return children;
