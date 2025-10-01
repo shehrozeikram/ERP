@@ -449,33 +449,65 @@ router.get('/employee/:employeeId/detail', authMiddleware, async (req, res) => {
   try {
     const { employeeId } = req.params;
 
-    // Validate employeeId
-    if (!mongoose.Types.ObjectId.isValid(employeeId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid employee ID'
-      });
-    }
+    console.log(`🔍 Looking for employee with ID: ${employeeId}`);
 
-    // Find the employee with proper populate for department and position
-    const employee = await Employee.findById(employeeId)
-      .populate('department', 'name')
-      .populate('position', 'name')
-      .lean();
+    // Find employee by either MongoDB _id or employeeId field
+    let employee;
+    
+    if (mongoose.Types.ObjectId.isValid(employeeId)) {
+      // If valid ObjectId, search by _id
+      console.log('🔍 Searching by MongoDB _id...');
+      employee = await Employee.findById(employeeId)
+        .populate('department', 'name')
+        .populate('position', 'name')
+        .lean();
+    } else {
+      // Otherwise, search by employeeId field
+      console.log('🔍 Searching by employeeId field...');
+      employee = await Employee.findOne({ employeeId: employeeId })
+        .populate('department', 'name')
+        .populate('position', 'name')
+        .lean();
+    }
 
     if (!employee) {
+      console.log(`❌ Employee not found with ID: ${employeeId}`);
+      
+      // Try to find what employees exist (for debugging)
+      const count = await Employee.countDocuments();
+      console.log(`📊 Total employees in database: ${count}`);
+      
+      // Try to find similar employeeIds
+      const similarEmployees = await Employee.find({
+        employeeId: new RegExp(employeeId, 'i')
+      }).limit(5).select('employeeId firstName lastName');
+      
+      if (similarEmployees.length > 0) {
+        console.log('🔍 Similar employees found:', similarEmployees.map(e => ({
+          id: e.employeeId,
+          name: `${e.firstName} ${e.lastName}`
+        })));
+      }
+      
       return res.status(404).json({
         success: false,
-        message: 'Employee not found'
+        message: 'Employee not found',
+        debug: {
+          searchedId: employeeId,
+          totalEmployees: count,
+          suggestions: similarEmployees.map(e => e.employeeId)
+        }
       });
     }
+
+    console.log(`✅ Employee found: ${employee.firstName} ${employee.lastName} (${employee.employeeId})`);
 
     // Get attendance records for this employee (last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const attendanceRecords = await Attendance.find({
-      employee: employeeId,
+      employee: employee._id,
       isActive: true,
       date: { $gte: thirtyDaysAgo }
     })
@@ -499,7 +531,7 @@ router.get('/employee/:employeeId/detail', authMiddleware, async (req, res) => {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const todayAttendance = await Attendance.findOne({
-      employee: employeeId,
+      employee: employee._id,
       date: { $gte: today, $lt: tomorrow },
       isActive: true
     }).lean();

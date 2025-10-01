@@ -38,7 +38,6 @@ const GroceryForm = () => {
     location: 'Main Storage'
   });
 
-  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -47,20 +46,10 @@ const GroceryForm = () => {
   const units = ['kg', 'pieces', 'liters', 'packets', 'boxes', 'bottles'];
 
   useEffect(() => {
-    fetchSuppliers();
     if (isEdit) {
       fetchGrocery();
     }
   }, [id, isEdit]);
-
-  const fetchSuppliers = async () => {
-    try {
-      const response = await groceryService.getActiveSuppliers();
-      setSuppliers(response.data);
-    } catch (err) {
-      console.error('Error fetching suppliers:', err);
-    }
-  };
 
   const fetchGrocery = async () => {
     try {
@@ -77,7 +66,7 @@ const GroceryForm = () => {
         minStockLevel: grocery.minStockLevel || 5,
         maxStockLevel: grocery.maxStockLevel || 100,
         unitPrice: grocery.unitPrice || 0,
-        supplier: grocery.supplier?._id || '',
+        supplier: grocery.supplier || '',
         expiryDate: grocery.expiryDate ? new Date(grocery.expiryDate).toISOString().split('T')[0] : '',
         description: grocery.description || '',
         barcode: grocery.barcode || '',
@@ -299,24 +288,14 @@ const GroceryForm = () => {
               </Grid>
 
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Supplier</InputLabel>
-                  <Select
-                    name="supplier"
-                    value={formData.supplier}
-                    onChange={handleChange}
-                    label="Supplier"
-                  >
-                    <MenuItem value="">
-                      <em>No Supplier</em>
-                    </MenuItem>
-                    {suppliers.map(supplier => (
-                      <MenuItem key={supplier._id} value={supplier._id}>
-                        {supplier.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <TextField
+                  fullWidth
+                  label="Supplier"
+                  name="supplier"
+                  value={formData.supplier}
+                  onChange={handleChange}
+                  placeholder="e.g., ABC Suppliers"
+                />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField

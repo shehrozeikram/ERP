@@ -211,7 +211,9 @@ export const MODULES = {
       { name: 'Petty Cash Management', path: '/admin/petty-cash' },
       { name: 'Event Management', path: '/admin/events' },
       { name: 'Staff Management', path: '/admin/staff-management' },
-      { name: 'Utility Bills Management', path: '/admin/utility-bills' }
+      { name: 'Utility Bills Management', path: '/admin/utility-bills' },
+      { name: 'Rental Agreements', path: '/admin/rental-agreements' },
+      { name: 'Rental Management', path: '/admin/rental-management' }
     ]
   }
 };

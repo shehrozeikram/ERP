@@ -12,10 +12,17 @@ import {
   Select,
   MenuItem,
   Alert,
-  CircularProgress
+  CircularProgress,
+  Avatar,
+  IconButton
 } from '@mui/material';
+import {
+  CloudUpload as CloudUploadIcon,
+  Delete as DeleteIcon
+} from '@mui/icons-material';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
+import { getImageUrl, handleImageError } from '../../../utils/imageService';
 
 const UtilityBillForm = () => {
   const navigate = useNavigate();
@@ -39,6 +46,8 @@ const UtilityBillForm = () => {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   useEffect(() => {
     if (isEdit) {
@@ -64,6 +73,11 @@ const UtilityBillForm = () => {
         location: bill.location || 'Main Office',
         notes: bill.notes || ''
       });
+
+      // Set image preview if bill has an image
+      if (bill.billImage) {
+        setImagePreview(getImageUrl(bill.billImage));
+      }
     } catch (err) {
       setError('Failed to fetch utility bill details');
       console.error('Error fetching bill:', err);
@@ -79,6 +93,23 @@ const UtilityBillForm = () => {
     }));
   };
 
+  const handleImageChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -86,11 +117,19 @@ const UtilityBillForm = () => {
       setLoading(true);
       setError(null);
 
-      const submitData = {
-        ...formData,
-        amount: parseFloat(formData.amount),
-        paidAmount: parseFloat(formData.paidAmount)
-      };
+      const submitData = new FormData();
+      
+      // Add form data
+      Object.keys(formData).forEach(key => {
+        if (formData[key] !== null && formData[key] !== undefined && formData[key] !== '') {
+          submitData.append(key, formData[key]);
+        }
+      });
+
+      // Add image if selected
+      if (selectedImage) {
+        submitData.append('billImage', selectedImage);
+      }
 
       if (isEdit) {
         await utilityBillService.updateUtilityBill(id, submitData);
@@ -298,6 +337,60 @@ const UtilityBillForm = () => {
                   rows={2}
                   placeholder="Internal notes..."
                 />
+              </Grid>
+
+              {/* Image Upload Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+                  Bill Image
+                </Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                  <input
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    id="bill-image-upload"
+                    type="file"
+                    onChange={handleImageChange}
+                  />
+                  <label htmlFor="bill-image-upload">
+                    <Button
+                      variant="outlined"
+                      component="span"
+                      startIcon={<CloudUploadIcon />}
+                      size="small"
+                    >
+                      Upload Image
+                    </Button>
+                  </label>
+                  {imagePreview && (
+                    <IconButton
+                      onClick={handleRemoveImage}
+                      color="error"
+                      size="small"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  )}
+                </Box>
+
+                {imagePreview && (
+                  <Box sx={{ mt: 2 }}>
+                    <Avatar
+                      src={imagePreview}
+                      alt="Bill Preview"
+                      sx={{
+                        width: 200,
+                        height: 200,
+                        border: '1px solid',
+                        borderColor: 'divider'
+                      }}
+                      onError={(e) => handleImageError(e)}
+                    />
+                  </Box>
+                )}
               </Grid>
 
               {/* Submit Button */}

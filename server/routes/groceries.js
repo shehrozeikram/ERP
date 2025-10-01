@@ -26,7 +26,6 @@ router.get('/', async (req, res) => {
     }
 
     const items = await GroceryItem.find(filter)
-      .populate('supplier', 'supplierId name contactPerson')
       .populate('createdBy', 'firstName lastName')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
@@ -56,7 +55,6 @@ router.get('/', async (req, res) => {
 router.get('/low-stock', async (req, res) => {
   try {
     const items = await GroceryItem.find({ status: 'Low Stock' })
-      .populate('supplier', 'supplierId name contactPerson')
       .sort({ currentStock: 1 });
 
     res.json({
@@ -79,7 +77,6 @@ router.get('/expired', async (req, res) => {
       status: 'Expired',
       expiryDate: { $lt: new Date() }
     })
-      .populate('supplier', 'supplierId name contactPerson')
       .sort({ expiryDate: 1 });
 
     res.json({
@@ -99,7 +96,6 @@ router.get('/expired', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const item = await GroceryItem.findById(req.params.id)
-      .populate('supplier', 'supplierId name contactPerson phone email')
       .populate('createdBy', 'firstName lastName');
 
     if (!item) {
@@ -134,7 +130,6 @@ router.post('/', permissions.checkPermission('grocery_create'), async (req, res)
     await item.save();
 
     const populatedItem = await GroceryItem.findById(item._id)
-      .populate('supplier', 'supplierId name contactPerson')
       .populate('createdBy', 'firstName lastName');
 
     res.status(201).json({
@@ -164,8 +159,7 @@ router.put('/:id', permissions.checkPermission('grocery_update'), async (req, re
       req.params.id,
       req.body,
       { new: true, runValidators: true }
-    ).populate('supplier', 'supplierId name contactPerson')
-     .populate('createdBy', 'firstName lastName');
+    ).populate('createdBy', 'firstName lastName');
 
     if (!item) {
       return res.status(404).json({
@@ -220,7 +214,6 @@ router.put('/:id/stock', permissions.checkPermission('grocery_update'), async (r
     await item.save();
 
     const populatedItem = await GroceryItem.findById(item._id)
-      .populate('supplier', 'supplierId name contactPerson')
       .populate('createdBy', 'firstName lastName');
 
     res.json({

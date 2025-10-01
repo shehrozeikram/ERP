@@ -40,7 +40,6 @@ const EventForm = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [resourceInput, setResourceInput] = useState('');
-  const [employees, setEmployees] = useState([]);
 
   const fetchEvent = useCallback(async () => {
     try {
@@ -56,7 +55,7 @@ const EventForm = () => {
         startTime: event.startTime || '',
         endTime: event.endTime || '',
         location: event.location || '',
-        organizer: event.organizer?._id || '',
+        organizer: event.organizer || '',
         status: event.status || 'Planned',
         maxParticipants: event.maxParticipants || 50,
         resources: event.resources || [],
@@ -70,28 +69,11 @@ const EventForm = () => {
     }
   }, [id]);
 
-  const fetchEmployees = useCallback(async () => {
-    try {
-      // In a real implementation, you would fetch employees from the HR API
-      // For now, we'll use a mock list with proper ObjectIds
-      setEmployees([
-        { _id: '507f1f77bcf86cd799439011', firstName: 'John', lastName: 'Doe', employeeId: 'EMP001' },
-        { _id: '507f1f77bcf86cd799439012', firstName: 'Jane', lastName: 'Smith', employeeId: 'EMP002' },
-        { _id: '507f1f77bcf86cd799439013', firstName: 'Mike', lastName: 'Johnson', employeeId: 'EMP003' },
-        { _id: '507f1f77bcf86cd799439014', firstName: 'Sarah', lastName: 'Wilson', employeeId: 'EMP004' },
-        { _id: '507f1f77bcf86cd799439015', firstName: 'David', lastName: 'Brown', employeeId: 'EMP005' }
-      ]);
-    } catch (err) {
-      console.error('Error fetching employees:', err);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchEmployees();
     if (isEdit) {
       fetchEvent();
     }
-  }, [isEdit, fetchEvent, fetchEmployees]);
+  }, [isEdit, fetchEvent]);
 
   const handleChange = (field) => (event) => {
     setFormData(prev => ({
@@ -296,20 +278,13 @@ const EventForm = () => {
               </Grid>
 
               <Grid item xs={12} md={6}>
-                <FormControl fullWidth required>
-                  <InputLabel>Organizer</InputLabel>
-                  <Select
-                    value={formData.organizer}
-                    onChange={handleChange('organizer')}
-                    label="Organizer"
-                  >
-                    {employees.map((employee) => (
-                      <MenuItem key={employee._id} value={employee._id}>
-                        {employee.firstName} {employee.lastName} ({employee.employeeId})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <TextField
+                  fullWidth
+                  label="Organizer"
+                  value={formData.organizer}
+                  onChange={handleChange('organizer')}
+                  required
+                />
               </Grid>
 
               {/* Event Details */}

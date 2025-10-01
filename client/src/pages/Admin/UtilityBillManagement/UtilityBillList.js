@@ -21,7 +21,8 @@ import {
   Chip,
   MenuItem,
   Alert,
-  CircularProgress
+  CircularProgress,
+  Avatar
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -33,6 +34,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
+import { getImageUrl, handleImageError } from '../../../utils/imageService';
 
 const UtilityBillList = () => {
   const navigate = useNavigate();
@@ -204,6 +206,7 @@ const UtilityBillList = () => {
                   <TableCell>Bill ID</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Provider</TableCell>
+                  <TableCell>Image</TableCell>
                   <TableCell>Amount</TableCell>
                   <TableCell>Paid</TableCell>
                   <TableCell>Status</TableCell>
@@ -214,7 +217,7 @@ const UtilityBillList = () => {
               <TableBody>
                 {bills.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">
                         No utility bills found. Create your first bill to get started.
                       </Typography>
@@ -233,6 +236,22 @@ const UtilityBillList = () => {
                           <Typography variant="caption" color="text.secondary">
                             {bill.accountNumber}
                           </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {bill.billImage ? (
+                          <Avatar
+                            src={getImageUrl(bill.billImage)}
+                            alt="Bill Image"
+                            sx={{ width: 40, height: 40 }}
+                            onError={(e) => handleImageError(e)}
+                          />
+                        ) : (
+                          <Avatar sx={{ width: 40, height: 40, bgcolor: 'grey.300' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              No Image
+                            </Typography>
+                          </Avatar>
                         )}
                       </TableCell>
                       <TableCell>

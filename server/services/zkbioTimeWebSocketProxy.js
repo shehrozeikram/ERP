@@ -24,6 +24,59 @@ class ZKBioTimeWebSocketProxy {
     this.lastChartData = null; // Store last chart data
     this.lastDeviceData = null; // Store last device data
     this.lastDeptData = null; // Store last department data
+    this.chartDisabled = false; // Flag to disable chart WebSocket if server is unavailable
+    this.deviceDisabled = false; // Flag to disable device WebSocket if server is unavailable
+    this.deptDisabled = false; // Flag to disable dept WebSocket if server is unavailable
+    this.periodicRetryInterval = null; // Interval for periodic retry of disabled connections
+    this.periodicRetryDelay = 30 * 60 * 1000; // 30 minutes
+  }
+
+  // Start periodic retry for disabled WebSocket connections
+  startPeriodicRetry() {
+    // Clear any existing interval
+    if (this.periodicRetryInterval) {
+      clearInterval(this.periodicRetryInterval);
+    }
+
+    // Set up periodic retry every 30 minutes
+    this.periodicRetryInterval = setInterval(() => {
+      console.log('🔄 Periodic retry check for disabled WebSocket connections...');
+      
+      // Try to reconnect chart WebSocket if disabled
+      if (this.chartDisabled) {
+        console.log('🔄 Attempting to re-enable Chart WebSocket...');
+        this.chartDisabled = false;
+        this.chartReconnectAttempts = 0;
+        this.connectToChartWebSocket();
+      }
+      
+      // Try to reconnect device WebSocket if disabled
+      if (this.deviceDisabled) {
+        console.log('🔄 Attempting to re-enable Device WebSocket...');
+        this.deviceDisabled = false;
+        this.deviceReconnectAttempts = 0;
+        this.connectToDeviceWebSocket();
+      }
+      
+      // Try to reconnect department WebSocket if disabled
+      if (this.deptDisabled) {
+        console.log('🔄 Attempting to re-enable Department WebSocket...');
+        this.deptDisabled = false;
+        this.deptReconnectAttempts = 0;
+        this.connectToDepartmentWebSocket();
+      }
+    }, this.periodicRetryDelay);
+    
+    console.log(`✅ Periodic retry enabled - will check every ${this.periodicRetryDelay / 60000} minutes`);
+  }
+
+  // Stop periodic retry
+  stopPeriodicRetry() {
+    if (this.periodicRetryInterval) {
+      clearInterval(this.periodicRetryInterval);
+      this.periodicRetryInterval = null;
+      console.log('⏹️  Periodic retry stopped');
+    }
   }
 
   // Initialize Socket.IO server
@@ -304,12 +357,19 @@ class ZKBioTimeWebSocketProxy {
 
   // Connect to ZKBio Time Chart WebSocket
   async connectToChartWebSocket() {
+    // Skip if chart WebSocket is disabled due to persistent failures
+    if (this.chartDisabled) {
+      return;
+    }
+
     try {
       // Use existing authentication if available
       if (!this.sessionCookies) {
         const authSuccess = await this.authenticateWithZKBioTime();
         if (!authSuccess) {
-          throw new Error('Authentication failed for chart WebSocket');
+          console.log('⚠️  Chart WebSocket: Authentication failed, skipping connection');
+          this.chartDisabled = true;
+          return;
         }
       }
 
@@ -369,13 +429,18 @@ class ZKBioTimeWebSocketProxy {
       });
 
       this.chartWs.on('error', (error) => {
-        console.error('❌ ZKBio Time Chart WebSocket error:', error);
+        // Check if it's a 502 error (server unavailable)
+        if (error.message && error.message.includes('502')) {
+          console.log('⚠️  Chart WebSocket: Server unavailable (502), disabling reconnection');
+          this.chartDisabled = true;
+          this.chartConnected = false;
+          return;
+        }
         this.chartConnected = false;
         this.attemptChartReconnection();
       });
 
       this.chartWs.on('close', (code, reason) => {
-        console.log(`📊 ZKBio Time Chart WebSocket closed: ${code} - ${reason}`);
         this.chartConnected = false;
         
         // Clear the periodic refresh interval
@@ -384,18 +449,31 @@ class ZKBioTimeWebSocketProxy {
           this.chartRefreshInterval = null;
         }
         
-        this.attemptChartReconnection();
+        // Don't attempt reconnection if disabled
+        if (!this.chartDisabled) {
+          this.attemptChartReconnection();
+        }
       });
 
     } catch (error) {
-      console.error('❌ Failed to connect to ZKBio Time Chart:', error.message);
+      // Check for 502 or connection errors
+      if (error.message && (error.message.includes('502') || error.message.includes('Unexpected server response'))) {
+        console.log('⚠️  Chart WebSocket: Server unavailable, disabling reconnection');
+        this.chartDisabled = true;
+      }
       this.chartConnected = false;
-      this.attemptChartReconnection();
+      if (!this.chartDisabled) {
+        this.attemptChartReconnection();
+      }
     }
   }
 
   // Attempt to reconnect chart WebSocket
   attemptChartReconnection() {
+    if (this.chartDisabled) {
+      return;
+    }
+    
     if (this.chartReconnectAttempts < this.maxReconnectAttempts) {
       this.chartReconnectAttempts++;
       console.log(`🔄 Attempting chart reconnection ${this.chartReconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay/1000}s...`);
@@ -404,18 +482,26 @@ class ZKBioTimeWebSocketProxy {
         this.connectToChartWebSocket();
       }, this.reconnectDelay);
     } else {
-      console.log('❌ Max chart reconnection attempts reached.');
+      console.log('⚠️  Max chart reconnection attempts reached. Chart WebSocket disabled.');
+      this.chartDisabled = true;
     }
   }
 
   // Connect to ZKBio Time Device Status WebSocket
   async connectToDeviceWebSocket() {
+    // Skip if device WebSocket is disabled due to persistent failures
+    if (this.deviceDisabled) {
+      return;
+    }
+
     try {
       // Use existing authentication if available
       if (!this.sessionCookies) {
         const authSuccess = await this.authenticateWithZKBioTime();
         if (!authSuccess) {
-          throw new Error('Authentication failed for device WebSocket');
+          console.log('⚠️  Device WebSocket: Authentication failed, skipping connection');
+          this.deviceDisabled = true;
+          return;
         }
       }
 
@@ -469,26 +555,44 @@ class ZKBioTimeWebSocketProxy {
       });
 
       this.deviceWs.on('error', (error) => {
-        console.error('❌ ZKBio Time Device WebSocket error:', error);
+        // Check if it's a 502 error (server unavailable)
+        if (error.message && error.message.includes('502')) {
+          console.log('⚠️  Device WebSocket: Server unavailable (502), disabling reconnection');
+          this.deviceDisabled = true;
+          this.deviceConnected = false;
+          return;
+        }
         this.deviceConnected = false;
         this.attemptDeviceReconnection();
       });
 
       this.deviceWs.on('close', (code, reason) => {
-        console.log(`📱 ZKBio Time Device WebSocket closed: ${code} - ${reason}`);
         this.deviceConnected = false;
-        this.attemptDeviceReconnection();
+        // Don't attempt reconnection if disabled
+        if (!this.deviceDisabled) {
+          this.attemptDeviceReconnection();
+        }
       });
 
     } catch (error) {
-      console.error('❌ Failed to connect to ZKBio Time Device:', error.message);
+      // Check for 502 or connection errors
+      if (error.message && (error.message.includes('502') || error.message.includes('Unexpected server response'))) {
+        console.log('⚠️  Device WebSocket: Server unavailable, disabling reconnection');
+        this.deviceDisabled = true;
+      }
       this.deviceConnected = false;
-      this.attemptDeviceReconnection();
+      if (!this.deviceDisabled) {
+        this.attemptDeviceReconnection();
+      }
     }
   }
 
   // Attempt to reconnect device WebSocket
   attemptDeviceReconnection() {
+    if (this.deviceDisabled) {
+      return;
+    }
+    
     if (this.deviceReconnectAttempts < this.maxReconnectAttempts) {
       this.deviceReconnectAttempts++;
       console.log(`🔄 Attempting device reconnection ${this.deviceReconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay/1000}s...`);
@@ -497,18 +601,26 @@ class ZKBioTimeWebSocketProxy {
         this.connectToDeviceWebSocket();
       }, this.reconnectDelay);
     } else {
-      console.log('❌ Max device reconnection attempts reached.');
+      console.log('⚠️  Max device reconnection attempts reached. Device WebSocket disabled.');
+      this.deviceDisabled = true;
     }
   }
 
   // Connect to ZKBio Time Department Attendance WebSocket
   async connectToDepartmentWebSocket() {
+    // Skip if department WebSocket is disabled due to persistent failures
+    if (this.deptDisabled) {
+      return;
+    }
+
     try {
       // Use existing authentication if available
       if (!this.sessionCookies) {
         const authSuccess = await this.authenticateWithZKBioTime();
         if (!authSuccess) {
-          throw new Error('Authentication failed for department WebSocket');
+          console.log('⚠️  Department WebSocket: Authentication failed, skipping connection');
+          this.deptDisabled = true;
+          return;
         }
       }
 
@@ -562,26 +674,44 @@ class ZKBioTimeWebSocketProxy {
       });
 
       this.deptWs.on('error', (error) => {
-        console.error('❌ ZKBio Time Department WebSocket error:', error);
+        // Check if it's a 502 error (server unavailable)
+        if (error.message && error.message.includes('502')) {
+          console.log('⚠️  Department WebSocket: Server unavailable (502), disabling reconnection');
+          this.deptDisabled = true;
+          this.deptConnected = false;
+          return;
+        }
         this.deptConnected = false;
         this.attemptDepartmentReconnection();
       });
 
       this.deptWs.on('close', (code, reason) => {
-        console.log(`🏢 ZKBio Time Department WebSocket closed: ${code} - ${reason}`);
         this.deptConnected = false;
-        this.attemptDepartmentReconnection();
+        // Don't attempt reconnection if disabled
+        if (!this.deptDisabled) {
+          this.attemptDepartmentReconnection();
+        }
       });
 
     } catch (error) {
-      console.error('❌ Failed to connect to ZKBio Time Department:', error.message);
+      // Check for 502 or connection errors
+      if (error.message && (error.message.includes('502') || error.message.includes('Unexpected server response'))) {
+        console.log('⚠️  Department WebSocket: Server unavailable, disabling reconnection');
+        this.deptDisabled = true;
+      }
       this.deptConnected = false;
-      this.attemptDepartmentReconnection();
+      if (!this.deptDisabled) {
+        this.attemptDepartmentReconnection();
+      }
     }
   }
 
   // Attempt to reconnect department WebSocket
   attemptDepartmentReconnection() {
+    if (this.deptDisabled) {
+      return;
+    }
+    
     if (this.deptReconnectAttempts < this.maxReconnectAttempts) {
       this.deptReconnectAttempts++;
       console.log(`🔄 Attempting department reconnection ${this.deptReconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectDelay/1000}s...`);
@@ -590,7 +720,8 @@ class ZKBioTimeWebSocketProxy {
         this.connectToDepartmentWebSocket();
       }, this.reconnectDelay);
     } else {
-      console.log('❌ Max department reconnection attempts reached.');
+      console.log('⚠️  Max department reconnection attempts reached. Department WebSocket disabled.');
+      this.deptDisabled = true;
     }
   }
 

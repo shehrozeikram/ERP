@@ -41,7 +41,6 @@ router.get('/', async (req, res) => {
 
     // Execute query with population
     const events = await Event.find(query)
-      .populate('organizer', 'firstName lastName employeeId')
       .populate('createdBy', 'firstName lastName')
       .sort({ eventDate: -1, createdAt: -1 })
       .skip(skip)
@@ -68,7 +67,6 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
-      .populate('organizer', 'firstName lastName employeeId department position')
       .populate('createdBy', 'firstName lastName');
 
     if (!event) {
@@ -93,9 +91,6 @@ router.post('/', permissions.checkPermission('event_create'), async (req, res) =
     const event = new Event(eventData);
     await event.save();
 
-    // Populate organizer for response
-    await event.populate('organizer', 'firstName lastName employeeId');
-
     res.status(201).json({ success: true, data: event });
   } catch (error) {
     console.error('Error creating event:', error);
@@ -110,7 +105,7 @@ router.put('/:id', permissions.checkPermission('event_update'), async (req, res)
       req.params.id,
       req.body,
       { new: true, runValidators: true }
-    ).populate('organizer', 'firstName lastName employeeId');
+    );
 
     if (!event) {
       return res.status(404).json({ success: false, message: 'Event not found' });
@@ -155,7 +150,7 @@ router.put('/:id/status', permissions.checkPermission('event_update'), async (re
       req.params.id,
       { status },
       { new: true }
-    ).populate('organizer', 'firstName lastName employeeId');
+    );
 
     if (!event) {
       return res.status(404).json({ success: false, message: 'Event not found' });

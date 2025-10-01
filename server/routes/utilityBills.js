@@ -1,8 +1,40 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const UtilityBill = require('../models/hr/UtilityBill');
+
+// Configure multer for image uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, '../uploads/utility-bills');
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'bill-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
+    }
+  }
+});
 
 // Apply authentication middleware
 router.use(authMiddleware);
@@ -233,12 +265,26 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new utility bill
-router.post('/', permissions.checkPermission('utility_create'), async (req, res) => {
+router.post('/', permissions.checkPermission('utility_create'), upload.single('billImage'), async (req, res) => {
   try {
     const billData = {
       ...req.body,
       createdBy: req.user._id
     };
+
+    // Add image path if uploaded
+    if (req.file) {
+      billData.billImage = `/uploads/utility-bills/${req.file.filename}`;
+    } else {
+      // Ensure billImage is not an empty object
+      delete billData.billImage;
+    }
+
+    // Convert string values to appropriate types
+    if (billData.amount) billData.amount = parseFloat(billData.amount);
+    if (billData.paidAmount) billData.paidAmount = parseFloat(billData.paidAmount);
+    if (billData.billDate) billData.billDate = new Date(billData.billDate);
+    if (billData.dueDate) billData.dueDate = new Date(billData.dueDate);
 
     const bill = new UtilityBill(billData);
     await bill.save();
@@ -260,11 +306,27 @@ router.post('/', permissions.checkPermission('utility_create'), async (req, res)
 });
 
 // Update utility bill
-router.put('/:id', permissions.checkPermission('utility_update'), async (req, res) => {
+router.put('/:id', permissions.checkPermission('utility_update'), upload.single('billImage'), async (req, res) => {
   try {
+    const updateData = { ...req.body };
+
+    // Add image path if uploaded
+    if (req.file) {
+      updateData.billImage = `/uploads/utility-bills/${req.file.filename}`;
+    } else if (updateData.billImage === '{}' || updateData.billImage === '') {
+      // Remove empty billImage field
+      delete updateData.billImage;
+    }
+
+    // Convert string values to appropriate types
+    if (updateData.amount) updateData.amount = parseFloat(updateData.amount);
+    if (updateData.paidAmount) updateData.paidAmount = parseFloat(updateData.paidAmount);
+    if (updateData.billDate) updateData.billDate = new Date(updateData.billDate);
+    if (updateData.dueDate) updateData.dueDate = new Date(updateData.dueDate);
+
     const bill = await UtilityBill.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       { new: true, runValidators: true }
     ).populate('createdBy', 'firstName lastName');
 

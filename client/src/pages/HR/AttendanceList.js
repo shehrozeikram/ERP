@@ -690,8 +690,15 @@ const AttendanceList = () => {
                           <IconButton
                             size="small"
                             onClick={() => {
-                              const employeeId = record.employee?._id || record.employee?.id || record.deviceUserId || record.userId || record.uid;
+                              // Use employee's actual employeeId or MongoDB _id, NOT device IDs
+                              const employeeId = record.employee?.employeeId || record.employee?._id || record.employee?.id;
                               const id = typeof employeeId === 'object' ? employeeId.id || employeeId.toString() : employeeId;
+                              
+                              if (!id) {
+                                console.error('No valid employee ID found:', record.employee);
+                                return;
+                              }
+                              
                               navigate(`/hr/attendance/employee/${id}/detail`);
                             }}
                           >

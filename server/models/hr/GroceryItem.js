@@ -48,8 +48,8 @@ const groceryItemSchema = new mongoose.Schema({
     min: 0
   },
   supplier: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Supplier',
+    type: String,
+    trim: true,
     default: null
   },
   expiryDate: {

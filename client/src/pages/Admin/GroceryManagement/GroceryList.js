@@ -230,15 +230,9 @@ const GroceryList = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      {grocery.supplier ? (
-                        <Typography variant="body2">
-                          {grocery.supplier.name}
-                        </Typography>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          No Supplier
-                        </Typography>
-                      )}
+                      <Typography variant="body2" color={grocery.supplier ? 'text.primary' : 'text.secondary'}>
+                        {grocery.supplier || 'No Supplier'}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <IconButton

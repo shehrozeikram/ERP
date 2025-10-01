@@ -22,7 +22,8 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemIcon
+  ListItemIcon,
+  IconButton
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -35,10 +36,13 @@ import {
   Description as DescriptionIcon,
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Close as CloseIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
+import { getImageUrl, handleImageError } from '../../../utils/imageService';
 
 const UtilityBillDetails = () => {
   const navigate = useNavigate();
@@ -47,6 +51,7 @@ const UtilityBillDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [paymentDialog, setPaymentDialog] = useState(false);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
   const [paymentData, setPaymentData] = useState({
     paidAmount: 0,
     paymentMethod: '',
@@ -298,6 +303,46 @@ const UtilityBillDetails = () => {
             </CardContent>
           </Card>
 
+          {/* Bill Image Section */}
+          {bill.billImage && (
+            <Card sx={{ mt: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Bill Image
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box
+                    component="img"
+                    src={getImageUrl(bill.billImage)}
+                    alt="Bill Image"
+                    sx={{
+                      width: 200,
+                      height: 200,
+                      objectFit: 'cover',
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      cursor: 'pointer'
+                    }}
+                    onError={(e) => handleImageError(e)}
+                    onClick={() => setImageModalOpen(true)}
+                  />
+                  <Box>
+                    <Button
+                      variant="outlined"
+                      startIcon={<ViewIcon />}
+                      onClick={() => setImageModalOpen(true)}
+                    >
+                      View Full Image
+                    </Button>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Reading Information */}
           {bill.previousReading !== undefined && (
             <Card sx={{ mt: 3 }}>
@@ -505,6 +550,63 @@ const UtilityBillDetails = () => {
         <DialogActions>
           <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
           <Button onClick={handlePaymentSubmit} variant="contained">Record Payment</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Image Modal */}
+      <Dialog
+        open={imageModalOpen}
+        onClose={() => setImageModalOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: 'transparent',
+            boxShadow: 'none'
+          }
+        }}
+      >
+        <DialogTitle sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          color: 'white'
+        }}>
+          <Typography variant="h6">Bill Image</Typography>
+          <IconButton
+            onClick={() => setImageModalOpen(false)}
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, backgroundColor: 'rgba(0,0,0,0.8)' }}>
+          <Box
+            component="img"
+            src={getImageUrl(bill?.billImage)}
+            alt="Bill Image"
+            sx={{
+              width: '100%',
+              height: 'auto',
+              maxHeight: '80vh',
+              objectFit: 'contain',
+              display: 'block'
+            }}
+            onError={(e) => handleImageError(e)}
+          />
+        </DialogContent>
+        <DialogActions sx={{
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          justifyContent: 'center'
+        }}>
+          <Button
+            onClick={() => setImageModalOpen(false)}
+            variant="contained"
+            color="primary"
+          >
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

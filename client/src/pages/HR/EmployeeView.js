@@ -36,6 +36,7 @@ import { formatPKR } from '../../utils/currency';
 import api from '../../services/api';
 import { useData } from '../../contexts/DataContext';
 import ArrearsDialog from '../../components/ArrearsDialog';
+import { getImageUrl, handleImageError } from '../../utils/imageService';
 
 const EmployeeView = () => {
   const { id } = useParams();
@@ -301,7 +302,8 @@ const EmployeeView = () => {
           <Grid container spacing={3} alignItems="center">
             <Grid item>
               <Avatar 
-                src={employee.profileImage}
+                src={getImageUrl(employee.profileImage)}
+                onError={(e) => handleImageError(e)}
                 sx={{ width: 100, height: 100, fontSize: '2rem' }}
               >
                 {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}

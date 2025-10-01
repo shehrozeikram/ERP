@@ -73,6 +73,10 @@ const utilityBillSchema = new mongoose.Schema({
     type: String, // File path for bill attachment
     default: null
   },
+  billImage: {
+    type: String, // Image path for bill image
+    default: null
+  },
   location: {
     type: String,
     trim: true,

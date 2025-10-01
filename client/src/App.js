@@ -66,6 +66,10 @@ import UtilityBillDashboard from './pages/Admin/UtilityBillManagement/UtilityBil
 import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList';
 import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
 import UtilityBillDetails from './pages/Admin/UtilityBillManagement/UtilityBillDetails';
+import RentalAgreementList from './pages/Admin/RentalAgreements/RentalAgreementList';
+import RentalAgreementDetail from './pages/Admin/RentalAgreements/RentalAgreementDetail';
+import RentalManagementDashboard from './pages/Admin/RentalManagement/RentalManagementDashboard';
+import RentalManagementDetail from './pages/Admin/RentalManagement/RentalManagementDetail';
 import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
@@ -834,6 +838,23 @@ function App() {
               element={<ProtectedRoute requiredRole="admin"><UtilityBillDetails /></ProtectedRoute>} 
             />
 
+            {/* Rental Management Routes */}
+            <Route 
+              path="/admin/rental-agreements" 
+              element={<ProtectedRoute requiredRole="admin"><RentalAgreementList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/rental-agreements/:id" 
+              element={<ProtectedRoute requiredRole="admin"><RentalAgreementDetail /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/rental-management" 
+              element={<ProtectedRoute requiredRole="admin"><RentalManagementDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/rental-management/:id" 
+              element={<ProtectedRoute requiredRole="admin"><RentalManagementDetail /></ProtectedRoute>} 
+            />
 
             {/* HR Management Routes */}
             <Route 

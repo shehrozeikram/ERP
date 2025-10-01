@@ -38,6 +38,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getModuleMenuItems } from '../../utils/permissions';
 import NotificationService from '../../services/notificationService';
 import { useNotifications } from '../../contexts/NotificationContext';
+import { getImageUrl, handleImageError } from '../../utils/imageService';
 
 const drawerWidth = 280;
 
@@ -192,7 +193,8 @@ const Sidebar = () => {
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
           <Avatar 
-            src={user?.profileImage}
+            src={getImageUrl(user?.profileImage)}
+            onError={(e) => handleImageError(e)}
             sx={{ 
               mr: 2.5, 
               bgcolor: 'secondary.main',

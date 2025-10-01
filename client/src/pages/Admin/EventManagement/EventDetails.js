@@ -257,8 +257,7 @@ const EventDetails = () => {
                     Organizer
                   </Typography>
                   <Typography variant="body1">
-                    {event.organizer?.firstName} {event.organizer?.lastName}
-                    {event.organizer?.employeeId && ` (${event.organizer.employeeId})`}
+                    {event.organizer || 'N/A'}
                   </Typography>
                 </Grid>
 

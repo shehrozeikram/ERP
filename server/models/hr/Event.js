@@ -42,9 +42,9 @@ const eventSchema = new mongoose.Schema({
     trim: true
   },
   organizer: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Employee',
-    required: true
+    type: String,
+    required: true,
+    trim: true
   },
   status: {
     type: String,

@@ -67,6 +67,8 @@ const staffAssignmentRoutes = require('./routes/staffAssignments');
 const attendanceProxyRoutes = require('./routes/attendanceProxy');
 const utilityBillRoutes = require('./routes/utilityBills');
 const arrearsRoutes = require('./routes/arrears');
+const rentalAgreementRoutes = require('./routes/rentalAgreements');
+const rentalManagementRoutes = require('./routes/rentalManagement');
 
 
 // Import services
@@ -109,7 +111,33 @@ connectDB();
 // Initialize Change Stream service
 
 // Security middleware
-app.use(helmet());
+const getCSPDirectives = () => {
+  const baseDirectives = {
+    defaultSrc: ["'self'"],
+    scriptSrc: ["'self'"],
+    styleSrc: ["'self'", "'unsafe-inline'", "https:"],
+    fontSrc: ["'self'", "https:", "data:"],
+    connectSrc: ["'self'"],
+    frameSrc: ["'none'"],
+    objectSrc: ["'none'"]
+  };
+
+  // Add environment-specific image sources
+  if (NODE_ENV === 'development') {
+    baseDirectives.imgSrc = ["'self'", "data:", "http://localhost:3000", "https://localhost:3000", "http://localhost:5001", "https://localhost:5001"];
+  } else {
+    baseDirectives.imgSrc = ["'self'", "data:", "http://tovus.net", "https://tovus.net", "http://www.tovus.net", "https://www.tovus.net"];
+    baseDirectives.upgradeInsecureRequests = [];
+  }
+
+  return baseDirectives;
+};
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: getCSPDirectives()
+  }
+}));
 app.use(compression());
 
 // Rate limiting (disabled for development)
@@ -146,7 +174,8 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
 
 // Body parsing middleware
@@ -158,8 +187,14 @@ if (NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
-// Static files
-app.use('/uploads', express.static('uploads'));
+// Static files with CORS headers
+app.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
+
 app.use('/images', express.static(path.join(__dirname, '../client/public/images')));
 
 // Note: React build files are now served by nginx, not by Node.js
@@ -234,6 +269,8 @@ app.use('/api/staff-assignments', authMiddleware, staffAssignmentRoutes);
 app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, utilityBillRoutes);
 app.use('/api/hr/arrears', authMiddleware, arrearsRoutes);
+app.use('/api/rental-agreements', authMiddleware, rentalAgreementRoutes);
+app.use('/api/rental-management', authMiddleware, rentalManagementRoutes);
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {
@@ -314,6 +351,11 @@ mongoose.connection.once('open', async () => {
           zkbioTimeWebSocketProxy.connectToDepartmentWebSocket();
         }, 3000);
       }
+      
+      // Start periodic retry mechanism for disabled WebSockets
+      setTimeout(() => {
+        zkbioTimeWebSocketProxy.startPeriodicRetry();
+      }, 4000); // Start after all WebSockets have had a chance to connect
     }, 2000); // Wait 2 seconds for server to be fully ready
     
     console.log('✅ ZKBio Time WebSocket Proxy initialized');

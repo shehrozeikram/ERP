@@ -17,17 +17,26 @@ function setZKBioTimeWebSocketProxy(proxy) {
 }
 
 // Function to get ZKBio Time session cookies from WebSocket proxy
-function getZKBioSessionCookies() {
+async function getZKBioSessionCookies() {
   if (zkbioTimeWebSocketProxy && zkbioTimeWebSocketProxy.sessionCookies) {
-    console.log('✅ Using existing ZKBio Time session cookies from WebSocket proxy');
     return zkbioTimeWebSocketProxy.sessionCookies;
   }
   
-  console.log('❌ No ZKBio Time session cookies available from WebSocket proxy');
+  // If no cookies, try to authenticate
+  console.log('⚠️  No session cookies available, attempting to authenticate...');
+  if (zkbioTimeWebSocketProxy) {
+    const authSuccess = await zkbioTimeWebSocketProxy.authenticateWithZKBioTime();
+    if (authSuccess && zkbioTimeWebSocketProxy.sessionCookies) {
+      console.log('✅ Successfully authenticated for image proxy');
+      return zkbioTimeWebSocketProxy.sessionCookies;
+    }
+  }
+  
+  console.log('❌ Failed to obtain ZKBio Time session cookies');
   return null;
 }
 
-// Image proxy endpoint
+// Image proxy endpoint with automatic retry
 router.get('/zkbio-image/:path(*)', async (req, res) => {
   try {
     const imagePath = req.params.path;
@@ -35,36 +44,91 @@ router.get('/zkbio-image/:path(*)', async (req, res) => {
     
     console.log(`🖼️ Proxying image: ${fullImageUrl}`);
     
-    // Get session cookies from WebSocket proxy
-    const cookies = getZKBioSessionCookies();
+    // Get session cookies from WebSocket proxy (with auto-authentication)
+    let cookies = await getZKBioSessionCookies();
     if (!cookies) {
-      return res.status(401).json({ error: 'No ZKBio Time session cookies available' });
+      console.log('❌ No authentication available for image proxy');
+      return res.status(503).json({ 
+        error: 'ZKBio Time authentication unavailable',
+        message: 'Unable to authenticate with ZKBio Time server. Please try again later.'
+      });
     }
     
-    // Fetch image with authentication
-    const imageResponse = await axios.get(fullImageUrl, {
-      headers: {
-        'Cookie': cookies,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'http://45.115.86.139:85/'
-      },
-      responseType: 'stream',
-      timeout: 10000
-    });
-    
-    // Set appropriate headers
-    res.set({
-      'Content-Type': imageResponse.headers['content-type'] || 'image/jpeg',
-      'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
-      'Access-Control-Allow-Origin': '*'
-    });
-    
-    // Pipe the image data to response
-    imageResponse.data.pipe(res);
+    // Attempt to fetch image with authentication
+    try {
+      const imageResponse = await axios.get(fullImageUrl, {
+        headers: {
+          'Cookie': cookies,
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Referer': 'http://45.115.86.139:85/'
+        },
+        responseType: 'stream',
+        timeout: 10000
+      });
+      
+      // Set appropriate headers
+      res.set({
+        'Content-Type': imageResponse.headers['content-type'] || 'image/jpeg',
+        'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
+        'Access-Control-Allow-Origin': '*'
+      });
+      
+      // Pipe the image data to response
+      imageResponse.data.pipe(res);
+      
+    } catch (imageError) {
+      // If we get a 401/403, try to re-authenticate and retry once
+      if (imageError.response && (imageError.response.status === 401 || imageError.response.status === 403)) {
+        console.log('🔄 Authentication expired, re-authenticating and retrying...');
+        
+        // Force re-authentication
+        if (zkbioTimeWebSocketProxy) {
+          zkbioTimeWebSocketProxy.sessionCookies = null;
+          const authSuccess = await zkbioTimeWebSocketProxy.authenticateWithZKBioTime();
+          
+          if (authSuccess && zkbioTimeWebSocketProxy.sessionCookies) {
+            // Retry with new cookies
+            const retryResponse = await axios.get(fullImageUrl, {
+              headers: {
+                'Cookie': zkbioTimeWebSocketProxy.sessionCookies,
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Referer': 'http://45.115.86.139:85/'
+              },
+              responseType: 'stream',
+              timeout: 10000
+            });
+            
+            res.set({
+              'Content-Type': retryResponse.headers['content-type'] || 'image/jpeg',
+              'Cache-Control': 'public, max-age=3600',
+              'Access-Control-Allow-Origin': '*'
+            });
+            
+            retryResponse.data.pipe(res);
+            console.log('✅ Image fetched successfully after re-authentication');
+            return;
+          }
+        }
+      }
+      
+      throw imageError;
+    }
     
   } catch (error) {
     console.error('❌ Error proxying image:', error.message);
-    res.status(500).json({ error: 'Failed to fetch image' });
+    
+    // Send a more informative error response
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      return res.status(503).json({ 
+        error: 'ZKBio Time server unavailable',
+        message: 'Unable to connect to ZKBio Time server'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch image',
+      message: error.message 
+    });
   }
 });
 
