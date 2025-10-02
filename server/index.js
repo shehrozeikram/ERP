@@ -9,8 +9,17 @@ const path = require('path');
 const http = require('http');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
+const { connectDB } = require('./config/database');
 const app = express();
 const server = http.createServer(app);
+
+// Load models to ensure they are registered
+require('./models/hr/VehicleLogBook');
+require('./models/hr/VehicleMaintenance');
+require('./models/hr/Vehicle');
+
+// Connect to MongoDB
+connectDB();
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -59,6 +68,8 @@ const employeeOnboardingRoutes = require('./routes/employeeOnboarding');
 const zkbioTimeRoutes = require('./routes/zkbioTimeRoutes');
 const { router: imageProxyRoutes, setZKBioTimeWebSocketProxy } = require('./routes/imageProxy');
 const vehicleRoutes = require('./routes/vehicles');
+const vehicleMaintenanceRoutes = require('./routes/vehicleMaintenance');
+const vehicleLogBookRoutes = require('./routes/vehicleLogBook');
 const groceryRoutes = require('./routes/groceries');
 const supplierRoutes = require('./routes/suppliers');
 const pettyCashRoutes = require('./routes/pettyCash');
@@ -69,6 +80,7 @@ const utilityBillRoutes = require('./routes/utilityBills');
 const arrearsRoutes = require('./routes/arrears');
 const rentalAgreementRoutes = require('./routes/rentalAgreements');
 const rentalManagementRoutes = require('./routes/rentalManagement');
+const staffManagementRoutes = require('./routes/staffManagement');
 
 
 // Import services
@@ -84,8 +96,7 @@ let zkbioTimeWebSocketProxy = null;
 const { errorHandler } = require('./middleware/errorHandler');
 const { authMiddleware } = require('./middleware/auth');
 
-// Import database configuration
-const { connectDB } = require('./config/database');
+// Database connection already imported at the top
 
 // Set environment variables
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -102,9 +113,7 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-// Database connection
-console.log('MongoDB URI:', process.env.MONGODB_URI);
-connectDB();
+// Database connection is handled at the top
 
 
 
@@ -261,11 +270,14 @@ app.use('/api/zkteco', zktecoRoutes);
 app.use('/api/zkbio', zkbioTimeRoutes);
 app.use('/api/images', imageProxyRoutes);
 app.use('/api/vehicles', authMiddleware, vehicleRoutes);
+app.use('/api/vehicle-maintenance', authMiddleware, vehicleMaintenanceRoutes);
+app.use('/api/vehicle-logbook', authMiddleware, vehicleLogBookRoutes);
 app.use('/api/groceries', authMiddleware, groceryRoutes);
 app.use('/api/suppliers', authMiddleware, supplierRoutes);
 app.use('/api/petty-cash', authMiddleware, pettyCashRoutes);
 app.use('/api/events', authMiddleware, eventRoutes);
 app.use('/api/staff-assignments', authMiddleware, staffAssignmentRoutes);
+app.use('/api/staff-management', authMiddleware, staffManagementRoutes);
 app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, utilityBillRoutes);
 app.use('/api/hr/arrears', authMiddleware, arrearsRoutes);

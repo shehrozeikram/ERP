@@ -28,95 +28,84 @@ router.get('/', async (req, res) => {
     if (assignmentType) query.assignmentType = assignmentType;
     if (status) query.status = status;
 
-    // Calculate pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    // Text search
+    if (search) {
+      query.$or = [
+        { 'staffId.firstName': { $regex: search, $options: 'i' } },
+        { 'staffId.lastName': { $regex: search, $options: 'i' } },
+        { 'staffId.employeeId': { $regex: search, $options: 'i' } },
+        { notes: { $regex: search, $options: 'i' } }
+      ];
+    }
 
-    // Execute query with population
+    // Location type filter
+    if (locationType) {
+      query['locationId.type'] = locationType;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
     const assignments = await StaffAssignment.find(query)
       .populate('staffId', 'firstName lastName employeeId department position')
       .populate('locationId', 'name type address capacity currentOccupancy status')
       .populate('departmentId', 'name description')
       .populate('reportingManager', 'firstName lastName employeeId')
       .populate('assignedBy', 'firstName lastName')
-      .sort({ startDate: -1, createdAt: -1 })
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
     const total = await StaffAssignment.countDocuments(query);
 
-    // Filter by search term if provided
-    let filteredAssignments = assignments;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredAssignments = assignments.filter(assignment => 
-        assignment.staffId?.firstName?.toLowerCase().includes(searchLower) ||
-        assignment.staffId?.lastName?.toLowerCase().includes(searchLower) ||
-        assignment.staffId?.employeeId?.toLowerCase().includes(searchLower) ||
-        assignment.locationId?.name?.toLowerCase().includes(searchLower) ||
-        assignment.locationId?.address?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    // Filter by location type if provided
-    if (locationType) {
-      filteredAssignments = filteredAssignments.filter(assignment => 
-        assignment.locationId?.type === locationType
-      );
-    }
-
     res.json({
       success: true,
-      data: filteredAssignments,
+      data: assignments,
       pagination: {
-        current: parseInt(page),
-        pages: Math.ceil(total / parseInt(limit)),
-        total
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        totalItems: total,
+        itemsPerPage: parseInt(limit)
       }
     });
   } catch (error) {
     console.error('Error fetching staff assignments:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch staff assignments' });
-  }
-});
-
-// Get staff assignments by type (guards, office staff, etc.)
-router.get('/by-type/:assignmentType', async (req, res) => {
-  try {
-    const { assignmentType } = req.params;
-    const { status = 'Active' } = req.query;
-
-    const query = { 
-      assignmentType,
-      status 
-    };
-
-    const assignments = await StaffAssignment.find(query)
-      .populate('staffId', 'firstName lastName employeeId department position')
-      .populate('locationId', 'name type address capacity currentOccupancy status')
-      .populate('departmentId', 'name description')
-      .populate('reportingManager', 'firstName lastName employeeId')
-      .populate('assignedBy', 'firstName lastName')
-      .sort({ startDate: -1 });
-
-    res.json({
-      success: true,
-      data: assignments,
-      count: assignments.length,
-      assignmentType,
-      status
-    });
-
-  } catch (error) {
-    console.error('Error fetching staff assignments by type:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to fetch staff assignments by type',
+      message: 'Failed to fetch staff assignments',
       error: error.message 
     });
   }
 });
 
-// Get staff assignments summary by type
+// Get assignments by type
+router.get('/by-type/:type', async (req, res) => {
+  try {
+    const { type } = req.params;
+    const { status = 'Active' } = req.query;
+
+    const assignments = await StaffAssignment.find({ 
+      assignmentType: type,
+      status: status 
+    })
+      .populate('staffId', 'firstName lastName employeeId department position')
+      .populate('locationId', 'name type address capacity currentOccupancy status')
+      .populate('departmentId', 'name description')
+      .populate('reportingManager', 'firstName lastName employeeId')
+      .populate('assignedBy', 'firstName lastName')
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, data: assignments });
+  } catch (error) {
+    console.error(`Error fetching ${type} assignments:`, error);
+    res.status(500).json({ 
+      success: false, 
+      message: `Failed to fetch ${type} assignments`,
+      error: error.message 
+    });
+  }
+});
+
+// Get summary of assignments
 router.get('/summary', async (req, res) => {
   try {
     const summary = await StaffAssignment.aggregate([
@@ -125,13 +114,14 @@ router.get('/summary', async (req, res) => {
           _id: '$assignmentType',
           total: { $sum: 1 },
           active: {
-            $sum: { $cond: [{ $eq: ['$status', 'Active'] }, 1, 0] }
+            $sum: {
+              $cond: [{ $eq: ['$status', 'Active'] }, 1, 0]
+            }
           },
-          completed: {
-            $sum: { $cond: [{ $eq: ['$status', 'Completed'] }, 1, 0] }
-          },
-          suspended: {
-            $sum: { $cond: [{ $eq: ['$status', 'Suspended'] }, 1, 0] }
+          inactive: {
+            $sum: {
+              $cond: [{ $ne: ['$status', 'Active'] }, 1, 0]
+            }
           }
         }
       },
@@ -140,11 +130,18 @@ router.get('/summary', async (req, res) => {
       }
     ]);
 
+    const totalStaff = summary.reduce((sum, item) => sum + item.total, 0);
+    const activeStaff = summary.reduce((sum, item) => sum + item.active, 0);
+
     res.json({
       success: true,
-      data: summary
+      data: summary,
+      overall: {
+        totalStaff,
+        activeStaff,
+        utilizationRate: totalStaff > 0 ? Math.round((activeStaff / totalStaff) * 100) : 0
+      }
     });
-
   } catch (error) {
     console.error('Error fetching staff assignments summary:', error);
     res.status(500).json({ 
@@ -161,6 +158,8 @@ router.get('/:id', async (req, res) => {
     const assignment = await StaffAssignment.findById(req.params.id)
       .populate('staffId', 'firstName lastName employeeId department position')
       .populate('locationId', 'name type address capacity currentOccupancy status description')
+      .populate('departmentId', 'name description')
+      .populate('reportingManager', 'firstName lastName employeeId')
       .populate('assignedBy', 'firstName lastName');
 
     if (!assignment) {
@@ -175,12 +174,39 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new staff assignment
-router.post('/', permissions.checkPermission('staff_assignment_create'), async (req, res) => {
+router.post('/', async (req, res) => {
   try {
+    
+    // Clean data - remove empty strings and convert to null for ObjectId fields
+    const cleanedData = { ...req.body };
+    
+    // Filter out empty strings for ObjectId fields
+    ['departmentId', 'reportingManager', 'locationId', 'staffId'].forEach(field => {
+      if (cleanedData[field] === '' || cleanedData[field] === undefined) {
+        delete cleanedData[field]; // Remove empty/undefined values
+      }
+    });
+
     const assignmentData = {
-      ...req.body,
+      ...cleanedData,
       assignedBy: req.user.id
     };
+    
+
+    // Validate required fields
+    if (!assignmentData.staffId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Staff member is required' 
+      });
+    }
+
+    if (!assignmentData.assignmentType) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Assignment type is required' 
+      });
+    }
 
     // Check if staff already has an active assignment
     const existingAssignment = await StaffAssignment.findOne({
@@ -195,38 +221,72 @@ router.post('/', permissions.checkPermission('staff_assignment_create'), async (
       });
     }
 
-    // Check location capacity
-    const location = await Location.findById(assignmentData.locationId);
-    if (!location) {
-      return res.status(404).json({ success: false, message: 'Location not found' });
-    }
+    // Check location capacity only if locationId is provided
+    if (assignmentData.locationId) {
+      const location = await Location.findById(assignmentData.locationId);
+      if (!location) {
+        return res.status(404).json({ success: false, message: 'Location not found' });
+      }
 
-    if (location.currentOccupancy >= location.capacity) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Location is at full capacity' 
-      });
+      if (location.currentOccupancy >= location.capacity) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Location is at full capacity' 
+        });
+      }
     }
 
     const assignment = new StaffAssignment(assignmentData);
     await assignment.save();
 
-    // Update location occupancy
-    await Location.findByIdAndUpdate(assignmentData.locationId, {
-      $inc: { currentOccupancy: 1 }
-    });
+    // Update location occupancy only if locationId is provided
+    if (assignmentData.locationId) {
+      await Location.findByIdAndUpdate(assignmentData.locationId, {
+        $inc: { currentOccupancy: 1}
+      });
+    }
 
     // Populate data for response
-    await assignment.populate([
+    const populatePaths = [
       { path: 'staffId', select: 'firstName lastName employeeId department position' },
-      { path: 'locationId', select: 'name type address capacity currentOccupancy status' },
       { path: 'assignedBy', select: 'firstName lastName' }
-    ]);
+    ];
+    
+    if (assignmentData.locationId) {
+      populatePaths.push({ path: 'locationId', select: 'name type address capacity currentOccupancy status' });
+    }
+    
+    if (assignmentData.departmentId) {
+      populatePaths.push({ path: 'departmentId', select: 'name description' });
+    }
+    
+    if (assignmentData.reportingManager) {
+      populatePaths.push({ path: 'reportingManager', select: 'firstName lastName employeeId' });
+    }
+
+    await assignment.populate(populatePaths);
 
     res.status(201).json({ success: true, data: assignment });
   } catch (error) {
     console.error('Error creating staff assignment:', error);
-    res.status(500).json({ success: false, message: 'Failed to create staff assignment' });
+    
+    // Handle Mongoose validation errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation failed',
+        errors: Object.keys(error.errors).map(key => ({
+          field: key,
+          message: error.errors[key].message
+        }))
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create staff assignment',
+      error: error.message
+    });
   }
 });
 
@@ -237,15 +297,17 @@ router.put('/:id', permissions.checkPermission('staff_assignment_update'), async
       req.params.id,
       req.body,
       { new: true, runValidators: true }
-    ).populate([
-      { path: 'staffId', select: 'firstName lastName employeeId department position' },
-      { path: 'locationId', select: 'name type address capacity currentOccupancy status' },
-      { path: 'assignedBy', select: 'firstName lastName' }
-    ]);
+    );
 
     if (!assignment) {
       return res.status(404).json({ success: false, message: 'Staff assignment not found' });
     }
+
+    await assignment.populate([
+      { path: 'staffId', select: 'firstName lastName employeeId department position' },
+      { path: 'locationId', select: 'name type address capacity currentOccupancy status' },
+      { path: 'assignedBy', select: 'firstName lastName' }
+    ]);
 
     res.json({ success: true, data: assignment });
   } catch (error) {
@@ -263,10 +325,10 @@ router.delete('/:id', permissions.checkPermission('staff_assignment_delete'), as
       return res.status(404).json({ success: false, message: 'Staff assignment not found' });
     }
 
-    // Update location occupancy
-    if (assignment.status === 'Active') {
+    // If assignment has location, decrement occupancy
+    if (assignment.locationId) {
       await Location.findByIdAndUpdate(assignment.locationId, {
-        $inc: { currentOccupancy: -1 }
+        $inc: { currentOccupancy: -1}
       });
     }
 
@@ -276,107 +338,6 @@ router.delete('/:id', permissions.checkPermission('staff_assignment_delete'), as
   } catch (error) {
     console.error('Error deleting staff assignment:', error);
     res.status(500).json({ success: false, message: 'Failed to delete staff assignment' });
-  }
-});
-
-// Transfer staff assignment
-router.put('/:id/transfer', permissions.checkPermission('staff_assignment_update'), async (req, res) => {
-  try {
-    const { newLocationId, notes } = req.body;
-    
-    const assignment = await StaffAssignment.findById(req.params.id);
-    if (!assignment) {
-      return res.status(404).json({ success: false, message: 'Staff assignment not found' });
-    }
-
-    // Check new location capacity
-    const newLocation = await Location.findById(newLocationId);
-    if (!newLocation) {
-      return res.status(404).json({ success: false, message: 'New location not found' });
-    }
-
-    if (newLocation.currentOccupancy >= newLocation.capacity) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'New location is at full capacity' 
-      });
-    }
-
-    // Update old location occupancy
-    await Location.findByIdAndUpdate(assignment.locationId, {
-      $inc: { currentOccupancy: -1 }
-    });
-
-    // Update assignment
-    assignment.locationId = newLocationId;
-    assignment.notes = notes || assignment.notes;
-    await assignment.save();
-
-    // Update new location occupancy
-    await Location.findByIdAndUpdate(newLocationId, {
-      $inc: { currentOccupancy: 1 }
-    });
-
-    // Populate data for response
-    await assignment.populate([
-      { path: 'staffId', select: 'firstName lastName employeeId department position' },
-      { path: 'locationId', select: 'name type address capacity currentOccupancy status' },
-      { path: 'assignedBy', select: 'firstName lastName' }
-    ]);
-
-    res.json({ success: true, data: assignment });
-  } catch (error) {
-    console.error('Error transferring staff assignment:', error);
-    res.status(500).json({ success: false, message: 'Failed to transfer staff assignment' });
-  }
-});
-
-// Update assignment status
-router.put('/:id/status', permissions.checkPermission('staff_assignment_update'), async (req, res) => {
-  try {
-    const { status } = req.body;
-    
-    if (!['Active', 'Completed', 'Transferred', 'Suspended'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Invalid status' });
-    }
-
-    const assignment = await StaffAssignment.findById(req.params.id);
-    if (!assignment) {
-      return res.status(404).json({ success: false, message: 'Staff assignment not found' });
-    }
-
-    // Update location occupancy if status changes from/to Active
-    if (assignment.status === 'Active' && status !== 'Active') {
-      await Location.findByIdAndUpdate(assignment.locationId, {
-        $inc: { currentOccupancy: -1 }
-      });
-    } else if (assignment.status !== 'Active' && status === 'Active') {
-      const location = await Location.findById(assignment.locationId);
-      if (location.currentOccupancy >= location.capacity) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Location is at full capacity' 
-        });
-      }
-      await Location.findByIdAndUpdate(assignment.locationId, {
-        $inc: { currentOccupancy: 1 }
-      });
-    }
-
-    assignment.status = status;
-    await assignment.save();
-
-    // Populate data for response
-    await assignment.populate([
-      { path: 'staffId', select: 'firstName lastName employeeId department position' },
-      { path: 'locationId', select: 'name type address capacity currentOccupancy status' },
-      { path: 'assignedBy', select: 'firstName lastName' }
-    ]);
-
-    res.json({ success: true, data: assignment });
-  } catch (error) {
-    console.error('Error updating assignment status:', error);
-    res.status(500).json({ success: false, message: 'Failed to update assignment status' });
   }
 });
 

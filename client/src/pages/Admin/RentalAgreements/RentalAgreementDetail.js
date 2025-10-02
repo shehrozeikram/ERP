@@ -11,7 +11,7 @@ import {
   Divider,
   Stack,
   Alert,
-  CircularProgress,
+  Skeleton,
   Paper,
   Dialog,
   DialogTitle,
@@ -75,8 +75,45 @@ const RentalAgreementDetail = ({ onEdit }) => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" alignItems="center" gap={2} mb={3}>
+          <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+          <Skeleton variant="text" width="35%" height={40} />
+        </Box>
+
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={8}>
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Grid container spacing={3}>
+                  {[1, 2, 3, 4, 5, 6].map((item) => (
+                    <Grid item xs={12} sm={6} key={item}>
+                      <Skeleton variant="text" height={16} width="40%" sx={{ mb: 1 }} />
+                      <Skeleton variant="text" height={20} width="70%" />
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Skeleton variant="text" width="50%" height={28} sx={{ mb: 2 }} />
+                <Box sx={{ textAlign: 'center' }}>
+                  <Skeleton variant="rectangular" width={120} height={80} sx={{ mb: 2, mx: 'auto' }} />
+                  <Skeleton variant="rectangular" height={24} width={80} sx={{ mx: 'auto' }} />
+                </Box>
+              </CardContent>
+            </Card>
+
+            <Stack spacing={2}>
+              <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+              <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+            </Stack>
+          </Grid>
+        </Grid>
       </Box>
     );
   }

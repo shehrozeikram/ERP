@@ -25,7 +25,7 @@ import {
   MenuItem,
   Grid,
   Alert,
-  CircularProgress
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -99,8 +99,52 @@ const VehicleList = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="30%" height={40} />
+          <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+        </Box>
+        
+        <Card>
+          <CardContent>
+            <Box display="flex" gap={2} mb={3} flexWrap="wrap">
+              <Skeleton variant="rectangular" width={200} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+            </Box>
+            
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5, 6].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="70%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="50%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={24} width={80} /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell align="center">
+                        <Box display="flex" justifyContent="center" gap={1}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

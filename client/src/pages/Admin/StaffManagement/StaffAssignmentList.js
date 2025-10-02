@@ -23,7 +23,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -116,8 +117,69 @@ const StaffAssignmentList = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Typography>Loading assignments...</Typography>
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="25%" height={40} />
+          <Box>
+            <Skeleton variant="circular" width={48} height={48} sx={{ mr: 1, display: 'inline-block' }} />
+            <Skeleton variant="rectangular" width={140} height={36} borderRadius={1} />
+          </Box>
+        </Box>
+
+        {/* Filters Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Skeleton variant="text" width="15%" height={24} sx={{ mb: 2 }} />
+            <Box display="flex" gap={2} flexWrap="wrap">
+              <Skeleton variant="rectangular" width={200} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={120} height={56} borderRadius={1} />
+            </Box>
+          </CardContent>
+        </Card>
+
+        {/* Table Skeleton */}
+        <Card>
+          <CardContent>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell><Skeleton variant="text" height={20} width="80%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={24} width={80} /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                      <TableCell>
+                        <Box display="flex" gap={1}>
+                          <Skeleton variant="circular" width={28} height={28} />
+                          <Skeleton variant="circular" width={28} height={28} />
+                          <Skeleton variant="circular" width={28} height={28} />
+                          <Skeleton variant="circular" width={28} height={28} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

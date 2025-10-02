@@ -12,6 +12,7 @@ import {
   MenuItem,
   Grid,
   Alert,
+  Skeleton,
   CircularProgress
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -164,8 +165,30 @@ const ExpenseForm = () => {
 
   if (loading && isEdit) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="25%" height={40} />
+          <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+        </Box>
+
+        <Card>
+          <CardContent>
+            <Grid container spacing={3}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((item) => (
+                <Grid item xs={12} sm={6} key={item}>
+                  <Skeleton variant="text" height={20} width="35%" sx={{ mb: 1 }} />
+                  <Skeleton variant="rectangular" height={56} width="100%" />
+                </Grid>
+              ))}
+              <Grid item xs={12}>
+                <Box display="flex" gap={2} sx={{ mt: 3 }}>
+                  <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+                  <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+                </Box>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -223,7 +246,7 @@ const ExpenseForm = () => {
                   >
                     {funds.map(fund => (
                       <MenuItem key={fund._id} value={fund._id}>
-                        {fund.fundId} - {fund.name}
+                        {fund.fundId} - {fund.title}
                       </MenuItem>
                     ))}
                   </Select>

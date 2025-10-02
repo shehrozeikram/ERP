@@ -48,6 +48,12 @@ import UserManagement from './pages/Admin/UserManagement';
 import VehicleList from './pages/Admin/VehicleManagement/VehicleList';
 import VehicleForm from './pages/Admin/VehicleManagement/VehicleForm';
 import VehicleDetails from './pages/Admin/VehicleManagement/VehicleDetails';
+import VehicleMaintenanceForm from './pages/Admin/VehicleManagement/VehicleMaintenanceForm';
+import VehicleLogBookForm from './pages/Admin/VehicleManagement/VehicleLogBookForm';
+import VehicleDashboard from './pages/Admin/VehicleManagement/VehicleDashboard';
+import VehicleReports from './pages/Admin/VehicleManagement/VehicleReports';
+import VehicleMaintenanceList from './pages/Admin/VehicleManagement/VehicleMaintenanceList';
+import VehicleLogBookList from './pages/Admin/VehicleManagement/VehicleLogBookList';
 import GroceryList from './pages/Admin/GroceryManagement/GroceryList';
 import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
 import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
@@ -711,6 +717,56 @@ function App() {
               path="/admin/users" 
               element={<ProtectedRoute requiredRole="admin"><UserManagement /></ProtectedRoute>} 
             />
+            {/* Vehicle Management Routes */}
+            <Route 
+              path="/admin/vehicle-management" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/vehicles" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/vehicles/new" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/vehicles/:id" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleDetails /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/vehicles/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/maintenance" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleMaintenanceList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/maintenance/new" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleMaintenanceForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/maintenance/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleMaintenanceForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/logbook" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleLogBookList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/logbook/new" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleLogBookForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/logbook/:id/edit" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleLogBookForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/reports" 
+              element={<ProtectedRoute requiredRole="admin"><VehicleReports /></ProtectedRoute>} 
+            />
+            {/* Legacy vehicle routes for backward compatibility */}
             <Route 
               path="/admin/vehicles" 
               element={<ProtectedRoute requiredRole="admin"><VehicleList /></ProtectedRoute>} 

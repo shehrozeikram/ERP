@@ -1,6 +1,32 @@
 const mongoose = require('mongoose');
 const { calculateMonthlyTax, calculateMonthlyTaxImage, calculateTaxableIncome, calculateTax } = require('../../utils/taxCalculator');
 
+// Helper function to calculate loan deductions from active loans
+const calculateLoanDeductions = async (employeeId) => {
+  try {
+    const Loan = mongoose.model('Loan');
+    const activeLoans = await Loan.find({
+      employee: employeeId,
+      status: { $in: ['Active', 'Disbursed', 'Approved'] }
+    });
+    
+    console.log(`🔍 Found ${activeLoans.length} active loans for employee ${employeeId}`);
+    activeLoans.forEach(loan => {
+      console.log(`   - ${loan.loanType} Loan: ${loan.status} status, EMI: ${loan.monthlyInstallment}`);
+    });
+    
+    const totalDeductions = activeLoans.reduce((total, loan) => {
+      return total + (loan.monthlyInstallment || 0);
+    }, 0);
+    
+    console.log(`💰 Total loan deductions calculated: ${totalDeductions}`);
+    return totalDeductions;
+  } catch (error) {
+    console.error('Error calculating loan deductions:', error);
+    return 0;
+  }
+};
+
 const payrollSchema = new mongoose.Schema({
   employee: {
     type: mongoose.Schema.Types.ObjectId,
@@ -163,15 +189,10 @@ const payrollSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Health insurance cannot be negative']
   },
-  vehicleLoanDeduction: {
+  loanDeductions: {
     type: Number,
     default: 0,
-    min: [0, 'Vehicle loan deduction cannot be negative']
-  },
-  companyLoanDeduction: {
-    type: Number,
-    default: 0,
-    min: [0, 'Company loan deduction cannot be negative']
+    min: [0, 'Loan deductions cannot be negative']
   },
   otherDeductions: {
     type: Number,
@@ -575,8 +596,7 @@ payrollSchema.pre('save', function(next) {
     // (this.providentFund || 0) + // Excluded as requested
     (this.incomeTax || 0) + 
     (this.healthInsurance || 0) + 
-    (this.vehicleLoanDeduction || 0) +
-    (this.companyLoanDeduction || 0) +
+    (this.loanDeductions || 0) +
     (this.eobi || 0) + 
     (this.attendanceDeduction || 0) + // Attendance deduction (26-day basis)
     (this.leaveDeduction || 0) + // Leave deduction
@@ -586,8 +606,7 @@ payrollSchema.pre('save', function(next) {
   console.log(`💰 Total Deductions Calculation:`);
   console.log(`   Income Tax: Rs. ${this.incomeTax?.toFixed(2) || 0}`);
   console.log(`   Health Insurance: Rs. ${this.healthInsurance?.toFixed(2) || 0}`);
-  console.log(`   Vehicle Loan: Rs. ${this.vehicleLoanDeduction?.toFixed(2) || 0}`);
-  console.log(`   Company Loan: Rs. ${this.companyLoanDeduction?.toFixed(2) || 0}`);
+  console.log(`   Loan Deductions: Rs. ${this.loanDeductions?.toFixed(2) || 0}`);
   console.log(`   EOBI: Rs. ${this.eobi || 0}`);
   console.log(`   Attendance Deduction: Rs. ${this.attendanceDeduction?.toFixed(2) || 0}`);
   console.log(`   Other Deductions: Rs. ${this.otherDeductions?.toFixed(2) || 0}`);
@@ -775,8 +794,8 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   const overtimeAmount = overtimeHours * overtimeRate;
 
   // Get loan deductions
-  const vehicleLoanDeduction = employee.loans?.vehicleLoan?.monthlyInstallment || 0;
-  const companyLoanDeduction = employee.loans?.companyLoan?.monthlyInstallment || 0;
+  // Calculate total loan deductions from active loans
+  const loanDeductions = await calculateLoanDeductions(employee._id);
 
   // Create payroll object
   const payrollData = {
@@ -801,8 +820,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     providentFund: attendanceData.providentFund || Math.round((basicSalary * 8.34) / 100),
     incomeTax: attendanceData.incomeTax || 0,
     healthInsurance: attendanceData.healthInsurance || 0,
-    vehicleLoanDeduction: vehicleLoanDeduction,
-    companyLoanDeduction: companyLoanDeduction,
+    loanDeductions: loanDeductions,
     otherDeductions: attendanceData.otherDeductions || 0,
     totalWorkingDays: totalWorkingDays,
     presentDays: presentDays,
@@ -991,6 +1009,21 @@ payrollSchema.methods.markAsPaid = async function(paymentMethod = 'Bank Transfer
   this.status = 'Paid';
   this.paymentMethod = paymentMethod;
   this.paymentDate = new Date();
+  
+  // 🏦 Process loan payments from payroll deductions
+  try {
+    const LoanPayrollService = require('../../services/loanPayrollService');
+    const loanResult = await LoanPayrollService.processLoanPayments(this, 'paid');
+    
+    if (loanResult.success) {
+      console.log(`🏦 Loan payments processed: ${loanResult.processedLoans} loans, Rs ${loanResult.totalProcessed}`);
+    } else {
+      console.error(`❌ Loan payment processing failed: ${loanResult.message}`);
+    }
+  } catch (loanError) {
+    console.error(`❌ Error processing loan payments:`, loanError);
+    // Continue with payroll processing even if loan processing fails
+  }
   
   // Reset arrears to 0 after payroll is processed
   if (this.arrears > 0) {

@@ -19,7 +19,7 @@ import {
   DialogContent,
   DialogActions,
   Alert,
-  CircularProgress,
+  Skeleton,
   LinearProgress,
   TextField,
   Grid
@@ -124,8 +124,95 @@ const PettyCashDashboard = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="30%" height={40} />
+          <Box display="flex" gap={1}>
+            <Skeleton variant="rectangular" width={140} height={36} borderRadius={1} />
+            <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+          </Box>
+        </Box>
+
+        {/* Month Filter Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} sm={6} md={3}>
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6} md={2}>
+                <Skeleton variant="rectangular" height={36} width={100} borderRadius={1} />
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* Summary Cards Skeleton */}
+        <Grid container spacing={3} mb={3}>
+          {[1, 2, 3].map((item) => (
+            <Grid item xs={12} sm={6} md={4} key={item}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between">
+                    <Box flexGrow={1}>
+                      <Skeleton variant="text" height={16} width="40%" sx={{ mb: 1 }} />
+                      <Skeleton variant="text" height={32} width="60%" />
+                      <Skeleton variant="text" height={14} width="35%" sx={{ mt: 1 }} />
+                    </Box>
+                    <Skeleton variant="circular" width={48} height={48} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Funds Table Skeleton */}
+        <Card>
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Skeleton variant="text" width="25%" height={28} />
+              <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+            </Box>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="50%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={20} width={60} /></TableCell>
+                      <TableCell>
+                        <Box>
+                          <Skeleton variant="text" height={16} width="50%" sx={{ mb: 0.5 }} />
+                          <Skeleton variant="rectangular" height={4} width="80%" />
+                        </Box>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Box display="flex" justifyContent="center" gap={1}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -196,7 +283,7 @@ const PettyCashDashboard = () => {
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2">
-                            {fund.name}
+                            {fund.title}
                           </Typography>
                         </TableCell>
                         <TableCell>

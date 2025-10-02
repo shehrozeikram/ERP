@@ -172,24 +172,24 @@ const RentalManagementDetail = ({ onEdit }) => {
                   </Grid>
                 )}
                 
-                {record.paymentName && (
+                {record.title && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      Payment Name
+                      Title
                     </Typography>
                     <Typography variant="body1" sx={{ mb: 2 }}>
-                      {record.paymentName}
+                      {record.title}
                     </Typography>
                   </Grid>
                 )}
                 
-                {record.paymentSubname && (
+                {record.subtitle && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      Payment Subname
+                      Subtitle
                     </Typography>
                     <Typography variant="body1" sx={{ mb: 2 }}>
-                      {record.paymentSubname}
+                      {record.subtitle}
                     </Typography>
                   </Grid>
                 )}
@@ -224,6 +224,36 @@ const RentalManagementDetail = ({ onEdit }) => {
                     <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
                       {record.description}
                     </Typography>
+                  </Grid>
+                )}
+                
+                {record.rentalAgreement?.agreementImage && (
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                      Rental Agreement Document
+                    </Typography>
+                    <Paper 
+                      elevation={2} 
+                      sx={{ 
+                        p: 2, 
+                        backgroundColor: '#f5f5f5',
+                        borderRadius: 2,
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={`${window.location.origin}${record.rentalAgreement.agreementImage}`}
+                        alt="Rental Agreement"
+                        sx={{
+                          width: '100%',
+                          height: 'auto',
+                          maxHeight: '600px',
+                          objectFit: 'contain',
+                          borderRadius: 1
+                        }}
+                      />
+                    </Paper>
                   </Grid>
                 )}
               </Grid>

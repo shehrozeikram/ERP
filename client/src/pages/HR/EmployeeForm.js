@@ -216,20 +216,6 @@ const EmployeeForm = () => {
       amount: Yup.number().min(0, 'Provident Fund amount must be positive'),
       percentage: Yup.number().min(0, 'Provident Fund percentage must be positive')
     }),
-    loans: Yup.object({
-      vehicleLoan: Yup.object({
-        isActive: Yup.boolean(),
-        amount: Yup.number().min(0, 'Vehicle loan amount must be positive'),
-        monthlyInstallment: Yup.number().min(0, 'Monthly installment must be positive'),
-        outstandingBalance: Yup.number().min(0, 'Outstanding balance must be positive')
-      }),
-      companyLoan: Yup.object({
-        isActive: Yup.boolean(),
-        amount: Yup.number().min(0, 'Company loan amount must be positive'),
-        monthlyInstallment: Yup.number().min(0, 'Monthly installment must be positive'),
-        outstandingBalance: Yup.number().min(0, 'Outstanding balance must be positive')
-      })
-    }),
     address: Yup.object({
       street: Yup.string().required('Street address is required'),
       city: Yup.string().required('City is required'),
@@ -549,20 +535,6 @@ const EmployeeForm = () => {
           isActive: employeeData.providentFund?.isActive || false,
           amount: employeeData.providentFund?.amount || 0,
           percentage: employeeData.providentFund?.percentage || 0.0834 // 8.34% is the default
-        },
-        loans: {
-          vehicleLoan: {
-            isActive: employeeData.loans?.vehicleLoan?.isActive || false,
-            amount: employeeData.loans?.vehicleLoan?.amount || 0,
-            monthlyInstallment: employeeData.loans?.vehicleLoan?.monthlyInstallment || 0,
-            outstandingBalance: employeeData.loans?.vehicleLoan?.outstandingBalance || 0
-          },
-          companyLoan: {
-            isActive: employeeData.loans?.companyLoan?.isActive || false,
-            amount: employeeData.loans?.companyLoan?.amount || 0,
-            monthlyInstallment: employeeData.loans?.companyLoan?.monthlyInstallment || 0,
-            outstandingBalance: employeeData.loans?.companyLoan?.outstandingBalance || 0
-          }
         },
         address: {
           ...employeeData.address,
@@ -1889,129 +1861,6 @@ const EmployeeForm = () => {
               </Grid>
             )}
             
-            {/* Vehicle Loan Section */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.loans?.vehicleLoan?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('loans.vehicleLoan.isActive', e.target.checked)}
-                      name="loans.vehicleLoan.isActive"
-                    />
-                  }
-                  label="Vehicle Loan Active"
-                />
-                <FormHelperText>
-                  Vehicle loan with monthly installment deduction
-                </FormHelperText>
-              </FormControl>
-            </Grid>
-            {formik.values.loans?.vehicleLoan?.isActive && (
-              <>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    name="loans.vehicleLoan.amount"
-                    label="Vehicle Loan Amount"
-                    type="number"
-                    value={formik.values.loans?.vehicleLoan?.amount || ''}
-                    onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    name="loans.vehicleLoan.monthlyInstallment"
-                    label="Monthly Installment"
-                    type="number"
-                    value={formik.values.loans?.vehicleLoan?.monthlyInstallment || ''}
-                    onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    name="loans.vehicleLoan.outstandingBalance"
-                    label="Outstanding Balance"
-                    type="number"
-                    value={formik.values.loans?.vehicleLoan?.outstandingBalance || ''}
-                    onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                    }}
-                  />
-                </Grid>
-              </>
-            )}
-            
-            {/* Company Loan Section */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.loans?.companyLoan?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('loans.companyLoan.isActive', e.target.checked)}
-                      name="loans.companyLoan.isActive"
-                    />
-                  }
-                  label="Company Loan Active"
-                />
-                <FormHelperText>
-                  Company loan with monthly installment deduction
-                </FormHelperText>
-              </FormControl>
-            </Grid>
-            {formik.values.loans?.companyLoan?.isActive && (
-              <>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    name="loans.companyLoan.amount"
-                    label="Company Loan Amount"
-                    type="number"
-                    value={formik.values.loans?.companyLoan?.amount || ''}
-                    onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    name="loans.companyLoan.monthlyInstallment"
-                    label="Monthly Installment"
-                    type="number"
-                    value={formik.values.loans?.companyLoan?.monthlyInstallment || ''}
-                    onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    name="loans.companyLoan.outstandingBalance"
-                    label="Outstanding Balance"
-                    type="number"
-                    value={formik.values.loans?.companyLoan?.outstandingBalance || ''}
-                    onChange={formik.handleChange}
-                    InputProps={{
-                      startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                    }}
-                  />
-                </Grid>
-              </>
-            )}
             
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa' }}>

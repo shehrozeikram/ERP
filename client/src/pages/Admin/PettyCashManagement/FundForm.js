@@ -12,6 +12,7 @@ import {
   MenuItem,
   Grid,
   Alert,
+  Skeleton,
   CircularProgress
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -24,8 +25,7 @@ const FundForm = () => {
   const isEdit = Boolean(id);
 
   const [formData, setFormData] = useState({
-    fundId: '',
-    name: '',
+    title: '',
     initialAmount: 0,
     custodian: '',
     status: 'Draft',
@@ -34,7 +34,7 @@ const FundForm = () => {
     fundDate: new Date().toISOString().split('T')[0], // Today's date
     vendor: '',
     paymentType: 'Cash',
-    paymentSubtype: ''
+    subtitle: ''
   });
 
   const [employees, setEmployees] = useState([]);
@@ -88,8 +88,7 @@ const FundForm = () => {
       const fund = response.data;
       
       setFormData({
-        fundId: fund.fundId || '',
-        name: fund.name || '',
+        title: fund.title || '',
         initialAmount: fund.initialAmount || 0,
         custodian: fund.custodian?._id || '',
         status: fund.status || 'Draft',
@@ -98,7 +97,7 @@ const FundForm = () => {
         fundDate: fund.fundDate ? new Date(fund.fundDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         vendor: fund.vendor || '',
         paymentType: fund.paymentType || 'Cash',
-        paymentSubtype: fund.paymentSubtype || ''
+        subtitle: fund.subtitle || ''
       });
     } catch (err) {
       setError('Failed to fetch fund details');
@@ -151,8 +150,34 @@ const FundForm = () => {
 
   if (loading && isEdit) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="25%" height={40} />
+          <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+        </Box>
+
+        <Card>
+          <CardContent>
+            <Grid container spacing={3}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((item) => (
+                <Grid item xs={12} sm={6} key={item}>
+                  <Skeleton variant="text" height={20} width="40%" sx={{ mb: 1 }} />
+                  <Skeleton variant="rectangular" height={56} width="100%" />
+                </Grid>
+              ))}
+              <Grid item xs={12}>
+                <Skeleton variant="text" height={20} width="30%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={80} width="100%" />
+              </Grid>
+              <Grid item xs={12}>
+                <Box display="flex" gap={2} sx={{ mt: 3 }}>
+                  <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+                  <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+                </Box>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -190,20 +215,9 @@ const FundForm = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Fund ID"
-                  name="fundId"
-                  value={formData.fundId}
-                  onChange={handleChange}
-                  required
-                  placeholder="e.g., PC001"
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Fund Name"
-                  name="name"
-                  value={formData.name}
+                  label="Title"
+                  name="title"
+                  value={formData.title}
                   onChange={handleChange}
                   required
                   placeholder="e.g., Office Petty Cash"
@@ -315,9 +329,9 @@ const FundForm = () => {
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Payment Subtype"
-                  name="paymentSubtype"
-                  value={formData.paymentSubtype}
+                  label="Subtitle"
+                  name="subtitle"
+                  value={formData.subtitle}
                   onChange={handleChange}
                   placeholder="e.g., Debit Card, Credit Card, etc."
                 />

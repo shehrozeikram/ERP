@@ -29,7 +29,8 @@ import {
   InputAdornment,
   CardMedia,
   Stack,
-  Divider
+  Divider,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -271,8 +272,46 @@ const RentalAgreementList = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Typography>Loading rental agreements...</Typography>
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="30%" height={40} />
+          <Skeleton variant="rectangular" width={160} height={36} borderRadius={1} />
+        </Box>
+
+        <Card>
+          <CardContent>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    {[1, 2, 3, 4, 5, 6, 7].map((item) => (
+                      <TableCell key={item}><Skeleton variant="text" height={20} /></TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="70%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="50%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="35%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={20} width={60} /></TableCell>
+                      <TableCell align="center">
+                        <Box display="flex" justifyContent="center" gap={1}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

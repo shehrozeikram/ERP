@@ -378,15 +378,17 @@ class PayrollService {
       payroll.unpaidLeaveDays = leaveDeductions.unpaidLeaveDays;
       payroll.leaveDeduction = leaveDeductions.leaveDeduction;
 
-      // Recalculate net payable
-      payroll.netPayable = payroll.totalEarnings - 
-        payroll.providentFund - 
-        payroll.incomeTax - 
-        payroll.healthInsurance - 
-        payroll.vehicleLoanDeduction - 
-        payroll.companyLoanDeduction - 
-        payroll.otherDeductions - 
-        payroll.leaveDeduction;
+      // Recalculate total deductions (excluding Provident Fund)
+      payroll.totalDeductions = 
+        payroll.incomeTax + 
+        payroll.eobi + 
+        payroll.healthInsurance + 
+        payroll.loanDeductions + 
+        payroll.leaveDeduction + 
+        payroll.otherDeductions;
+      
+      // Recalculate net salary (excluding Provident Fund)
+      payroll.netSalary = payroll.totalEarnings - payroll.totalDeductions;
 
       await payroll.save();
       return payroll;
@@ -416,15 +418,17 @@ class PayrollService {
       payroll.unpaidLeaveDays = leaveDeductions.unpaidLeaveDays;
       payroll.leaveDeduction = leaveDeductions.leaveDeduction;
       
-      // Recalculate net payable
-      payroll.netPayable = payroll.totalEarnings - 
-        payroll.providentFund - 
-        payroll.incomeTax - 
-        payroll.healthInsurance - 
-        payroll.vehicleLoanDeduction - 
-        payroll.companyLoanDeduction - 
-        payroll.otherDeductions - 
-        payroll.leaveDeduction;
+      // Recalculate total deductions (excluding Provident Fund)
+      payroll.totalDeductions = 
+        payroll.incomeTax + 
+        payroll.eobi + 
+        payroll.healthInsurance + 
+        payroll.loanDeductions + 
+        payroll.leaveDeduction + 
+        payroll.otherDeductions;
+      
+      // Recalculate net salary (excluding Provident Fund)
+      payroll.netSalary = payroll.totalEarnings - payroll.totalDeductions;
 
       await payroll.save();
       return payroll;

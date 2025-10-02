@@ -53,6 +53,12 @@ const staffAssignmentService = {
   getSummary: async () => {
     const response = await api.get('/staff-assignments/summary');
     return response.data;
+  },
+
+  // Get employees for staff assignment
+  getEmployees: async () => {
+    const response = await api.get('/hr/employees?getAll=true&isActive=true');
+    return response.data;
   }
 };
 

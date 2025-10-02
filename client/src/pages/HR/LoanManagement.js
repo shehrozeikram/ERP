@@ -46,6 +46,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { loanService } from '../../services/loanService';
 import { formatPKR } from '../../utils/currency';
+import LoanProgressIndicator from '../../components/LoanProgressIndicator';
 
 const LoanManagement = () => {
   const navigate = useNavigate();
@@ -351,6 +352,34 @@ const LoanManagement = () => {
       </Box>
 
       {renderStatsCards()}
+
+      {/* Loan Progress Indicators for Active Loans */}
+      {loans.length > 0 && (
+        <Paper sx={{ mb: 2, p: 2 }}>
+          <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
+            📊 Active Loan Progress
+          </Typography>
+          <Grid container spacing={2}>
+            {loans.slice(0, 6).map((loan) => (
+              <Grid item xs={12} sm={6} md={4} key={loan._id}>
+                <LoanProgressIndicator 
+                  loans={[loan]} 
+                  employeeName={loan.employee?.firstName && loan.employee?.lastName 
+                    ? `${loan.employee.firstName} ${loan.employee.lastName}` 
+                    : loan.employee?.employeeId || 'Employee'}
+                />
+              </Grid>
+            ))}
+          </Grid>
+          {loans.length > 6 && (
+            <Box sx={{ mt: 2, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                Showing 6 of {totalLoans} active loans. Use filters or pagination to see more.
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
 
       <Paper sx={{ mb: 2 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" p={2}>

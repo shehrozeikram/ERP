@@ -8,7 +8,7 @@ import {
   Grid,
   Chip,
   Alert,
-  CircularProgress,
+  Skeleton,
   Divider,
   Dialog,
   DialogTitle,
@@ -136,8 +136,126 @@ const UtilityBillDetails = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+          <Box display="flex" alignItems="center" gap={2}>
+            <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+            <Skeleton variant="text" width="40%" height={40} />
+          </Box>
+          <Box display="flex" gap={1}>
+            <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+            <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+          </Box>
+        </Box>
+
+        <Grid container spacing={3}>
+          {/* Main Bill Info Skeleton */}
+          <Grid item xs={12} md={8}>
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Skeleton variant="text" width="30%" height={28} sx={{ mb: 2 }} />
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <Box display="flex" alignItems="center" gap={2}>
+                      <Skeleton variant="circular" width={24} height={24} />
+                      <Box flexGrow={1}>
+                        <Skeleton variant="text" height={16} width="30%" />
+                        <Skeleton variant="text" height={20} width="50%" />
+                      </Box>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box display="flex" alignItems="center" gap={2}>
+                      <Skeleton variant="circular" width={24} height={24} />
+                      <Box flexGrow={1}>
+                        <Skeleton variant="text" height={16} width="25%" />
+                        <Skeleton variant="rectangular" height={24} width={80} />
+                      </Box>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box display="flex" alignItems="center" gap={2}>
+                      <Skeleton variant="circular" width={24} height={24} />
+                      <Box flexGrow={1}>
+                        <Skeleton variant="text" height={16} width="35%" />
+                        <Skeleton variant="text" height={20} width="60%" />
+                      </Box>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box display="flex" alignItems="center" gap={2}>
+                      <Skeleton variant="circular" width={24} height={24} />
+                      <Box flexGrow={1}>
+                        <Skeleton variant="text" height={16} width="30%" />
+                        <Skeleton variant="text" height={20} width="55%" />
+                      </Box>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+
+            {/* Payments History Skeleton */}
+            <Card>
+              <CardContent>
+                <Skeleton variant="text" width="25%" height={28} sx={{ mb: 2 }} />
+                {[1, 2, 3].map((item) => (
+                  <Grid container key={item} sx={{ mb: 2 }}>
+                    <Grid item xs={3}>
+                      <Skeleton variant="text" height={16} width="80%" />
+                      <Skeleton variant="text" height={14} width="60%" />
+                    </Grid>
+                    <Grid item xs={3}>
+                      <Skeleton variant="text" height={16} width="70%" />
+                    </Grid>
+                    <Grid item xs={3}>
+                      <Skeleton variant="rectangular" height={24} width={60} />
+                    </Grid>
+                    <Grid item xs={3}>
+                      <Skeleton variant="text" height={16} width="50%" />
+                    </Grid>
+                  </Grid>
+                ))}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Side Panel Skeleton */}
+          <Grid item xs={12} md={4}>
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
+                <Box sx={{ textAlign: 'center' }}>
+                  <Skeleton variant="text" height={48} width="80%" sx={{ mx: 'auto', mb: 1 }} />
+                  <Skeleton variant="rectangular" height={24} width={100} sx={{ mx: 'auto' }} />
+                </Box>
+              </CardContent>
+            </Card>
+
+            {/* Bill Summary Skeleton */}
+            <Card>
+              <CardContent>
+                <Skeleton variant="text" width="35%" height={28} sx={{ mb: 2 }} />
+                <Box>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                    <Skeleton variant="text" height={16} width="40%" />
+                    <Skeleton variant="text" height={16} width="30%" />
+                  </Box>
+                  <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                    <Skeleton variant="text" height={16} width="35%" />
+                    <Skeleton variant="text" height={16} width="25%" />
+                  </Box>
+                  <Divider sx={{ my: 2 }} />
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Skeleton variant="text" height={20} width="30%" />
+                    <Skeleton variant="text" height={20} width="40%" />
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       </Box>
     );
   }

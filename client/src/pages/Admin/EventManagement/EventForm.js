@@ -12,7 +12,8 @@ import {
   Select,
   MenuItem,
   Chip,
-  Box as MuiBox
+  Box as MuiBox,
+  Skeleton
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import eventService from '../../../services/eventService';
@@ -140,8 +141,25 @@ const EventForm = () => {
 
   if (loading && isEdit) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Typography>Loading event details...</Typography>
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="25%" height={40} />
+          <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+        </Box>
+
+        <Card>
+          <CardContent>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((item) => (
+                <Skeleton key={item} variant="rectangular" height={56} width="100%" />
+              ))}
+              <Box display="flex" gap={2} sx={{ mt: 3 }}>
+                <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+                <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+              </Box>
+            </Box>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

@@ -29,7 +29,9 @@ import {
   Assignment as AssignmentIcon,
   Phone as EmergencyIcon,
   AttachMoney as SalaryIcon,
-  Update as UpdateIcon
+  Update as UpdateIcon,
+  AccountBalance as LoanIcon,
+  Add as AddIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -48,6 +50,8 @@ const EmployeeView = () => {
   const [updatingPayrolls, setUpdatingPayrolls] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [statusDialog, setStatusDialog] = useState({ open: false, newStatus: null });
+  const [loans, setLoans] = useState([]);
+  const [loansLoading, setLoansLoading] = useState(false);
   const [arrearsDialog, setArrearsDialog] = useState({ open: false, editData: null });
 
   const fetchEmployee = async () => {
@@ -133,7 +137,21 @@ const EmployeeView = () => {
 
   useEffect(() => {
     fetchEmployee();
+    fetchLoans();
   }, [id]);
+
+  const fetchLoans = async () => {
+    if (!id) return;
+    try {
+      setLoansLoading(true);
+      const response = await api.get(`/loans/employee/${id}`);
+      setLoans(response.data);
+    } catch (error) {
+      console.error('Error fetching loans:', error);
+    } finally {
+      setLoansLoading(false);
+    }
+  };
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -807,6 +825,85 @@ const EmployeeView = () => {
               Add New Arrears
             </Button>
           </Box>
+        </CardContent>
+      </Card>
+
+      {/* Loan Management Section */}
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography variant="h6" component="h2">
+              <LoanIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              Loan Management
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => navigate(`/hr/loans/new?employeeId=${id}`)}
+              size="small"
+            >
+              Add Loan
+            </Button>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          
+          {loansLoading ? (
+            <Box display="flex" justifyContent="center" p={2}>
+              <CircularProgress />
+            </Box>
+          ) : loans.length === 0 ? (
+            <Typography color="textSecondary" textAlign="center" py={2}>
+              No loans found for this employee
+            </Typography>
+          ) : (
+            <Grid container spacing={2}>
+              {loans.map((loan) => (
+                <Grid item xs={12} md={6} key={loan._id}>
+                  <Paper sx={{ p: 2, border: '1px solid #e0e0e0' }}>
+                    <Box display="flex" justifyContent="space-between" alignItems="start" mb={1}>
+                      <Typography variant="subtitle1" fontWeight="bold">
+                        {loan.loanType} Loan
+                      </Typography>
+                      <Chip
+                        label={loan.status}
+                        size="small"
+                        color={
+                          loan.status === 'Active' ? 'success' :
+                          loan.status === 'Disbursed' ? 'primary' :
+                          loan.status === 'Paid' ? 'info' : 'default'
+                        }
+                      />
+                    </Box>
+                    <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+                      Amount: {formatPKR(loan.loanAmount)} | Installment: {formatPKR(loan.monthlyInstallment)}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+                      Outstanding: {formatPKR(loan.outstandingBalance)} | Term: {loan.loanTerm} months
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                      Purpose: {loan.purpose}
+                    </Typography>
+                    <Box display="flex" gap={1}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => navigate(`/hr/loans/${loan._id}`)}
+                      >
+                        View Details
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => navigate(`/hr/loans/${loan._id}/edit`)}
+                      >
+                        Edit
+                      </Button>
+                    </Box>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          )}
         </CardContent>
       </Card>
 

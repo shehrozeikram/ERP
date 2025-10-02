@@ -861,8 +861,7 @@ router.get('/employee/:employeeId',
             eobi: 370,
             healthInsurance: 0,
             providentFund: Math.round((basic * 8.34) / 100),
-            vehicleLoanDeduction: 0,
-            companyLoanDeduction: 0,
+            loanDeductions: 0,
             attendanceDeduction: 0,
             leaveDeduction: 0,
             otherDeductions: 0,
@@ -1059,8 +1058,7 @@ router.get('/view/employee/:employeeId',
             eobi: 370,
             healthInsurance: 0,
             providentFund: Math.round((basic * 8.34) / 100),
-            vehicleLoanDeduction: 0,
-            companyLoanDeduction: 0,
+            loanDeductions: 0,
             attendanceDeduction: 0,
             leaveDeduction: 0,
             otherDeductions: 0,
@@ -1307,6 +1305,17 @@ router.post('/', [
           const providentFund = Math.round((basicSalary * 8.34) / 100);
           const eobi = 370;
           
+          // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS
+          const loanModel = require('../models/hr/Loan');
+          const activeLoans = await loanModel.find({
+            employee: employee._id,
+            status: { $in: ['Active', 'Disbursed', 'Approved'] }
+          });
+          
+          const loanDeductions = activeLoans.reduce((total, loan) => {
+            return total + (loan.monthlyInstallment || 0);
+          }, 0);
+          
           // 🔧 USE PRE-FETCHED BULK ATTENDANCE DATA (Major performance boost)
           const attendanceData = bulkAttendanceData[employee.employeeId] || {
             presentDays: workingDays,
@@ -1327,7 +1336,7 @@ router.post('/', [
           } = attendanceData;
         
           // 🔧 TOTAL DEDUCTIONS (Provident Fund excluded as requested)
-          const totalDeductions = monthlyTax + eobi + attendanceDeduction;
+          const totalDeductions = monthlyTax + eobi + attendanceDeduction + loanDeductions;
           
           // Define healthInsurance and otherDeductions
           const healthInsurance = 0;
@@ -1336,7 +1345,7 @@ router.post('/', [
           // 🔧 NET SALARY = Total Earnings - Total Deductions (using separate tax calculation)
           // taxCalculation.totalNetSalary already includes tax deduction, so subtract other deductions
           // Note: Provident Fund is NOT deducted from net salary (display only)
-          const netSalary = taxCalculation.totalNetSalary - eobi - healthInsurance - otherDeductions;
+          const netSalary = taxCalculation.totalNetSalary - eobi - healthInsurance - loanDeductions - attendanceDeduction - otherDeductions;
           
           // Create payroll data
           const payrollData = {
@@ -1385,8 +1394,7 @@ router.post('/', [
             providentFund,
             incomeTax: monthlyTax,
             healthInsurance: 0,
-            vehicleLoanDeduction: 0,
-            companyLoanDeduction: 0,
+            loanDeductions: loanDeductions,
             otherDeductions: 0,
             eobi,
             totalWorkingDays,
@@ -1963,12 +1971,8 @@ router.put('/:id', [
     payroll.healthInsurance = parseFloat(req.body.healthInsurance);
   }
   
-  if (req.body.vehicleLoanDeduction !== undefined) {
-    payroll.vehicleLoanDeduction = parseFloat(req.body.vehicleLoanDeduction);
-  }
-  
-  if (req.body.companyLoanDeduction !== undefined) {
-    payroll.companyLoanDeduction = parseFloat(req.body.companyLoanDeduction);
+  if (req.body.loanDeductions !== undefined) {
+    payroll.loanDeductions = parseFloat(req.body.loanDeductions);
   }
   
   if (req.body.otherDeductions !== undefined) {
@@ -2102,12 +2106,14 @@ router.put('/:id', [
   }
 
   // 🔧 UPDATE TOTAL DEDUCTIONS WITH CORRECT FORMULA
-  // Total Deductions = Income Tax + EOBI + Health Insurance + Attendance Deduction + Other Deductions
+  // Total Deductions = Income Tax + EOBI + Health Insurance + Loan Deductions + Attendance Deduction + Other Deductions
   // Note: Provident Fund is NOT included in total deductions (as per business requirement)
   payroll.totalDeductions = (payroll.incomeTax || 0) + 
     (payroll.eobi || 370) + 
     (payroll.healthInsurance || 0) + 
+    (payroll.loanDeductions || 0) + 
     (payroll.attendanceDeduction || 0) + 
+    (payroll.leaveDeduction || 0) + 
     (payroll.otherDeductions || 0);
 
   // 🔧 RECALCULATE NET SALARY WITH UPDATED TOTAL DEDUCTIONS
@@ -2119,7 +2125,9 @@ router.put('/:id', [
   console.log(`     Income Tax: Rs. ${(payroll.incomeTax || 0).toLocaleString()}`);
   console.log(`     EOBI: Rs. ${(payroll.eobi || 370).toLocaleString()}`);
   console.log(`     Health Insurance: Rs. ${(payroll.healthInsurance || 0).toLocaleString()}`);
+  console.log(`     Loan Deductions: Rs. ${(payroll.loanDeductions || 0).toLocaleString()}`);
   console.log(`     Attendance Deduction: Rs. ${(payroll.attendanceDeduction || 0).toLocaleString()}`);
+  console.log(`     Leave Deduction: Rs. ${(payroll.leaveDeduction || 0).toLocaleString()}`);
   console.log(`     Other Deductions: Rs. ${(payroll.otherDeductions || 0).toLocaleString()}`);
   console.log(`     Total Deductions: Rs. ${payroll.totalDeductions?.toLocaleString() || 0}`);
   console.log(`   Net Salary: Rs. ${payroll.netSalary?.toLocaleString() || 0}`);
@@ -3010,7 +3018,7 @@ router.post('/:id/generate-payslip',
           providentFund: payroll.providentFund || 0,
           eobi: payroll.eobi || 0,
           incomeTax: payroll.incomeTax || 0,
-          loanDeduction: payroll.companyLoanDeduction || payroll.vehicleLoanDeduction || 0,
+          loanDeduction: payroll.loanDeductions || 0,
           advanceDeduction: 0,
           lateDeduction: 0,
           absentDeduction: payroll.attendanceDeduction || 0,

@@ -5,7 +5,7 @@ const staffAssignmentSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    default: () => `STAFF${Date.now().toString().slice(-6)}`
+    default: () => `STAFF${Date.now().toString().slice(-6)}_${Math.random().toString(36).substr(2, 4)}`
   },
   staffId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -16,30 +16,50 @@ const staffAssignmentSchema = new mongoose.Schema({
   locationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Location',
-    required: function() {
-      return ['Guard', 'Security', 'Maintenance'].includes(this.assignmentType);
+    required: false,
+    default: null,
+    validate: {
+      validator: function(v) {
+        // Allow null/empty for now
+        if (v === null || v === undefined || v === '') {
+          return true;
+        }
+        // If provided, validate it's a valid ObjectId
+        return mongoose.Types.ObjectId.isValid(v);
+      },
+      message: 'Location ID must be provided for Guards, Security, Maintenance, and Driver assignments'
     }
   },
   // For office staff - assigned to departments
   departmentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Department',
-    required: function() {
-      return ['Office Staff', 'Office Boy', 'Receptionist', 'Admin Staff'].includes(this.assignmentType);
+    required: false,
+    default: null,
+    validate: {
+      validator: function(v) {
+        // Allow null/empty for now
+        if (v === null || v === undefined || v === '') {
+          return true;
+        }
+        // If provided, validate it's a valid ObjectId
+        return mongoose.Types.ObjectId.isValid(v);
+      },
+      message: 'Department ID must be provided for Office Staff, Office Boy, Admin Staff, and Receptionist assignments'
     }
   },
   assignmentType: {
     type: String,
     required: true,
     enum: [
+      'Driver',          // Assigned to vehicles/locations
+      'Office Boy',      // Assigned to departments (office support)
       'Guard',           // Assigned to locations (houses, offices, warehouses)
       'Security',        // Assigned to locations (security posts)
-      'Office Boy',      // Assigned to departments (office support)
       'Office Staff',    // Assigned to departments (general office work)
       'Admin Staff',     // Assigned to departments (administrative work)
-      'Receptionist',    // Assigned to departments (front desk)
       'Maintenance',     // Assigned to locations (facility maintenance)
-      'Driver',          // Assigned to vehicles/locations
+      'Receptionist',    // Assigned to departments (front desk)
       'Other'
     ],
     default: 'Office Staff'
@@ -59,9 +79,9 @@ const staffAssignmentSchema = new mongoose.Schema({
   },
   // Additional fields for better management
   shiftTimings: {
-    startTime: { type: String }, // HH:MM format
-    endTime: { type: String },   // HH:MM format
-    workingDays: [{ type: String, enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] }]
+    startTime: { type: String, default: '' }, // HH:MM format
+    endTime: { type: String, default: '' },   // HH:MM format
+    workingDays: { type: [String], default: [] }
   },
   responsibilities: [{
     type: String,
@@ -69,7 +89,19 @@ const staffAssignmentSchema = new mongoose.Schema({
   }],
   reportingManager: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Employee'
+    ref: 'Employee',
+    required: false,
+    default: null,
+    validate: {
+      validator: function(v) {
+        // If provided, must be a valid ObjectId
+        if (v !== null && v !== undefined && v !== '') {
+          return mongoose.Types.ObjectId.isValid(v);
+        }
+        return true; // Allow null/empty
+      },
+      message: 'Reporting Manager ID must be a valid ObjectId or empty'
+    }
   },
   notes: {
     type: String,
@@ -93,11 +125,11 @@ staffAssignmentSchema.index({ status: 1 });
 staffAssignmentSchema.index({ assignmentType: 1 });
 staffAssignmentSchema.index({ reportingManager: 1 });
 
-// Compound index to prevent duplicate active assignments
-staffAssignmentSchema.index({ staffId: 1, status: 1 }, { 
-  partialFilterExpression: { status: 'Active' },
-  unique: true 
-});
+// Compound index to prevent duplicate active assignments - Temporarily disabled for debugging
+// staffAssignmentSchema.index({ staffId: 1, status: 1 }, { 
+//   partialFilterExpression: { status: 'Active' },
+//   unique: true 
+// });
 
 // Virtual for assignment type description
 staffAssignmentSchema.virtual('assignmentTypeDescription').get(function() {

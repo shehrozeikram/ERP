@@ -63,9 +63,11 @@ const EmployeePayrollDetails = () => {
   const [error, setError] = useState(null);
   const [employeeData, setEmployeeData] = useState(null);
   const [payslipModal, setPayslipModal] = useState({ open: false, data: null });
+  const [employeeLoans, setEmployeeLoans] = useState([]);
 
   useEffect(() => {
     fetchEmployeePayrollDetails();
+    fetchEmployeeLoans();
   }, [employeeId]);
 
   const fetchEmployeePayrollDetails = async () => {
@@ -79,6 +81,42 @@ const EmployeePayrollDetails = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchEmployeeLoans = async () => {
+    try {
+      console.log('🔍 Fetching loans for employeeId:', employeeId);
+      const response = await api.get(`/loans/employee/${employeeId}`);
+      console.log('🔍 Loans response:', response.data);
+      setEmployeeLoans(response.data || []);
+    } catch (error) {
+      console.error('Error fetching employee loans:', error);
+      console.error('Error details:', error.response?.data);
+    }
+  };
+
+  // Helper function to calculate total loan deductions from active loans
+  const calculateLoanDeductions = () => {
+    return employeeLoans
+      .filter(loan => ['Active', 'Disbursed', 'Approved'].includes(loan.status))
+      .reduce((total, loan) => total + (loan.monthlyInstallment || 0), 0);
+  };
+
+  // Helper function to calculate total deductions including loans
+  const calculateTotalDeductions = () => {
+    const loanDeductions = calculateLoanDeductions();
+    return (currentPayroll.incomeTax || 0) + 
+           (currentPayroll.eobi || 370) + 
+           (currentPayroll.healthInsurance || 0) + 
+           loanDeductions + 
+           (currentPayroll.attendanceDeduction || 0) + 
+           (currentPayroll.leaveDeduction || 0) + 
+           (currentPayroll.otherDeductions || 0);
+  };
+
+  // Helper function to calculate net salary
+  const calculateNetSalary = () => {
+    return (currentPayroll.totalEarnings || 0) - calculateTotalDeductions();
   };
 
   const formatCurrency = (amount) => {
@@ -299,8 +337,7 @@ const EmployeePayrollDetails = () => {
                 incomeTax: currentPayroll.incomeTax || 0,
                 providentFund: currentPayroll.providentFund || 0,
                 healthInsurance: currentPayroll.healthInsurance || 0,
-                vehicleLoanDeduction: currentPayroll.vehicleLoanDeduction || 0,
-                companyLoanDeduction: currentPayroll.companyLoanDeduction || 0,
+                loanDeductions: currentPayroll.loanDeductions || 0,
                 attendanceDeduction: currentPayroll.attendanceDeduction || 0,
                 leaveDeduction: currentPayroll.leaveDeduction || 0,
                 otherDeductions: currentPayroll.otherDeductions || 0
@@ -313,8 +350,8 @@ const EmployeePayrollDetails = () => {
               },
               totals: {
                 grossSalary: currentPayroll.totalEarnings || 0,
-                totalDeductions: (currentPayroll.eobi || 370) + (currentPayroll.incomeTax || 0) + (currentPayroll.healthInsurance || 0) + (currentPayroll.vehicleLoanDeduction || 0) + (currentPayroll.companyLoanDeduction || 0) + (currentPayroll.attendanceDeduction || 0) + (currentPayroll.leaveDeduction || 0) + (currentPayroll.otherDeductions || 0),
-                netSalary: currentPayroll.netSalary || 0
+                totalDeductions: calculateTotalDeductions(),
+                netSalary: calculateNetSalary()
               }
             };
 
@@ -481,13 +518,19 @@ const EmployeePayrollDetails = () => {
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formatPKR(currentPayroll.providentFund || 0)}</TableCell>
                     </TableRow>
+                    {/* Individual Loan Deductions */}
+                    {console.log('🔍 Employee loans for deductions:', employeeLoans)}
+                    {employeeLoans
+                      .filter(loan => ['Active', 'Disbursed', 'Approved'].includes(loan.status))
+                      .map((loan, index) => (
+                        <TableRow key={loan._id}>
+                          <TableCell>{loan.loanType} Loan Deduction ({loan.status})</TableCell>
+                          <TableCell align="right">{formatPKR(loan.monthlyInstallment || 0)}</TableCell>
+                        </TableRow>
+                      ))}
                     <TableRow>
-                      <TableCell>Vehicle Loan Deduction</TableCell>
-                      <TableCell align="right">{formatPKR(currentPayroll.vehicleLoanDeduction || 0)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Company Loan Deduction</TableCell>
-                      <TableCell align="right">{formatPKR(currentPayroll.companyLoanDeduction || 0)}</TableCell>
+                      <TableCell><strong>Total Loan Deductions</strong></TableCell>
+                      <TableCell align="right"><strong>{formatPKR(calculateLoanDeductions())}</strong></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Other Deductions</TableCell>
@@ -495,7 +538,7 @@ const EmployeePayrollDetails = () => {
                     </TableRow>
                     <TableRow>
                       <TableCell><strong>Total Deductions</strong></TableCell>
-                      <TableCell align="right"><strong>{formatPKR(currentPayroll.totalDeductions || 0)}</strong></TableCell>
+                      <TableCell align="right"><strong>{formatPKR(calculateTotalDeductions())}</strong></TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -599,13 +642,13 @@ const EmployeePayrollDetails = () => {
             </Grid>
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: 'error.light', color: 'white' }}>
-                <Typography variant="h4">{formatPKR(currentPayroll.totalDeductions || 0)}</Typography>
+                <Typography variant="h4">{formatPKR(calculateTotalDeductions())}</Typography>
                 <Typography variant="body2">Total Deductions</Typography>
               </Paper>
             </Grid>
             <Grid item xs={12} md={4}>
               <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: 'success.light', color: 'white' }}>
-                <Typography variant="h4">{formatPKR(currentPayroll.netSalary || 0)}</Typography>
+                <Typography variant="h4">{formatPKR(calculateNetSalary())}</Typography>
                 <Typography variant="body2">Net Salary</Typography>
               </Paper>
             </Grid>
@@ -900,16 +943,19 @@ const EmployeePayrollDetails = () => {
                         <TableCell align="right">Rs {payslipModal.data?.deductions?.healthInsurance?.toLocaleString()}</TableCell>
                       </TableRow>
                     )}
-                    {(payslipModal.data?.deductions?.vehicleLoanDeduction || 0) > 0 && (
+                    {/* Individual Loan Deductions in Payslip */}
+                    {employeeLoans
+                      .filter(loan => ['Active', 'Disbursed', 'Approved'].includes(loan.status))
+                      .map((loan) => (
+                        <TableRow key={loan._id}>
+                          <TableCell>{loan.loanType} Loan Deduction ({loan.status})</TableCell>
+                          <TableCell align="right">Rs {(loan.monthlyInstallment || 0).toLocaleString()}</TableCell>
+                        </TableRow>
+                      ))}
+                    {(payslipModal.data?.deductions?.loanDeductions || 0) > 0 && (
                       <TableRow>
-                        <TableCell>Vehicle Loan Deduction</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.vehicleLoanDeduction?.toLocaleString()}</TableCell>
-                      </TableRow>
-                    )}
-                    {(payslipModal.data?.deductions?.companyLoanDeduction || 0) > 0 && (
-                      <TableRow>
-                        <TableCell>Company Loan Deduction</TableCell>
-                        <TableCell align="right">Rs {payslipModal.data?.deductions?.companyLoanDeduction?.toLocaleString()}</TableCell>
+                        <TableCell><strong>Total Loan Deductions</strong></TableCell>
+                        <TableCell align="right"><strong>Rs {payslipModal.data?.deductions?.loanDeductions?.toLocaleString()}</strong></TableCell>
                       </TableRow>
                     )}
                     {(payslipModal.data?.deductions?.attendanceDeduction || 0) > 0 && (

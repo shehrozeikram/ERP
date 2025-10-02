@@ -548,7 +548,7 @@ const PayrollDetail = () => {
                     </TableRow>
                     <TableRow>
                       <TableCell>House Rent Allowance (from allowances)</TableCell>
-                      {console.log('house rent allowance',payroll.allowances)}                      <TableCell align="right">{formatPKR(payroll.allowances?.houseRent?.amount || 0)}</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.allowances?.houseRent?.amount || 0)}</TableCell>
                     </TableRow>
                     
                     <TableRow>
@@ -627,12 +627,8 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR(payroll.providentFund || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Vehicle Loan Deduction</TableCell>
-                      <TableCell align="right">{formatPKR(payroll.vehicleLoanDeduction || 0)}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Company Loan Deduction</TableCell>
-                      <TableCell align="right">{formatPKR(payroll.companyLoanDeduction || 0)}</TableCell>
+                      <TableCell>Loan Deductions</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.loanDeductions || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Other Deductions</TableCell>

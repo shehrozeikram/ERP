@@ -22,6 +22,7 @@ import {
   MenuItem,
   Grid,
   Alert,
+  Skeleton,
   FormControl,
   InputLabel,
   Select
@@ -52,8 +53,8 @@ const RentalManagementDashboard = () => {
     vendorIdCard: '',
     amount: '',
     description: '',
-    paymentName: '',
-    paymentSubname: '',
+    title: '',
+    subtitle: '',
     location: '',
     custodian: '',
     status: 'Draft'
@@ -114,8 +115,8 @@ const RentalManagementDashboard = () => {
         vendorIdCard: record.vendorIdCard || '',
         amount: record.amount || '',
         description: record.description || '',
-        paymentName: record.paymentName || '',
-        paymentSubname: record.paymentSubname || '',
+        title: record.title || '',
+        subtitle: record.subtitle || '',
         location: record.location || '',
         custodian: record.custodian || '',
         status: record.status
@@ -129,8 +130,8 @@ const RentalManagementDashboard = () => {
         vendorIdCard: '',
         amount: '',
         description: '',
-        paymentName: '',
-        paymentSubname: '',
+        title: '',
+        subtitle: '',
         location: '',
         custodian: '',
         status: 'Draft'
@@ -250,8 +251,51 @@ const RentalManagementDashboard = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Typography>Loading rental management records...</Typography>
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="35%" height={40} />
+          <Skeleton variant="rectangular" width={140} height={36} borderRadius={1} />
+        </Box>
+
+        <Card>
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Skeleton variant="text" width="35%" height={28} />
+              <Skeleton variant="rectangular" width={140} height={36} borderRadius={1} />
+            </Box>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+                      <TableCell key={item}><Skeleton variant="text" height={20} /></TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="50%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="45%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="70%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="65%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="55%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={20} width={60} /></TableCell>
+                      <TableCell align="center">
+                        <Box display="flex" justifyContent="center" gap={1}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -449,18 +493,18 @@ const RentalManagementDashboard = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Payment Name"
-                  name="paymentName"
-                  value={formData.paymentName}
+                  label="Title"
+                  name="title"
+                  value={formData.title}
                   onChange={handleInputChange}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Payment Subname"
-                  name="paymentSubname"
-                  value={formData.paymentSubname}
+                  label="Subtitle"
+                  name="subtitle"
+                  value={formData.subtitle}
                   onChange={handleInputChange}
                 />
               </Grid>

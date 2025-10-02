@@ -8,7 +8,8 @@ import {
   Button,
   Chip,
   IconButton,
-  Tooltip
+  Tooltip,
+  Skeleton
 } from '@mui/material';
 import {
   Event as EventIcon,
@@ -101,8 +102,50 @@ const EventDashboard = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <Typography>Loading dashboard...</Typography>
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="35%" height={40} />
+          <Box display="flex" gap={1}>
+            <Skeleton variant="circular" width={48} height={48} />
+            <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+          </Box>
+        </Box>
+
+        <Grid container spacing={3} mb={3}>
+          {[1, 2, 3, 4].map((item) => (
+            <Grid item xs={12} sm={6} md={3} key={item}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between">
+                    <Box flexGrow={1}>
+                      <Skeleton variant="text" height={16} width="50%" sx={{ mb: 1 }} />
+                      <Skeleton variant="text" height={32} width="70%" />
+                    </Box>
+                    <Skeleton variant="circular" width={48} height={48} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        <Card>
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Skeleton variant="text" width="25%" height={28} />
+              <Skeleton variant="rectangular" width={100} height={36} borderRadius={1} />
+            </Box>
+            {[1, 2, 3, 4, 5].map((item) => (
+              <Box key={item} display="flex" alignItems="center" justifyContent="space-between" py={2}>
+                <Box flexGrow={1}>
+                  <Skeleton variant="text" height={16} width="60%" sx={{ mb: 0.5 }} />
+                  <Skeleton variant="text" height={14} width="40%" />
+                </Box>
+                <Skeleton variant="rectangular" height={24} width={80} />
+              </Box>
+            ))}
+          </CardContent>
+        </Card>
       </Box>
     );
   }

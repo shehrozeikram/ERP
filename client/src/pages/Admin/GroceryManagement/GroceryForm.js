@@ -12,7 +12,7 @@ import {
   MenuItem,
   Grid,
   Alert,
-  CircularProgress
+  Skeleton
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import groceryService from '../../../services/groceryService';
@@ -125,8 +125,60 @@ const GroceryForm = () => {
 
   if (loading && isEdit) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="25%" height={40} />
+          <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+        </Box>
+
+        <Card>
+          <CardContent>
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="40%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="25%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="50%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="35%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="45%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="40%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="30%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Skeleton variant="text" height={20} width="35%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={56} width="100%" />
+              </Grid>
+              <Grid item xs={12}>
+                <Skeleton variant="text" height={20} width="30%" sx={{ mb: 1 }} />
+                <Skeleton variant="rectangular" height={80} width="100%" />
+              </Grid>
+              <Grid item xs={12}>
+                <Box display="flex" gap={2} sx={{ mt: 3 }}>
+                  <Skeleton variant="rectangular" width={120} height={36} borderRadius={1} />
+                  <Skeleton variant="rectangular" width={80} height={36} borderRadius={1} />
+                </Box>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -330,7 +382,7 @@ const GroceryForm = () => {
                     disabled={loading}
                     size="large"
                   >
-                    {loading ? <CircularProgress size={24} /> : (isEdit ? 'Update Item' : 'Create Item')}
+                    {loading ? 'Saving...' : (isEdit ? 'Update Item' : 'Create Item')}
                   </Button>
                   <Button
                     variant="outlined"

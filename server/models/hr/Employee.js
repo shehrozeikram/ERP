@@ -363,16 +363,6 @@ const employeeSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Income tax cannot be negative']
   },
-  companyLoan: {
-    type: Number,
-    default: 0,
-    min: [0, 'Company loan cannot be negative']
-  },
-  vehicleLoan: {
-    type: Number,
-    default: 0,
-    min: [0, 'Vehicle loan cannot be negative']
-  },
   eobiDeduction: {
     type: Number,
     default: 0,

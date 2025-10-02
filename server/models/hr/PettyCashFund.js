@@ -5,9 +5,10 @@ const pettyCashFundSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    trim: true
+    trim: true,
+    default: () => `PC${Date.now().toString().slice(-6)}`
   },
-  name: {
+  title: {
     type: String,
     required: true,
     trim: true
@@ -60,7 +61,7 @@ const pettyCashFundSchema = new mongoose.Schema({
     enum: ['Cash', 'Card', 'Bank Transfer', 'Cheque', 'Other'],
     default: 'Cash'
   },
-  paymentSubtype: {
+  subtitle: {
     type: String,
     required: false,
     trim: true

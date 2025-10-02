@@ -87,7 +87,22 @@ router.get('/stats/overview', authMiddleware, async (req, res) => {
 // Get employee loans - MUST BE BEFORE /:id route
 router.get('/employee/:employeeId', authMiddleware, async (req, res) => {
   try {
-    const loans = await Loan.find({ employee: req.params.employeeId })
+    const { employeeId } = req.params;
+    
+    // First try to find employee by employeeId (string like "06386")
+    let employee = await Employee.findOne({ employeeId: employeeId });
+    
+    if (!employee) {
+      // If not found by employeeId, try by MongoDB ObjectId
+      employee = await Employee.findById(employeeId);
+    }
+    
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    
+    // Now find loans using the employee's MongoDB ObjectId
+    const loans = await Loan.find({ employee: employee._id })
       .populate('employee', 'employeeId firstName lastName email')
       .sort({ applicationDate: -1 });
 

@@ -21,7 +21,7 @@ import {
   Chip,
   MenuItem,
   Alert,
-  CircularProgress,
+  Skeleton,
   Avatar
 } from '@mui/material';
 import {
@@ -108,8 +108,74 @@ const UtilityBillList = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="25%" height={40} />
+          <Skeleton variant="rectangular" width={140} height={36} borderRadius={1} />
+        </Box>
+
+        {/* Filters Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+              <Skeleton variant="rectangular" width={200} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={80} height={56} borderRadius={1} />
+            </Box>
+          </CardContent>
+        </Card>
+
+        {/* Bills Table Skeleton */}
+        <Card>
+          <CardContent>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell>
+                        <Box display="flex" alignItems="center" gap={2}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Box flexGrow={1}>
+                            <Skeleton variant="text" height={16} width="60%" />
+                            <Skeleton variant="text" height={14} width="40%" />
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={24} width={80} /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="50%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="35%" /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="rectangular" height={24} width={60} />
+                      </TableCell>
+                      <TableCell>
+                        <Box display="flex" gap={1}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

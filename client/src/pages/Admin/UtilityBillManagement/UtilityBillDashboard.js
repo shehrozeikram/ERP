@@ -8,7 +8,7 @@ import {
   Grid,
   Chip,
   Alert,
-  CircularProgress,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -28,6 +28,8 @@ import {
   DialogContent,
   DialogActions
 } from '@mui/material';
+
+
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -175,8 +177,78 @@ const UtilityBillDashboard = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Skeleton variant="text" width="30%" height={40} />
+          <Skeleton variant="rectangular" width={140} height={36} borderRadius={1} />
+        </Box>
+
+        {/* Summary Cards Skeleton */}
+        <Grid container spacing={3} mb={3}>
+          {[1, 2, 3, 4].map((item) => (
+            <Grid item xs={12} sm={6} md={3} key={item}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" alignItems="center">
+                    <Skeleton variant="circular" width={24} height={24} sx={{ mr: 2 }} />
+                    <Box flexGrow={1}>
+                      <Skeleton variant="text" height={16} width="40%" />
+                      <Skeleton variant="text" height={32} width="60%" sx={{ mt: 1 }} />
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Filters Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
+              <Skeleton variant="rectangular" width={200} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={150} height={56} borderRadius={1} />
+              <Skeleton variant="rectangular" width={80} height={56} borderRadius={1} />
+            </Box>
+          </CardContent>
+        </Card>
+
+        {/* Recent Bills Table Skeleton */}
+        <Card>
+          <CardContent>
+            <Skeleton variant="text" width="25%" height={24} sx={{ mb: 2 }} />
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                    <TableCell><Skeleton variant="text" height={20} /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((item) => (
+                    <TableRow key={item}>
+                      <TableCell><Skeleton variant="text" height={20} width="60%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={24} width={80} /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="50%" /></TableCell>
+                      <TableCell><Skeleton variant="text" height={20} width="40%" /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" height={24} width={60} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="circular" width={24} height={24} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

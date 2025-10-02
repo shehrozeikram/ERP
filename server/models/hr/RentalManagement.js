@@ -22,10 +22,10 @@ const rentalManagementSchema = new mongoose.Schema({
   description: {
     type: String
   },
-  paymentName: {
+  title: {
     type: String
   },
-  paymentSubname: {
+  subtitle: {
     type: String
   },
   location: {

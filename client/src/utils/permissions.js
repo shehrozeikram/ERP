@@ -206,7 +206,17 @@ export const MODULES = {
     roles: ['admin'],
     subItems: [
       { name: 'User Management', path: '/admin/users' },
-      { name: 'Vehicle Management', path: '/admin/vehicles' },
+      { 
+        name: 'Vehicle Management', 
+        path: '/admin/vehicle-management',
+        subItems: [
+          { name: 'Dashboard', path: '/admin/vehicle-management' },
+          { name: 'Vehicles', path: '/admin/vehicle-management/vehicles' },
+          { name: 'Maintenance', path: '/admin/vehicle-management/maintenance' },
+          { name: 'Log Book', path: '/admin/vehicle-management/logbook' },
+          { name: 'Reports', path: '/admin/vehicle-management/reports' }
+        ]
+      },
       { name: 'Grocery Management', path: '/admin/groceries' },
       { name: 'Petty Cash Management', path: '/admin/petty-cash' },
       { name: 'Event Management', path: '/admin/events' },
