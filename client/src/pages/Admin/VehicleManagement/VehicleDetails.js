@@ -27,7 +27,8 @@ import {
   Assignment as AssignmentIcon,
   Build as BuildIcon,
   DirectionsCar as DirectionsCarIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import vehicleService from '../../../services/vehicleService';
@@ -127,6 +128,358 @@ const VehicleDetails = () => {
       month: 'long',
       day: 'numeric'
     });
+  };
+
+  const handlePrint = () => {
+    if (!vehicle) return;
+    
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank');
+    
+    // Get the current date and time for the print header
+    const printDate = new Date().toLocaleString();
+    
+    // Create the print content HTML with comprehensive styling
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Vehicle Details - ${vehicle?.registrationNumber || 'N/A'}</title>
+          <style>
+            body {
+              font-family: 'Arial', sans-serif;
+              margin: 15px;
+              color: #000;
+              line-height: 1.5;
+              font-size: 14px;
+            }
+            .header {
+              text-align: center;
+              border: 3px solid #000;
+              padding: 20px;
+              margin-bottom: 25px;
+              background-color: #f9f9f9;
+            }
+            .header h1 {
+              margin: 0 0 10px 0;
+              color: #000;
+              font-size: 24px;
+              font-weight: bold;
+            }
+            .header .subtitle {
+              color: #333;
+              font-size: 16px;
+              margin-bottom: 8px;
+              font-weight: bold;
+            }
+            .print-date {
+              color: #666;
+              font-size: 12px;
+            }
+            .section {
+              margin-bottom: 25px;
+              page-break-inside: avoid;
+              border: 1px solid #ccc;
+              padding: 15px;
+            }
+            .section-title {
+              background-color: #e0e0e0;
+              padding: 10px 15px;
+              margin: -15px -15px 15px -15px;
+              border-bottom: 2px solid #000;
+              font-weight: bold;
+              font-size: 16px;
+              color: #000;
+              text-transform: uppercase;
+            }
+            .field-row {
+              display: flex;
+              margin-bottom: 8px;
+              border-bottom: 1px dotted #999;
+              padding-bottom: 5px;
+              min-height: 20px;
+            }
+            .field-label {
+              font-weight: bold;
+              min-width: 180px;
+              color: #000;
+              font-size: 13px;
+            }
+            .field-value {
+              flex: 1;
+              color: #000;
+              font-size: 13px;
+              word-wrap: break-word;
+            }
+            .status-chip {
+              display: inline-block;
+              padding: 3px 8px;
+              border: 1px solid #000;
+              font-size: 11px;
+              font-weight: bold;
+              text-transform: uppercase;
+              background-color: #f0f0f0;
+            }
+            .status-active { background-color: #e8f5e8; }
+            .status-maintenance { background-color: #fff3cd; }
+            .status-out-of-service { background-color: #f8d7da; }
+            .status-retired { background-color: #e0e0e0; }
+            .footer {
+              margin-top: 30px;
+              padding-top: 15px;
+              border-top: 2px solid #000;
+              text-align: center;
+              color: #333;
+              font-size: 11px;
+            }
+            .important-info {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 10px;
+              margin: 10px 0;
+              font-weight: bold;
+            }
+            .record-id {
+              font-family: monospace;
+              background-color: #f8f9fa;
+              padding: 2px 5px;
+              border: 1px solid #ccc;
+            }
+            .maintenance-table, .logbook-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+            }
+            .maintenance-table th, .maintenance-table td,
+            .logbook-table th, .logbook-table td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+              font-size: 12px;
+            }
+            .maintenance-table th, .logbook-table th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            @media print {
+              body { margin: 0; }
+              .no-print { display: none; }
+              .section { page-break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>VEHICLE DETAILS</h1>
+            <div class="subtitle">Registration Number: ${vehicle?.registrationNumber || 'N/A'}</div>
+            <div class="print-date">Printed on: ${printDate}</div>
+          </div>
+
+          <!-- Vehicle Summary -->
+          <div class="section">
+            <div class="section-title">🚗 Vehicle Summary</div>
+            <div class="field-row">
+              <div class="field-label">Vehicle ID:</div>
+              <div class="field-value"><span class="record-id">${vehicle?._id || 'N/A'}</span></div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Status:</div>
+              <div class="field-value">
+                <span class="status-chip status-${vehicle?.status?.toLowerCase().replace(' ', '-') || 'active'}">${vehicle?.status || 'N/A'}</span>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Registration Number:</div>
+              <div class="field-value">${vehicle?.registrationNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Make & Model:</div>
+              <div class="field-value">${vehicle?.make || 'N/A'} ${vehicle?.model || ''}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Year:</div>
+              <div class="field-value">${vehicle?.year || 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Vehicle Details -->
+          <div class="section">
+            <div class="section-title">🔧 Vehicle Details</div>
+            <div class="field-row">
+              <div class="field-label">Engine Number:</div>
+              <div class="field-value">${vehicle?.engineNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Chassis Number:</div>
+              <div class="field-value">${vehicle?.chassisNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Color:</div>
+              <div class="field-value">${vehicle?.color || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Fuel Type:</div>
+              <div class="field-value">${vehicle?.fuelType || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Seating Capacity:</div>
+              <div class="field-value">${vehicle?.seatingCapacity || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Purchase Date:</div>
+              <div class="field-value">${vehicle?.purchaseDate ? formatDate(vehicle.purchaseDate) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Purchase Price:</div>
+              <div class="field-value">${vehicle?.purchasePrice ? formatCurrency(vehicle.purchasePrice) : 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Assignment Details -->
+          <div class="section">
+            <div class="section-title">👤 Assignment Details</div>
+            <div class="field-row">
+              <div class="field-label">Assigned Driver:</div>
+              <div class="field-value">${vehicle?.assignedDriver ? `${vehicle.assignedDriver.firstName} ${vehicle.assignedDriver.lastName}` : 'Not assigned'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Department:</div>
+              <div class="field-value">${vehicle?.department || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Location:</div>
+              <div class="field-value">${vehicle?.location || 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Maintenance Records -->
+          ${maintenanceRecords && maintenanceRecords.length > 0 ? `
+          <div class="section">
+            <div class="section-title">🔧 Maintenance Records (${maintenanceRecords.length})</div>
+            <table class="maintenance-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Cost</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${maintenanceRecords.map(record => `
+                  <tr>
+                    <td>${formatDate(record.date)}</td>
+                    <td>${record.type || 'N/A'}</td>
+                    <td>${record.description || 'N/A'}</td>
+                    <td>${record.cost ? formatCurrency(record.cost) : 'N/A'}</td>
+                    <td>${record.status || 'N/A'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : `
+          <div class="section">
+            <div class="section-title">🔧 Maintenance Records</div>
+            <div class="field-row">
+              <div class="field-label">Records:</div>
+              <div class="field-value">No maintenance records found</div>
+            </div>
+          </div>
+          `}
+
+          <!-- Log Book Entries -->
+          ${logBookEntries && logBookEntries.length > 0 ? `
+          <div class="section">
+            <div class="section-title">📝 Log Book Entries (${logBookEntries.length})</div>
+            <table class="logbook-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Driver</th>
+                  <th>Purpose</th>
+                  <th>Start Odometer</th>
+                  <th>End Odometer</th>
+                  <th>Distance</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${logBookEntries.map(entry => `
+                  <tr>
+                    <td>${formatDate(entry.date)}</td>
+                    <td>${entry.driver ? `${entry.driver.firstName} ${entry.driver.lastName}` : 'N/A'}</td>
+                    <td>${entry.purpose || 'N/A'}</td>
+                    <td>${entry.startOdometer || 'N/A'}</td>
+                    <td>${entry.endOdometer || 'N/A'}</td>
+                    <td>${entry.distance || 'N/A'} km</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : `
+          <div class="section">
+            <div class="section-title">📝 Log Book Entries</div>
+            <div class="field-row">
+              <div class="field-label">Entries:</div>
+              <div class="field-value">No log book entries found</div>
+            </div>
+          </div>
+          `}
+
+          <!-- System Information -->
+          <div class="section">
+            <div class="section-title">ℹ️ System Information</div>
+            <div class="field-row">
+              <div class="field-label">Created Date:</div>
+              <div class="field-value">${vehicle?.createdAt ? new Date(vehicle.createdAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Last Updated:</div>
+              <div class="field-value">${vehicle?.updatedAt ? new Date(vehicle.updatedAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Record Version:</div>
+              <div class="field-value">${vehicle?.__v || '0'}</div>
+            </div>
+          </div>
+
+          <!-- Additional Information -->
+          <div class="section">
+            <div class="section-title">📝 Additional Information</div>
+            <div class="important-info">
+              This document contains all available information for Vehicle ${vehicle?.registrationNumber || vehicle?._id || 'N/A'}
+            </div>
+            <div class="field-row">
+              <div class="field-label">Total Fields:</div>
+              <div class="field-value">${Object.keys(vehicle || {}).length} data fields</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Document Status:</div>
+              <div class="field-value">Complete - All available data included</div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p><strong>Generated from SGC ERP System - Vehicle Management Module</strong></p>
+            <p>Vehicle ID: <span class="record-id">${vehicle?._id || 'N/A'}</span> | Printed: ${printDate}</p>
+            <p>This is a complete record printout containing all available information</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Write the content to the new window
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+
+    // Wait for content to load, then trigger print
+    printWindow.onload = function() {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    };
   };
 
   if (loading) {
@@ -235,6 +588,13 @@ const VehicleDetails = () => {
           Vehicle Details
         </Typography>
         <Box display="flex" gap={2}>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrint}
+          >
+            Print
+          </Button>
           <Button
             variant="outlined"
             startIcon={<AssignmentIcon />}

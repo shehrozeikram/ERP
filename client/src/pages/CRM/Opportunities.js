@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -59,7 +59,9 @@ import {
   LocationOn as LocationIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  DragIndicator as DragIndicatorIcon,
+  Person as PersonIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -81,8 +83,13 @@ const Opportunities = () => {
   const [totalPages, setTotalPages] = useState(0);
   
   // View mode
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'pipeline'
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'kanban'
   const [selectedStage, setSelectedStage] = useState('all');
+  
+  // Drag and drop state
+  const [draggedOpportunity, setDraggedOpportunity] = useState(null);
+  const draggedOpportunityRef = useRef(null);
+  const [dragOverColumn, setDragOverColumn] = useState(null);
   
   // Filters and search
   const [search, setSearch] = useState('');
@@ -140,19 +147,18 @@ const Opportunities = () => {
   // Load opportunities data
   const loadOpportunities = useCallback(async () => {
     try {
-      console.log('=== LOADING OPPORTUNITIES ===');
       setLoading(true);
       setError(null);
       
+      // In Kanban view, load all opportunities (no pagination)
       const params = {
-        page: page + 1,
-        limit: rowsPerPage,
+        page: viewMode === 'kanban' ? 1 : page + 1,
+        limit: viewMode === 'kanban' ? 1000 : rowsPerPage, // Load more for Kanban
         search,
         ...filters,
         _t: Date.now()
       };
 
-      console.log('API params:', params);
       const response = await api.get('/crm/opportunities', { 
         params,
         headers: {
@@ -162,25 +168,21 @@ const Opportunities = () => {
         }
       });
       
-      console.log('API response:', response);
       
       if (response && response.data && response.data.data) {
         const opportunitiesArray = response.data.data.opportunities || [];
         const totalItems = response.data.data.pagination?.totalItems || 0;
         const totalPages = response.data.data.pagination?.totalPages || 0;
         
-        console.log('Setting opportunities:', opportunitiesArray.length, 'opportunities');
         setOpportunities(opportunitiesArray);
         setTotalItems(totalItems);
         setTotalPages(totalPages);
       } else {
-        console.log('No valid response data');
         setOpportunities([]);
         setTotalItems(0);
         setTotalPages(0);
       }
     } catch (err) {
-      console.error('Error loading opportunities:', err);
       setError('Failed to load opportunities. Please try again.');
       setOpportunities([]);
       setTotalItems(0);
@@ -188,10 +190,9 @@ const Opportunities = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, filters, user, token]);
+  }, [page, rowsPerPage, search, filters, user, token, viewMode]);
 
   useEffect(() => {
-    console.log('=== OPPORTUNITIES COMPONENT MOUNTED ===');
     loadOpportunities();
   }, [loadOpportunities]);
 
@@ -239,8 +240,6 @@ const Opportunities = () => {
 
   // Open edit opportunity dialog
   const handleEditOpportunity = (opportunity) => {
-    console.log('=== EDITING OPPORTUNITY ===');
-    console.log('Opportunity to edit:', opportunity);
     
     setFormData({
       title: opportunity.title || '',
@@ -276,8 +275,6 @@ const Opportunities = () => {
   // Save opportunity
   const handleSaveOpportunity = async () => {
     try {
-      console.log('=== SAVING OPPORTUNITY ===');
-      console.log('Form data:', formData);
       
       const opportunityData = {
         title: formData.title,
@@ -295,17 +292,12 @@ const Opportunities = () => {
         assignedTo: formData.assignedTo
       };
 
-      console.log('Opportunity data to send:', opportunityData);
 
       if (opportunityDialog.mode === 'add') {
-        console.log('Creating new opportunity...');
         const response = await api.post('/crm/opportunities', opportunityData);
-        console.log('Create opportunity response:', response);
         setSuccess('Opportunity added successfully!');
       } else {
-        console.log('Updating existing opportunity...');
         const response = await api.put(`/crm/opportunities/${opportunityDialog.opportunity._id}`, opportunityData);
-        console.log('Update opportunity response:', response);
         setSuccess('Opportunity updated successfully!');
       }
 
@@ -315,8 +307,6 @@ const Opportunities = () => {
       setFilters({ stage: '', priority: '', type: '', assignedTo: '', company: '' });
       await loadOpportunities();
     } catch (err) {
-      console.error('Error saving opportunity:', err);
-      console.error('Error details:', err.response?.data);
       setError('Failed to save opportunity. Please try again.');
     }
   };
@@ -324,8 +314,6 @@ const Opportunities = () => {
   // Add activity
   const handleSaveActivity = async () => {
     try {
-      console.log('=== ADDING ACTIVITY ===');
-      console.log('Activity data:', activityData);
       
       const activityUpdate = {
         type: activityData.type,
@@ -337,13 +325,11 @@ const Opportunities = () => {
       };
 
       const response = await api.post(`/crm/opportunities/${activityDialog.opportunity._id}/activities`, activityUpdate);
-      console.log('Add activity response:', response);
       
       setActivityDialog({ open: false, opportunity: null });
       setSuccess('Activity added successfully!');
       await loadOpportunities();
     } catch (err) {
-      console.error('Error adding activity:', err);
       setError('Failed to add activity. Please try again.');
     }
   };
@@ -351,19 +337,14 @@ const Opportunities = () => {
   // Delete opportunity
   const handleDeleteOpportunity = async () => {
     try {
-      console.log('=== DELETING OPPORTUNITY ===');
-      console.log('Opportunity ID:', deleteDialog.opportunity._id);
       
       const response = await api.delete(`/crm/opportunities/${deleteDialog.opportunity._id}`);
-      console.log('Delete response:', response);
       
       setDeleteDialog({ open: false, opportunity: null });
       setSuccess('Opportunity deleted successfully!');
       setError(null);
       await loadOpportunities();
     } catch (err) {
-      console.error('Error deleting opportunity:', err);
-      console.error('Error details:', err.response?.data);
       setError('Failed to delete opportunity. Please try again.');
       setSuccess(null);
     }
@@ -418,6 +399,388 @@ const Opportunities = () => {
     const diffTime = closeDate - now;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
+  };
+
+  // Kanban stages configuration
+  const kanbanStages = useMemo(() => [
+    { id: 'Prospecting', label: 'Prospecting', color: '#2196F3' },
+    { id: 'Qualification', label: 'Qualification', color: '#00BCD4' },
+    { id: 'Proposal', label: 'Proposal', color: '#FF9800' },
+    { id: 'Negotiation', label: 'Negotiation', color: '#9C27B0' },
+    { id: 'Closed Won', label: 'Closed Won', color: '#4CAF50' },
+    { id: 'Closed Lost', label: 'Closed Lost', color: '#F44336' }
+  ], []);
+
+  // Group opportunities by stage for Kanban view
+  const groupedOpportunities = useMemo(() => {
+    const grouped = {};
+    kanbanStages.forEach(stage => {
+      grouped[stage.id] = opportunities.filter(opp => opp.stage === stage.id);
+    });
+    return grouped;
+  }, [opportunities, kanbanStages]);
+
+  // Drag and drop handlers
+  const handleDragStart = (e, opportunity) => {
+    draggedOpportunityRef.current = opportunity;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', opportunity._id);
+    
+    requestAnimationFrame(() => {
+      setDraggedOpportunity(opportunity);
+    });
+  };
+
+  const handleDragOver = (e, columnId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverColumn(columnId);
+  };
+
+  const handleDragEnter = (e, columnId) => {
+    e.preventDefault();
+    setDragOverColumn(columnId);
+  };
+
+  const handleDragLeave = (e, columnId) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+      setDragOverColumn(null);
+    }
+  };
+
+  const handleDrop = async (e, newStage) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverColumn(null);
+
+    const opportunity = draggedOpportunityRef.current;
+    
+    if (!opportunity || opportunity.stage === newStage) {
+      setDraggedOpportunity(null);
+      draggedOpportunityRef.current = null;
+      return;
+    }
+
+    try {
+      // Optimistic update
+      setOpportunities(prevOpps =>
+        prevOpps.map(opp =>
+          opp._id === opportunity._id ? { ...opp, stage: newStage } : opp
+        )
+      );
+
+      // Update on server
+      await api.put(`/crm/opportunities/${opportunity._id}`, { stage: newStage });
+      setSuccess(`Opportunity moved to ${newStage}`);
+      
+      // Refresh to ensure consistency
+      loadOpportunities();
+    } catch (err) {
+      setError('Failed to update opportunity stage');
+      loadOpportunities();
+    } finally {
+      setDraggedOpportunity(null);
+      draggedOpportunityRef.current = null;
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedOpportunity(null);
+    draggedOpportunityRef.current = null;
+    setDragOverColumn(null);
+  };
+
+  // Kanban Card Component
+  const KanbanOpportunityCard = ({ opportunity }) => {
+    const [isHovered, setIsHovered] = useState(false);
+
+    return (
+      <Card
+        draggable={true}
+        onDragStart={(e) => handleDragStart(e, opportunity)}
+        onDragEnd={handleDragEnd}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        sx={{
+          mb: 2,
+          cursor: 'grab',
+          opacity: draggedOpportunity?._id === opportunity._id ? 0.4 : 1,
+          transform: draggedOpportunity?._id === opportunity._id ? 'scale(0.95)' : 'scale(1)',
+          transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+          userSelect: 'none',
+          WebkitUserDrag: 'element',
+          position: 'relative',
+          '&:hover': {
+            boxShadow: 4,
+            transform: draggedOpportunity?._id === opportunity._id ? 'scale(0.95)' : 'translateY(-3px) scale(1.02)',
+            borderColor: 'primary.main',
+            transition: 'all 0.2s ease'
+          },
+          '&:active': {
+            cursor: 'grabbing'
+          }
+        }}
+      >
+        {/* Drag Handle */}
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 8,
+            left: 4,
+            opacity: isHovered ? 0.5 : 0,
+            transition: 'opacity 0.2s ease',
+            pointerEvents: 'none',
+            zIndex: 1
+          }}
+        >
+          <DragIndicatorIcon sx={{ fontSize: 20, color: 'text.secondary' }} />
+        </Box>
+
+        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+          {/* Header */}
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <Avatar
+                sx={{
+                  width: 32,
+                  height: 32,
+                  bgcolor: getStageColor(opportunity.stage) === 'success' ? '#4CAF50' :
+                           getStageColor(opportunity.stage) === 'error' ? '#F44336' :
+                           getStageColor(opportunity.stage) === 'warning' ? '#FF9800' :
+                           getStageColor(opportunity.stage) === 'info' ? '#00BCD4' : '#2196F3',
+                  fontSize: '0.875rem'
+                }}
+              >
+                <MoneyIcon sx={{ fontSize: 18 }} />
+              </Avatar>
+              <Box>
+                <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                  {opportunity.title}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {opportunity.company?.name || 'No Company'}
+                </Typography>
+              </Box>
+            </Box>
+            <Box display="flex" gap={0.5}>
+              <Tooltip title="Edit">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditOpportunity(opportunity);
+                  }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          {/* Type & Priority */}
+          <Box display="flex" gap={1} mb={1.5}>
+            <Chip
+              label={opportunity.type}
+              size="small"
+              sx={{
+                backgroundColor: opportunity.type === 'New Business' ? '#2196F3' :
+                                opportunity.type === 'Existing Business' ? '#4CAF50' :
+                                opportunity.type === 'Renewal' ? '#FF9800' : '#9E9E9E',
+                color: 'white',
+                fontWeight: 'bold',
+                fontSize: '0.7rem',
+                height: 20
+              }}
+            />
+            <Chip
+              label={opportunity.priority}
+              size="small"
+              sx={{
+                backgroundColor: getPriorityColor(opportunity.priority) === 'error' ? '#F44336' :
+                                getPriorityColor(opportunity.priority) === 'warning' ? '#FF9800' :
+                                getPriorityColor(opportunity.priority) === 'success' ? '#4CAF50' : '#9E9E9E',
+                color: 'white',
+                fontWeight: 'bold',
+                fontSize: '0.7rem',
+                height: 20
+              }}
+            />
+          </Box>
+
+          {/* Amount */}
+          <Box mb={1}>
+            <Typography variant="body2" fontWeight="600" color="primary" noWrap>
+              {formatCurrency(opportunity.amount)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {opportunity.probability}% probability
+            </Typography>
+          </Box>
+
+          {/* Contact/Assigned Info */}
+          {opportunity.contact && (
+            <Box display="flex" alignItems="center" mb={0.5}>
+              <PersonIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary">
+                {opportunity.contact.firstName} {opportunity.contact.lastName}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Source & Close Date */}
+          <Box display="flex" justifyContent="space-between" alignItems="center" mt={1.5} pt={1.5} borderTop="1px solid #f0f0f0">
+            <Typography variant="caption" color="text.secondary">
+              {opportunity.source}
+            </Typography>
+            {opportunity.expectedCloseDate ? (
+              <Box display="flex" alignItems="center">
+                <Typography 
+                  variant="caption" 
+                  color={isOverdue(opportunity.expectedCloseDate) && opportunity.stage !== 'Closed Won' && opportunity.stage !== 'Closed Lost' ? 'error' : 'primary'}
+                  fontWeight="bold"
+                >
+                  {getDaysUntilClose(opportunity.expectedCloseDate) !== null && getDaysUntilClose(opportunity.expectedCloseDate) < 0
+                    ? `${Math.abs(getDaysUntilClose(opportunity.expectedCloseDate))} days overdue`
+                    : getDaysUntilClose(opportunity.expectedCloseDate) === 0
+                    ? 'Today'
+                    : getDaysUntilClose(opportunity.expectedCloseDate) === 1
+                    ? 'Tomorrow'
+                    : `${getDaysUntilClose(opportunity.expectedCloseDate)} days`
+                  }
+                </Typography>
+              </Box>
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                {new Date(opportunity.createdAt).toLocaleDateString()}
+              </Typography>
+            )}
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Kanban Column Component
+  const KanbanColumn = ({ stage, opportunities: columnOpportunities }) => {
+    const isOver = dragOverColumn === stage.id;
+    const isDragging = draggedOpportunity !== null;
+    const canDrop = isDragging && draggedOpportunity?.stage !== stage.id;
+
+    return (
+      <Paper
+        onDragOver={(e) => handleDragOver(e, stage.id)}
+        onDragEnter={(e) => handleDragEnter(e, stage.id)}
+        onDragLeave={(e) => handleDragLeave(e, stage.id)}
+        onDrop={(e) => handleDrop(e, stage.id)}
+        sx={{
+          minHeight: '70vh',
+          backgroundColor: isOver && canDrop ? '#e3f2fd' : '#f5f5f5',
+          p: 2,
+          minWidth: 280,
+          maxWidth: 320,
+          border: isOver && canDrop ? '2px dashed' : '2px solid transparent',
+          borderColor: isOver && canDrop ? stage.color : 'transparent',
+          transition: 'all 0.2s ease',
+          transform: isOver && canDrop ? 'scale(1.02)' : 'scale(1)',
+          boxShadow: isOver && canDrop ? 3 : 1
+        }}
+      >
+        {/* Column Header */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            mb: 2,
+            pb: 1.5,
+            borderBottom: `3px solid ${stage.color}`
+          }}
+        >
+          <Box display="flex" alignItems="center" gap={1}>
+            <Box
+              sx={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                backgroundColor: stage.color
+              }}
+            />
+            <Typography variant="subtitle2" fontWeight="bold">
+              {stage.label}
+            </Typography>
+            <Chip
+              label={columnOpportunities.length}
+              size="small"
+              sx={{
+                height: 20,
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                backgroundColor: stage.color,
+                color: 'white'
+              }}
+            />
+          </Box>
+        </Box>
+
+        {/* Column Content */}
+        <Box
+          sx={{
+            overflowY: 'auto',
+            maxHeight: 'calc(70vh - 80px)',
+            scrollBehavior: 'smooth',
+            '&::-webkit-scrollbar': {
+              width: 6
+            },
+            '&::-webkit-scrollbar-track': {
+              backgroundColor: '#f1f1f1',
+              borderRadius: 3
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: '#888',
+              borderRadius: 3,
+              '&:hover': {
+                backgroundColor: '#555'
+              }
+            }
+          }}
+        >
+          {columnOpportunities.length === 0 ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: 200,
+                border: isOver && canDrop ? '2px dashed' : '2px dashed #ddd',
+                borderColor: isOver && canDrop ? stage.color : '#ddd',
+                borderRadius: 1,
+                backgroundColor: 'white',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <Typography
+                variant="body2"
+                color={isOver && canDrop ? 'primary' : 'text.secondary'}
+                fontWeight={isOver && canDrop ? 'bold' : 'normal'}
+              >
+                {isOver && canDrop ? '✓ Drop opportunity here' : 'Drop opportunities here'}
+              </Typography>
+            </Box>
+          ) : (
+            columnOpportunities.map((opportunity) => (
+              <KanbanOpportunityCard key={opportunity._id} opportunity={opportunity} />
+            ))
+          )}
+        </Box>
+      </Paper>
+    );
   };
 
   // Opportunity card component
@@ -530,50 +893,6 @@ const Opportunities = () => {
     </Card>
   );
 
-  // Pipeline view component
-  const PipelineView = () => {
-    const stages = ['Prospecting', 'Qualification', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost'];
-    
-    return (
-      <Box sx={{ mt: 3 }}>
-        <Grid container spacing={2}>
-          {stages.map((stage) => {
-            const stageOpportunities = opportunities.filter(opp => opp.stage === stage);
-            return (
-              <Grid item xs={12} sm={6} md={4} lg={2} key={stage}>
-                <Paper sx={{ p: 2, height: '100%' }}>
-                  <Typography variant="h6" gutterBottom color={getStageColor(stage)}>
-                    {stage}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    {stageOpportunities.length} opportunities
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    {formatCurrency(
-                      stageOpportunities.reduce((sum, opp) => sum + opp.amount, 0)
-                    )}
-                  </Typography>
-                  
-                  <Box sx={{ mt: 2 }}>
-                    {stageOpportunities.map((opportunity) => (
-                      <Card key={opportunity._id} sx={{ mb: 1, p: 1 }}>
-                        <Typography variant="body2" noWrap>
-                          {opportunity.title}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {formatCurrency(opportunity.amount)}
-                        </Typography>
-                      </Card>
-                    ))}
-                  </Box>
-                </Paper>
-              </Grid>
-            );
-          })}
-        </Grid>
-      </Box>
-    );
-  };
 
   // Loading skeleton
   if (loading && opportunities.length === 0) {
@@ -654,7 +973,7 @@ const Opportunities = () => {
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="Grid View" value="grid" />
-          <Tab label="Pipeline View" value="pipeline" />
+          <Tab label="Kanban View" value="kanban" />
         </Tabs>
       </Paper>
 
@@ -742,8 +1061,75 @@ const Opportunities = () => {
         </Grid>
       </Paper>
 
-      {/* Opportunities Grid/Pipeline */}
-      {viewMode === 'grid' ? (
+      {/* Opportunities Grid/Kanban */}
+      {viewMode === 'kanban' ? (
+        <>
+          {/* Kanban Info Banner */}
+          <Alert 
+            severity="info" 
+            sx={{ 
+              mb: 2,
+              '& .MuiAlert-message': {
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }
+            }}
+          >
+            <Box>
+              <Typography variant="body2" fontWeight="bold">
+                💡 Drag & Drop Enabled
+              </Typography>
+              <Typography variant="caption">
+                Drag opportunity cards between columns to update their stage instantly
+              </Typography>
+            </Box>
+          </Alert>
+
+          <Box
+            sx={{
+              display: 'flex',
+              gap: 2,
+              overflowX: 'auto',
+              pb: 2,
+              '&::-webkit-scrollbar': {
+                height: 8
+              },
+              '&::-webkit-scrollbar-track': {
+                backgroundColor: '#f1f1f1'
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: '#888',
+                borderRadius: 4
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                backgroundColor: '#555'
+              }
+            }}
+          >
+            {loading ? (
+              // Loading skeleton for Kanban
+              kanbanStages.map((stage) => (
+                <Paper key={stage.id} sx={{ minWidth: 280, maxWidth: 320, p: 2, minHeight: '70vh' }}>
+                  <Skeleton variant="text" width={150} height={30} sx={{ mb: 2 }} />
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} variant="rectangular" height={200} sx={{ mb: 2, borderRadius: 1 }} />
+                  ))}
+                </Paper>
+              ))
+            ) : (
+              kanbanStages.map((stage) => (
+                <KanbanColumn
+                  key={stage.id}
+                  stage={stage}
+                  opportunities={groupedOpportunities[stage.id] || []}
+                />
+              ))
+            )}
+          </Box>
+        </>
+      ) : viewMode === 'grid' ? (
         opportunities.length > 0 ? (
           <Grid container spacing={3}>
             {opportunities.map((opportunity) => (
@@ -773,9 +1159,7 @@ const Opportunities = () => {
             </Button>
           </Paper>
         )
-      ) : (
-        <PipelineView />
-      )}
+      ) : null}
 
       {/* Add/Edit Opportunity Dialog */}
       <Dialog

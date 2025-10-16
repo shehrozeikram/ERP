@@ -16,7 +16,7 @@ const router = express.Router();
 // @desc    Get comprehensive dashboard analytics
 // @access  Private (CRM and Admin)
 router.get('/dashboard', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
     
@@ -179,7 +179,7 @@ router.get('/dashboard',
 // @desc    Get sales pipeline report
 // @access  Private (CRM and Admin)
 router.get('/sales-pipeline', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate, assignedTo } = req.query;
     
@@ -267,7 +267,7 @@ router.get('/sales-pipeline',
 // @desc    Get lead conversion report
 // @access  Private (CRM and Admin)
 router.get('/lead-conversion', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate, source } = req.query;
     
@@ -375,7 +375,7 @@ router.get('/lead-conversion',
 // @desc    Get campaign performance report
 // @access  Private (CRM and Admin)
 router.get('/campaign-performance', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate, type } = req.query;
     
@@ -488,7 +488,7 @@ router.get('/campaign-performance',
 // @desc    Get user performance report
 // @access  Private (CRM and Admin)
 router.get('/user-performance', 
-  authorize('admin', 'crm_manager'), 
+  authorize('super_admin', 'admin', 'crm_manager'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate, userId } = req.query;
     
@@ -604,7 +604,7 @@ router.get('/user-performance',
 // @desc    Export report data
 // @access  Private (CRM and Admin)
 router.get('/export/:type', 
-  authorize('admin', 'crm_manager'), 
+  authorize('super_admin', 'admin', 'crm_manager'), 
   asyncHandler(async (req, res) => {
     const { type } = req.params;
     const { startDate, endDate, format = 'json' } = req.query;
@@ -620,6 +620,43 @@ router.get('/export/:type',
     let filename;
 
     switch (type) {
+      case 'dashboard':
+        // Export comprehensive dashboard data
+        const [leads, opportunities, contacts, companies] = await Promise.all([
+          Lead.find(matchFilter)
+            .populate('assignedTo', 'firstName lastName email')
+            .select('firstName lastName email company status source priority createdAt')
+            .sort({ createdAt: -1 }),
+          Opportunity.find(matchFilter)
+            .populate('company', 'name')
+            .populate('assignedTo', 'firstName lastName email')
+            .select('title stage amount expectedCloseDate company assignedTo createdAt')
+            .sort({ createdAt: -1 }),
+          Contact.find(matchFilter)
+            .populate('company', 'name')
+            .select('firstName lastName email phone company status createdAt')
+            .sort({ createdAt: -1 }),
+          Company.find(matchFilter)
+            .select('name industry status type size createdAt')
+            .sort({ createdAt: -1 })
+        ]);
+        
+        data = {
+          summary: {
+            totalLeads: leads.length,
+            totalOpportunities: opportunities.length,
+            totalContacts: contacts.length,
+            totalCompanies: companies.length,
+            exportDate: new Date()
+          },
+          leads,
+          opportunities,
+          contacts,
+          companies
+        };
+        filename = 'dashboard-report';
+        break;
+      
       case 'leads':
         data = await Lead.find(matchFilter)
           .populate('assignedTo', 'firstName lastName email')
@@ -650,6 +687,13 @@ router.get('/export/:type',
           .populate('company', 'name industry')
           .sort({ createdAt: -1 });
         filename = 'contacts-report';
+        break;
+      
+      case 'companies':
+        data = await Company.find(matchFilter)
+          .populate('assignedTo', 'firstName lastName email')
+          .sort({ createdAt: -1 });
+        filename = 'companies-report';
         break;
       
       default:

@@ -177,15 +177,13 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     
-    // Clean data - remove empty strings and convert to null for ObjectId fields
-    const cleanedData = { ...req.body };
-    
-    // Filter out empty strings for ObjectId fields
-    ['departmentId', 'reportingManager', 'locationId', 'staffId'].forEach(field => {
-      if (cleanedData[field] === '' || cleanedData[field] === undefined) {
-        delete cleanedData[field]; // Remove empty/undefined values
-      }
-    });
+    // Sanitize data - convert empty strings to null for ObjectId fields
+    const cleanedData = {
+      ...req.body,
+      departmentId: req.body.departmentId === '' ? null : req.body.departmentId,
+      locationId: req.body.locationId === '' ? null : req.body.locationId,
+      reportingManager: req.body.reportingManager === '' ? null : req.body.reportingManager
+    };
 
     const assignmentData = {
       ...cleanedData,
@@ -293,9 +291,17 @@ router.post('/', async (req, res) => {
 // Update staff assignment
 router.put('/:id', permissions.checkPermission('staff_assignment_update'), async (req, res) => {
   try {
+    // Sanitize data - convert empty strings to null for ObjectId fields
+    const sanitizedData = {
+      ...req.body,
+      departmentId: req.body.departmentId === '' ? null : req.body.departmentId,
+      locationId: req.body.locationId === '' ? null : req.body.locationId,
+      reportingManager: req.body.reportingManager === '' ? null : req.body.reportingManager
+    };
+
     const assignment = await StaffAssignment.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      sanitizedData,
       { new: true, runValidators: true }
     );
 

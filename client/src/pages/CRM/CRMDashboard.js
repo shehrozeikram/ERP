@@ -69,9 +69,11 @@ const CRMDashboard = () => {
       setLoading(true);
       setError(null);
       const response = await crmService.getDashboard();
-      setDashboardData(response.data);
+      // The API returns { data: { success: true, data: {...} } }
+      // So we need to access response.data.data
+      const dashboardInfo = response.data?.data || response.data;
+      setDashboardData(dashboardInfo);
     } catch (err) {
-      console.error('Error loading dashboard data:', err);
       setError('Failed to load dashboard data. Please try again.');
     } finally {
       setLoading(false);
@@ -394,6 +396,13 @@ const CRMDashboard = () => {
                       />
                     </Grid>
                   ))}
+                  {(!dashboardData?.pipelineSummary || dashboardData.pipelineSummary.length === 0) && (
+                    <Grid item xs={12}>
+                      <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
+                        No pipeline data available. Create opportunities to see pipeline stages.
+                      </Typography>
+                    </Grid>
+                  )}
                 </Grid>
               </CardContent>
             </Card>
@@ -420,11 +429,16 @@ const CRMDashboard = () => {
                     </Box>
                     <LinearProgress
                       variant="determinate"
-                      value={(stat.count / dashboardData.overview.totalLeads) * 100}
+                      value={dashboardData.overview.totalLeads > 0 ? (stat.count / dashboardData.overview.totalLeads) * 100 : 0}
                       sx={{ height: 6, borderRadius: 3 }}
                     />
                   </Box>
                 ))}
+                {(!dashboardData?.leadStats || dashboardData.leadStats.length === 0) && (
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No lead statistics available
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           </Grid>
@@ -441,12 +455,17 @@ const CRMDashboard = () => {
               />
               <CardContent>
                 <Box display="flex" flexDirection="column" gap={2}>
-                  {['Website', 'Referral', 'Social Media', 'Cold Call', 'Trade Show'].map((source) => (
-                    <Box key={source} display="flex" alignItems="center" justifyContent="space-between">
-                      <Typography variant="body2">{source}</Typography>
-                      <Chip label={Math.floor(Math.random() * 50) + 10} size="small" />
+                  {dashboardData?.leadSourceStats?.map((source) => (
+                    <Box key={source._id} display="flex" alignItems="center" justifyContent="space-between">
+                      <Typography variant="body2">{source._id}</Typography>
+                      <Chip label={source.count} size="small" color="primary" />
                     </Box>
                   ))}
+                  {(!dashboardData?.leadSourceStats || dashboardData.leadSourceStats.length === 0) && (
+                    <Typography variant="body2" color="text.secondary" align="center">
+                      No lead source data available
+                    </Typography>
+                  )}
                 </Box>
               </CardContent>
             </Card>
@@ -504,14 +523,20 @@ const CRMDashboard = () => {
                 }
               />
               <CardContent>
-                <List>
-                  {dashboardData?.recentActivities?.slice(0, 10).map((activity, index) => (
-                    <React.Fragment key={index}>
-                      <RecentActivityItem activity={activity} />
-                      {index < dashboardData.recentActivities.length - 1 && <Divider />}
-                    </React.Fragment>
-                  ))}
-                </List>
+                {dashboardData?.recentActivities && dashboardData.recentActivities.length > 0 ? (
+                  <List>
+                    {dashboardData.recentActivities.slice(0, 10).map((activity, index) => (
+                      <React.Fragment key={index}>
+                        <RecentActivityItem activity={activity} />
+                        {index < dashboardData.recentActivities.length - 1 && <Divider />}
+                      </React.Fragment>
+                    ))}
+                  </List>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
+                    No recent activities available
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           </Grid>

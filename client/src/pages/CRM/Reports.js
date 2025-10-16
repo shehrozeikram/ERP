@@ -65,16 +65,12 @@ const Reports = () => {
   // Load report data
   const loadReportData = useCallback(async (reportType = 'dashboard') => {
     try {
-      console.log('=== LOADING REPORT DATA ===');
-      console.log('Report type:', reportType);
       setError(null);
       
       const params = {
         ...filters,
         _t: Date.now()
       };
-
-      console.log('API params:', params);
       
       let response;
       switch (reportType) {
@@ -164,7 +160,6 @@ const Reports = () => {
       
       setSuccess('Report exported successfully!');
     } catch (err) {
-      console.error('Error exporting report:', err);
       setError('Failed to export report. Please try again.');
     }
   };

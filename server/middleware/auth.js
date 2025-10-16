@@ -92,6 +92,11 @@ const authorize = (...roles) => {
       });
     }
 
+    // Super Admin has access to everything
+    if (req.user.role === 'super_admin') {
+      return next();
+    }
+
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,

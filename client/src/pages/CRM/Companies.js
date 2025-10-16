@@ -108,24 +108,16 @@ const Companies = () => {
   const loadCompanies = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('=== LOADING COMPANIES ===');
       
       // Check authentication
       const token = localStorage.getItem('token');
-      console.log('Auth token exists:', !!token);
       if (token) {
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
-          console.log('Token payload:', payload);
-          console.log('User role:', payload.role);
         } catch (e) {
-          console.error('Error parsing token:', e);
         }
       }
       
-      console.log('Current page:', page);
-      console.log('Search:', search);
-      console.log('Filters:', filters);
       
       // Ensure we don't request pages beyond what exists
       const requestedPage = Math.max(1, page + 1); // Convert 0-based to 1-based, minimum 1
@@ -137,40 +129,30 @@ const Companies = () => {
         ...filters
       };
 
-      console.log('API params:', params);
-      console.log('Requested page:', requestedPage, '(0-based page:', page, ')');
       const response = await crmService.getCompanies(params);
-      console.log('Companies response:', response);
 
       if (response.data.success) {
         const companies = response.data.data.companies || [];
         const pagination = response.data.data.pagination || {};
         
         // Debug pagination
-        console.log('Backend pagination:', pagination);
-        console.log('Current page state:', page);
-        console.log('Companies found:', companies.length);
         
         // Handle empty page scenarios
         if (companies.length === 0) {
           if (page > 0) {
             // If we're not on page 0 and no companies found, go back to page 0
-            console.log('No companies found on page', page, '- resetting to page 0');
             setPage(0);
             return; // This will trigger a re-fetch with page 0
           } else {
             // We're on page 0 and no companies - this is valid (empty database)
-            console.log('No companies found on page 0 - database is empty');
           }
         }
         
         // Update current page to match backend response (convert from 1-based to 0-based)
         const currentPage = (pagination.currentPage || 1) - 1;
-        console.log('Calculated current page:', currentPage);
         
         // Only update page if there's a significant difference to avoid infinite loops
         if (Math.abs(currentPage - page) > 0) {
-          console.log('Updating page from', page, 'to', currentPage);
           setPage(currentPage);
         }
         
@@ -179,10 +161,6 @@ const Companies = () => {
         setTotalItems(pagination.totalItems || 0);
       }
     } catch (err) {
-      console.error('Error loading companies:', err);
-      console.error('Error status:', err.response?.status);
-      console.error('Error message:', err.response?.data?.message);
-      console.error('Error details:', err.response?.data);
       
       if (err.response?.status === 401) {
         setError('Authentication failed. Please log in again.');
@@ -280,8 +258,6 @@ const Companies = () => {
 
   // Open edit company dialog
   const handleEditCompany = (company) => {
-    console.log('=== EDITING COMPANY ===');
-    console.log('Company to edit:', company);
     
     setFormData({
       name: company.name || '',
@@ -319,8 +295,6 @@ const Companies = () => {
   // Save company
   const handleSaveCompany = async () => {
     try {
-      console.log('=== SAVING COMPANY ===');
-      console.log('Form data:', formData);
       
       // Frontend validation
       if (!formData.name || !formData.name.trim()) {
@@ -335,14 +309,10 @@ const Companies = () => {
       
       // Check authentication
       const token = localStorage.getItem('token');
-      console.log('Auth token exists:', !!token);
       if (token) {
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
-          console.log('Token payload:', payload);
-          console.log('User role:', payload.role);
         } catch (e) {
-          console.error('Error parsing token:', e);
         }
       }
       
@@ -351,22 +321,12 @@ const Companies = () => {
         foundedYear: formData.foundedYear ? parseInt(formData.foundedYear) : undefined
       };
 
-      console.log('Company data to send:', companyData);
-      console.log('Required fields check:');
-      console.log('- name:', companyData.name);
-      console.log('- industry:', companyData.industry);
-      console.log('- type:', companyData.type);
-      console.log('- size:', companyData.size);
 
       if (companyDialog.mode === 'add') {
-        console.log('Creating new company...');
         const response = await crmService.createCompany(companyData);
-        console.log('Create company response:', response);
         setSuccess('Company added successfully!');
       } else {
-        console.log('Updating existing company...');
         const response = await crmService.updateCompany(companyDialog.company._id, companyData);
-        console.log('Update company response:', response);
         setSuccess('Company updated successfully!');
       }
 
@@ -376,11 +336,6 @@ const Companies = () => {
       setFilters({ industry: '', type: '', status: '', size: '', assignedTo: '' });
       await loadCompanies();
     } catch (err) {
-      console.error('Error saving company:', err);
-      console.error('Error details:', err.response?.data);
-      console.error('Error status:', err.response?.status);
-      console.error('Error message:', err.response?.data?.message);
-      console.error('Error headers:', err.response?.headers);
       setError(err.response?.data?.message || 'Failed to save company. Please try again.');
     }
   };
@@ -388,19 +343,14 @@ const Companies = () => {
   // Delete company
   const handleDeleteCompany = async () => {
     try {
-      console.log('=== DELETING COMPANY ===');
-      console.log('Company ID:', deleteDialog.company._id);
       
       const response = await crmService.deleteCompany(deleteDialog.company._id);
-      console.log('Delete response:', response);
       
       setDeleteDialog({ open: false, company: null });
       setSuccess('Company deleted successfully!');
       setError(null);
       await loadCompanies();
     } catch (err) {
-      console.error('Error deleting company:', err);
-      console.error('Error details:', err.response?.data);
       setError('Failed to delete company. Please try again.');
       setSuccess(null);
     }
@@ -428,6 +378,21 @@ const Companies = () => {
       case 'Vendor': return 'secondary';
       case 'Competitor': return 'error';
       case 'Other': return 'default';
+      default: return 'default';
+    }
+  };
+
+  // Get lead status color
+  const getLeadStatusColor = (status) => {
+    switch (status) {
+      case 'New': return 'info';
+      case 'Contacted': return 'primary';
+      case 'Qualified': return 'success';
+      case 'Proposal Sent': return 'warning';
+      case 'Negotiation': return 'secondary';
+      case 'Won': return 'success';
+      case 'Lost': return 'error';
+      case 'Unqualified': return 'default';
       default: return 'default';
     }
   };
@@ -488,7 +453,16 @@ const Companies = () => {
             label={company.type} 
             size="small" 
             color={getTypeColor(company.type)}
+            sx={{ mr: 1 }}
           />
+          {company.leadId && (
+            <Chip 
+              label={`Lead: ${company.leadId.status}`}
+              size="small" 
+              color={getLeadStatusColor(company.leadId.status)}
+              variant="outlined"
+            />
+          )}
         </Box>
 
         {company.description && (

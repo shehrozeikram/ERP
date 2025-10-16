@@ -13,7 +13,7 @@ const router = express.Router();
 // @desc    Get all campaigns with filters and pagination
 // @access  Private (CRM and Admin)
 router.get('/', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -85,7 +85,7 @@ router.get('/',
 // @desc    Get campaign statistics
 // @access  Private (CRM and Admin)
 router.get('/stats', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const stats = await Campaign.getStats();
     
@@ -135,7 +135,7 @@ router.get('/stats',
 // @desc    Get campaign by ID
 // @access  Private (CRM and Admin)
 router.get('/:id', 
-  authorize('admin', 'crm_manager', 'sales_rep'), 
+  authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), 
   asyncHandler(async (req, res) => {
     const campaign = await Campaign.findById(req.params.id)
       .populate('assignedTo', 'firstName lastName email')
@@ -168,7 +168,7 @@ router.post('/', [
   body('budget').optional().isFloat({ min: 0 }).withMessage('Budget must be a positive number'),
   body('expectedRevenue').optional().isFloat({ min: 0 }).withMessage('Expected revenue must be a positive number'),
   body('assignedTo').isMongoId().withMessage('Valid assigned user ID is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
   console.log('=== CREATING CAMPAIGN ===');
   console.log('Request body:', req.body);
   
@@ -234,7 +234,7 @@ router.put('/:id', [
   body('actualRevenue').optional().isFloat({ min: 0 }).withMessage('Actual revenue must be a positive number'),
   body('conversionRate').optional().isFloat({ min: 0, max: 100 }).withMessage('Conversion rate must be between 0 and 100'),
   body('assignedTo').optional().isMongoId().withMessage('Valid assigned user ID is required')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
   console.log('=== UPDATING CAMPAIGN ===');
   console.log('Request body:', req.body);
   
@@ -297,7 +297,7 @@ router.put('/:id', [
 // @route   DELETE /api/campaigns/:id
 // @desc    Delete campaign
 // @access  Private (CRM and Admin)
-router.delete('/:id', authorize('admin', 'crm_manager'), asyncHandler(async (req, res) => {
+router.delete('/:id', authorize('super_admin', 'admin', 'crm_manager'), asyncHandler(async (req, res) => {
   const campaign = await Campaign.findById(req.params.id);
   
   if (!campaign) {
@@ -328,7 +328,7 @@ router.delete('/:id', authorize('admin', 'crm_manager'), asyncHandler(async (req
 // @access  Private (CRM and Admin)
 router.post('/:id/notes', [
   body('content').trim().isLength({ min: 1, max: 1000 }).withMessage('Note content is required and must be less than 1000 characters')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -372,7 +372,7 @@ router.put('/:id/metrics', [
   body('totalLeads').optional().isInt({ min: 0 }).withMessage('Total leads must be a positive integer'),
   body('qualifiedLeads').optional().isInt({ min: 0 }).withMessage('Qualified leads must be a positive integer'),
   body('actualRevenue').optional().isFloat({ min: 0 }).withMessage('Actual revenue must be a positive number')
-], authorize('admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
+], authorize('super_admin', 'admin', 'crm_manager', 'sales_rep'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({

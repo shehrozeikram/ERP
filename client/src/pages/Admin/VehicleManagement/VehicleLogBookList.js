@@ -30,7 +30,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Search as SearchIcon,
-  Assignment as LogBookIcon
+  Assignment as LogBookIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import vehicleLogBookService from '../../../services/vehicleLogBookService';
@@ -116,7 +117,7 @@ const FilterBar = ({ filters, onFilterChange, onSearch }) => (
   </Card>
 );
 
-const LogBookTable = ({ entries, onEdit, onDelete, loading }) => (
+const LogBookTable = ({ entries, onEdit, onDelete, onView, loading }) => (
   <TableContainer component={Paper} variant="outlined">
     <Table size="small">
       <TableHead>
@@ -213,8 +214,17 @@ const LogBookTable = ({ entries, onEdit, onDelete, loading }) => (
               <TableCell align="center">
                 <IconButton
                   size="small"
+                  onClick={() => onView(entry._id)}
+                  color="info"
+                  title="View Details"
+                >
+                  <ViewIcon />
+                </IconButton>
+                <IconButton
+                  size="small"
                   onClick={() => onEdit(entry._id)}
                   color="primary"
+                  title="Edit Entry"
                 >
                   <EditIcon />
                 </IconButton>
@@ -222,6 +232,7 @@ const LogBookTable = ({ entries, onEdit, onDelete, loading }) => (
                   size="small"
                   onClick={() => onDelete(entry._id)}
                   color="error"
+                  title="Delete Entry"
                 >
                   <DeleteIcon />
                 </IconButton>
@@ -294,6 +305,10 @@ const VehicleLogBookList = () => {
     setFilters(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleView = (id) => {
+    navigate(`/admin/vehicle-management/logbook/${id}/view`);
+  };
+
   const handleEdit = (id) => {
     navigate(`/admin/vehicle-management/logbook/${id}/edit`);
   };
@@ -355,6 +370,7 @@ const VehicleLogBookList = () => {
           
           <LogBookTable
             entries={filteredEntries}
+            onView={handleView}
             onEdit={handleEdit}
             onDelete={handleDelete}
             loading={loading}

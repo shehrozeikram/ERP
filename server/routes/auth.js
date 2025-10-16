@@ -3,7 +3,11 @@ const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authMiddleware, authorize } = require('../middleware/auth');
+const permissions = require('../middleware/permissions');
 const User = require('../models/User');
+const Department = require('../models/hr/Department');
+const SubRole = require('../models/SubRole');
+const { ROLE_VALUES } = require('../config/permissions');
 
 const router = express.Router();
 
@@ -27,8 +31,16 @@ router.post('/register', [
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long'),
   body('department')
-    .isIn(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'])
-    .withMessage('Invalid department'),
+    .custom(async (value) => {
+      if (!value) {
+        throw new Error('Department is required');
+      }
+      const department = await Department.findOne({ name: value, isActive: true });
+      if (!department) {
+        throw new Error('Invalid department');
+      }
+      return true;
+    }),
   body('position')
     .trim()
     .notEmpty()
@@ -57,7 +69,8 @@ router.post('/register', [
     position,
     employeeId,
     phone,
-    role = 'employee'
+    role = 'employee',
+    subRoles = []
   } = req.body;
 
   // Check if user already exists
@@ -84,7 +97,8 @@ router.post('/register', [
     position,
     employeeId,
     phone,
-    role
+    role,
+    subRoles
   });
 
   await user.save();
@@ -163,6 +177,9 @@ router.post('/login', [
     user.lastLogin = new Date();
     await user.save();
 
+    // Populate sub-roles before generating response
+    await user.populate('subRoles');
+    
     // Generate JWT token
     const token = user.generateAuthToken();
     console.log('🔐 Login successful for:', email);
@@ -369,7 +386,7 @@ router.post('/logout', authMiddleware, asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 router.post('/users', [
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'create'),
   body('firstName')
     .trim()
     .isLength({ min: 2, max: 50 })
@@ -386,8 +403,16 @@ router.post('/users', [
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long'),
   body('department')
-    .isIn(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'])
-    .withMessage('Invalid department'),
+    .custom(async (value) => {
+      if (!value) {
+        throw new Error('Department is required');
+      }
+      const department = await Department.findOne({ name: value, isActive: true });
+      if (!department) {
+        throw new Error('Invalid department');
+      }
+      return true;
+    }),
   body('position')
     .trim()
     .notEmpty()
@@ -398,8 +423,16 @@ router.post('/users', [
     .withMessage('Employee ID is required'),
   body('role')
     .optional()
-    .isIn(['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'])
-    .withMessage('Invalid role')
+    .isIn(ROLE_VALUES)
+    .withMessage('Invalid role'),
+  body('subRoles')
+    .optional()
+    .isArray()
+    .withMessage('Sub-roles must be an array'),
+  body('subRoles.*')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid sub-role ID')
 ], asyncHandler(async (req, res) => {
   // Check for validation errors
   const errors = validationResult(req);
@@ -420,7 +453,8 @@ router.post('/users', [
     position,
     employeeId,
     phone,
-    role = 'employee'
+    role = 'employee',
+    subRoles = []
   } = req.body;
 
   // Check if user already exists
@@ -447,7 +481,8 @@ router.post('/users', [
     position,
     employeeId,
     phone,
-    role
+    role,
+    subRoles
   });
 
   await user.save();
@@ -466,7 +501,7 @@ router.post('/users', [
 // @access  Private (Admin)
 router.get('/users', 
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'read'),
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -501,6 +536,7 @@ router.get('/users',
 
     const users = await User.find(query)
       .select('-password')
+      .populate('subRoles', 'name module permissions')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -526,7 +562,7 @@ router.get('/users',
 // @access  Private (Admin)
 router.get('/users/:id', 
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'read'),
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.params.id).select('-password');
 
@@ -551,7 +587,7 @@ router.get('/users/:id',
 // @access  Private (Admin)
 router.put('/users/:id', [
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'update'),
   body('firstName')
     .optional()
     .trim()
@@ -564,12 +600,19 @@ router.put('/users/:id', [
     .withMessage('Last name must be between 2 and 50 characters'),
   body('role')
     .optional()
-    .isIn(['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'])
+    .isIn(ROLE_VALUES)
     .withMessage('Invalid role'),
   body('department')
     .optional()
-    .isIn(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'])
-    .withMessage('Invalid department'),
+    .custom(async (value) => {
+      if (value) {
+        const department = await Department.findOne({ name: value, isActive: true });
+        if (!department) {
+          throw new Error('Invalid department');
+        }
+      }
+      return true;
+    }),
   body('isActive')
     .optional()
     .isBoolean()
@@ -612,9 +655,9 @@ router.put('/users/:id', [
 // @access  Private (Admin)
 router.patch('/users/:id/role', [
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'update'),
   body('role')
-    .isIn(['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'])
+    .isIn(ROLE_VALUES)
     .withMessage('Invalid role')
 ], asyncHandler(async (req, res) => {
   // Check for validation errors
@@ -656,7 +699,7 @@ router.patch('/users/:id/role', [
 // @access  Private (Admin)
 router.patch('/users/:id/status', [
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'update'),
   body('isActive')
     .isBoolean()
     .withMessage('isActive must be a boolean')
@@ -700,7 +743,7 @@ router.patch('/users/:id/status', [
 // @access  Private (Admin)
 router.delete('/users/:id', 
   authMiddleware,
-  authorize('admin'),
+  permissions.checkSubRolePermission('admin', 'user_management', 'delete'),
   asyncHandler(async (req, res) => {
     // Check if the ID is a valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -733,6 +776,29 @@ router.delete('/users/:id',
     res.json({
       success: true,
       message: 'User deleted successfully'
+    });
+  })
+);
+
+// @route   GET /api/auth/sub-roles/:module
+// @desc    Get sub-roles for a specific module
+// @access  Private (Admin)
+router.get('/sub-roles/:module', 
+  authMiddleware,
+  permissions.checkSubRolePermission('admin', 'sub_roles', 'read'),
+  asyncHandler(async (req, res) => {
+    const { module } = req.params;
+    
+    const subRoles = await SubRole.find({ 
+      module: module,
+      isActive: true 
+    }).select('name module description permissions');
+    
+    res.json({
+      success: true,
+      data: {
+        subRoles
+      }
     });
   })
 );

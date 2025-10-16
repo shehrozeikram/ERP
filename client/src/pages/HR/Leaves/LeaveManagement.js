@@ -19,6 +19,7 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -47,42 +48,13 @@ import {
   Refresh as RefreshIcon,
   Person as PersonIcon,
   Assignment as AssignmentIcon,
-  TrendingUp as TrendingUpIcon
+  TrendingUp as TrendingUpIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import axios from 'axios';
 import api from '../../../services/api';
-
-// Debug authentication issues
-const debugAuthentication = () => {
-  console.log('🔍 Debugging Authentication...');
-  
-  const token = localStorage.getItem('token');
-  const user = localStorage.getItem('user');
-  
-  console.log('Token exists:', !!token);
-  console.log('User exists:', !!user);
-  
-  if (token) {
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      console.log('Token payload:', payload);
-      console.log('Token expires:', new Date(payload.exp * 1000));
-      console.log('Token expired:', Date.now() > payload.exp * 1000);
-    } catch (error) {
-      console.error('Error decoding token:', error);
-    }
-  }
-  
-  return { hasToken: !!token, hasUser: !!user, token, user };
-};
-
-const clearAuth = () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-  console.log('✅ Authentication data cleared');
-  window.location.reload();
-};
+import leaveService from '../../../services/leaveService';
 
 const LeaveManagement = () => {
   const [leaveTypes, setLeaveTypes] = useState([]);
@@ -94,6 +66,7 @@ const LeaveManagement = () => {
   // Dialog states
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [globalConfigDialog, setGlobalConfigDialog] = useState(false);
   
   // Quick stats
   const [stats, setStats] = useState({
@@ -101,6 +74,13 @@ const LeaveManagement = () => {
     employeesOnLeave: 0,
     pendingRequests: 0,
     totalLeaveDays: 0
+  });
+  
+  // Global leave configuration
+  const [globalConfig, setGlobalConfig] = useState({
+    annualLimit: 20,
+    sickLimit: 10,
+    casualLimit: 10
   });
   
   // Search state
@@ -129,7 +109,19 @@ const LeaveManagement = () => {
   // Load data on component mount
   useEffect(() => {
     loadData();
+    loadGlobalConfig();
   }, []);
+
+  const loadGlobalConfig = async () => {
+    try {
+      const response = await leaveService.getGlobalConfig();
+      if (response.data) {
+        setGlobalConfig(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading global config:', error);
+    }
+  };
 
   const [existingLeaves, setExistingLeaves] = useState([]);
 
@@ -155,11 +147,6 @@ const LeaveManagement = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Loading leave data...');
-      
-      // Debug authentication
-      const authDebug = debugAuthentication();
-      console.log('Auth debug:', authDebug);
       
       const [typesRes, employeesRes, statsRes] = await Promise.all([
         api.get('/leaves/types'),
@@ -217,7 +204,7 @@ const LeaveManagement = () => {
     try {
       setLoading(true);
       
-      // Pre-validate leave balance
+      // Check leave balance (informational only - we allow advance leaves)
       const selectedEmp = employees.find(emp => emp._id === (selectedEmployee ? selectedEmployee._id : leaveForm.employee));
       const selectedLeaveType = leaveTypes.find(type => type._id === leaveForm.leaveType);
       
@@ -225,10 +212,8 @@ const LeaveManagement = () => {
         const leaveTypeKey = selectedLeaveType.code.toLowerCase();
         const availableDays = selectedEmp.leaveBalance?.[leaveTypeKey]?.remaining || 0;
         
-        if (availableDays < leaveForm.totalDays) {
-          setError(`Insufficient ${selectedLeaveType.name} balance. Available: ${availableDays} days, Requested: ${leaveForm.totalDays} days`);
-          return;
-        }
+        // If requesting more than available, advance leaves will be created automatically
+        // No validation error - the system allows advance leaves
       }
       
       // Check for overlapping leaves
@@ -366,8 +351,108 @@ const LeaveManagement = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box sx={{ mb: 3 }}>
+          <Skeleton variant="text" width="40%" height={60} />
+          <Skeleton variant="text" width="60%" height={30} />
+        </Box>
+
+        {/* Summary Cards Skeleton */}
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          {[1, 2, 3, 4].map((item) => (
+            <Grid item xs={12} md={3} key={item}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" alignItems="center">
+                    <Skeleton variant="circular" width={40} height={40} sx={{ mr: 2 }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Skeleton variant="text" width="70%" height={24} />
+                      <Skeleton variant="text" width="40%" height={32} />
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        {/* Action Buttons Skeleton */}
+        <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
+          <Skeleton variant="rectangular" width={140} height={36} sx={{ borderRadius: 1 }} />
+          <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+          <Skeleton variant="rectangular" width={160} height={36} sx={{ borderRadius: 1 }} />
+        </Box>
+
+        {/* Global Configuration Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box display="flex" alignItems="center" sx={{ mb: 2 }}>
+              <Skeleton variant="circular" width={24} height={24} sx={{ mr: 1 }} />
+              <Skeleton variant="text" width="30%" height={28} />
+            </Box>
+            <Grid container spacing={2}>
+              {[1, 2, 3].map((item) => (
+                <Grid item xs={12} md={4} key={item}>
+                  <Box sx={{ textAlign: 'center' }}>
+                    <Skeleton variant="text" width="80%" height={20} />
+                    <Skeleton variant="text" width="60%" height={24} />
+                  </Box>
+                </Grid>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* Employee Table Skeleton */}
+        <Card>
+          <CardContent>
+            <Skeleton variant="text" width="25%" height={32} sx={{ mb: 2 }} />
+            <Box sx={{ mb: 2 }}>
+              <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+            </Box>
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" width="80%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="60%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="70%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="50%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="60%" /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5].map((row) => (
+                    <TableRow key={row}>
+                      <TableCell>
+                        <Box display="flex" alignItems="center">
+                          <Skeleton variant="circular" width={32} height={32} sx={{ mr: 2 }} />
+                          <Box>
+                            <Skeleton variant="text" width={120} height={20} />
+                            <Skeleton variant="text" width={80} height={16} />
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="rectangular" width={60} height={24} sx={{ borderRadius: 12 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="rectangular" width={60} height={24} sx={{ borderRadius: 12 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="rectangular" width={60} height={24} sx={{ borderRadius: 12 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={40} height={20} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }
@@ -386,13 +471,6 @@ const LeaveManagement = () => {
           severity="error" 
           sx={{ mb: 2 }} 
           onClose={() => setError('')}
-          action={
-            error.includes('Authentication') || error.includes('connect to server') ? (
-              <Button color="inherit" size="small" onClick={() => clearAuth()}>
-                Fix Authentication
-              </Button>
-            ) : null
-          }
         >
           {error}
         </Alert>
@@ -475,6 +553,77 @@ const LeaveManagement = () => {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Global Leave Configuration */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <SettingsIcon />
+              Global Leave Configuration
+            </Typography>
+            <Button
+              variant="outlined"
+              startIcon={<EditIcon />}
+              onClick={() => setGlobalConfigDialog(true)}
+            >
+              Edit Defaults
+            </Button>
+          </Box>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            These are the default leave limits applied to new employees. Individual employees can have custom limits configured on their profile.
+          </Typography>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 2, bgcolor: 'primary.light', borderRadius: 1 }}>
+                <Typography variant="body2" color="primary.contrastText" fontWeight="medium">
+                  Annual Leave Default
+                </Typography>
+                <Typography variant="h4" color="primary.contrastText" fontWeight="bold">
+                  {globalConfig.annualLimit} days
+                </Typography>
+                <Typography variant="caption" color="primary.contrastText">
+                  Per year
+                </Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
+                <Typography variant="body2" sx={{ color: 'success.contrastText' }} fontWeight="medium">
+                  Sick Leave Default
+                </Typography>
+                <Typography variant="h4" sx={{ color: 'success.contrastText' }} fontWeight="bold">
+                  {globalConfig.sickLimit} days
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'success.contrastText' }}>
+                  Per year
+                </Typography>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
+                <Typography variant="body2" sx={{ color: 'info.contrastText' }} fontWeight="medium">
+                  Casual Leave Default
+                </Typography>
+                <Typography variant="h4" sx={{ color: 'info.contrastText' }} fontWeight="bold">
+                  {globalConfig.casualLimit} days
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'info.contrastText' }}>
+                  Per year
+                </Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+          
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>Note:</strong> These defaults are automatically applied when creating new employees. 
+              Existing employees retain their current configurations unless manually updated.
+            </Typography>
+          </Alert>
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
@@ -868,10 +1017,14 @@ const LeaveManagement = () => {
                   inputProps={{ min: 0.5, max: 365, step: 0.5 }}
                   helperText={
                     leaveForm.employee && leaveForm.leaveType 
-                      ? `Available: ${getAvailableLeaveBalance()} days`
-                      : "Enter number of leave days"
+                      ? `Available: ${getAvailableLeaveBalance()} days ${
+                          leaveForm.totalDays > getAvailableLeaveBalance() && getAvailableLeaveBalance() >= 0
+                            ? `| Advance: ${(leaveForm.totalDays - getAvailableLeaveBalance()).toFixed(1)} days (will be deducted from payroll)`
+                            : ''
+                        }`
+                      : "Enter number of leave days (advance leaves allowed)"
                   }
-                  error={leaveForm.totalDays > getAvailableLeaveBalance() && getAvailableLeaveBalance() > 0}
+                  color={leaveForm.totalDays > getAvailableLeaveBalance() && getAvailableLeaveBalance() > 0 ? 'warning' : 'primary'}
                 />
               </Box>
             </Grid>
@@ -943,6 +1096,69 @@ const LeaveManagement = () => {
                   >
                     {loading ? <CircularProgress size={20} /> : 'Add Leave Request'}
                   </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Global Configuration Dialog */}
+      <Dialog open={globalConfigDialog} onClose={() => setGlobalConfigDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Global Leave Defaults</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" paragraph sx={{ mt: 1 }}>
+            These defaults will be applied to all new employees. Existing employees will keep their current settings unless manually updated.
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Annual Leave Default"
+                type="number"
+                value={globalConfig.annualLimit}
+                onChange={(e) => setGlobalConfig({ ...globalConfig, annualLimit: parseInt(e.target.value) || 0 })}
+                inputProps={{ min: 0, max: 365 }}
+                helperText="Default number of annual leave days per year"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Sick Leave Default"
+                type="number"
+                value={globalConfig.sickLimit}
+                onChange={(e) => setGlobalConfig({ ...globalConfig, sickLimit: parseInt(e.target.value) || 0 })}
+                inputProps={{ min: 0, max: 365 }}
+                helperText="Default number of sick leave days per year"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Casual Leave Default"
+                type="number"
+                value={globalConfig.casualLimit}
+                onChange={(e) => setGlobalConfig({ ...globalConfig, casualLimit: parseInt(e.target.value) || 0 })}
+                inputProps={{ min: 0, max: 365 }}
+                helperText="Default number of casual leave days per year"
+              />
+            </Grid>
+          </Grid>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>Note:</strong> This is a display-only configuration. To enforce these defaults system-wide, 
+              they should be configured in the Leave Policy settings in the database.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGlobalConfigDialog(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={() => {
+              setSuccess(`Global defaults updated: Annual: ${globalConfig.annualLimit}, Sick: ${globalConfig.sickLimit}, Casual: ${globalConfig.casualLimit}`);
+              setGlobalConfigDialog(false);
+            }}
+          >
+            Save Defaults
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

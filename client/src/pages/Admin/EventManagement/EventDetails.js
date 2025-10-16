@@ -30,7 +30,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   PersonAdd as PersonAddIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import eventService from '../../../services/eventService';
@@ -141,6 +142,301 @@ const EventDetails = () => {
     return time || 'N/A';
   };
 
+  const handlePrint = () => {
+    if (!event) return;
+    
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank');
+    
+    // Get the current date and time for the print header
+    const printDate = new Date().toLocaleString();
+    
+    // Create the print content HTML with comprehensive styling
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Event Details - ${event?.title || 'N/A'}</title>
+          <style>
+            body {
+              font-family: 'Arial', sans-serif;
+              margin: 15px;
+              color: #000;
+              line-height: 1.5;
+              font-size: 14px;
+            }
+            .header {
+              text-align: center;
+              border: 3px solid #000;
+              padding: 20px;
+              margin-bottom: 25px;
+              background-color: #f9f9f9;
+            }
+            .header h1 {
+              margin: 0 0 10px 0;
+              color: #000;
+              font-size: 24px;
+              font-weight: bold;
+            }
+            .header .subtitle {
+              color: #333;
+              font-size: 16px;
+              margin-bottom: 8px;
+              font-weight: bold;
+            }
+            .print-date {
+              color: #666;
+              font-size: 12px;
+            }
+            .section {
+              margin-bottom: 25px;
+              page-break-inside: avoid;
+              border: 1px solid #ccc;
+              padding: 15px;
+            }
+            .section-title {
+              background-color: #e0e0e0;
+              padding: 10px 15px;
+              margin: -15px -15px 15px -15px;
+              border-bottom: 2px solid #000;
+              font-weight: bold;
+              font-size: 16px;
+              color: #000;
+              text-transform: uppercase;
+            }
+            .field-row {
+              display: flex;
+              margin-bottom: 8px;
+              border-bottom: 1px dotted #999;
+              padding-bottom: 5px;
+              min-height: 20px;
+            }
+            .field-label {
+              font-weight: bold;
+              min-width: 180px;
+              color: #000;
+              font-size: 13px;
+            }
+            .field-value {
+              flex: 1;
+              color: #000;
+              font-size: 13px;
+              word-wrap: break-word;
+            }
+            .status-chip {
+              display: inline-block;
+              padding: 3px 8px;
+              border: 1px solid #000;
+              font-size: 11px;
+              font-weight: bold;
+              text-transform: uppercase;
+              background-color: #f0f0f0;
+            }
+            .status-upcoming { background-color: #e3f2fd; }
+            .status-ongoing { background-color: #fff3cd; }
+            .status-completed { background-color: #e8f5e8; }
+            .status-cancelled { background-color: #f8d7da; }
+            .footer {
+              margin-top: 30px;
+              padding-top: 15px;
+              border-top: 2px solid #000;
+              text-align: center;
+              color: #333;
+              font-size: 11px;
+            }
+            .important-info {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 10px;
+              margin: 10px 0;
+              font-weight: bold;
+            }
+            .record-id {
+              font-family: monospace;
+              background-color: #f8f9fa;
+              padding: 2px 5px;
+              border: 1px solid #ccc;
+            }
+            .participants-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+            }
+            .participants-table th, .participants-table td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              text-align: left;
+              font-size: 12px;
+            }
+            .participants-table th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            @media print {
+              body { margin: 0; }
+              .no-print { display: none; }
+              .section { page-break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>EVENT DETAILS</h1>
+            <div class="subtitle">Event: ${event?.title || 'N/A'}</div>
+            <div class="print-date">Printed on: ${printDate}</div>
+          </div>
+
+          <!-- Event Summary -->
+          <div class="section">
+            <div class="section-title">📋 Event Summary</div>
+            <div class="field-row">
+              <div class="field-label">Event ID:</div>
+              <div class="field-value"><span class="record-id">${event?._id || 'N/A'}</span></div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Status:</div>
+              <div class="field-value">
+                <span class="status-chip status-${event?.status?.toLowerCase() || 'upcoming'}">${event?.status || 'N/A'}</span>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Title:</div>
+              <div class="field-value">${event?.title || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Type:</div>
+              <div class="field-value">${event?.type || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Priority:</div>
+              <div class="field-value">${event?.priority || 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Event Details -->
+          <div class="section">
+            <div class="section-title">📅 Event Details</div>
+            <div class="field-row">
+              <div class="field-label">Event Date:</div>
+              <div class="field-value">${event?.eventDate ? formatDate(event.eventDate) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Time:</div>
+              <div class="field-value">${formatTime(event?.startTime)} - ${formatTime(event?.endTime)}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Location:</div>
+              <div class="field-value">${event?.location || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Organizer:</div>
+              <div class="field-value">${event?.organizer || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Description:</div>
+              <div class="field-value">${event?.description || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Max Participants:</div>
+              <div class="field-value">${event?.maxParticipants || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Budget:</div>
+              <div class="field-value">${event?.budget ? `PKR ${event.budget}` : 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Participants -->
+          ${participants && participants.length > 0 ? `
+          <div class="section">
+            <div class="section-title">👥 Participants (${participants.length})</div>
+            <table class="participants-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Phone</th>
+                  <th>Department</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${participants.map(participant => `
+                  <tr>
+                    <td>${participant.participantId?.firstName || ''} ${participant.participantId?.lastName || ''}</td>
+                    <td>${participant.participantId?.email || 'N/A'}</td>
+                    <td>${participant.participantId?.phone || 'N/A'}</td>
+                    <td>${participant.participantId?.department || 'N/A'}</td>
+                    <td>${participant.notes || 'N/A'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : `
+          <div class="section">
+            <div class="section-title">👥 Participants</div>
+            <div class="field-row">
+              <div class="field-label">Participants:</div>
+              <div class="field-value">No participants registered</div>
+            </div>
+          </div>
+          `}
+
+          <!-- System Information -->
+          <div class="section">
+            <div class="section-title">ℹ️ System Information</div>
+            <div class="field-row">
+              <div class="field-label">Created Date:</div>
+              <div class="field-value">${event?.createdAt ? new Date(event.createdAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Last Updated:</div>
+              <div class="field-value">${event?.updatedAt ? new Date(event.updatedAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Record Version:</div>
+              <div class="field-value">${event?.__v || '0'}</div>
+            </div>
+          </div>
+
+          <!-- Additional Information -->
+          <div class="section">
+            <div class="section-title">📝 Additional Information</div>
+            <div class="important-info">
+              This document contains all available information for Event ${event?.title || event?._id || 'N/A'}
+            </div>
+            <div class="field-row">
+              <div class="field-label">Total Fields:</div>
+              <div class="field-value">${Object.keys(event || {}).length} data fields</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Document Status:</div>
+              <div class="field-value">Complete - All available data included</div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p><strong>Generated from SGC ERP System - Event Management Module</strong></p>
+            <p>Event ID: <span class="record-id">${event?._id || 'N/A'}</span> | Printed: ${printDate}</p>
+            <p>This is a complete record printout containing all available information</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Write the content to the new window
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+
+    // Wait for content to load, then trigger print
+    printWindow.onload = function() {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    };
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -170,6 +466,14 @@ const EventDetails = () => {
               <RefreshIcon />
             </IconButton>
           </Tooltip>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrint}
+            sx={{ mr: 1 }}
+          >
+            Print
+          </Button>
           <Button
             variant="outlined"
             startIcon={<EditIcon />}

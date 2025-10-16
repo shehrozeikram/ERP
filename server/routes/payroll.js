@@ -421,7 +421,7 @@ const calculateWorkingDaysInMonth = (year, month) => {
 // @desc    Get all payrolls with filters
 // @access  Private (HR and Admin)
 router.get('/', 
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -490,7 +490,7 @@ router.get('/',
 // @desc    Get payrolls grouped by month (optimized for monthly view)
 // @access  Private (HR and Admin)
 router.get('/monthly',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { status, employeeId, startDate, endDate } = req.query;
 
@@ -535,7 +535,7 @@ router.get('/monthly',
 // @desc    Get payroll statistics
 // @access  Private (HR and Admin)
 router.get('/stats',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate, status } = req.query;
     
@@ -556,7 +556,7 @@ router.get('/stats',
 // @desc    Get current payroll overview for all active employees
 // @access  Private (HR and Admin)
 router.get('/current-overview',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       // Get all active employees with salary information
@@ -710,7 +710,7 @@ router.get('/current-overview',
 // @desc    Get payroll details for a specific employee
 // @access  Private (HR and Admin)
 router.get('/employee/:employeeId',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       if (!mongoose.Types.ObjectId.isValid(req.params.employeeId)) {
@@ -907,7 +907,7 @@ router.get('/employee/:employeeId',
 // @desc    Get payroll details for viewing (same as employee/:employeeId but for view route)
 // @access  Private (HR and Admin)
 router.get('/view/employee/:employeeId',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       if (!mongoose.Types.ObjectId.isValid(req.params.employeeId)) {
@@ -1104,7 +1104,7 @@ router.get('/view/employee/:employeeId',
 // @desc    Get payroll by ID
 // @access  Private (HR and Admin)
 router.get('/:id',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -1149,7 +1149,7 @@ router.get('/:id',
 // @desc    Generate payrolls for all active employees for a full month
 // @access  Private (HR and Admin)
 router.post('/', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('month').isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
   body('year').isInt({ min: 2020 }).withMessage('Year must be 2020 or later'),
   body('forceRegenerate').optional().isBoolean().withMessage('Force regenerate must be a boolean')
@@ -1620,7 +1620,7 @@ router.post('/', [
 // @fixes  Attendance deduction calculation and inclusion in total deductions
 // @formula Total Deductions = Income Tax + EOBI + Health Insurance + Attendance Deduction + Other Deductions
 router.put('/:id', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('payPeriod.startDate').optional().notEmpty().withMessage('Start date is required'),
   body('payPeriod.endDate').optional().notEmpty().withMessage('End date is required'),
   body('payPeriod.type').optional().isIn(['weekly', 'bi-weekly', 'monthly']).withMessage('Valid pay period type is required'),
@@ -2176,7 +2176,7 @@ router.patch('/:id/attendance', asyncHandler(async (req, res) => {
 // @desc    Approve payroll
 // @access  Private (HR and Admin)
 router.patch('/:id/approve',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -2226,7 +2226,7 @@ router.patch('/:id/approve',
 // @desc    Mark payroll as paid
 // @access  Private (HR and Admin)
 router.patch('/:id/mark-paid', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('paymentMethod').optional().isIn(['bank_transfer', 'check', 'cash']).withMessage('Valid payment method is required')
 ], asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -2278,7 +2278,7 @@ router.patch('/:id/mark-paid', [
 // @desc    Mark payroll as unpaid (revert to draft)
 // @access  Private (HR and Admin)
 router.patch('/:id/mark-unpaid',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -2328,7 +2328,7 @@ router.patch('/:id/mark-unpaid',
 // @desc    Delete payroll
 // @access  Private (HR and Admin)
 router.delete('/:id',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -2365,7 +2365,7 @@ router.delete('/:id',
 // @desc    Demonstrate attendance integration with payroll calculations
 // @access  Private (HR and Admin)
 router.get('/demo-attendance-integration',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const { demonstrateAttendanceIntegration } = require('../utils/attendanceIntegrationDemo');
@@ -2394,7 +2394,7 @@ router.get('/demo-attendance-integration',
 // @desc    Download payroll as PDF
 // @access  Private (HR and Admin)
 router.get('/:id/download', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const payroll = await Payroll.findById(req.params.id)
       .populate({
@@ -2647,7 +2647,7 @@ router.get('/:id/download',
 // @desc    Delete all payroll records
 // @access  Private (Admin only)
 router.delete('/delete-all',
-  authorize('admin'),
+  authorize('super_admin', 'admin'),
   asyncHandler(async (req, res) => {
     // Get count before deletion
     const totalPayrolls = await Payroll.countDocuments({});
@@ -2677,7 +2677,7 @@ router.delete('/delete-all',
 // @desc    Calculate and update tax for a specific payroll
 // @access  Private (HR and Admin)
 router.post('/:id/calculate-tax',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -2707,7 +2707,7 @@ router.post('/:id/calculate-tax',
 // @desc    Calculate and update tax for all payrolls in a specific month/year
 // @access  Private (HR and Admin)
 router.post('/calculate-tax-month',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   [
     body('month').isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
     body('year').isInt({ min: 2020 }).withMessage('Year must be 2020 or later')
@@ -2744,7 +2744,7 @@ router.post('/calculate-tax-month',
 // @desc    Update taxes for all payrolls in a specific month/year
 // @access  Private (HR and Admin)
 router.post('/monthly-tax-update',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { month, year, forceUpdate = false } = req.body;
     
@@ -2794,7 +2794,7 @@ router.post('/monthly-tax-update',
 // @desc    Update taxes for all payrolls in the current month
 // @access  Private (HR and Admin)
 router.post('/current-month-tax-update',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const MonthlyTaxUpdateService = require('../services/monthlyTaxUpdateService');
@@ -2821,7 +2821,7 @@ router.post('/current-month-tax-update',
 // @desc    Update taxes for all payrolls in the previous month
 // @access  Private (HR and Admin)
 router.post('/previous-month-tax-update',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const MonthlyTaxUpdateService = require('../services/monthlyTaxUpdateService');
@@ -2848,7 +2848,7 @@ router.post('/previous-month-tax-update',
 // @desc    Get tax summary for a specific month/year
 // @access  Private (HR and Admin)
 router.get('/monthly-tax-summary/:month/:year',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { month, year } = req.params;
     
@@ -2891,7 +2891,7 @@ router.get('/monthly-tax-summary/:month/:year',
 // @desc    Demonstrate attendance integration with payroll calculations
 // @access  Private (HR and Admin)
 router.get('/demo-attendance-integration',
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const { demonstrateAttendanceIntegration } = require('../utils/attendanceIntegrationDemo');
@@ -2920,7 +2920,7 @@ router.get('/demo-attendance-integration',
 // @desc    Generate and download payslip PDF from existing payroll data (no database record)
 // @access  Private (HR and Admin)
 router.post('/:id/generate-payslip', 
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const payrollId = req.params.id;

@@ -6,8 +6,10 @@ import toast from 'react-hot-toast';
 // Utility function to get the appropriate redirect path based on user role
 const getRedirectPath = (userRole) => {
   switch (userRole) {
-    case 'admin':
+    case 'super_admin':
       return '/dashboard';
+    case 'admin':
+      return '/admin/staff-management';
     case 'hr_manager':
       return '/hr';
     case 'finance_manager':

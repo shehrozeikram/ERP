@@ -58,6 +58,8 @@ const Contacts = () => {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  const [departments, setDepartments] = useState([]);
+  const [companies, setCompanies] = useState([]);
   
   // Filters and search
   const [search, setSearch] = useState('');
@@ -101,9 +103,6 @@ const Contacts = () => {
   // Load contacts data
   const loadContacts = useCallback(async () => {
     try {
-      console.log('=== LOADING CONTACTS ===');
-      console.log('Current page:', page, 'Rows per page:', rowsPerPage);
-      console.log('Search:', search, 'Filters:', filters);
       
       setLoading(true);
       setError(null);
@@ -118,12 +117,8 @@ const Contacts = () => {
       // Add cache busting to URL directly
       const url = `/crm/contacts?_t=${Date.now()}`;
 
-      console.log('API params:', params);
-      console.log('Auth token:', token ? 'Present' : 'Missing');
-      console.log('User:', user);
       
       if (!token || !user) {
-        console.log('User not authenticated, skipping API call');
         setError('Please log in to view contacts');
         setContacts([]);
         setTotalItems(0);
@@ -131,7 +126,6 @@ const Contacts = () => {
         return;
       }
       
-      console.log('About to call crmService.getContacts...');
       const response = await api.get(url, { 
         params,
         headers: {
@@ -140,23 +134,6 @@ const Contacts = () => {
           'Expires': '0'
         }
       });
-      console.log('API call successful');
-      console.log('Response received:', response);
-      console.log('Response type:', typeof response);
-      console.log('Response keys:', Object.keys(response || {}));
-      console.log('Raw API response:', response);
-      console.log('Response status:', response?.status);
-      console.log('Response statusText:', response?.statusText);
-      console.log('Response data:', response?.data);
-      console.log('Response.data type:', typeof response?.data);
-      console.log('Response.data keys:', response?.data ? Object.keys(response.data) : 'No data');
-      console.log('Response.data.data keys:', response?.data?.data ? Object.keys(response.data.data) : 'No data');
-      console.log('Response headers:', response?.headers);
-      console.log('Contacts array:', response?.data?.data?.contacts);
-      console.log('Pagination:', response?.data?.data?.pagination);
-      console.log('Response.data.data.contacts length:', response?.data?.data?.contacts?.length);
-      console.log('Response.data.data.contacts type:', typeof response?.data?.data?.contacts);
-      console.log('Response.data.data.contacts is array:', Array.isArray(response?.data?.data?.contacts));
       
       // API response structure identified: {success: true, data: {contacts: [], pagination: {}}}
       
@@ -165,29 +142,16 @@ const Contacts = () => {
           const totalItems = response.data.data.pagination?.totalItems || 0;
           const totalPages = response.data.data.pagination?.totalPages || 0;
           
-          console.log('Setting contacts:', contactsArray.length, 'contacts');
-          console.log('Total items:', totalItems, 'Total pages:', totalPages);
-          console.log('Contacts array:', contactsArray);
           
-          console.log('About to set state with:', contactsArray.length, 'contacts');
           setContacts(contactsArray);
           setTotalItems(totalItems);
           setTotalPages(totalPages);
-          console.log('State update triggered');
         } else {
-          console.log('=== NO VALID DATA ===');
-          console.log('No valid response data, setting empty arrays');
-          console.log('Response exists:', !!response);
-          console.log('Response.data exists:', !!response?.data);
-          console.log('Response.data.contacts exists:', !!response?.data?.contacts);
-          console.log('Response.data.contacts value:', response?.data?.contacts);
-          console.log('Setting empty arrays');
           setContacts([]);
           setTotalItems(0);
           setTotalPages(0);
         }
     } catch (err) {
-      console.error('Error loading contacts:', err);
       setError('Failed to load contacts. Please try again.');
       setContacts([]);
       setTotalItems(0);
@@ -197,18 +161,36 @@ const Contacts = () => {
     }
   }, [page, rowsPerPage, search, filters, user, token]);
 
-  useEffect(() => {
-    console.log('=== CONTACTS COMPONENT MOUNTED ===');
-    console.log('User:', user);
-    console.log('Token:', token);
-    console.log('localStorage token:', localStorage.getItem('token'));
-    
-    loadContacts();
-  }, [loadContacts, user, token]);
+  // Load departments
+  const loadDepartments = useCallback(async () => {
+    try {
+      const response = await crmService.getDepartments();
+      const departmentsData = response.data?.data || response.data || [];
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
+    } catch (err) {
+      setDepartments([]);
+    }
+  }, []);
+
+  // Load companies
+  const loadCompanies = useCallback(async () => {
+    try {
+      const response = await crmService.getCompanies({ page: 1, limit: 1000 });
+      const companiesData = response.data?.data?.companies || response.data?.companies || response.data || [];
+      setCompanies(Array.isArray(companiesData) ? companiesData : []);
+    } catch (err) {
+      setCompanies([]);
+    }
+  }, []);
 
   useEffect(() => {
-    console.log('Contacts state changed:', contacts.length, 'contacts');
-    console.log('Contacts data:', contacts);
+    
+    loadContacts();
+    loadDepartments();
+    loadCompanies();
+  }, [loadContacts, loadDepartments, loadCompanies, user, token]);
+
+  useEffect(() => {
   }, [contacts]);
 
   // Handle pagination
@@ -267,8 +249,6 @@ const Contacts = () => {
 
   // Open edit contact dialog
   const handleEditContact = (contact) => {
-    console.log('=== EDITING CONTACT ===');
-    console.log('Contact to edit:', contact);
     
     setFormData({
       firstName: contact.firstName || '',
@@ -277,24 +257,8 @@ const Contacts = () => {
       phone: contact.phone || '',
       mobile: contact.mobile || '',
       jobTitle: contact.jobTitle || '',
-      department: contact.department || '',
-      company: contact.company?.name || '',
-      type: contact.type || 'Customer',
-      status: contact.status || 'Active',
-      preferredContactMethod: contact.preferredContactMethod || 'Email',
-      doNotContact: contact.doNotContact || false,
-      marketingOptIn: contact.marketingOptIn || true,
-      notes: contact.notes || ''
-    });
-    console.log('Form data set:', {
-      firstName: contact.firstName || '',
-      lastName: contact.lastName || '',
-      email: contact.email || '',
-      phone: contact.phone || '',
-      mobile: contact.mobile || '',
-      jobTitle: contact.jobTitle || '',
-      department: contact.department || '',
-      company: contact.company?.name || '',
+      department: contact.department?._id || '',
+      company: contact.company?._id || '',
       type: contact.type || 'Customer',
       status: contact.status || 'Active',
       preferredContactMethod: contact.preferredContactMethod || 'Email',
@@ -308,8 +272,6 @@ const Contacts = () => {
   // Save contact
   const handleSaveContact = async () => {
     try {
-      console.log('=== SAVING CONTACT ===');
-      console.log('Form data:', formData);
       
       const contactData = {
         firstName: formData.firstName,
@@ -328,30 +290,22 @@ const Contacts = () => {
         notes: formData.notes
       };
 
-      console.log('Contact data to send:', contactData);
 
       if (contactDialog.mode === 'add') {
-        console.log('Creating new contact...');
         const response = await crmService.createContact(contactData);
-        console.log('Create contact response:', response);
         setSuccess('Contact added successfully!');
       } else {
-        console.log('Updating existing contact...');
         const response = await crmService.updateContact(contactDialog.contact._id, contactData);
-        console.log('Update contact response:', response);
         setSuccess('Contact updated successfully!');
       }
 
       setContactDialog({ open: false, mode: 'add', contact: null });
-      console.log('Contact saved, refreshing list...');
       // Reset to first page and force immediate refresh
       setPage(0);
       setSearch(''); // Clear any search filters
       setFilters({ type: '', status: '', company: '', assignedTo: '' }); // Clear filters
       await loadContacts();
     } catch (err) {
-      console.error('Error saving contact:', err);
-      console.error('Error details:', err.response?.data);
       setError('Failed to save contact. Please try again.');
     }
   };
@@ -359,20 +313,14 @@ const Contacts = () => {
   // Delete contact
   const handleDeleteContact = async () => {
     try {
-      console.log('=== DELETING CONTACT ===');
-      console.log('Contact ID:', deleteDialog.contact._id);
-      console.log('Contact name:', deleteDialog.contact.firstName, deleteDialog.contact.lastName);
       
       const response = await crmService.deleteContact(deleteDialog.contact._id);
-      console.log('Delete response:', response);
       
       setDeleteDialog({ open: false, contact: null });
       setSuccess('Contact deleted successfully!');
       setError(null); // Clear any previous errors
       await loadContacts();
     } catch (err) {
-      console.error('Error deleting contact:', err);
-      console.error('Error details:', err.response?.data);
       setError('Failed to delete contact. Please try again.');
       setSuccess(null);
     }
@@ -397,6 +345,21 @@ const Contacts = () => {
       case 'Partner': return 'success';
       case 'Vendor': return 'info';
       case 'Other': return 'default';
+      default: return 'default';
+    }
+  };
+
+  // Get lead status color
+  const getLeadStatusColor = (status) => {
+    switch (status) {
+      case 'New': return 'info';
+      case 'Contacted': return 'primary';
+      case 'Qualified': return 'success';
+      case 'Proposal': return 'warning';
+      case 'Negotiation': return 'secondary';
+      case 'Won': return 'success';
+      case 'Lost': return 'error';
+      case 'On Hold': return 'default';
       default: return 'default';
     }
   };
@@ -435,7 +398,16 @@ const Contacts = () => {
             label={contact.status} 
             size="small" 
             color={getStatusColor(contact.status)}
+            sx={{ mr: 1 }}
           />
+          {contact.leadId && (
+            <Chip 
+              label={`Lead: ${contact.leadId.status}`}
+              size="small" 
+              color={getLeadStatusColor(contact.leadId.status)}
+              variant="outlined"
+            />
+          )}
         </Box>
 
         <Box mb={2}>
@@ -726,20 +698,46 @@ const Contacts = () => {
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Department"
-                value={formData.department}
-                onChange={(e) => handleFormChange('department', e.target.value)}
-              />
+              <FormControl fullWidth>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  value={formData.department}
+                  onChange={(e) => handleFormChange('department', e.target.value)}
+                  label="Department"
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {!departments || departments.length === 0 ? (
+                    <MenuItem disabled>Loading departments...</MenuItem>
+                  ) : (
+                    departments.map((dept) => (
+                      <MenuItem key={dept._id} value={dept._id}>
+                        {dept.name} ({dept.code})
+                      </MenuItem>
+                    ))
+                  )}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Company"
-                value={formData.company}
-                onChange={(e) => handleFormChange('company', e.target.value)}
-              />
+              <FormControl fullWidth>
+                <InputLabel>Company</InputLabel>
+                <Select
+                  value={formData.company}
+                  onChange={(e) => handleFormChange('company', e.target.value)}
+                  label="Company"
+                >
+                  <MenuItem value="">None</MenuItem>
+                  {!companies || companies.length === 0 ? (
+                    <MenuItem disabled>Loading companies...</MenuItem>
+                  ) : (
+                    companies.map((company) => (
+                      <MenuItem key={company._id} value={company._id}>
+                        {company.name}
+                      </MenuItem>
+                    ))
+                  )}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>

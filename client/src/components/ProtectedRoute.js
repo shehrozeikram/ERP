@@ -31,13 +31,7 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
   }
 
   // Check if user has access to the current route
-  const hasAccess = isRouteAccessible(user.role, location.pathname);
-  console.log('Route access check:', {
-    path: location.pathname,
-    role: user.role,
-    hasAccess,
-    requiredRole
-  });
+  const hasAccess = isRouteAccessible(user.role, location.pathname, user.subRoles);
   
   if (!hasAccess) {
     return (

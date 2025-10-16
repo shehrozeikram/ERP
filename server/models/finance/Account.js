@@ -80,6 +80,18 @@ const accountSchema = new mongoose.Schema({
   },
   lastReconciled: Date,
   notes: String,
+  // Department integration
+  department: {
+    type: String,
+    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
+    default: 'general'
+  },
+  // Module integration for auto-posting
+  module: {
+    type: String,
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
+    default: 'general'
+  },
   metadata: {
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -101,6 +113,8 @@ accountSchema.index({ type: 1 });
 accountSchema.index({ category: 1 });
 accountSchema.index({ isActive: 1 });
 accountSchema.index({ parentAccount: 1 });
+accountSchema.index({ department: 1 });
+accountSchema.index({ module: 1 });
 
 // Virtual for account hierarchy level
 accountSchema.virtual('level').get(function() {

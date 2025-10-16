@@ -14,6 +14,7 @@ import {
   DialogActions,
   Alert,
   CircularProgress,
+  Skeleton,
   Paper,
   Tooltip,
   FormControl,
@@ -203,8 +204,71 @@ const LeaveCalendar = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box sx={{ mb: 3 }}>
+          <Skeleton variant="text" width="30%" height={60} />
+          <Skeleton variant="text" width="45%" height={30} />
+        </Box>
+
+        {/* Controls Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+              <Skeleton variant="rectangular" width={200} height={40} sx={{ borderRadius: 1 }} />
+              <Box display="flex" gap={1}>
+                <Skeleton variant="circular" width={40} height={40} />
+                <Skeleton variant="circular" width={40} height={40} />
+                <Skeleton variant="circular" width={40} height={40} />
+                <Skeleton variant="circular" width={40} height={40} />
+              </Box>
+            </Box>
+            <Box display="flex" justifyContent="center" gap={2}>
+              <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+              <Skeleton variant="rectangular" width={100} height={36} sx={{ borderRadius: 1 }} />
+              <Skeleton variant="rectangular" width={120} height={36} sx={{ borderRadius: 1 }} />
+            </Box>
+          </CardContent>
+        </Card>
+
+        {/* Calendar Grid Skeleton */}
+        <Card>
+          <CardContent>
+            {/* Calendar Header */}
+            <Grid container sx={{ mb: 2 }}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+                <Grid item xs key={index}>
+                  <Box sx={{ textAlign: 'center', py: 1 }}>
+                    <Skeleton variant="text" width="80%" />
+                  </Box>
+                </Grid>
+              ))}
+            </Grid>
+
+            {/* Calendar Days */}
+            <Grid container spacing={0}>
+              {Array.from({ length: 35 }, (_, index) => (
+                <Grid item xs key={index}>
+                  <Paper 
+                    sx={{ 
+                      minHeight: 100, 
+                      p: 1, 
+                      border: '1px solid #e0e0e0',
+                      position: 'relative'
+                    }}
+                  >
+                    <Skeleton variant="text" width="30%" height={20} />
+                    <Box sx={{ mt: 1 }}>
+                      <Skeleton variant="rectangular" width="100%" height={16} sx={{ borderRadius: 1, mb: 0.5 }} />
+                      <Skeleton variant="rectangular" width="80%" height={16} sx={{ borderRadius: 1, mb: 0.5 }} />
+                      <Skeleton variant="rectangular" width="60%" height={16} sx={{ borderRadius: 1 }} />
+                    </Box>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

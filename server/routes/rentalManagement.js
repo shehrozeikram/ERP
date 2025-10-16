@@ -5,13 +5,26 @@ const RentalAgreement = require('../models/hr/RentalAgreement');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 
+// Get all rental agreements for dropdown
+router.get('/rental-agreements/list', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'read'), async (req, res) => {
+  try {
+    const agreements = await RentalAgreement.find()
+      .select('_id agreementNumber tenantName propertyAddress startDate endDate')
+      .sort({ createdAt: -1 });
+    
+    res.json(agreements);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Get all rental management records
-router.get('/', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.get('/', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'read'), async (req, res) => {
   try {
     const records = await RentalManagement.find()
-      .populate('rentalAgreement')
-      .populate('custodian', 'firstName lastName employeeId')
       .populate('createdBy', 'firstName lastName')
+      .populate('updatedBy', 'firstName lastName')
+      .populate('rentalAgreement', 'agreementNumber tenantName propertyAddress startDate endDate')
       .sort({ createdAt: -1 });
     
     res.json(records);
@@ -21,12 +34,12 @@ router.get('/', authMiddleware, permissions.checkPermission('admin'), async (req
 });
 
 // Get rental management record by ID
-router.get('/:id', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.get('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'read'), async (req, res) => {
   try {
     const record = await RentalManagement.findById(req.params.id)
-      .populate('rentalAgreement')
-      .populate('custodian', 'firstName lastName employeeId')
-      .populate('createdBy', 'firstName lastName');
+      .populate('createdBy', 'firstName lastName')
+      .populate('updatedBy', 'firstName lastName')
+      .populate('rentalAgreement', 'agreementNumber tenantName propertyAddress startDate endDate');
     
     if (!record) {
       return res.status(404).json({ message: 'Rental management record not found' });
@@ -39,7 +52,7 @@ router.get('/:id', authMiddleware, permissions.checkPermission('admin'), async (
 });
 
 // Create new rental management record
-router.post('/', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'create'), async (req, res) => {
   try {
     const record = new RentalManagement({
       ...req.body,
@@ -50,9 +63,8 @@ router.post('/', authMiddleware, permissions.checkPermission('admin'), async (re
     
     // Populate the saved record
     const populatedRecord = await RentalManagement.findById(record._id)
-      .populate('rentalAgreement')
-      .populate('custodian', 'firstName lastName employeeId')
-      .populate('createdBy', 'firstName lastName');
+      .populate('createdBy', 'firstName lastName')
+      .populate('updatedBy', 'firstName lastName');
     
     res.status(201).json(populatedRecord);
   } catch (error) {
@@ -61,11 +73,14 @@ router.post('/', authMiddleware, permissions.checkPermission('admin'), async (re
 });
 
 // Update rental management record
-router.put('/:id', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'update'), async (req, res) => {
   try {
     const record = await RentalManagement.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      {
+        ...req.body,
+        updatedBy: req.user.id
+      },
       { new: true, runValidators: true }
     );
     
@@ -75,9 +90,8 @@ router.put('/:id', authMiddleware, permissions.checkPermission('admin'), async (
     
     // Populate the updated record
     const populatedRecord = await RentalManagement.findById(record._id)
-      .populate('rentalAgreement')
-      .populate('custodian', 'firstName lastName employeeId')
-      .populate('createdBy', 'firstName lastName');
+      .populate('createdBy', 'firstName lastName')
+      .populate('updatedBy', 'firstName lastName');
     
     res.json(populatedRecord);
   } catch (error) {
@@ -86,7 +100,7 @@ router.put('/:id', authMiddleware, permissions.checkPermission('admin'), async (
 });
 
 // Delete rental management record
-router.delete('/:id', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.delete('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'delete'), async (req, res) => {
   try {
     const record = await RentalManagement.findByIdAndDelete(req.params.id);
     
@@ -100,21 +114,9 @@ router.delete('/:id', authMiddleware, permissions.checkPermission('admin'), asyn
   }
 });
 
-// Get rental agreements for dropdown
-router.get('/agreements/list', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
-  try {
-    const agreements = await RentalAgreement.find({ status: 'Active' })
-      .select('agreementNumber propertyName monthlyRent')
-      .sort({ propertyName: 1 });
-    
-    res.json(agreements);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
 // Update status of rental management record
-router.put('/:id/status', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.put('/:id/status', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'update'), async (req, res) => {
   try {
     const { status } = req.body;
     
@@ -122,7 +124,7 @@ router.put('/:id/status', authMiddleware, permissions.checkPermission('admin'), 
       return res.status(400).json({ message: 'Status is required' });
     }
 
-    const validStatuses = ['Draft', 'HOD Admin', 'Audit', 'Finance', 'CEO/President', 'Approved', 'Paid', 'Rejected'];
+    const validStatuses = ['Draft', 'Submitted', 'Approved', 'Rejected', 'Paid'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ message: 'Invalid status' });
     }
@@ -132,9 +134,8 @@ router.put('/:id/status', authMiddleware, permissions.checkPermission('admin'), 
       { status },
       { new: true, runValidators: true }
     )
-      .populate('rentalAgreement')
-      .populate('custodian', 'firstName lastName employeeId')
-      .populate('createdBy', 'firstName lastName');
+      .populate('createdBy', 'firstName lastName')
+      .populate('updatedBy', 'firstName lastName');
     
     if (!record) {
       return res.status(404).json({ message: 'Rental management record not found' });

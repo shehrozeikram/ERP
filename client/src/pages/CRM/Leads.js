@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -35,7 +35,9 @@ import {
   Collapse,
   CardHeader,
   Divider,
-  Snackbar
+  Snackbar,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -58,18 +60,24 @@ import {
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
   Home as HomeIcon,
-  PhoneAndroid as PhoneAndroidIcon
+  PhoneAndroid as PhoneAndroidIcon,
+  ArrowBack as ArrowBackIcon,
+  ViewList as ViewListIcon,
+  ViewKanban as ViewKanbanIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import crmService from '../../services/crmService';
 import { formatPKR } from '../../utils/currency';
 
 const Leads = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
   const [leads, setLeads] = useState([]);
+  const [leadDetail, setLeadDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [isDetailView, setIsDetailView] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
@@ -78,13 +86,17 @@ const Leads = () => {
   const [sourceFilter, setSourceFilter] = useState('');
   const [assignedToFilter, setAssignedToFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
-  const [businessFilter, setBusinessFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [selectedLead, setSelectedLead] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState(null);
   const [leadDialog, setLeadDialog] = useState({ open: false, mode: 'add', lead: null });
+  const [viewMode, setViewMode] = useState('table'); // 'table' or 'kanban'
+  const [draggedLead, setDraggedLead] = useState(null);
+  const draggedLeadRef = useRef(null); // Use ref to avoid re-render during drag
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -94,7 +106,7 @@ const Leads = () => {
     source: 'Website',
     status: 'New',
     priority: 'Medium',
-    business: 'SGC General',
+    department: '',
     assignedTo: ''
   });
 
@@ -105,72 +117,97 @@ const Leads = () => {
       
       // Debug: Check if user is authenticated
       const token = localStorage.getItem('token');
-      console.log('Auth token exists:', !!token);
       
       // Debug: Check user role from token
       if (token) {
         try {
           const payload = JSON.parse(atob(token.split('.')[1]));
-          console.log('User role:', payload.role);
-          console.log('User ID:', payload.id);
         } catch (e) {
-          console.log('Could not decode token');
         }
       }
       
+      // In Kanban view, load all leads (no pagination)
       const params = {
-        page: page + 1,
-        limit: rowsPerPage,
+        page: viewMode === 'kanban' ? 1 : page + 1,
+        limit: viewMode === 'kanban' ? 1000 : rowsPerPage,
         search,
         status: statusFilter,
         source: sourceFilter,
         assignedTo: assignedToFilter,
         priority: priorityFilter,
-        business: businessFilter
+        department: departmentFilter
       };
 
-      console.log('Requesting leads with params:', params);
       const response = await crmService.getLeads(params);
-      console.log('Leads API response:', response);
       
       // The API returns { success: true, data: { leads, pagination } }
       const leadsData = response.data?.data || response.data;
-      console.log('Leads data:', leadsData);
       
       setLeads(leadsData?.leads || []);
       setTotalItems(leadsData?.pagination?.totalItems || 0);
     } catch (err) {
-      console.error('Error loading leads:', err);
-      console.error('Error details:', {
-        message: err.message,
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        data: err.response?.data
-      });
       setError(`Failed to load leads: ${err.response?.data?.message || err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, statusFilter, sourceFilter, assignedToFilter, priorityFilter, businessFilter]);
+  }, [page, rowsPerPage, search, statusFilter, sourceFilter, assignedToFilter, priorityFilter, departmentFilter, viewMode]);
 
   const loadUsers = useCallback(async () => {
     try {
       const response = await crmService.getUsers();
-      console.log('Users API response:', response);
       // The API returns { success: true, data: users }
       const usersData = response.data?.data || response.data || [];
-      console.log('Users data:', usersData);
       setUsers(Array.isArray(usersData) ? usersData : []);
     } catch (err) {
-      console.error('Error loading users:', err);
       setUsers([]); // Set empty array on error
     }
   }, []);
 
+  const loadDepartments = useCallback(async () => {
+    try {
+      const response = await crmService.getDepartments();
+      // The API returns { success: true, data: departments }
+      const departmentsData = response.data?.data || response.data || [];
+      setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
+    } catch (err) {
+      setDepartments([]); // Set empty array on error
+    }
+  }, []);
+
+  // Load lead detail if ID is present
   useEffect(() => {
-    loadLeads();
-    loadUsers();
-  }, [loadLeads, loadUsers]);
+    if (id) {
+      loadLeadDetail();
+    } else {
+      setIsDetailView(false);
+      loadLeads();
+      loadUsers();
+      loadDepartments();
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) {
+      loadLeads();
+      loadUsers();
+      loadDepartments();
+    }
+  }, [loadLeads, loadUsers, loadDepartments, id]);
+
+  const loadLeadDetail = async () => {
+    try {
+      setLoading(true);
+      setIsDetailView(true);
+      const response = await crmService.getLead(id);
+      setLeadDetail(response.data.data || response.data);
+    } catch (err) {
+      setError('Failed to load lead details');
+      // Navigate back to list if lead not found
+      navigate('/crm/leads');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handlePageChange = (event, newPage) => {
     setPage(newPage);
@@ -200,8 +237,8 @@ const Leads = () => {
       case 'priority':
         setPriorityFilter(value);
         break;
-      case 'business':
-        setBusinessFilter(value);
+      case 'department':
+        setDepartmentFilter(value);
         break;
       default:
         break;
@@ -215,7 +252,7 @@ const Leads = () => {
     setSourceFilter('');
     setAssignedToFilter('');
     setPriorityFilter('');
-    setBusinessFilter('');
+    setDepartmentFilter('');
     setPage(0);
   };
 
@@ -226,7 +263,6 @@ const Leads = () => {
       setLeadToDelete(null);
       loadLeads();
     } catch (err) {
-      console.error('Error deleting lead:', err);
       setError('Failed to delete lead. Please try again.');
     }
   };
@@ -250,7 +286,7 @@ const Leads = () => {
       source: 'Website',
       status: 'New',
       priority: 'Medium',
-      business: 'SGC General',
+      department: '',
       assignedTo: ''
     });
     setLeadDialog({ open: true, mode: 'add', lead: null });
@@ -266,7 +302,7 @@ const Leads = () => {
       source: lead.source || 'Website',
       status: lead.status || 'New',
       priority: lead.priority || 'Medium',
-      business: lead.business || 'SGC General',
+      department: lead.department?._id || '',
       assignedTo: lead.assignedTo?._id || ''
     });
     setLeadDialog({ open: true, mode: 'edit', lead });
@@ -274,17 +310,33 @@ const Leads = () => {
 
   const handleSaveLead = async () => {
     try {
+      // Validate required fields
+      if (!formData.firstName || !formData.lastName || !formData.email) {
+        setError('Please fill in all required fields');
+        return;
+      }
+
+      if (!formData.department || formData.department === '') {
+        setError('Please select a department');
+        return;
+      }
+
+      // Clean formData - remove empty strings for ObjectId fields
+      const cleanedData = { ...formData };
+      if (!cleanedData.assignedTo || cleanedData.assignedTo === '') {
+        delete cleanedData.assignedTo;
+      }
+
       if (leadDialog.mode === 'add') {
-        await crmService.createLead(formData);
+        await crmService.createLead(cleanedData);
         setSuccess('Lead added successfully!');
       } else {
-        await crmService.updateLead(leadDialog.lead._id, formData);
+        await crmService.updateLead(leadDialog.lead._id, cleanedData);
         setSuccess('Lead updated successfully!');
       }
       setLeadDialog({ open: false, mode: 'add', lead: null });
       loadLeads();
     } catch (err) {
-      console.error('Error saving lead:', err);
       setError('Failed to save lead. Please try again.');
     }
   };
@@ -299,6 +351,26 @@ const Leads = () => {
 
   const getScoreColor = (score) => {
     return crmService.getScoreColor(score);
+  };
+
+  // Get display name for lead - show company name if auto-created from company
+  const getLeadDisplayName = (lead) => {
+    if (lead.autoCreatedFromContact && lead.company) {
+      return lead.company;
+    }
+    return `${lead.firstName} ${lead.lastName}`;
+  };
+
+  // Get initials for lead - show company initials if auto-created from company
+  const getLeadInitials = (lead) => {
+    if (lead.autoCreatedFromContact && lead.company) {
+      const words = lead.company.split(' ');
+      if (words.length >= 2) {
+        return words[0].charAt(0) + words[1].charAt(0);
+      }
+      return lead.company.substring(0, 2).toUpperCase();
+    }
+    return getInitials(lead.firstName, lead.lastName);
   };
 
   const formatDate = (date) => {
@@ -343,6 +415,286 @@ const Leads = () => {
     return `${diffDays} days`;
   };
 
+  // Kanban board statuses configuration
+  const kanbanStatuses = useMemo(() => [
+    { id: 'New', label: 'New', color: '#2196F3' },
+    { id: 'Contacted', label: 'Contacted', color: '#FF9800' },
+    { id: 'Qualified', label: 'Qualified', color: '#4CAF50' },
+    { id: 'Proposal Sent', label: 'Proposal Sent', color: '#9C27B0' },
+    { id: 'Negotiation', label: 'Negotiation', color: '#FF5722' },
+    { id: 'Won', label: 'Won', color: '#4CAF50' },
+    { id: 'Lost', label: 'Lost', color: '#F44336' },
+    { id: 'Unqualified', label: 'Unqualified', color: '#9E9E9E' }
+  ], []);
+
+  // Group leads by status for Kanban view
+  const groupedLeads = useMemo(() => {
+    const grouped = {};
+    kanbanStatuses.forEach(status => {
+      grouped[status.id] = leads.filter(lead => lead.status === status.id);
+    });
+    return grouped;
+  }, [leads, kanbanStatuses]);
+
+  // Drag and drop handlers
+  const handleDragStart = (e, lead) => {
+    // Use ref immediately to avoid re-render blocking drag
+    draggedLeadRef.current = lead;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', lead._id);
+    
+    // Defer state update to not interfere with drag start
+    requestAnimationFrame(() => {
+      setDraggedLead(lead);
+    });
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e, newStatus) => {
+    e.preventDefault();
+    const lead = draggedLeadRef.current;
+    
+    if (!lead || lead.status === newStatus) {
+      setDraggedLead(null);
+      draggedLeadRef.current = null;
+      return;
+    }
+
+    try {
+      // Update lead status
+      await crmService.updateLead(lead._id, { status: newStatus });
+      setSuccess(`Lead moved to ${newStatus}`);
+      loadLeads();
+    } catch (err) {
+      setError('Failed to update lead status');
+    } finally {
+      setDraggedLead(null);
+      draggedLeadRef.current = null;
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedLead(null);
+    draggedLeadRef.current = null;
+  };
+
+  // Kanban Lead Card Component
+  const LeadCard = ({ lead }) => (
+    <Card
+      draggable={true}
+      onDragStart={(e) => handleDragStart(e, lead)}
+      onDragEnd={handleDragEnd}
+      sx={{
+        mb: 2,
+        cursor: 'grab',
+        opacity: draggedLead?._id === lead._id ? 0.5 : 1,
+        userSelect: 'none',
+        WebkitUserDrag: 'element',
+        '&:hover': {
+          boxShadow: 3,
+          transform: 'translateY(-2px)',
+          transition: 'all 0.2s ease'
+        },
+        '&:active': {
+          cursor: 'grabbing'
+        }
+      }}
+    >
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        {/* Header */}
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Avatar
+              sx={{
+                width: 32,
+                height: 32,
+                bgcolor: getStatusColor(lead.status),
+                fontSize: '0.875rem'
+              }}
+            >
+              {getLeadInitials(lead)}
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                {getLeadDisplayName(lead)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {lead.email}
+              </Typography>
+            </Box>
+          </Box>
+          <Box display="flex" gap={0.5}>
+            <Tooltip title="View Details">
+              <IconButton 
+                size="small" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/crm/leads/${lead._id}`);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <ViewIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Edit">
+              <IconButton 
+                size="small" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditLead(lead);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+
+        {/* Department & Priority */}
+        <Box display="flex" gap={1} mb={1.5}>
+          <Chip
+            label={lead.department?.name || 'No Department'}
+            size="small"
+            sx={{
+              backgroundColor: '#2196F3',
+              color: 'white',
+              fontWeight: 'bold',
+              fontSize: '0.7rem',
+              height: 20
+            }}
+          />
+          <Chip
+            label={lead.priority}
+            size="small"
+            sx={{
+              backgroundColor: getPriorityColor(lead.priority),
+              color: 'white',
+              fontWeight: 'bold',
+              fontSize: '0.7rem',
+              height: 20
+            }}
+          />
+        </Box>
+
+        {/* Company Details */}
+        {lead.company && (
+          <Box display="flex" alignItems="center" mb={1}>
+            <BusinessIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+            <Typography variant="body2" noWrap>
+              {truncateText(lead.company, 25)}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Contact Info */}
+        {lead.phone && (
+          <Box display="flex" alignItems="center" mb={0.5}>
+            <PhoneIcon sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+            <Typography variant="caption" color="text.secondary">
+              {lead.phone}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Source & Follow-up */}
+        <Box display="flex" justifyContent="space-between" alignItems="center" mt={1.5} pt={1.5} borderTop="1px solid #f0f0f0">
+          <Typography variant="caption" color="text.secondary">
+            {lead.source}
+          </Typography>
+          {lead.nextFollowUp ? (
+            <Typography variant="caption" color="primary" fontWeight="bold">
+              {getDaysUntilFollowUp(lead.nextFollowUp)}
+            </Typography>
+          ) : (
+            <Typography variant="caption" color="text.secondary">
+              {formatDate(lead.createdAt)}
+            </Typography>
+          )}
+        </Box>
+      </CardContent>
+    </Card>
+  );
+
+  // Kanban Column Component
+  const KanbanColumn = ({ status, leads: columnLeads }) => (
+    <Paper
+      onDragOver={handleDragOver}
+      onDrop={(e) => handleDrop(e, status.id)}
+      sx={{
+        minHeight: '70vh',
+        backgroundColor: '#f5f5f5',
+        p: 2,
+        minWidth: 280,
+        maxWidth: 320
+      }}
+    >
+      {/* Column Header */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          mb: 2,
+          pb: 1.5,
+          borderBottom: `3px solid ${status.color}`
+        }}
+      >
+        <Box display="flex" alignItems="center" gap={1}>
+          <Box
+            sx={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              backgroundColor: status.color
+            }}
+          />
+          <Typography variant="subtitle2" fontWeight="bold">
+            {status.label}
+          </Typography>
+          <Chip
+            label={columnLeads.length}
+            size="small"
+            sx={{
+              height: 20,
+              fontSize: '0.7rem',
+              fontWeight: 'bold',
+              backgroundColor: status.color,
+              color: 'white'
+            }}
+          />
+        </Box>
+      </Box>
+
+      {/* Column Content */}
+      <Box sx={{ overflowY: 'auto', maxHeight: 'calc(70vh - 80px)' }}>
+        {columnLeads.length === 0 ? (
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: 200,
+              border: '2px dashed #ddd',
+              borderRadius: 1,
+              backgroundColor: 'white'
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              Drop leads here
+            </Typography>
+          </Box>
+        ) : (
+          columnLeads.map((lead) => <LeadCard key={lead._id} lead={lead} />)
+        )}
+      </Box>
+    </Paper>
+  );
+
   const FilterSection = () => (
     <Collapse in={showFilters}>
       <Card sx={{ mb: 3 }}>
@@ -350,16 +702,22 @@ const Leads = () => {
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} sm={6} md={2}>
               <FormControl fullWidth size="small">
-                <InputLabel>Business</InputLabel>
+                <InputLabel>Department</InputLabel>
                 <Select
-                  value={businessFilter}
-                  label="Business"
-                  onChange={(e) => handleFilterChange('business', e.target.value)}
+                  value={departmentFilter}
+                  label="Department"
+                  onChange={(e) => handleFilterChange('department', e.target.value)}
                 >
-                  <MenuItem value="">All Businesses</MenuItem>
-                  <MenuItem value="Taj Residencia">Taj Residencia</MenuItem>
-                  <MenuItem value="Boly.pk">Boly.pk</MenuItem>
-                  <MenuItem value="SGC General">SGC General</MenuItem>
+                  <MenuItem value="">All Departments</MenuItem>
+                  {!departments || departments.length === 0 ? (
+                    <MenuItem disabled>Loading...</MenuItem>
+                  ) : (
+                    departments.map((dept) => (
+                      <MenuItem key={dept._id} value={dept._id}>
+                        {dept.name}
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
             </Grid>
@@ -475,6 +833,137 @@ const Leads = () => {
     );
   }
 
+  // Render detail view if viewing a specific lead
+  if (isDetailView && leadDetail) {
+    return (
+      <Box sx={{ p: 3 }}>
+        {/* Header */}
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+          <Box>
+            <Button
+              startIcon={<ArrowBackIcon />}
+              onClick={() => navigate('/crm/leads')}
+              sx={{ mb: 1 }}
+            >
+              Back to Leads
+            </Button>
+            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+              Lead Details
+            </Typography>
+          </Box>
+          <Box>
+            <Button
+              variant="outlined"
+              startIcon={<EditIcon />}
+              onClick={() => handleEditLead(leadDetail)}
+              sx={{ mr: 1 }}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteIcon />}
+              onClick={() => openDeleteDialog(leadDetail)}
+            >
+              Delete
+            </Button>
+          </Box>
+        </Box>
+
+        {/* Lead Information */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={8}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Contact Information
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Name</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {leadDetail.firstName} {leadDetail.lastName}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Email</Typography>
+                  <Typography variant="body1">{leadDetail.email}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Phone</Typography>
+                  <Typography variant="body1">{leadDetail.phone || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Company</Typography>
+                  <Typography variant="body1">{leadDetail.company || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Source</Typography>
+                  <Typography variant="body1">{leadDetail.source}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Department</Typography>
+                  <Typography variant="body1">{leadDetail.department?.name || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Status</Typography>
+                  <Chip label={leadDetail.status} color="primary" />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary">Priority</Typography>
+                  <Chip label={leadDetail.priority} color={
+                    leadDetail.priority === 'Urgent' ? 'error' :
+                    leadDetail.priority === 'High' ? 'warning' : 'default'
+                  } />
+                </Grid>
+                {leadDetail.assignedTo && (
+                  <Grid item xs={12}>
+                    <Typography variant="body2" color="text.secondary">Assigned To</Typography>
+                    <Typography variant="body1">
+                      {leadDetail.assignedTo.firstName} {leadDetail.assignedTo.lastName}
+                    </Typography>
+                  </Grid>
+                )}
+              </Grid>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Additional Information
+              </Typography>
+              <Typography variant="body2" color="text.secondary">Created</Typography>
+              <Typography variant="body1" gutterBottom>
+                {new Date(leadDetail.createdAt).toLocaleDateString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Updated</Typography>
+              <Typography variant="body1">
+                {new Date(leadDetail.updatedAt).toLocaleDateString()}
+              </Typography>
+            </Paper>
+          </Grid>
+          {leadDetail.notes && leadDetail.notes.length > 0 && (
+            <Grid item xs={12}>
+              <Paper sx={{ p: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Notes
+                </Typography>
+                {leadDetail.notes.map((note, index) => (
+                  <Box key={index} sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {new Date(note.createdAt).toLocaleString()} - {note.createdBy?.firstName} {note.createdBy?.lastName}
+                    </Typography>
+                    <Typography variant="body1">{note.content}</Typography>
+                  </Box>
+                ))}
+              </Paper>
+            </Grid>
+          )}
+        </Grid>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -482,9 +971,28 @@ const Leads = () => {
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
           Leads Management
         </Typography>
-        <Box>
+        <Box display="flex" alignItems="center" gap={2}>
+          {/* View Toggle */}
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(e, newView) => newView && setViewMode(newView)}
+            size="small"
+          >
+            <ToggleButton value="table">
+              <Tooltip title="Table View">
+                <ViewListIcon />
+              </Tooltip>
+            </ToggleButton>
+            <ToggleButton value="kanban">
+              <Tooltip title="Kanban View">
+                <ViewKanbanIcon />
+              </Tooltip>
+            </ToggleButton>
+          </ToggleButtonGroup>
+
           <Tooltip title="Refresh">
-            <IconButton onClick={loadLeads} sx={{ mr: 1 }}>
+            <IconButton onClick={loadLeads}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
@@ -562,15 +1070,15 @@ const Leads = () => {
             <CardContent>
               <Box display="flex" alignItems="center" justifyContent="space-between">
                 <Box>
-                  <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: '#4CAF50' }}>
-                    {leads?.filter(lead => lead.business === 'Taj Residencia')?.length || 0}
+                  <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: '#00BCD4' }}>
+                    {leads?.filter(lead => lead.status === 'Contacted')?.length || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Taj Residencia
+                    Contacted
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: '#4CAF50', width: 56, height: 56 }}>
-                  <HomeIcon />
+                <Avatar sx={{ bgcolor: '#00BCD4', width: 56, height: 56 }}>
+                  <PhoneIcon />
                 </Avatar>
               </Box>
             </CardContent>
@@ -581,15 +1089,15 @@ const Leads = () => {
             <CardContent>
               <Box display="flex" alignItems="center" justifyContent="space-between">
                 <Box>
-                  <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: '#2196F3' }}>
-                    {leads?.filter(lead => lead.business === 'Boly.pk')?.length || 0}
+                  <Typography variant="h4" component="div" sx={{ fontWeight: 'bold', color: '#9C27B0' }}>
+                    {leads?.filter(lead => lead.status === 'Proposal Sent')?.length || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Boly.pk
+                    Proposal Sent
                   </Typography>
                 </Box>
-                <Avatar sx={{ bgcolor: '#2196F3', width: 56, height: 56 }}>
-                  <PhoneAndroidIcon />
+                <Avatar sx={{ bgcolor: '#9C27B0', width: 56, height: 56 }}>
+                  <EmailIcon />
                 </Avatar>
               </Box>
             </CardContent>
@@ -667,20 +1175,64 @@ const Leads = () => {
         </Alert>
       )}
 
-      {/* Leads Table */}
-      <Card>
+      {/* Kanban Board View */}
+      {viewMode === 'kanban' ? (
+        <Box
+          sx={{
+            display: 'flex',
+            gap: 2,
+            overflowX: 'auto',
+            pb: 2,
+            '&::-webkit-scrollbar': {
+              height: 8
+            },
+            '&::-webkit-scrollbar-track': {
+              backgroundColor: '#f1f1f1'
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: '#888',
+              borderRadius: 4
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              backgroundColor: '#555'
+            }
+          }}
+        >
+          {loading ? (
+            // Loading skeleton for Kanban
+            kanbanStatuses.map((status) => (
+              <Paper key={status.id} sx={{ minWidth: 280, maxWidth: 320, p: 2, minHeight: '70vh' }}>
+                <Skeleton variant="text" width={150} height={30} sx={{ mb: 2 }} />
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} variant="rectangular" height={200} sx={{ mb: 2, borderRadius: 1 }} />
+                ))}
+              </Paper>
+            ))
+          ) : (
+            kanbanStatuses.map((status) => (
+              <KanbanColumn
+                key={status.id}
+                status={status}
+                leads={groupedLeads[status.id] || []}
+              />
+            ))
+          )}
+        </Box>
+      ) : (
+        /* Table View */
+        <Card>
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
                 <TableCell>Lead</TableCell>
-                <TableCell>Business</TableCell>
-                <TableCell>Property Details</TableCell>
-                <TableCell>Sales Stage</TableCell>
+                <TableCell>Department</TableCell>
+                <TableCell>Company</TableCell>
+                <TableCell>Source</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Priority</TableCell>
-                <TableCell>Price</TableCell>
-                <TableCell>Next Follow-up</TableCell>
+                <TableCell>Score</TableCell>
+                <TableCell>Created</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -714,11 +1266,11 @@ const Leads = () => {
                     <TableCell>
                       <Box display="flex" alignItems="center">
                         <Avatar sx={{ mr: 2, bgcolor: getStatusColor(lead.status) }}>
-                          {getInitials(lead.firstName, lead.lastName)}
+                          {getLeadInitials(lead)}
                         </Avatar>
                         <Box>
                           <Typography variant="subtitle2" fontWeight="bold">
-                            {lead.firstName} {lead.lastName}
+                            {getLeadDisplayName(lead)}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
                             {lead.email}
@@ -736,56 +1288,27 @@ const Leads = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={lead.business}
+                        label={lead.department?.name || 'No Department'}
                         size="small"
                         sx={{
-                          backgroundColor: lead.business === 'Taj Residencia' ? '#4CAF50' : 
-                                          lead.business === 'Boly.pk' ? '#2196F3' : '#9E9E9E',
+                          backgroundColor: '#2196F3',
                           color: 'white',
                           fontWeight: 'bold'
                         }}
                       />
                     </TableCell>
                     <TableCell>
-                      {lead.business === 'Taj Residencia' ? (
-                        <Box>
-                          <Typography variant="body2" fontWeight="bold">
-                            {lead.propertyType} - {lead.plotSize}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {lead.propertyPhase}, {lead.propertyBlock}
-                          </Typography>
-                          {lead.propertyNumber && (
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              #{lead.propertyNumber}
-                            </Typography>
-                          )}
-                        </Box>
-                      ) : (
-                        <Box display="flex" alignItems="center">
-                          <BusinessIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                          <Typography variant="body2">
-                            {truncateText(lead.company, 25)}
-                          </Typography>
-                        </Box>
-                      )}
+                      <Box display="flex" alignItems="center">
+                        <BusinessIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                        <Typography variant="body2">
+                          {truncateText(lead.company, 25) || 'N/A'}
+                        </Typography>
+                      </Box>
                     </TableCell>
                     <TableCell>
-                      {lead.business === 'Taj Residencia' ? (
-                        <Chip
-                          label={lead.salesStage || 'Initial Contact'}
-                          size="small"
-                          sx={{
-                            backgroundColor: getSalesStageColor(lead.salesStage),
-                            color: 'white',
-                            fontWeight: 'bold'
-                          }}
-                        />
-                      ) : (
-                        <Typography variant="body2">
-                          {lead.source}
-                        </Typography>
-                      )}
+                      <Typography variant="body2">
+                        {lead.source}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Chip
@@ -799,11 +1322,6 @@ const Leads = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">
-                        {lead.source}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
                       <Chip
                         label={lead.priority}
                         size="small"
@@ -815,57 +1333,40 @@ const Leads = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      {lead.business === 'Taj Residencia' && lead.propertyPrice ? (
-                        <Typography variant="body2" fontWeight="bold" color="primary">
-                          {formatCurrency(lead.propertyPrice)}
+                      <Box display="flex" alignItems="center">
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            color: getScoreColor(lead.score),
+                            fontWeight: 'bold',
+                            mr: 1
+                          }}
+                        >
+                          {lead.score}
                         </Typography>
-                      ) : (
-                        <Box display="flex" alignItems="center">
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              color: getScoreColor(lead.score),
-                              fontWeight: 'bold',
-                              mr: 1
-                            }}
-                          >
-                            {lead.score}
-                          </Typography>
+                        <Box
+                          sx={{
+                            width: 40,
+                            height: 4,
+                            backgroundColor: '#E0E0E0',
+                            borderRadius: 2,
+                            overflow: 'hidden'
+                          }}
+                        >
                           <Box
                             sx={{
-                              width: 40,
-                              height: 4,
-                              backgroundColor: '#E0E0E0',
-                              borderRadius: 2,
-                              overflow: 'hidden'
+                              width: `${lead.score}%`,
+                              height: '100%',
+                              backgroundColor: getScoreColor(lead.score)
                             }}
-                          >
-                            <Box
-                              sx={{
-                                width: `${lead.score}%`,
-                                height: '100%',
-                                backgroundColor: getScoreColor(lead.score)
-                              }}
-                            />
-                          </Box>
+                          />
                         </Box>
-                      )}
+                      </Box>
                     </TableCell>
                     <TableCell>
-                      {lead.business === 'Taj Residencia' && lead.nextFollowUp ? (
-                        <Box>
-                          <Typography variant="body2" fontWeight="bold">
-                            {formatDate(lead.nextFollowUp)}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {getDaysUntilFollowUp(lead.nextFollowUp)}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Typography variant="body2">
-                          {formatDate(lead.createdAt)}
-                        </Typography>
-                      )}
+                      <Typography variant="body2">
+                        {formatDate(lead.createdAt)}
+                      </Typography>
                     </TableCell>
                     <TableCell>
                       <Box display="flex" gap={1}>
@@ -912,6 +1413,7 @@ const Leads = () => {
           onRowsPerPageChange={handleRowsPerPageChange}
         />
       </Card>
+      )}
 
       {/* Add/Edit Lead Dialog */}
       <Dialog
@@ -971,15 +1473,23 @@ const Leads = () => {
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Business</InputLabel>
+                <InputLabel>Department</InputLabel>
                 <Select
-                  value={formData.business}
-                  onChange={(e) => handleFormChange('business', e.target.value)}
-                  label="Business"
+                  value={formData.department}
+                  onChange={(e) => handleFormChange('department', e.target.value)}
+                  label="Department"
+                  required
                 >
-                  <MenuItem value="Taj Residencia">Taj Residencia</MenuItem>
-                  <MenuItem value="Boly.pk">Boly.pk</MenuItem>
-                  <MenuItem value="SGC General">SGC General</MenuItem>
+                  <MenuItem value="">Select Department</MenuItem>
+                  {!departments || departments.length === 0 ? (
+                    <MenuItem disabled>Loading departments...</MenuItem>
+                  ) : (
+                    departments.map((dept) => (
+                      <MenuItem key={dept._id} value={dept._id}>
+                        {dept.name} ({dept.code})
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
             </Grid>

@@ -59,7 +59,7 @@ const upload = multer({
 // @desc    Upload profile image
 // @access  Private (HR and Admin)
 router.post('/upload-image', 
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   upload.single('profileImage'),
   asyncHandler(async (req, res) => {
     try {
@@ -94,7 +94,7 @@ router.post('/upload-image',
 // @desc    Get next available employee ID
 // @access  Private (HR and Admin)
 router.get('/employees/next-id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     try {
       // Find ALL employees (including deleted ones) to get the highest ID ever created
@@ -137,7 +137,7 @@ router.get('/employees/next-id',
 // @desc    Get all employees
 // @access  Private (HR and Admin)
 router.get('/employees', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 
@@ -171,9 +171,7 @@ router.get('/employees',
         { religion: { $regex: search, $options: 'i' } },
         { maritalStatus: { $regex: search, $options: 'i' } },
               { qualification: { $regex: search, $options: 'i' } },
-      { bankName: { $regex: search, $options: 'i' } },
       { spouseName: { $regex: search, $options: 'i' } },
-      { appointmentDate: { $regex: search, $options: 'i' } },
       { 'placementCompany.name': { $regex: search, $options: 'i' } },
       { 'placementSector.name': { $regex: search, $options: 'i' } },
       { 'placementProject.name': { $regex: search, $options: 'i' } },
@@ -255,7 +253,7 @@ router.get('/employees',
 // @desc    Create new employee
 // @access  Private (HR and Admin)
 router.post('/employees', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('firstName').trim().notEmpty().withMessage('First name is required'),
   body('lastName').trim().notEmpty().withMessage('Last name is required'),
   body('email').isEmail().withMessage('Valid email is required'),
@@ -377,7 +375,7 @@ router.post('/employees', [
 // @desc    Get employee report by date range
 // @access  Private (HR and Admin)
 router.get('/employees/report', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate, format = 'json' } = req.query;
     
@@ -577,7 +575,7 @@ router.get('/employees/report',
 // @desc    Get employee by ID
 // @access  Private (HR and Admin)
 router.get('/employees/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     // Check if the ID is a valid ObjectId
     if (!req.params.id) {
@@ -630,7 +628,7 @@ router.get('/employees/:id',
 // @desc    Update employee
 // @access  Private (HR and Admin)
 router.put('/employees/:id', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
   body('lastName').optional().trim().notEmpty().withMessage('Last name cannot be empty'),
   body('email').optional().isEmail().withMessage('Valid email is required'),
@@ -765,7 +763,7 @@ router.put('/employees/:id', [
 // @desc    Delete employee (soft delete)
 // @access  Private (HR and Admin)
 router.delete('/employees/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     // Check if the ID is a valid ObjectId
     if (!req.params.id) {
@@ -837,7 +835,7 @@ router.post('/employees/:id/update-payrolls', [
 // @desc    Get all departments
 // @access  Private
 router.get('/departments', 
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
   const departments = await Department.find({ isActive: true })
     .populate('manager', 'firstName lastName employeeId')
@@ -853,7 +851,7 @@ router.get('/departments',
 // @desc    Get department by ID
 // @access  Private
 router.get('/departments/:id', 
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({
@@ -883,7 +881,7 @@ router.get('/departments/:id',
 // @desc    Get all positions
 // @access  Private (HR and Admin)
 router.get('/positions', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const positions = await Position.findActive();
     res.json({
@@ -897,7 +895,7 @@ router.get('/positions',
 // @desc    Get position by ID
 // @access  Private (HR and Admin)
 router.get('/positions/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -927,7 +925,7 @@ router.get('/positions/:id',
 // @desc    Get positions by department
 // @access  Private (HR and Admin)
 router.get('/positions/department/:departmentId', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.departmentId)) {
       return res.status(400).json({
@@ -948,7 +946,7 @@ router.get('/positions/department/:departmentId',
 // @desc    Get all banks
 // @access  Private (HR and Admin)
 router.get('/banks', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const banks = await Bank.findActive();
     res.json({
@@ -962,7 +960,7 @@ router.get('/banks',
 // @desc    Create new department
 // @access  Private (HR and Admin)
 router.post('/departments', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Department name is required'),
   body('code').trim().notEmpty().withMessage('Department code is required')
 ], asyncHandler(async (req, res) => {
@@ -1001,7 +999,7 @@ router.post('/departments', [
 // @desc    Update department
 // @access  Private (HR and Admin)
 router.put('/departments/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     // Clean up the request body
     const departmentData = {
@@ -1036,7 +1034,7 @@ router.put('/departments/:id',
 // @desc    Delete department (soft delete)
 // @access  Private (HR and Admin)
 router.delete('/departments/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const department = await Department.findByIdAndUpdate(
       req.params.id,
@@ -1062,7 +1060,7 @@ router.delete('/departments/:id',
 // @desc    Get HR statistics
 // @access  Private (HR and Admin)
 router.get('/statistics', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const stats = await Employee.getStatistics();
     
@@ -1334,7 +1332,7 @@ router.post('/fbr-tax-slabs/calculate', [
 // @desc    Get all sectors
 // @access  Private (HR and Admin)
 router.get('/sectors', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { company, search, exact } = req.query;
     
@@ -1369,7 +1367,7 @@ router.get('/sectors',
 // @desc    Create new sector
 // @access  Private (HR and Admin)
 router.post('/sectors', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Sector name is required'),
   body('industry').trim().notEmpty().withMessage('Industry is required')
 ],
@@ -1404,7 +1402,7 @@ router.post('/sectors', [
 // @desc    Get sector by ID
 // @access  Private (HR and Admin)
 router.get('/sectors/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const sector = await Sector.findById(req.params.id)
       .populate('companies', 'name code');
@@ -1427,7 +1425,7 @@ router.get('/sectors/:id',
 // @desc    Update sector
 // @access  Private (HR and Admin)
 router.put('/sectors/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     // Add the updatedBy field
     const updateData = {
@@ -1460,7 +1458,7 @@ router.put('/sectors/:id',
 // @desc    Delete sector
 // @access  Private (HR and Admin)
 router.delete('/sectors/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const sector = await Sector.findByIdAndUpdate(
       req.params.id,
@@ -1488,7 +1486,7 @@ router.delete('/sectors/:id',
 // @desc    Get all companies
 // @access  Private (HR and Admin)
 router.get('/companies', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { type, search } = req.query;
     
@@ -1516,7 +1514,7 @@ router.get('/companies',
 // @desc    Create new company
 // @access  Private (HR and Admin)
 router.post('/companies', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Company name is required'),
   body('code').trim().notEmpty().withMessage('Company code is required'),
   body('type').optional().isIn(['Private Limited', 'Public Limited', 'Partnership', 'Sole Proprietorship', 'Government', 'NGO', 'Other']).withMessage('Valid type is required')
@@ -1546,7 +1544,7 @@ router.post('/companies', [
 // @desc    Get company by ID
 // @access  Private (HR and Admin)
 router.get('/companies/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const company = await Company.findById(req.params.id);
 
@@ -1568,7 +1566,7 @@ router.get('/companies/:id',
 // @desc    Update company
 // @access  Private (HR and Admin)
 router.put('/companies/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const company = await Company.findByIdAndUpdate(
       req.params.id,
@@ -1595,7 +1593,7 @@ router.put('/companies/:id',
 // @desc    Delete company
 // @access  Private (HR and Admin)
 router.delete('/companies/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const company = await Company.findByIdAndUpdate(
       req.params.id,
@@ -1623,7 +1621,7 @@ router.delete('/companies/:id',
 // @desc    Get all projects
 // @access  Private (HR and Admin)
 router.get('/projects', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { company, search } = req.query;
     
@@ -1652,7 +1650,7 @@ router.get('/projects',
 // @desc    Create new project
 // @access  Private (HR and Admin)
 router.post('/projects', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Project name is required'),
   body('code').trim().notEmpty().withMessage('Project code is required'),
   body('client').notEmpty().withMessage('Client is required')
@@ -1693,7 +1691,7 @@ router.post('/projects', [
 // @desc    Get all sections
 // @access  Private (HR and Admin)
 router.get('/sections', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { department, search } = req.query;
     
@@ -1722,7 +1720,7 @@ router.get('/sections',
 // @desc    Create new section
 // @access  Private (HR and Admin)
 router.post('/sections', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Section name is required'),
   body('department').notEmpty().withMessage('Department is required')
 ],
@@ -1790,7 +1788,7 @@ router.post('/sections', [
 // @desc    Get all designations
 // @access  Private (HR and Admin)
 router.get('/designations', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { section, search } = req.query;
     
@@ -1819,7 +1817,7 @@ router.get('/designations',
 // @desc    Create new designation
 // @access  Private (HR and Admin)
 router.post('/designations', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('title').trim().notEmpty().withMessage('Designation title is required'),
   body('level').optional().isIn(['Entry', 'Junior', 'Mid', 'Senior', 'Lead', 'Manager', 'Director', 'Executive']).withMessage('Valid level is required'),
   body('section').notEmpty().withMessage('Section is required')
@@ -1874,7 +1872,7 @@ router.post('/designations', [
 // @desc    Get all locations
 // @access  Private (HR and Admin)
 router.get('/locations', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { type, search } = req.query;
     
@@ -1902,7 +1900,7 @@ router.get('/locations',
 // @desc    Create new location
 // @access  Private (HR and Admin)
 router.post('/locations', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Location name is required'),
   body('type').optional().isIn(['Office', 'Branch', 'Site', 'Warehouse', 'Factory', 'Other']).withMessage('Valid type is required')
 ],
@@ -1933,7 +1931,7 @@ router.post('/locations', [
 
 // Create increment request
 router.post('/increments', [
-  authorize('hr_manager', 'admin'),
+  authorize('super_admin', 'hr_manager', 'admin'),
   body('employeeId').isMongoId().withMessage('Valid employee ID is required'),
   body('incrementType').isIn(['annual', 'performance', 'special', 'market_adjustment']).withMessage('Valid increment type is required'),
   body('newSalary').isNumeric().withMessage('Valid new salary is required'),
@@ -1959,7 +1957,7 @@ router.post('/increments', [
 
 // Get all increment requests
 router.get('/increments', [
-  authorize('hr_manager', 'admin')
+  authorize('super_admin', 'hr_manager', 'admin')
 ], asyncHandler(async (req, res) => {
   const result = await incrementService.getAllIncrements();
   res.json(result);
@@ -1967,7 +1965,7 @@ router.get('/increments', [
 
 // Get pending increment requests
 router.get('/increments/pending', [
-  authorize('hr_manager', 'admin')
+  authorize('super_admin', 'hr_manager', 'admin')
 ], asyncHandler(async (req, res) => {
   const result = await incrementService.getPendingIncrements();
   res.json(result);
@@ -1975,7 +1973,7 @@ router.get('/increments/pending', [
 
 // Approve increment request
 router.put('/increments/:id/approve', [
-  authorize('hr_manager', 'admin'),
+  authorize('super_admin', 'hr_manager', 'admin'),
   body('comments').optional().isString().withMessage('Comments must be a string')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -1997,7 +1995,7 @@ router.put('/increments/:id/approve', [
 
 // Reject increment request
 router.put('/increments/:id/reject', [
-  authorize('hr_manager', 'admin'),
+  authorize('super_admin', 'hr_manager', 'admin'),
   body('comments').optional().isString().withMessage('Comments must be a string')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -2019,7 +2017,7 @@ router.put('/increments/:id/reject', [
 
 // Get employee increment history
 router.get('/increments/employee/:employeeId', [
-  authorize('hr_manager', 'admin', 'employee')
+  authorize('super_admin', 'hr_manager', 'admin', 'employee')
 ], asyncHandler(async (req, res) => {
   const result = await incrementService.getEmployeeIncrementHistory(req.params.employeeId);
   res.json(result);
@@ -2027,7 +2025,7 @@ router.get('/increments/employee/:employeeId', [
 
 // Get employee current salary
 router.get('/increments/employee/:employeeId/current-salary', [
-  authorize('hr_manager', 'admin', 'employee')
+  authorize('super_admin', 'hr_manager', 'admin', 'employee')
 ], asyncHandler(async (req, res) => {
   const result = await incrementService.getEmployeeCurrentSalary(req.params.employeeId);
   res.json(result);
@@ -2035,7 +2033,7 @@ router.get('/increments/employee/:employeeId/current-salary', [
 
 // Get increment by ID
 router.get('/increments/:id', [
-  authorize('hr_manager', 'admin')
+  authorize('super_admin', 'hr_manager', 'admin')
 ], asyncHandler(async (req, res) => {
   const result = await incrementService.getIncrementById(req.params.id);
   res.json(result);

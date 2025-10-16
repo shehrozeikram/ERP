@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { ROLE_VALUES } = require('../config/permissions');
 
 const userSchema = new mongoose.Schema({
   firstName: {
@@ -34,13 +35,22 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'],
+    enum: ROLE_VALUES,
     default: 'employee'
   },
+  // New role reference (for future use)
+  roleRef: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Role'
+  },
+  subRoles: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SubRole'
+  }],
   department: {
     type: String,
-    enum: ['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'],
-    required: [true, 'Department is required']
+    required: [true, 'Department is required'],
+    trim: true
   },
   position: {
     type: String,
@@ -55,7 +65,14 @@ const userSchema = new mongoose.Schema({
   phone: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number']
+    validate: {
+      validator: function(v) {
+        // Allow empty/null values or valid phone numbers
+        if (!v || v === '') return true;
+        return /^[\+]?[1-9][\d]{0,15}$/.test(v);
+      },
+      message: 'Please enter a valid phone number'
+    }
   },
   address: {
     street: String,
@@ -188,6 +205,7 @@ userSchema.methods.getProfile = function() {
     fullName: this.fullName,
     email: this.email,
     role: this.role,
+    subRoles: this.subRoles,
     department: this.department,
     position: this.position,
     employeeId: this.employeeId,

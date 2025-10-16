@@ -32,9 +32,19 @@ import AttendanceDetail from './pages/HR/AttendanceDetail';
 import AttendanceForm from './pages/HR/AttendanceForm';
 import AttendanceReport from './pages/HR/AttendanceReport';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
-import FinanceDashboard from './pages/Finance/FinanceDashboard';
-import AccountList from './pages/Finance/AccountList';
+import AdvancedFinanceDashboard from './pages/Finance/AdvancedFinanceDashboard';
+import ChartOfAccounts from './pages/Finance/ChartOfAccounts';
+import GeneralLedger from './pages/Finance/GeneralLedger';
+import AccountsReceivable from './pages/Finance/AccountsReceivable';
+import AccountsPayable from './pages/Finance/AccountsPayable';
+import Banking from './pages/Finance/Banking';
+import FinancialReports from './pages/Finance/FinancialReports';
+import JournalEntryForm from './pages/Finance/JournalEntryForm';
+import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
+import PurchaseOrders from './pages/Procurement/PurchaseOrders';
+import Vendors from './pages/Procurement/Vendors';
+import Inventory from './pages/Procurement/Inventory';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import CRMDashboard from './pages/CRM/CRMDashboard';
 import Leads from './pages/CRM/Leads';
@@ -48,12 +58,14 @@ import UserManagement from './pages/Admin/UserManagement';
 import VehicleList from './pages/Admin/VehicleManagement/VehicleList';
 import VehicleForm from './pages/Admin/VehicleManagement/VehicleForm';
 import VehicleDetails from './pages/Admin/VehicleManagement/VehicleDetails';
+import VehicleDetailsView from './pages/Admin/VehicleManagement/VehicleDetailsView';
 import VehicleMaintenanceForm from './pages/Admin/VehicleManagement/VehicleMaintenanceForm';
 import VehicleLogBookForm from './pages/Admin/VehicleManagement/VehicleLogBookForm';
 import VehicleDashboard from './pages/Admin/VehicleManagement/VehicleDashboard';
 import VehicleReports from './pages/Admin/VehicleManagement/VehicleReports';
 import VehicleMaintenanceList from './pages/Admin/VehicleManagement/VehicleMaintenanceList';
 import VehicleLogBookList from './pages/Admin/VehicleManagement/VehicleLogBookList';
+import VehicleLogBookDetailsView from './pages/Admin/VehicleManagement/VehicleLogBookDetailsView';
 import GroceryList from './pages/Admin/GroceryManagement/GroceryList';
 import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
 import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
@@ -76,6 +88,37 @@ import RentalAgreementList from './pages/Admin/RentalAgreements/RentalAgreementL
 import RentalAgreementDetail from './pages/Admin/RentalAgreements/RentalAgreementDetail';
 import RentalManagementDashboard from './pages/Admin/RentalManagement/RentalManagementDashboard';
 import RentalManagementDetail from './pages/Admin/RentalManagement/RentalManagementDetail';
+import PaymentSettlement from './pages/Admin/PaymentSettlement/PaymentSettlement';
+import SubRoleManagement from './pages/Admin/SubRoleManagement';
+import RoleManagement from './pages/Admin/RoleManagement';
+
+// IT Module Components
+import ITDashboard from './pages/IT/ITDashboard';
+import AssetList from './pages/IT/AssetList';
+import AssetForm from './pages/IT/AssetForm';
+import AssetAssignment from './pages/IT/AssetAssignment';
+import SoftwareList from './pages/IT/SoftwareList';
+import SoftwareForm from './pages/IT/SoftwareForm';
+import NetworkList from './pages/IT/NetworkList';
+import NetworkForm from './pages/IT/NetworkForm';
+import VendorList from './pages/IT/VendorList';
+import VendorForm from './pages/IT/VendorForm';
+import VendorContracts from './pages/IT/VendorContracts';
+import PasswordWallet from './pages/IT/PasswordWallet';
+import PasswordWalletDashboard from './pages/IT/PasswordWalletDashboard';
+import PasswordForm from './pages/IT/PasswordForm';
+import ITReports from './pages/IT/Reports';
+
+// Audit Module Components
+import AuditDashboard from './pages/Audit/AuditDashboard';
+import AuditList from './pages/Audit/AuditList';
+import AuditFindings from './pages/Audit/AuditFindings';
+import AddAuditFinding from './pages/Audit/AddAuditFinding';
+import CorrectiveActions from './pages/Audit/CorrectiveActions';
+import AuditTrail from './pages/Audit/AuditTrail';
+import AuditReports from './pages/Audit/AuditReports';
+import AuditSchedules from './pages/Audit/AuditSchedules';
+
 import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
 import BankManagement from './pages/HR/BankManagement';
@@ -131,6 +174,7 @@ import LeaveManagement from './pages/HR/Leaves/LeaveManagement';
 import LeaveApproval from './pages/HR/Leaves/LeaveApproval';
 import LeaveCalendar from './pages/HR/Leaves/LeaveCalendar';
 import LeaveReports from './pages/HR/Leaves/LeaveReports';
+import EmployeeLeaveHistory from './pages/HR/Leaves/EmployeeLeaveHistory';
 
 // Component to handle role-based redirects
 const RoleBasedRedirect = () => {
@@ -143,8 +187,10 @@ const RoleBasedRedirect = () => {
   // Get appropriate redirect path based on user role
   const getRedirectPath = (userRole) => {
     switch (userRole) {
-      case 'admin':
+      case 'super_admin':
         return '/dashboard';
+      case 'admin':
+        return '/admin/staff-management';
       case 'hr_manager':
         return '/hr';
       case 'finance_manager':
@@ -166,7 +212,7 @@ const RoleBasedRedirect = () => {
   return <Navigate to={redirectPath} replace />;
 };
 
-// Public Route Component (redirects to dashboard if already logged in)
+// Public Route Component (redirects to role-appropriate page if already logged in)
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
 
@@ -184,7 +230,32 @@ const PublicRoute = ({ children }) => {
   }
 
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    // Get appropriate redirect path based on user role
+    const getRedirectPath = (userRole) => {
+      switch (userRole) {
+        case 'super_admin':
+          return '/dashboard';
+        case 'admin':
+          return '/admin/staff-management';
+        case 'hr_manager':
+          return '/hr';
+        case 'finance_manager':
+          return '/finance';
+        case 'procurement_manager':
+          return '/procurement';
+        case 'sales_manager':
+          return '/sales';
+        case 'crm_manager':
+          return '/crm';
+        case 'employee':
+          return '/profile';
+        default:
+          return '/profile';
+      }
+    };
+    
+    const redirectPath = getRedirectPath(user.role);
+    return <Navigate to={redirectPath} replace />;
   }
 
   return children;
@@ -246,7 +317,7 @@ function App() {
             {/* Dashboard */}
             <Route 
               path="/dashboard" 
-              element={<ProtectedRoute requiredRole="admin"><Dashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><Dashboard /></ProtectedRoute>} 
             />
 
             {/* HR Module */}
@@ -418,19 +489,23 @@ function App() {
             {/* Leave Management Routes */}
             <Route 
               path="/hr/leaves" 
-              element={<ProtectedRoute><LeaveManagement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={['super_admin', 'admin', 'hr_manager']}><LeaveManagement /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/leaves/approval" 
-              element={<ProtectedRoute requiredRole={['admin', 'hr_manager']}><LeaveApproval /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={['super_admin', 'admin', 'hr_manager']}><LeaveApproval /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/leaves/calendar" 
-              element={<ProtectedRoute><LeaveCalendar /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={['super_admin', 'admin', 'hr_manager']}><LeaveCalendar /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/leaves/reports" 
-              element={<ProtectedRoute requiredRole={['admin', 'hr_manager']}><LeaveReports /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={['super_admin', 'admin', 'hr_manager']}><LeaveReports /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/hr/leaves/employee/:employeeId" 
+              element={<ProtectedRoute requiredRole={['super_admin', 'admin', 'hr_manager']}><EmployeeLeaveHistory /></ProtectedRoute>} 
             />
             <Route 
               path="/hr/increments/:id" 
@@ -597,17 +672,65 @@ function App() {
             {/* Finance Module */}
             <Route 
               path="/finance" 
-              element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AdvancedFinanceDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/finance/accounts" 
-              element={<ProtectedRoute><AccountList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><ChartOfAccounts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/journal-entries" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><JournalEntriesList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/journal-entries/new" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><JournalEntryForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/journal-entries/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><JournalEntryForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/journal-entries/:id/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><JournalEntryForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/general-ledger" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><GeneralLedger /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/accounts-receivable" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsReceivable /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/accounts-payable" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsPayable /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/banking" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><Banking /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/finance/reports" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinancialReports /></ProtectedRoute>} 
             />
 
             {/* Procurement Module */}
             <Route 
               path="/procurement" 
               element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/purchase-orders" 
+              element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/vendors" 
+              element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/inventory" 
+              element={<ProtectedRoute><Inventory /></ProtectedRoute>} 
             />
 
             {/* Sales Module */}
@@ -715,201 +838,381 @@ function App() {
             {/* Admin Module */}
             <Route 
               path="/admin/users" 
-              element={<ProtectedRoute requiredRole="admin"><UserManagement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UserManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/sub-roles" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><SubRoleManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/roles" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RoleManagement /></ProtectedRoute>} 
             />
             {/* Vehicle Management Routes */}
             <Route 
               path="/admin/vehicle-management" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/new" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/vehicles/:id/view" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetailsView /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/:id" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetails /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleMaintenanceList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleMaintenanceList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance/new" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleMaintenanceForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleMaintenanceForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleMaintenanceForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleMaintenanceForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleLogBookList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook/new" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleLogBookForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/logbook/:id/view" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookDetailsView /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleLogBookForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/reports" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleReports /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleReports /></ProtectedRoute>} 
             />
             {/* Legacy vehicle routes for backward compatibility */}
             <Route 
               path="/admin/vehicles" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/new" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicles/:id/view" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetailsView /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/:id" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetails /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries" 
-              element={<ProtectedRoute requiredRole="admin"><GroceryList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/new" 
-              element={<ProtectedRoute requiredRole="admin"><GroceryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/:id" 
-              element={<ProtectedRoute requiredRole="admin"><GroceryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><GroceryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/stock-alerts" 
-              element={<ProtectedRoute requiredRole="admin"><StockAlerts /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StockAlerts /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash" 
-              element={<ProtectedRoute requiredRole="admin"><PettyCashDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PettyCashDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/funds/new" 
-              element={<ProtectedRoute requiredRole="admin"><FundForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><FundForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/funds/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><FundForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><FundForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/expenses/new" 
-              element={<ProtectedRoute requiredRole="admin"><ExpenseForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><ExpenseForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/expenses/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><ExpenseForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><ExpenseForm /></ProtectedRoute>} 
             />
             
             {/* Event Management Routes */}
             <Route 
               path="/admin/events" 
-              element={<ProtectedRoute requiredRole="admin"><EventDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/list" 
-              element={<ProtectedRoute requiredRole="admin"><EventList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/new" 
-              element={<ProtectedRoute requiredRole="admin"><EventForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/:id" 
-              element={<ProtectedRoute requiredRole="admin"><EventDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventDetails /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><EventForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventForm /></ProtectedRoute>} 
             />
             
             {/* Staff Management Routes */}
             <Route 
               path="/admin/staff-management" 
-              element={<ProtectedRoute requiredRole="admin"><StaffManagementDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffManagementDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments" 
-              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments/new" 
-              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments/:id" 
-              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><StaffAssignmentForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/locations" 
-              element={<ProtectedRoute requiredRole="admin"><LocationManagement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><LocationManagement /></ProtectedRoute>} 
             />
 
             {/* Utility Bills Management Routes */}
             <Route 
               path="/admin/utility-bills" 
-              element={<ProtectedRoute requiredRole="admin"><UtilityBillDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/list" 
-              element={<ProtectedRoute requiredRole="admin"><UtilityBillList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/new" 
-              element={<ProtectedRoute requiredRole="admin"><UtilityBillForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/:id/edit" 
-              element={<ProtectedRoute requiredRole="admin"><UtilityBillForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/:id" 
-              element={<ProtectedRoute requiredRole="admin"><UtilityBillDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillDetails /></ProtectedRoute>} 
             />
 
             {/* Rental Management Routes */}
             <Route 
               path="/admin/rental-agreements" 
-              element={<ProtectedRoute requiredRole="admin"><RentalAgreementList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalAgreementList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/rental-agreements/:id" 
-              element={<ProtectedRoute requiredRole="admin"><RentalAgreementDetail /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalAgreementDetail /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/rental-management" 
-              element={<ProtectedRoute requiredRole="admin"><RentalManagementDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalManagementDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/rental-management/:id" 
-              element={<ProtectedRoute requiredRole="admin"><RentalManagementDetail /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalManagementDetail /></ProtectedRoute>} 
+            />
+
+            {/* Payment Settlement Routes */}
+            <Route 
+              path="/admin/payment-settlement/:action/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PaymentSettlement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/payment-settlement/:action" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PaymentSettlement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/payment-settlement" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PaymentSettlement /></ProtectedRoute>} 
+            />
+
+            {/* IT Module Routes */}
+            <Route 
+              path="/it" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><ITDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/assets" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><AssetList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/assets/add" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><AssetForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/assets/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><AssetList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/assets/:id/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><AssetForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/assets/:id/assign" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><AssetAssignment /></ProtectedRoute>} 
+            />
+            
+            {/* Software Management Routes */}
+            <Route 
+              path="/it/software" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><SoftwareList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/software/add" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><SoftwareForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/software/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><SoftwareList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/software/:id/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><SoftwareForm /></ProtectedRoute>} 
+            />
+            
+            {/* Network Management Routes */}
+            <Route 
+              path="/it/network" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><NetworkList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/network/add" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><NetworkForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/network/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><NetworkList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/network/:id/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><NetworkForm /></ProtectedRoute>} 
+            />
+            
+            {/* Vendor Management Routes */}
+            <Route 
+              path="/it/vendors" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><VendorList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/vendors/add" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><VendorForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/vendors/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><VendorList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/it/vendors/:id/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><VendorForm /></ProtectedRoute>} 
+            />
+        <Route
+          path="/it/vendors/:id/contracts"
+          element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><VendorContracts /></ProtectedRoute>}
+        />
+        <Route
+          path="/it/vendors/:id/passwords"
+          element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><PasswordWallet /></ProtectedRoute>}
+        />
+        <Route
+          path="/it/vendors/:id/passwords/new"
+          element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><PasswordForm /></ProtectedRoute>}
+        />
+        <Route
+          path="/it/passwords/:passwordId/edit"
+          element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><PasswordForm /></ProtectedRoute>}
+        />
+        
+        {/* Password Wallet Dashboard Routes */}
+        <Route
+          path="/it/passwords"
+          element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><PasswordWalletDashboard /></ProtectedRoute>}
+        />
+        <Route
+          path="/it/passwords/new"
+          element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><PasswordForm /></ProtectedRoute>}
+        />
+            
+            {/* IT Reports Routes */}
+            <Route 
+              path="/it/reports" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><ITReports /></ProtectedRoute>} 
+            />
+
+            {/* Audit Module Routes */}
+            <Route 
+              path="/audit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/list" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/findings" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditFindings /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/findings/new" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AddAuditFinding /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/corrective-actions" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><CorrectiveActions /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/trail" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager"]}><AuditTrail /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/reports" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditReports /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/schedules" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditSchedules /></ProtectedRoute>} 
             />
 
             {/* HR Management Routes */}

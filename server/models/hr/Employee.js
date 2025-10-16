@@ -796,11 +796,33 @@ const employeeSchema = new mongoose.Schema({
       default: 0
     }
   },
+  // Leave configuration limits (customizable per employee)
+  leaveConfig: {
+    annualLimit: {
+      type: Number,
+      default: 20,
+      min: [0, 'Annual leave limit cannot be negative']
+    },
+    sickLimit: {
+      type: Number,
+      default: 10,
+      min: [0, 'Sick leave limit cannot be negative']
+    },
+    casualLimit: {
+      type: Number,
+      default: 10,
+      min: [0, 'Casual leave limit cannot be negative']
+    },
+    useGlobalDefaults: {
+      type: Boolean,
+      default: true
+    }
+  },
   leaveBalance: {
     annual: {
       allocated: {
         type: Number,
-        default: 14
+        default: 20
       },
       used: {
         type: Number,
@@ -808,11 +830,16 @@ const employeeSchema = new mongoose.Schema({
       },
       remaining: {
         type: Number,
-        default: 14
+        default: 20
       },
       carriedForward: {
         type: Number,
         default: 0
+      },
+      advance: {
+        type: Number,
+        default: 0,
+        min: [0, 'Advance leave cannot be negative']
       }
     },
     casual: {
@@ -831,12 +858,17 @@ const employeeSchema = new mongoose.Schema({
       carriedForward: {
         type: Number,
         default: 0
+      },
+      advance: {
+        type: Number,
+        default: 0,
+        min: [0, 'Advance leave cannot be negative']
       }
     },
-    medical: {
+    sick: {
       allocated: {
         type: Number,
-        default: 8
+        default: 10
       },
       used: {
         type: Number,
@@ -844,11 +876,40 @@ const employeeSchema = new mongoose.Schema({
       },
       remaining: {
         type: Number,
-        default: 8
+        default: 10
       },
       carriedForward: {
         type: Number,
         default: 0
+      },
+      advance: {
+        type: Number,
+        default: 0,
+        min: [0, 'Advance leave cannot be negative']
+      }
+    },
+    // Keep medical for backward compatibility
+    medical: {
+      allocated: {
+        type: Number,
+        default: 10
+      },
+      used: {
+        type: Number,
+        default: 0
+      },
+      remaining: {
+        type: Number,
+        default: 10
+      },
+      carriedForward: {
+        type: Number,
+        default: 0
+      },
+      advance: {
+        type: Number,
+        default: 0,
+        min: [0, 'Advance leave cannot be negative']
       }
     },
     maternity: {
@@ -914,7 +975,56 @@ const employeeSchema = new mongoose.Schema({
     ref: 'EmployeeIncrement'
   }],
   lastIncrementDate: Date,
-  nextIncrementEligibleDate: Date
+  nextIncrementEligibleDate: Date,
+
+  // IT Asset Assignments Integration
+  assignedAssets: [{
+    asset: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ITAsset'
+    },
+    assignedDate: {
+      type: Date,
+      default: Date.now
+    },
+    assignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['Active', 'Returned', 'Transferred'],
+      default: 'Active'
+    },
+    conditionAtAssignment: {
+      type: String,
+      enum: ['Excellent', 'Good', 'Fair', 'Poor']
+    },
+    notes: String,
+    accessories: [String]
+  }],
+
+  // IT Software License Assignments
+  assignedLicenses: [{
+    software: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SoftwareInventory'
+    },
+    assignedDate: {
+      type: Date,
+      default: Date.now
+    },
+    assignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['Active', 'Revoked', 'Expired'],
+      default: 'Active'
+    },
+    notes: String
+  }]
 }, {
   timestamps: true
 });
@@ -1331,6 +1441,75 @@ employeeSchema.statics.updateEmployeePayrolls = async function(employeeId) {
     updatedPayrolls: updatedCount,
     totalPayrolls: relatedPayrolls.length
   };
+};
+
+// IT Asset Management Methods
+employeeSchema.methods.assignAsset = async function(assetId, assignedBy, assignmentData) {
+  const assetAssignment = {
+    asset: assetId,
+    assignedDate: new Date(),
+    assignedBy: assignedBy,
+    status: 'Active',
+    ...assignmentData
+  };
+  
+  this.assignedAssets.push(assetAssignment);
+  await this.save();
+  return assetAssignment;
+};
+
+employeeSchema.methods.returnAsset = async function(assetId, returnData) {
+  const assetAssignment = this.assignedAssets.find(
+    assignment => assignment.asset.toString() === assetId.toString() && assignment.status === 'Active'
+  );
+  
+  if (assetAssignment) {
+    assetAssignment.status = 'Returned';
+    assetAssignment.returnDate = new Date();
+    Object.assign(assetAssignment, returnData);
+    await this.save();
+    return assetAssignment;
+  }
+  
+  return null;
+};
+
+employeeSchema.methods.assignLicense = async function(softwareId, assignedBy, assignmentData) {
+  const licenseAssignment = {
+    software: softwareId,
+    assignedDate: new Date(),
+    assignedBy: assignedBy,
+    status: 'Active',
+    ...assignmentData
+  };
+  
+  this.assignedLicenses.push(licenseAssignment);
+  await this.save();
+  return licenseAssignment;
+};
+
+employeeSchema.methods.revokeLicense = async function(softwareId, revocationData) {
+  const licenseAssignment = this.assignedLicenses.find(
+    assignment => assignment.software.toString() === softwareId.toString() && assignment.status === 'Active'
+  );
+  
+  if (licenseAssignment) {
+    licenseAssignment.status = 'Revoked';
+    licenseAssignment.revokedDate = new Date();
+    Object.assign(licenseAssignment, revocationData);
+    await this.save();
+    return licenseAssignment;
+  }
+  
+  return null;
+};
+
+employeeSchema.methods.getActiveAssets = function() {
+  return this.assignedAssets.filter(assignment => assignment.status === 'Active');
+};
+
+employeeSchema.methods.getActiveLicenses = function() {
+  return this.assignedLicenses.filter(assignment => assignment.status === 'Active');
 };
 
 module.exports = mongoose.model('Employee', employeeSchema); 

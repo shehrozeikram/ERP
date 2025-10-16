@@ -31,7 +31,9 @@ import {
   AttachMoney as SalaryIcon,
   Update as UpdateIcon,
   AccountBalance as LoanIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  EventNote as EventNoteIcon,
+  Sync as SyncIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -39,6 +41,8 @@ import api from '../../services/api';
 import { useData } from '../../contexts/DataContext';
 import ArrearsDialog from '../../components/ArrearsDialog';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
+import leaveService from '../../services/leaveService';
+import TextField from '@mui/material/TextField';
 
 const EmployeeView = () => {
   const { id } = useParams();
@@ -53,6 +57,17 @@ const EmployeeView = () => {
   const [loans, setLoans] = useState([]);
   const [loansLoading, setLoansLoading] = useState(false);
   const [arrearsDialog, setArrearsDialog] = useState({ open: false, editData: null });
+  
+  // Leave management states
+  const [leaveSummary, setLeaveSummary] = useState(null);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveConfigDialog, setLeaveConfigDialog] = useState(false);
+  const [leaveConfig, setLeaveConfig] = useState({
+    annualLimit: 20,
+    sickLimit: 10,
+    casualLimit: 10,
+    useGlobalDefaults: true
+  });
 
   const fetchEmployee = async () => {
     if (!id) return;
@@ -138,6 +153,7 @@ const EmployeeView = () => {
   useEffect(() => {
     fetchEmployee();
     fetchLoans();
+    fetchLeaveData();
   }, [id]);
 
   const fetchLoans = async () => {
@@ -150,6 +166,45 @@ const EmployeeView = () => {
       console.error('Error fetching loans:', error);
     } finally {
       setLoansLoading(false);
+    }
+  };
+
+  const fetchLeaveData = async () => {
+    if (!id) return;
+    setLeaveLoading(true);
+    try {
+      const response = await leaveService.getEmployeeLeaveSummary(id);
+      setLeaveSummary(response.data);
+      if (response.data.leaveConfig) {
+        setLeaveConfig(response.data.leaveConfig);
+      }
+    } catch (error) {
+      console.error('Error fetching leave data:', error);
+    } finally {
+      setLeaveLoading(false);
+    }
+  };
+
+  const handleUpdateLeaveConfig = async () => {
+    try {
+      await leaveService.updateEmployeeLeaveConfig(id, leaveConfig);
+      setSnackbar({ open: true, message: 'Leave configuration updated successfully', severity: 'success' });
+      setLeaveConfigDialog(false);
+      fetchLeaveData();
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to update leave configuration', severity: 'error' });
+    }
+  };
+
+  const handleSyncLeaveBalance = async () => {
+    try {
+      setLeaveLoading(true);
+      await leaveService.syncEmployeeLeaveBalance(id);
+      setSnackbar({ open: true, message: 'Leave balance synced successfully', severity: 'success' });
+      fetchLeaveData();
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Failed to sync leave balance', severity: 'error' });
+      setLeaveLoading(false);
     }
   };
 
@@ -622,6 +677,159 @@ const EmployeeView = () => {
           </Card>
         </Grid>
 
+        {/* Leave Balance Information */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <EventNoteIcon />
+                  Leave Balance ({new Date().getFullYear()})
+                </Typography>
+                <Box>
+                  <Button
+                    size="small"
+                    startIcon={<SyncIcon />}
+                    onClick={handleSyncLeaveBalance}
+                    disabled={leaveLoading}
+                    sx={{ mr: 1 }}
+                  >
+                    Sync
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<EditIcon />}
+                    onClick={() => setLeaveConfigDialog(true)}
+                  >
+                    Configure
+                  </Button>
+                </Box>
+              </Box>
+              
+              {leaveLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress />
+                </Box>
+              ) : leaveSummary ? (
+                <Grid container spacing={2}>
+                  {/* Annual Leave */}
+                  <Grid item xs={12}>
+                    <Box sx={{ p: 2, bgcolor: 'primary.light', borderRadius: 1 }}>
+                      <Typography variant="body2" sx={{ color: 'primary.contrastText', fontWeight: 'medium' }}>
+                        Annual Leave
+                      </Typography>
+                      <Typography variant="h5" sx={{ color: 'primary.contrastText', fontWeight: 'bold' }}>
+                        {leaveSummary.balance.annual.remaining} / {leaveSummary.balance.annual.allocated}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Typography variant="caption" sx={{ color: 'primary.contrastText' }}>
+                          Used: {leaveSummary.balance.annual.used}
+                        </Typography>
+                        {leaveSummary.balance.annual.carriedForward > 0 && (
+                          <Chip 
+                            label={`CF: ${leaveSummary.balance.annual.carriedForward}`} 
+                            size="small" 
+                            sx={{ bgcolor: 'success.main', color: 'white', height: 20 }}
+                          />
+                        )}
+                        {leaveSummary.balance.annual.advance > 0 && (
+                          <Chip 
+                            label={`Advance: ${leaveSummary.balance.annual.advance}`} 
+                            size="small" 
+                            color="error"
+                            sx={{ height: 20 }}
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                  </Grid>
+                  
+                  {/* Sick Leave */}
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary" fontWeight="medium">
+                      Sick Leave
+                    </Typography>
+                    <Typography variant="h6" fontWeight="bold">
+                      {leaveSummary.balance.sick.remaining} / {leaveSummary.balance.sick.allocated}
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Typography variant="caption" color="textSecondary">
+                        Used: {leaveSummary.balance.sick.used}
+                      </Typography>
+                      {leaveSummary.balance.sick.advance > 0 && (
+                        <Chip 
+                          label={`Adv: ${leaveSummary.balance.sick.advance}`} 
+                          size="small" 
+                          color="error"
+                          sx={{ height: 18, fontSize: '0.7rem' }}
+                        />
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  {/* Casual Leave */}
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary" fontWeight="medium">
+                      Casual Leave
+                    </Typography>
+                    <Typography variant="h6" fontWeight="bold">
+                      {leaveSummary.balance.casual.remaining} / {leaveSummary.balance.casual.allocated}
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Typography variant="caption" color="textSecondary">
+                        Used: {leaveSummary.balance.casual.used}
+                      </Typography>
+                      {leaveSummary.balance.casual.advance > 0 && (
+                        <Chip 
+                          label={`Adv: ${leaveSummary.balance.casual.advance}`} 
+                          size="small" 
+                          color="error"
+                          sx={{ height: 18, fontSize: '0.7rem' }}
+                        />
+                      )}
+                    </Box>
+                  </Grid>
+                  
+                  {/* Statistics */}
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Typography variant="caption" color="textSecondary">
+                      Total Requests: {leaveSummary.statistics.totalRequests} | 
+                      Approved: {leaveSummary.statistics.approved} | 
+                      Pending: {leaveSummary.statistics.pending}
+                    </Typography>
+                  </Grid>
+                  
+                  {/* Advance Leave Warning */}
+                  {leaveSummary.balance.totalAdvanceLeaves > 0 && (
+                    <Grid item xs={12}>
+                      <Alert severity="warning" sx={{ py: 0.5 }}>
+                        <Typography variant="caption">
+                          Total Advance Leaves: {leaveSummary.balance.totalAdvanceLeaves} days - Will be deducted from payroll
+                        </Typography>
+                      </Alert>
+                    </Grid>
+                  )}
+                </Grid>
+              ) : (
+                <Typography variant="body2" color="textSecondary">
+                  No leave data available
+                </Typography>
+              )}
+              
+              <Button 
+                fullWidth 
+                variant="outlined" 
+                size="small"
+                sx={{ mt: 2 }}
+                onClick={() => navigate(`/hr/leaves/employee/${id}`)}
+              >
+                View Leave History
+              </Button>
+            </CardContent>
+          </Card>
+        </Grid>
+
         {/* Arrears Information */}
         <Grid item xs={12} md={6}>
           <Card>
@@ -974,6 +1182,73 @@ const EmployeeView = () => {
           fetchEmployee();
         }}
       />
+
+      {/* Leave Configuration Dialog */}
+      <Dialog open={leaveConfigDialog} onClose={() => setLeaveConfigDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Configure Leave Limits</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={leaveConfig.useGlobalDefaults}
+                    onChange={(e) => setLeaveConfig({ ...leaveConfig, useGlobalDefaults: e.target.checked })}
+                  />
+                }
+                label="Use Global Defaults (20, 10, 10)"
+              />
+            </Grid>
+            
+            {!leaveConfig.useGlobalDefaults && (
+              <>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Annual Leave Limit"
+                    type="number"
+                    value={leaveConfig.annualLimit}
+                    onChange={(e) => setLeaveConfig({ ...leaveConfig, annualLimit: parseInt(e.target.value) || 0 })}
+                    inputProps={{ min: 0, max: 365 }}
+                    helperText="Number of annual leave days per year"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Sick Leave Limit"
+                    type="number"
+                    value={leaveConfig.sickLimit}
+                    onChange={(e) => setLeaveConfig({ ...leaveConfig, sickLimit: parseInt(e.target.value) || 0 })}
+                    inputProps={{ min: 0, max: 365 }}
+                    helperText="Number of sick leave days per year"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Casual Leave Limit"
+                    type="number"
+                    value={leaveConfig.casualLimit}
+                    onChange={(e) => setLeaveConfig({ ...leaveConfig, casualLimit: parseInt(e.target.value) || 0 })}
+                    inputProps={{ min: 0, max: 365 }}
+                    helperText="Number of casual leave days per year"
+                  />
+                </Grid>
+              </>
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLeaveConfigDialog(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleUpdateLeaveConfig}
+          >
+            Save Configuration
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

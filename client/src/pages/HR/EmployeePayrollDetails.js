@@ -39,6 +39,7 @@ import {
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import api from '../../services/api';
+import leaveService from '../../services/leaveService';
 
 // Months array for month name lookup
 const months = [
@@ -64,11 +65,28 @@ const EmployeePayrollDetails = () => {
   const [employeeData, setEmployeeData] = useState(null);
   const [payslipModal, setPayslipModal] = useState({ open: false, data: null });
   const [employeeLoans, setEmployeeLoans] = useState([]);
+  const [leaveBalance, setLeaveBalance] = useState(null);
+  const [leaveLoading, setLeaveLoading] = useState(false);
 
   useEffect(() => {
     fetchEmployeePayrollDetails();
     fetchEmployeeLoans();
+    fetchEmployeeLeaveBalance();
   }, [employeeId]);
+
+  const fetchEmployeeLeaveBalance = async () => {
+    try {
+      setLeaveLoading(true);
+      const currentYear = new Date().getFullYear();
+      const response = await leaveService.getEmployeeLeaveSummary(employeeId, currentYear);
+      setLeaveBalance(response.data);
+    } catch (error) {
+      console.error('Error fetching leave balance:', error);
+      // Don't set error state, just log it - leave data is optional
+    } finally {
+      setLeaveLoading(false);
+    }
+  };
 
   const fetchEmployeePayrollDetails = async () => {
     try {
@@ -102,15 +120,29 @@ const EmployeePayrollDetails = () => {
       .reduce((total, loan) => total + (loan.monthlyInstallment || 0), 0);
   };
 
-  // Helper function to calculate total deductions including loans
+  // Helper function to calculate advance leave deduction
+  const calculateAdvanceLeaveDeduction = () => {
+    if (!leaveBalance || !leaveBalance.balance) return 0;
+    
+    const totalAdvanceLeaves = leaveBalance.balance.totalAdvanceLeaves || 0;
+    if (totalAdvanceLeaves === 0) return 0;
+    
+    const dailyRate = currentPayroll.dailyRate || (employee?.salary?.basic ? employee.salary.basic / 26 : 0);
+    return totalAdvanceLeaves * dailyRate;
+  };
+
+  // Helper function to calculate total deductions including loans and advance leaves
   const calculateTotalDeductions = () => {
     const loanDeductions = calculateLoanDeductions();
+    const advanceLeaveDeduction = calculateAdvanceLeaveDeduction();
+    
     return (currentPayroll.incomeTax || 0) + 
            (currentPayroll.eobi || 370) + 
            (currentPayroll.healthInsurance || 0) + 
            loanDeductions + 
            (currentPayroll.attendanceDeduction || 0) + 
            (currentPayroll.leaveDeduction || 0) + 
+           advanceLeaveDeduction + 
            (currentPayroll.otherDeductions || 0);
   };
 
@@ -514,6 +546,72 @@ const EmployeePayrollDetails = () => {
                       <TableCell>Leave Deduction Amount</TableCell>
                       <TableCell align="right">{formatPKR((currentPayroll.dailyRate || 0) * (currentPayroll.leaveDays || 0))}</TableCell>
                     </TableRow>
+                    
+                    {/* Advance Leave Deduction */}
+                    {leaveBalance && leaveBalance.balance && leaveBalance.balance.totalAdvanceLeaves > 0 && (
+                      <>
+                        <TableRow>
+                          <TableCell sx={{ bgcolor: 'warning.light', py: 1 }} colSpan={2}>
+                            <Typography variant="body2" fontWeight="bold" color="warning.dark">
+                              Advance Leave Deduction
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                        
+                        {leaveBalance.balance.annual.advance > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              Annual Advance ({leaveBalance.balance.annual.advance} days × {formatPKR(currentPayroll.dailyRate || 0)})
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(leaveBalance.balance.annual.advance * (currentPayroll.dailyRate || 0))}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        {leaveBalance.balance.sick.advance > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              Sick Advance ({leaveBalance.balance.sick.advance} days × {formatPKR(currentPayroll.dailyRate || 0)})
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(leaveBalance.balance.sick.advance * (currentPayroll.dailyRate || 0))}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        {leaveBalance.balance.casual.advance > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              Casual Advance ({leaveBalance.balance.casual.advance} days × {formatPKR(currentPayroll.dailyRate || 0)})
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(leaveBalance.balance.casual.advance * (currentPayroll.dailyRate || 0))}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        <TableRow>
+                          <TableCell sx={{ pl: 4 }}>
+                            <Typography variant="body2" fontWeight="bold">
+                              Total Advance Leave Deduction ({leaveBalance.balance.totalAdvanceLeaves} days)
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold" color="error">
+                              {formatPKR(calculateAdvanceLeaveDeduction())}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      </>
+                    )}
+                    
                     <TableRow>
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formatPKR(currentPayroll.providentFund || 0)}</TableCell>
@@ -592,36 +690,170 @@ const EmployeePayrollDetails = () => {
               <Typography variant="h6" gutterBottom>
                 Leave Deductions (Database Values)
               </Typography>
-              <TableContainer>
-                <Table size="small">
-                  <TableBody>
-                    <TableRow>
-                      <TableCell>Unpaid Leave</TableCell>
-                      <TableCell align="right">{currentPayroll.leaveDeductions?.unpaidLeave || 0}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Sick Leave</TableCell>
-                      <TableCell align="right">{currentPayroll.leaveDeductions?.sickLeave || 0}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Casual Leave</TableCell>
-                      <TableCell align="right">{currentPayroll.leaveDeductions?.casualLeave || 0}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Annual Leave</TableCell>
-                      <TableCell align="right">{currentPayroll.leaveDeductions?.annualLeave || 0}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Other Leave</TableCell>
-                      <TableCell align="right">{currentPayroll.leaveDeductions?.otherLeave || 0}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell>Total Leave Days</TableCell>
-                      <TableCell align="right">{currentPayroll.leaveDeductions?.totalLeaveDays || 0}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              
+              {leaveLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress size={30} />
+                </Box>
+              ) : leaveBalance ? (
+                <TableContainer>
+                  <Table size="small">
+                    <TableBody>
+                      {/* Current Year Leave Balance */}
+                      <TableRow>
+                        <TableCell colSpan={2} sx={{ bgcolor: 'primary.light', py: 1 }}>
+                          <Typography variant="body2" fontWeight="bold">
+                            Current Year Balance ({new Date().getFullYear()})
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Annual Leave</TableCell>
+                        <TableCell align="right">
+                          {leaveBalance.balance.annual.remaining} / {leaveBalance.balance.annual.allocated}
+                          {leaveBalance.balance.annual.advance > 0 && (
+                            <Chip 
+                              label={`Adv: ${leaveBalance.balance.annual.advance}`} 
+                              size="small" 
+                              color="error" 
+                              sx={{ ml: 1, height: 18 }}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Sick Leave</TableCell>
+                        <TableCell align="right">
+                          {leaveBalance.balance.sick.remaining} / {leaveBalance.balance.sick.allocated}
+                          {leaveBalance.balance.sick.advance > 0 && (
+                            <Chip 
+                              label={`Adv: ${leaveBalance.balance.sick.advance}`} 
+                              size="small" 
+                              color="error" 
+                              sx={{ ml: 1, height: 18 }}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Casual Leave</TableCell>
+                        <TableCell align="right">
+                          {leaveBalance.balance.casual.remaining} / {leaveBalance.balance.casual.allocated}
+                          {leaveBalance.balance.casual.advance > 0 && (
+                            <Chip 
+                              label={`Adv: ${leaveBalance.balance.casual.advance}`} 
+                              size="small" 
+                              color="error" 
+                              sx={{ ml: 1, height: 18 }}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      
+                      {/* Advance Leave Deduction Details */}
+                      {leaveBalance.balance.totalAdvanceLeaves > 0 && (
+                        <>
+                          <TableRow>
+                            <TableCell colSpan={2} sx={{ bgcolor: 'warning.light', py: 1 }}>
+                              <Typography variant="body2" fontWeight="bold" color="warning.dark">
+                                Advance Leave Deduction
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                          
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>Total Advance Leaves</TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error" fontWeight="bold">
+                                {leaveBalance.balance.totalAdvanceLeaves} days
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                          
+                          {leaveBalance.balance.annual.advance > 0 && (
+                            <TableRow>
+                              <TableCell sx={{ pl: 4 }}>Annual Advance</TableCell>
+                              <TableCell align="right">{leaveBalance.balance.annual.advance} days</TableCell>
+                            </TableRow>
+                          )}
+                          
+                          {leaveBalance.balance.sick.advance > 0 && (
+                            <TableRow>
+                              <TableCell sx={{ pl: 4 }}>Sick Advance</TableCell>
+                              <TableCell align="right">{leaveBalance.balance.sick.advance} days</TableCell>
+                            </TableRow>
+                          )}
+                          
+                          {leaveBalance.balance.casual.advance > 0 && (
+                            <TableRow>
+                              <TableCell sx={{ pl: 4 }}>Casual Advance</TableCell>
+                              <TableCell align="right">{leaveBalance.balance.casual.advance} days</TableCell>
+                            </TableRow>
+                          )}
+                          
+                          <TableRow>
+                            <TableCell colSpan={2} sx={{ py: 0.5 }}>
+                              <Alert severity="warning" sx={{ py: 0.5 }}>
+                                <Typography variant="caption">
+                                  These advance leaves will be deducted from payroll at the daily rate
+                                </Typography>
+                              </Alert>
+                            </TableCell>
+                          </TableRow>
+                        </>
+                      )}
+                      
+                      {/* Leave Statistics */}
+                      <TableRow>
+                        <TableCell colSpan={2} sx={{ bgcolor: 'info.light', py: 1 }}>
+                          <Typography variant="body2" fontWeight="bold">
+                            Leave Statistics
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Total Requests</TableCell>
+                        <TableCell align="right">{leaveBalance.statistics.totalRequests}</TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Approved</TableCell>
+                        <TableCell align="right">{leaveBalance.statistics.approved}</TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Pending</TableCell>
+                        <TableCell align="right">{leaveBalance.statistics.pending}</TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell>Rejected</TableCell>
+                        <TableCell align="right">{leaveBalance.statistics.rejected}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableBody>
+                      <TableRow>
+                        <TableCell colSpan={2}>
+                          <Alert severity="info">
+                            <Typography variant="body2">
+                              No leave data available. Leave balance will be displayed once leave records are created.
+                            </Typography>
+                          </Alert>
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
             </CardContent>
           </Card>
         </Grid>

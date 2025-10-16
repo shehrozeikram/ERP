@@ -297,6 +297,44 @@ const payrollSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Leave deduction cannot be negative']
   },
+  // Advance leave tracking
+  advanceLeaveDetails: {
+    totalAdvanceLeaves: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total advance leaves cannot be negative']
+    },
+    annualAdvance: {
+      type: Number,
+      default: 0,
+      min: [0, 'Annual advance leaves cannot be negative']
+    },
+    sickAdvance: {
+      type: Number,
+      default: 0,
+      min: [0, 'Sick advance leaves cannot be negative']
+    },
+    casualAdvance: {
+      type: Number,
+      default: 0,
+      min: [0, 'Casual advance leaves cannot be negative']
+    },
+    advanceDeduction: {
+      type: Number,
+      default: 0,
+      min: [0, 'Advance leave deduction cannot be negative']
+    },
+    unpaidDeduction: {
+      type: Number,
+      default: 0,
+      min: [0, 'Unpaid leave deduction cannot be negative']
+    },
+    dailyRate: {
+      type: Number,
+      default: 0,
+      min: [0, 'Daily rate cannot be negative']
+    }
+  },
   // Calculations
   grossSalary: {
     type: Number,

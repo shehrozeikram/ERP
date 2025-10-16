@@ -23,7 +23,8 @@ import {
   ArrowBack as BackIcon,
   Edit as EditIcon,
   Image as ImageIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -70,6 +71,313 @@ const RentalAgreementDetail = ({ onEdit }) => {
       currency: 'PKR',
       minimumFractionDigits: 0
     }).format(amount);
+  };
+
+  const handlePrint = () => {
+    if (!agreement) return;
+    
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank');
+    
+    // Get the current date and time for the print header
+    const printDate = new Date().toLocaleString();
+    
+    // Create the print content HTML with comprehensive styling
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Rental Agreement - ${agreement?.agreementNumber || 'N/A'}</title>
+          <style>
+            body {
+              font-family: 'Arial', sans-serif;
+              margin: 15px;
+              color: #000;
+              line-height: 1.5;
+              font-size: 14px;
+            }
+            .header {
+              text-align: center;
+              border: 3px solid #000;
+              padding: 20px;
+              margin-bottom: 25px;
+              background-color: #f9f9f9;
+            }
+            .header h1 {
+              margin: 0 0 10px 0;
+              color: #000;
+              font-size: 24px;
+              font-weight: bold;
+            }
+            .header .subtitle {
+              color: #333;
+              font-size: 16px;
+              margin-bottom: 8px;
+              font-weight: bold;
+            }
+            .print-date {
+              color: #666;
+              font-size: 12px;
+            }
+            .section {
+              margin-bottom: 25px;
+              page-break-inside: avoid;
+              border: 1px solid #ccc;
+              padding: 15px;
+            }
+            .section-title {
+              background-color: #e0e0e0;
+              padding: 10px 15px;
+              margin: -15px -15px 15px -15px;
+              border-bottom: 2px solid #000;
+              font-weight: bold;
+              font-size: 16px;
+              color: #000;
+              text-transform: uppercase;
+            }
+            .field-row {
+              display: flex;
+              margin-bottom: 8px;
+              border-bottom: 1px dotted #999;
+              padding-bottom: 5px;
+              min-height: 20px;
+            }
+            .field-label {
+              font-weight: bold;
+              min-width: 180px;
+              color: #000;
+              font-size: 13px;
+            }
+            .field-value {
+              flex: 1;
+              color: #000;
+              font-size: 13px;
+              word-wrap: break-word;
+            }
+            .status-chip {
+              display: inline-block;
+              padding: 3px 8px;
+              border: 1px solid #000;
+              font-size: 11px;
+              font-weight: bold;
+              text-transform: uppercase;
+              background-color: #f0f0f0;
+            }
+            .status-active { background-color: #e8f5e8; }
+            .status-expired { background-color: #f8d7da; }
+            .status-terminated { background-color: #fff3cd; }
+            .footer {
+              margin-top: 30px;
+              padding-top: 15px;
+              border-top: 2px solid #000;
+              text-align: center;
+              color: #333;
+              font-size: 11px;
+            }
+            .important-info {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 10px;
+              margin: 10px 0;
+              font-weight: bold;
+            }
+            .record-id {
+              font-family: monospace;
+              background-color: #f8f9fa;
+              padding: 2px 5px;
+              border: 1px solid #ccc;
+            }
+            .agreement-image {
+              max-width: 300px;
+              max-height: 200px;
+              border: 1px solid #ccc;
+              margin: 10px 0;
+            }
+            @media print {
+              body { margin: 0; }
+              .no-print { display: none; }
+              .section { page-break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>RENTAL AGREEMENT</h1>
+            <div class="subtitle">Agreement Number: ${agreement?.agreementNumber || 'N/A'}</div>
+            <div class="print-date">Printed on: ${printDate}</div>
+          </div>
+
+          <!-- Agreement Summary -->
+          <div class="section">
+            <div class="section-title">📋 Agreement Summary</div>
+            <div class="field-row">
+              <div class="field-label">Agreement ID:</div>
+              <div class="field-value"><span class="record-id">${agreement?._id || 'N/A'}</span></div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Status:</div>
+              <div class="field-value">
+                <span class="status-chip status-${agreement?.status?.toLowerCase() || 'active'}">${agreement?.status || 'N/A'}</span>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Agreement Number:</div>
+              <div class="field-value">${agreement?.agreementNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Property Type:</div>
+              <div class="field-value">${agreement?.propertyType || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Monthly Rent:</div>
+              <div class="field-value">${agreement?.monthlyRent ? formatPKR(agreement.monthlyRent) : 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Property Details -->
+          <div class="section">
+            <div class="section-title">🏢 Property Details</div>
+            <div class="field-row">
+              <div class="field-label">Property Address:</div>
+              <div class="field-value">${agreement?.propertyAddress || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Property Size:</div>
+              <div class="field-value">${agreement?.propertySize || 'N/A'} ${agreement?.sizeUnit || ''}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Property Description:</div>
+              <div class="field-value">${agreement?.propertyDescription || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Furnished:</div>
+              <div class="field-value">${agreement?.furnished ? 'Yes' : 'No'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Parking Available:</div>
+              <div class="field-value">${agreement?.parkingAvailable ? 'Yes' : 'No'}</div>
+            </div>
+          </div>
+
+          <!-- Tenant Details -->
+          <div class="section">
+            <div class="section-title">👤 Tenant Details</div>
+            <div class="field-row">
+              <div class="field-label">Tenant Name:</div>
+              <div class="field-value">${agreement?.tenantName || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Tenant CNIC:</div>
+              <div class="field-value">${agreement?.tenantCNIC || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Tenant Phone:</div>
+              <div class="field-value">${agreement?.tenantPhone || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Tenant Email:</div>
+              <div class="field-value">${agreement?.tenantEmail || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Tenant Address:</div>
+              <div class="field-value">${agreement?.tenantAddress || 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Agreement Terms -->
+          <div class="section">
+            <div class="section-title">📝 Agreement Terms</div>
+            <div class="field-row">
+              <div class="field-label">Start Date:</div>
+              <div class="field-value">${agreement?.startDate ? format(new Date(agreement.startDate), 'dd/MM/yyyy') : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">End Date:</div>
+              <div class="field-value">${agreement?.endDate ? format(new Date(agreement.endDate), 'dd/MM/yyyy') : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Security Deposit:</div>
+              <div class="field-value">${agreement?.securityDeposit ? formatPKR(agreement.securityDeposit) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Advance Payment:</div>
+              <div class="field-value">${agreement?.advancePayment ? formatPKR(agreement.advancePayment) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Payment Terms:</div>
+              <div class="field-value">${agreement?.paymentTerms || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Special Terms:</div>
+              <div class="field-value">${agreement?.specialTerms || 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Agreement Image -->
+          ${agreement?.agreementImage ? `
+          <div class="section">
+            <div class="section-title">📷 Agreement Image</div>
+            <div class="field-row">
+              <div class="field-label">Image:</div>
+              <div class="field-value">
+                <img src="${getImageUrl(agreement.agreementImage)}" alt="Agreement Image" class="agreement-image" />
+              </div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- System Information -->
+          <div class="section">
+            <div class="section-title">ℹ️ System Information</div>
+            <div class="field-row">
+              <div class="field-label">Created Date:</div>
+              <div class="field-value">${agreement?.createdAt ? new Date(agreement.createdAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Last Updated:</div>
+              <div class="field-value">${agreement?.updatedAt ? new Date(agreement.updatedAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Record Version:</div>
+              <div class="field-value">${agreement?.__v || '0'}</div>
+            </div>
+          </div>
+
+          <!-- Additional Information -->
+          <div class="section">
+            <div class="section-title">📝 Additional Information</div>
+            <div class="important-info">
+              This document contains all available information for Rental Agreement ${agreement?.agreementNumber || agreement?._id || 'N/A'}
+            </div>
+            <div class="field-row">
+              <div class="field-label">Total Fields:</div>
+              <div class="field-value">${Object.keys(agreement || {}).length} data fields</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Document Status:</div>
+              <div class="field-value">Complete - All available data included</div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p><strong>Generated from SGC ERP System - Rental Agreements Module</strong></p>
+            <p>Agreement ID: <span class="record-id">${agreement?._id || 'N/A'}</span> | Printed: ${printDate}</p>
+            <p>This is a complete record printout containing all available information</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Write the content to the new window
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+
+    // Wait for content to load, then trigger print
+    printWindow.onload = function() {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    };
   };
 
 
@@ -149,12 +457,19 @@ const RentalAgreementDetail = ({ onEdit }) => {
         <Typography variant="h4" component="h1">
           Rental Agreement Details
         </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<PrintIcon />}
+          onClick={handlePrint}
+          sx={{ ml: 'auto', mr: 1 }}
+        >
+          Print
+        </Button>
         {onEdit && (
           <Button
             variant="contained"
             startIcon={<EditIcon />}
             onClick={() => onEdit(agreement)}
-            sx={{ ml: 'auto' }}
           >
             Edit
           </Button>

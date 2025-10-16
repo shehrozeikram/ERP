@@ -30,7 +30,8 @@ import {
   CardMedia,
   Stack,
   Divider,
-  Skeleton
+  Skeleton,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -51,6 +52,7 @@ const RentalAgreementList = () => {
   const navigate = useNavigate();
   const [agreements, setAgreements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAgreement, setEditingAgreement] = useState(null);
   const [formData, setFormData] = useState({
@@ -197,18 +199,87 @@ const RentalAgreementList = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Clear previous errors
+    setError('');
+    setSuccess('');
+    
     try {
+      // Validate required fields
+      const requiredFields = ['agreementNumber', 'propertyName', 'propertyAddress', 'landlordName', 'landlordContact', 'monthlyRent', 'startDate', 'endDate'];
+      const missingFields = requiredFields.filter(field => {
+        const value = formData[field];
+        return !value || value.toString().trim() === '' || value === '';
+      });
+      
+      if (missingFields.length > 0) {
+        setError(`Please fill in all required fields: ${missingFields.join(', ')}`);
+        console.log('❌ Validation failed - missing fields:', missingFields);
+        return;
+      }
+
+      // Validate dates
+      if (new Date(formData.startDate) >= new Date(formData.endDate)) {
+        setError('End date must be after start date');
+        console.log('❌ Validation failed - invalid date range');
+        return;
+      }
+
+      // Validate numbers
+      if (isNaN(formData.monthlyRent) || formData.monthlyRent <= 0) {
+        setError('Monthly rent must be a positive number');
+        console.log('❌ Validation failed - invalid monthly rent');
+        return;
+      }
+
+      if (formData.securityDeposit && (isNaN(formData.securityDeposit) || formData.securityDeposit < 0)) {
+        setError('Security deposit must be a positive number');
+        console.log('❌ Validation failed - invalid security deposit');
+        return;
+      }
+
+      console.log('✅ All validations passed');
+
+      console.log('📊 Form Data to Submit:', formData);
+      console.log('📊 Required Fields Check:');
+      requiredFields.forEach(field => {
+        const value = formData[field];
+        console.log(`  ${field}: "${value}" (type: ${typeof value}, empty: ${!value || value.toString().trim() === '' || value === ''})`);
+      });
+      
+      // Double-check validation before API call
+      const finalValidation = requiredFields.every(field => {
+        const value = formData[field];
+        return value && value.toString().trim() !== '' && value !== '';
+      });
+      
+      if (!finalValidation) {
+        setError('Validation failed. Please fill in all required fields.');
+        console.log('❌ Final validation failed - aborting API call');
+        return;
+      }
+      
+      console.log('✅ Final validation passed - proceeding with API call');
+      
       const formDataToSend = new FormData();
       
-      // Append form data
+      // Append form data - convert empty strings to undefined for required fields
       Object.keys(formData).forEach(key => {
-        formDataToSend.append(key, formData[key]);
+        const value = formData[key];
+        // For required fields, don't send empty strings
+        if (requiredFields.includes(key) && (!value || value.toString().trim() === '')) {
+          console.log(`⚠️ Skipping empty required field: ${key}`);
+          return;
+        }
+        formDataToSend.append(key, value);
       });
 
       // Append image if selected
       if (selectedImage) {
         formDataToSend.append('agreementImage', selectedImage);
       }
+
+      console.log('📤 Sending FormData to API...');
 
       if (editingAgreement) {
         await api.put(`/rental-agreements/${editingAgreement._id}`, formDataToSend, {
@@ -231,19 +302,35 @@ const RentalAgreementList = () => {
       }, 1500);
     } catch (error) {
       console.error('Error saving agreement:', error);
-      setError(error.response?.data?.message || 'Failed to save rental agreement');
+      
+      // Show more specific error messages
+      if (error.response?.data?.message) {
+        setError(`Failed to save rental agreement: ${error.response.data.message}`);
+      } else if (error.response?.status === 400) {
+        setError('Invalid data provided. Please check all fields and try again.');
+      } else if (error.response?.status === 401) {
+        setError('You are not authorized to perform this action.');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to create rental agreements.');
+      } else {
+        setError('Failed to save rental agreement. Please try again.');
+      }
     }
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this rental agreement?')) {
+      setDeleting(true);
+      setError('');
       try {
         await api.delete(`/rental-agreements/${id}`);
         setSuccess('Rental agreement deleted successfully');
-        fetchAgreements();
+        await fetchAgreements(); // Wait for agreements to reload
       } catch (error) {
         console.error('Error deleting agreement:', error);
         setError('Failed to delete rental agreement');
+      } finally {
+        setDeleting(false);
       }
     }
   };
@@ -411,8 +498,9 @@ const RentalAgreementList = () => {
                         onClick={() => handleDelete(agreement._id)}
                         color="error"
                         title="Delete"
+                        disabled={deleting}
                       >
-                        <DeleteIcon />
+                        {deleting ? <CircularProgress size={16} /> : <DeleteIcon />}
                       </IconButton>
                     </TableCell>
                   </TableRow>

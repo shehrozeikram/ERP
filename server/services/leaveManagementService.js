@@ -2,9 +2,11 @@ const LeaveRequest = require('../models/hr/LeaveRequest');
 const LeaveType = require('../models/hr/LeaveType');
 const LeavePolicy = require('../models/hr/LeavePolicy');
 const Employee = require('../models/hr/Employee');
+const LeaveBalance = require('../models/hr/LeaveBalance');
 const Attendance = require('../models/hr/Attendance');
 const Payroll = require('../models/hr/Payroll');
 const mongoose = require('mongoose');
+const LeaveIntegrationService = require('./leaveIntegrationService');
 
 class LeaveManagementService {
   // Initialize default leave types
@@ -14,13 +16,13 @@ class LeaveManagementService {
         name: 'Annual Leave',
         code: 'ANNUAL',
         description: 'Annual vacation leave',
-        daysPerYear: 14,
+        daysPerYear: 20,
         isPaid: true,
         requiresApproval: true,
-        maxConsecutiveDays: 14,
+        maxConsecutiveDays: 20,
         advanceNoticeDays: 1,
         carryForwardAllowed: true,
-        maxCarryForwardDays: 7,
+        maxCarryForwardDays: 10,
         color: '#3B82F6'
       },
       {
@@ -36,17 +38,30 @@ class LeaveManagementService {
         color: '#10B981'
       },
       {
-        name: 'Medical Leave',
-        code: 'MEDICAL',
+        name: 'Sick Leave',
+        code: 'SICK',
         description: 'Sick leave for medical reasons',
-        daysPerYear: 8,
+        daysPerYear: 10,
         isPaid: true,
         requiresApproval: true,
-        maxConsecutiveDays: 8,
+        maxConsecutiveDays: 10,
         advanceNoticeDays: 0,
         carryForwardAllowed: false,
         requiresMedicalCertificate: true,
         color: '#EF4444'
+      },
+      {
+        name: 'Medical Leave',
+        code: 'MEDICAL',
+        description: 'Medical leave for health issues',
+        daysPerYear: 10,
+        isPaid: true,
+        requiresApproval: true,
+        maxConsecutiveDays: 10,
+        advanceNoticeDays: 0,
+        carryForwardAllowed: false,
+        requiresMedicalCertificate: true,
+        color: '#DC2626'
       },
       {
         name: 'Maternity Leave',
@@ -92,11 +107,11 @@ class LeaveManagementService {
         description: 'Default leave policy for all employees',
         leaveAllocation: {
           annual: {
-            days: 14,
+            days: 20,
             accrualMethod: 'yearly',
             carryForward: {
               allowed: true,
-              maxDays: 7,
+              maxDays: 10,
               expiryMonths: 12
             }
           },
@@ -109,7 +124,7 @@ class LeaveManagementService {
             }
           },
           medical: {
-            days: 8,
+            days: 10,
             accrualMethod: 'yearly',
             carryForward: {
               allowed: false,
@@ -169,26 +184,37 @@ class LeaveManagementService {
         throw new Error('Leave type not found');
       }
 
-      // Check leave balance
+      // Check leave balance (informational - we allow advance leaves)
       const leaveBalance = await this.getEmployeeLeaveBalance(leaveData.employee, leaveData.startDate.getFullYear());
       
-      // Check if employee has sufficient leave balance
-      let hasInsufficientBalance = false;
+      // Calculate if this will result in advance leaves
+      let willBeAdvance = false;
+      let advanceDays = 0;
       let availableDays = 0;
       
-      if (leaveType.code === 'ANNUAL' && leaveBalance.annual.remaining < leaveData.totalDays) {
-        hasInsufficientBalance = true;
+      if (leaveType.code === 'ANNUAL' || leaveType.code === 'AL') {
         availableDays = leaveBalance.annual.remaining;
-      } else if (leaveType.code === 'CASUAL' && leaveBalance.casual.remaining < leaveData.totalDays) {
-        hasInsufficientBalance = true;
+        if (leaveBalance.annual.remaining < leaveData.totalDays) {
+          willBeAdvance = true;
+          advanceDays = leaveData.totalDays - leaveBalance.annual.remaining;
+        }
+      } else if (leaveType.code === 'CASUAL' || leaveType.code === 'CL') {
         availableDays = leaveBalance.casual.remaining;
-      } else if (leaveType.code === 'MEDICAL' && leaveBalance.medical.remaining < leaveData.totalDays) {
-        hasInsufficientBalance = true;
-        availableDays = leaveBalance.medical.remaining;
+        if (leaveBalance.casual.remaining < leaveData.totalDays) {
+          willBeAdvance = true;
+          advanceDays = leaveData.totalDays - leaveBalance.casual.remaining;
+        }
+      } else if (leaveType.code === 'MEDICAL' || leaveType.code === 'SICK' || leaveType.code === 'ML' || leaveType.code === 'SL') {
+        availableDays = leaveBalance.medical?.remaining || leaveBalance.sick?.remaining || 0;
+        if (availableDays < leaveData.totalDays) {
+          willBeAdvance = true;
+          advanceDays = leaveData.totalDays - availableDays;
+        }
       }
       
-      if (hasInsufficientBalance) {
-        throw new Error(`Insufficient ${leaveType.name} balance. Available: ${availableDays} days`);
+      // Log warning if advance leaves will be created, but don't reject
+      if (willBeAdvance) {
+        console.log(`⚠️ Leave request will create ${advanceDays} advance days (${advanceDays} days beyond available ${availableDays} days)`);
       }
 
       // Check for overlapping leaves
@@ -527,13 +553,16 @@ class LeaveManagementService {
 
       await leaveRequest.save();
 
-      // Update employee leave balance
+      // Update employee leave balance (backward compatibility)
       await this.updateLeaveBalance(
         leaveRequest.employee, 
         leaveRequest.leaveType, 
         leaveRequest.totalDays, 
         leaveRequest.startDate.getFullYear()
       );
+
+      // Update leave balance using new integration service
+      await LeaveIntegrationService.updateBalanceOnApproval(leaveRequestId);
 
       // Create attendance records for leave days
       await this.createLeaveAttendanceRecords(leaveRequest);

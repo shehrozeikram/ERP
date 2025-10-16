@@ -25,7 +25,7 @@ const leadSchema = new mongoose.Schema({
   phone: {
     type: String,
     trim: true,
-    match: [/^[\+]?[1-9][\d]{0,15}$/, 'Please enter a valid phone number']
+    match: [/^[\+]?[0-9][\d]{0,15}$/, 'Please enter a valid phone number']
   },
   company: {
     type: String,
@@ -43,12 +43,11 @@ const leadSchema = new mongoose.Schema({
     match: [/^https?:\/\/.+/, 'Please enter a valid website URL']
   },
 
-  // Business Information
-  business: {
-    type: String,
-    required: [true, 'Business is required'],
-    enum: ['Taj Residencia', 'Boly.pk', 'SGC General'],
-    default: 'SGC General'
+  // Department Information
+  department: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    required: false // Optional for backward compatibility
   },
 
   // Lead Details
@@ -273,6 +272,24 @@ const leadSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+
+  // Contact Integration - Bidirectional Reference
+  contactId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Contact',
+    default: null
+  },
+  isConvertedToContact: {
+    type: Boolean,
+    default: false
+  },
+  conversionDate: {
+    type: Date
+  },
+  autoCreatedFromContact: {
+    type: Boolean,
+    default: false
   },
 
   // Tags

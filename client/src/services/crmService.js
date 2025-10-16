@@ -256,6 +256,13 @@ const crmService = {
     return api.get('/crm/users');
   },
 
+  // ==================== DEPARTMENTS ====================
+
+  // Get departments for dropdowns
+  getDepartments: async () => {
+    return api.get('/crm/departments');
+  },
+
   // ==================== UTILITY FUNCTIONS ====================
 
   // Format currency

@@ -18,7 +18,7 @@ const router = express.Router();
 // @desc    Generate comprehensive HR reports
 // @access  Private (HR and Admin)
 router.get('/', 
-  authorize('admin', 'hr_manager', 'finance_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const {
       reportType,

@@ -1,7 +1,9 @@
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
 const LeaveRequest = require('../models/hr/LeaveRequest');
+const LeaveBalance = require('../models/hr/LeaveBalance');
 const Attendance = require('../models/hr/Attendance');
+const LeaveIntegrationService = require('./leaveIntegrationService');
 
 /**
  * Payroll Service - Implements Two-Tier Allowance System
@@ -290,6 +292,9 @@ class PayrollService {
         throw new Error('Employee not found');
       }
 
+      // Calculate daily rate
+      const dailyRate = employee.salary?.basic ? employee.salary.basic / 26 : 0; // 26 working days per month
+
       // Get approved leave requests for the month
       const startDate = new Date(year, month - 1, 1);
       const endDate = new Date(year, month, 0);
@@ -308,9 +313,9 @@ class PayrollService {
 
       let totalLeaveDays = 0;
       let unpaidLeaveDays = 0;
-      let leaveDeduction = 0;
+      let unpaidLeaveDeduction = 0;
 
-      // Calculate leave days and deductions
+      // Calculate leave days and unpaid leave deductions
       for (const leaveRequest of leaveRequests) {
         const leaveStart = new Date(leaveRequest.startDate);
         const leaveEnd = new Date(leaveRequest.endDate);
@@ -330,16 +335,45 @@ class PayrollService {
         }
       }
 
-      // Calculate daily rate and deduction
-      if (unpaidLeaveDays > 0 && employee.salary?.basic) {
-        const dailyRate = employee.salary.basic / 26; // 26 working days per month
-        leaveDeduction = unpaidLeaveDays * dailyRate;
+      // Calculate unpaid leave deduction
+      if (unpaidLeaveDays > 0) {
+        unpaidLeaveDeduction = unpaidLeaveDays * dailyRate;
       }
+
+      // Get advance leave deduction from leave integration service
+      let advanceLeaveDeduction = 0;
+      let advanceLeaveDetails = null;
+      
+      try {
+        advanceLeaveDetails = await LeaveIntegrationService.calculateAdvanceLeaveDeduction(
+          employeeId,
+          year,
+          month,
+          dailyRate
+        );
+        advanceLeaveDeduction = advanceLeaveDetails.totalDeduction || 0;
+      } catch (error) {
+        console.error('Error calculating advance leave deduction:', error);
+        // Continue without advance deduction if there's an error
+      }
+
+      // Total leave deduction = unpaid leaves + advance leaves
+      const totalLeaveDeduction = unpaidLeaveDeduction + advanceLeaveDeduction;
 
       return {
         totalLeaveDays,
         unpaidLeaveDays,
-        leaveDeduction,
+        unpaidLeaveDeduction,
+        advanceLeaveDeduction,
+        advanceLeaveDetails: advanceLeaveDetails ? {
+          totalAdvanceLeaves: advanceLeaveDetails.totalAdvanceLeaves,
+          annualAdvance: advanceLeaveDetails.annualAdvance,
+          sickAdvance: advanceLeaveDetails.sickAdvance,
+          casualAdvance: advanceLeaveDetails.casualAdvance,
+          breakdown: advanceLeaveDetails.breakdown
+        } : null,
+        leaveDeduction: totalLeaveDeduction,
+        dailyRate,
         leaveRequests: leaveRequests.map(req => ({
           id: req._id,
           type: req.leaveType.name,
@@ -377,6 +411,19 @@ class PayrollService {
       payroll.leaveDays = leaveDeductions.totalLeaveDays;
       payroll.unpaidLeaveDays = leaveDeductions.unpaidLeaveDays;
       payroll.leaveDeduction = leaveDeductions.leaveDeduction;
+      
+      // Update advance leave details
+      if (leaveDeductions.advanceLeaveDetails) {
+        payroll.advanceLeaveDetails = {
+          totalAdvanceLeaves: leaveDeductions.advanceLeaveDetails.totalAdvanceLeaves,
+          annualAdvance: leaveDeductions.advanceLeaveDetails.annualAdvance,
+          sickAdvance: leaveDeductions.advanceLeaveDetails.sickAdvance,
+          casualAdvance: leaveDeductions.advanceLeaveDetails.casualAdvance,
+          advanceDeduction: leaveDeductions.advanceLeaveDeduction || 0,
+          unpaidDeduction: leaveDeductions.unpaidLeaveDeduction || 0,
+          dailyRate: leaveDeductions.dailyRate || 0
+        };
+      }
 
       // Recalculate total deductions (excluding Provident Fund)
       payroll.totalDeductions = 
@@ -417,6 +464,19 @@ class PayrollService {
       payroll.leaveDays = leaveDeductions.totalLeaveDays;
       payroll.unpaidLeaveDays = leaveDeductions.unpaidLeaveDays;
       payroll.leaveDeduction = leaveDeductions.leaveDeduction;
+      
+      // Update advance leave details
+      if (leaveDeductions.advanceLeaveDetails) {
+        payroll.advanceLeaveDetails = {
+          totalAdvanceLeaves: leaveDeductions.advanceLeaveDetails.totalAdvanceLeaves,
+          annualAdvance: leaveDeductions.advanceLeaveDetails.annualAdvance,
+          sickAdvance: leaveDeductions.advanceLeaveDetails.sickAdvance,
+          casualAdvance: leaveDeductions.advanceLeaveDetails.casualAdvance,
+          advanceDeduction: leaveDeductions.advanceLeaveDeduction || 0,
+          unpaidDeduction: leaveDeductions.unpaidLeaveDeduction || 0,
+          dailyRate: leaveDeductions.dailyRate || 0
+        };
+      }
       
       // Recalculate total deductions (excluding Provident Fund)
       payroll.totalDeductions = 

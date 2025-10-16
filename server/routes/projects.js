@@ -11,7 +11,7 @@ const router = express.Router();
 // @desc    Get all projects
 // @access  Private (HR and Admin)
 router.get('/', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { company, status, search } = req.query;
     
@@ -44,7 +44,7 @@ router.get('/',
 // @desc    Get project by ID
 // @access  Private (HR and Admin)
 router.get('/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -74,7 +74,7 @@ router.get('/:id',
 // @desc    Create new project
 // @access  Private (HR and Admin)
 router.post('/', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').trim().notEmpty().withMessage('Project name is required'),
   body('code').trim().notEmpty().withMessage('Project code is required'),
   body('startDate').notEmpty().withMessage('Start date is required'),
@@ -106,7 +106,7 @@ router.post('/', [
 // @desc    Update project
 // @access  Private (HR and Admin)
 router.put('/:id', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('name').optional().trim().notEmpty().withMessage('Project name is required'),
   body('code').optional().trim().notEmpty().withMessage('Project code is required'),
   body('client').optional().trim().notEmpty().withMessage('Client is required'),
@@ -152,7 +152,7 @@ router.put('/:id', [
 // @desc    Delete project (soft delete)
 // @access  Private (HR and Admin)
 router.delete('/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({

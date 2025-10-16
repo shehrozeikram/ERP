@@ -37,7 +37,7 @@ const upload = multer({
 });
 
 // Get all rental agreements
-router.get('/', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.get('/', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'read'), async (req, res) => {
   try {
     const agreements = await RentalAgreement.find()
       .populate('createdBy', 'firstName lastName')
@@ -50,7 +50,7 @@ router.get('/', authMiddleware, permissions.checkPermission('admin'), async (req
 });
 
 // Get rental agreement by ID
-router.get('/:id', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.get('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'read'), async (req, res) => {
   try {
     const agreement = await RentalAgreement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName');
@@ -66,8 +66,33 @@ router.get('/:id', authMiddleware, permissions.checkPermission('admin'), async (
 });
 
 // Create new rental agreement
-router.post('/', authMiddleware, permissions.checkPermission('admin'), upload.single('agreementImage'), async (req, res) => {
+router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'create'), upload.single('agreementImage'), async (req, res) => {
   try {
+    // Validate date range
+    if (req.body.startDate && req.body.endDate) {
+      const startDate = new Date(req.body.startDate);
+      const endDate = new Date(req.body.endDate);
+      
+      if (startDate >= endDate) {
+        return res.status(400).json({ 
+          message: 'End date must be after start date' 
+        });
+      }
+    }
+
+    // Validate numeric fields
+    if (req.body.monthlyRent && (isNaN(req.body.monthlyRent) || req.body.monthlyRent <= 0)) {
+      return res.status(400).json({ 
+        message: 'Monthly rent must be a positive number' 
+      });
+    }
+
+    if (req.body.securityDeposit && (isNaN(req.body.securityDeposit) || req.body.securityDeposit < 0)) {
+      return res.status(400).json({ 
+        message: 'Security deposit must be a positive number' 
+      });
+    }
+
     const agreementData = {
       ...req.body,
       createdBy: req.user.id
@@ -97,7 +122,7 @@ router.post('/', authMiddleware, permissions.checkPermission('admin'), upload.si
 });
 
 // Update rental agreement
-router.put('/:id', authMiddleware, permissions.checkPermission('admin'), upload.single('agreementImage'), async (req, res) => {
+router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'update'), upload.single('agreementImage'), async (req, res) => {
   try {
     const agreement = await RentalAgreement.findById(req.params.id);
     
@@ -139,7 +164,7 @@ router.put('/:id', authMiddleware, permissions.checkPermission('admin'), upload.
 });
 
 // Delete rental agreement
-router.delete('/:id', authMiddleware, permissions.checkPermission('admin'), async (req, res) => {
+router.delete('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'delete'), async (req, res) => {
   try {
     const agreement = await RentalAgreement.findById(req.params.id);
     

@@ -137,38 +137,24 @@ const Dashboard = () => {
     try {
       setLoading(true);
       
-      // Fetch only essential data for optimal performance
+      // Fetch data using same APIs as Payroll Management page
       const [
+        payrollOverviewResponse,
         employeesResponse,
-        employeesCountResponse,
-        payrollReportResponse,
         attendanceResponse
       ] = await Promise.allSettled([
-        api.get('/hr/employees?limit=100'), // Sample data for active ratio calculation
-        api.get('/hr/employees?limit=1'), // Get total count from response headers
-        api.get('/hr/reports/payroll/monthly', {
-          params: {
-            month: 9, // September 2025 (same as Reports module)
-            year: 2025,
-            department: '',
-            format: 'json'
-          }
-        }),
+        api.get('/payroll/current-overview'), // Same as Payroll Management page
+        api.get('/hr/employees?limit=1000'), // Get all employees for accurate count
         api.get('/attendance?limit=100') // Reduced limit - only need today's data
       ]);
 
       // Process data with error handling
       const employees = employeesResponse.status === 'fulfilled' ? employeesResponse.value.data.data : [];
-      const employeesCountData = employeesCountResponse.status === 'fulfilled' ? employeesCountResponse.value.data : null;
-      const payrollReportData = payrollReportResponse.status === 'fulfilled' && payrollReportResponse.value.data.success 
-        ? payrollReportResponse.value.data.data 
-        : null;
+      const payrollOverviewData = payrollOverviewResponse.status === 'fulfilled' ? payrollOverviewResponse.value.data.data : null;
       const attendance = attendanceResponse.status === 'fulfilled' ? attendanceResponse.value.data.data : [];
 
-
-      // Calculate comprehensive metrics
-      // Use payroll report data for accurate total count, fallback to employee data
-      const totalEmployees = payrollReportData?.summary?.totalEmployees || employees.length;
+      // Calculate comprehensive metrics using same data as Payroll Management page
+      const totalEmployees = payrollOverviewData?.totalEmployees || employees.length;
       
       // Calculate active employees ratio from sample data and apply to total
       const sampleActiveCount = employees.filter(emp => emp.status === 'active' || !emp.status).length;
@@ -178,14 +164,14 @@ const Dashboard = () => {
       
       const totalDepartments = [...new Set(employees.map(emp => emp.department?.name).filter(Boolean))].length;
       
-      // Payroll metrics - Use Reports module data (same as Monthly Payroll Summary)
+      // Payroll metrics - Use same data as Payroll Management page (Total Gross Pay)
       let totalPayrollAmount = 0;
       
-      if (payrollReportData?.summary?.netPay) {
-        // Use Reports module data (same as Monthly Payroll Summary)
-        totalPayrollAmount = payrollReportData.summary.netPay;
+      if (payrollOverviewData?.totalGrossSalary) {
+        // Use payroll overview data (same as Payroll Management page - Total Gross Pay)
+        totalPayrollAmount = payrollOverviewData.totalGrossSalary;
       } else {
-        // Fallback: Use employee gross salary estimation if Reports data unavailable
+        // Fallback: Use employee gross salary estimation if overview data unavailable
         totalPayrollAmount = employees.reduce((sum, emp) => sum + (emp.grossSalary || 0), 0);
       }
       

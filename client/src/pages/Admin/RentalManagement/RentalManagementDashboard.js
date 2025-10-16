@@ -25,7 +25,8 @@ import {
   Skeleton,
   FormControl,
   InputLabel,
-  Select
+  Select,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -37,35 +38,54 @@ import {
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
+import RentalManagementDetail from './RentalManagementDetail';
 
 const RentalManagementDashboard = () => {
   const navigate = useNavigate();
   const [records, setRecords] = useState([]);
-  const [agreements, setAgreements] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [formData, setFormData] = useState({
-    rentalAgreement: '',
-    advancePayment: '',
-    agreementDate: '',
-    vendorIdCard: '',
-    amount: '',
-    description: '',
-    title: '',
-    subtitle: '',
-    location: '',
+    // Company Details
+    parentCompanyName: '',
+    subsidiaryName: '',
+    
+    // Payment Details
+    site: '',
+    paymentType: '',
+    fromDepartment: '',
     custodian: '',
+    date: '',
+    referenceNumber: '',
+    toWhomPaid: '',
+    forWhat: '',
+    amount: '',
+    grandTotal: '',
+    
+    // Rental Agreement
+    rentalAgreement: '',
+    
+    // Authorization Details
+    preparedBy: '',
+    preparedByDesignation: '',
+    verifiedBy: '',
+    verifiedByDesignation: '',
+    approvedBy: '',
+    approvedByDesignation: '',
+    
+    // Status
     status: 'Draft'
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [viewDialog, setViewDialog] = useState({ open: false, record: null });
+  const [rentalAgreements, setRentalAgreements] = useState([]);
 
   useEffect(() => {
     fetchRecords();
-    fetchAgreements();
-    fetchEmployees();
+    fetchRentalAgreements();
   }, []);
 
   const fetchRecords = async () => {
@@ -80,60 +100,62 @@ const RentalManagementDashboard = () => {
     }
   };
 
-  const fetchAgreements = async () => {
+  const fetchRentalAgreements = async () => {
     try {
-      const response = await api.get('/rental-management/agreements/list');
-      setAgreements(response.data);
+      const response = await api.get('/rental-management/rental-agreements/list');
+      setRentalAgreements(response.data);
     } catch (error) {
-      console.error('Error fetching agreements:', error);
+      console.error('Error fetching rental agreements:', error);
     }
   };
 
-  const fetchEmployees = async () => {
-    try {
-      const response = await api.get('/hr/employees?getAll=true');
-      
-      // Filter employees to only show those from Administration department
-      const adminEmployees = (response.data.data || []).filter(emp => 
-        emp.placementDepartment && emp.placementDepartment._id === '68bebffba7f2f0565a67eb50' // Administration department ID
-      );
-      
-      setEmployees(adminEmployees);
-    } catch (error) {
-      console.error('Error fetching employees:', error);
-      setEmployees([]);
-    }
-  };
 
   const handleOpenDialog = (record = null) => {
     if (record) {
       setEditingRecord(record);
       setFormData({
-        rentalAgreement: record.rentalAgreement?._id || '',
-        advancePayment: record.advancePayment || '',
-        agreementDate: record.agreementDate ? format(new Date(record.agreementDate), 'yyyy-MM-dd') : '',
-        vendorIdCard: record.vendorIdCard || '',
-        amount: record.amount || '',
-        description: record.description || '',
-        title: record.title || '',
-        subtitle: record.subtitle || '',
-        location: record.location || '',
+        parentCompanyName: record.parentCompanyName || '',
+        subsidiaryName: record.subsidiaryName || '',
+        site: record.site || '',
+        paymentType: record.paymentType || '',
+        fromDepartment: record.fromDepartment || '',
         custodian: record.custodian || '',
-        status: record.status
+        date: record.date || '',
+        referenceNumber: record.referenceNumber || '',
+        toWhomPaid: record.toWhomPaid || '',
+        forWhat: record.forWhat || '',
+        amount: record.amount || '',
+        grandTotal: record.grandTotal || '',
+        rentalAgreement: record.rentalAgreement?._id || '',
+        preparedBy: record.preparedBy || '',
+        preparedByDesignation: record.preparedByDesignation || '',
+        verifiedBy: record.verifiedBy || '',
+        verifiedByDesignation: record.verifiedByDesignation || '',
+        approvedBy: record.approvedBy || '',
+        approvedByDesignation: record.approvedByDesignation || '',
+        status: record.status || 'Draft'
       });
     } else {
       setEditingRecord(null);
       setFormData({
-        rentalAgreement: '',
-        advancePayment: '',
-        agreementDate: '',
-        vendorIdCard: '',
-        amount: '',
-        description: '',
-        title: '',
-        subtitle: '',
-        location: '',
+        parentCompanyName: '',
+        subsidiaryName: '',
+        site: '',
+        paymentType: '',
+        fromDepartment: '',
         custodian: '',
+        date: '',
+        referenceNumber: '',
+        toWhomPaid: '',
+        forWhat: '',
+        amount: '',
+        grandTotal: '',
+        preparedBy: '',
+        preparedByDesignation: '',
+        verifiedBy: '',
+        verifiedByDesignation: '',
+        approvedBy: '',
+        approvedByDesignation: '',
         status: 'Draft'
       });
     }
@@ -180,28 +202,29 @@ const RentalManagementDashboard = () => {
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this record?')) {
+      setDeleting(true);
+      setError('');
       try {
         await api.delete(`/rental-management/${id}`);
         setSuccess('Record deleted successfully');
-        fetchRecords();
+        await fetchRecords(); // Wait for records to reload
       } catch (error) {
         console.error('Error deleting record:', error);
         setError('Failed to delete record');
+      } finally {
+        setDeleting(false);
       }
     }
   };
 
-  const handleViewDetail = (id) => {
-    navigate(`/admin/rental-management/${id}`);
+  const handleViewDetail = (record) => {
+    setViewDialog({ open: true, record });
   };
 
   const getStatusColor = (status) => {
     switch (status) {
       case 'Draft': return 'default';
-      case 'HOD Admin': return 'info';
-      case 'Audit': return 'primary';
-      case 'Finance': return 'secondary';
-      case 'CEO/President': return 'warning';
+      case 'Submitted': return 'info';
       case 'Approved': return 'success';
       case 'Paid': return 'success';
       case 'Rejected': return 'error';
@@ -211,11 +234,8 @@ const RentalManagementDashboard = () => {
 
   const getNextStatus = (currentStatus) => {
     const statusFlow = {
-      'Draft': 'HOD Admin',
-      'HOD Admin': 'Audit',
-      'Audit': 'Finance',
-      'Finance': 'CEO/President',
-      'CEO/President': 'Approved',
+      'Draft': 'Submitted',
+      'Submitted': 'Approved',
       'Approved': 'Paid'
     };
     return statusFlow[currentStatus];
@@ -241,13 +261,6 @@ const RentalManagementDashboard = () => {
     }
   };
 
-  const formatPKR = (amount) => {
-    return new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
 
   if (loading) {
     return (
@@ -333,12 +346,14 @@ const RentalManagementDashboard = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Property</TableCell>
-                  <TableCell>Advance Payment</TableCell>
-                  <TableCell>Agreement Date</TableCell>
+                  <TableCell>Parent Company</TableCell>
+                  <TableCell>Subsidiary</TableCell>
+                  <TableCell>To Whom Paid</TableCell>
                   <TableCell>Amount</TableCell>
+                  <TableCell>Grand Total</TableCell>
+                  <TableCell>Rental Agreement</TableCell>
+                  <TableCell>Date</TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell>Created Date</TableCell>
                   <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -346,13 +361,33 @@ const RentalManagementDashboard = () => {
                 {records.map((record) => (
                   <TableRow key={record._id}>
                     <TableCell>
-                      {record.rentalAgreement?.propertyName || 'N/A'}
+                      {record.parentCompanyName || 'N/A'}
                     </TableCell>
-                    <TableCell>{formatPKR(record.advancePayment || 0)}</TableCell>
                     <TableCell>
-                      {record.agreementDate ? format(new Date(record.agreementDate), 'dd/MM/yyyy') : 'N/A'}
+                      {record.subsidiaryName || 'N/A'}
                     </TableCell>
-                    <TableCell>{formatPKR(record.amount)}</TableCell>
+                    <TableCell>
+                      {record.toWhomPaid || 'N/A'}
+                    </TableCell>
+                    <TableCell>PKR {record.amount || '0'}</TableCell>
+                    <TableCell>PKR {record.grandTotal || '0'}</TableCell>
+                    <TableCell>
+                      {record.rentalAgreement ? (
+                        <Box>
+                          <Typography variant="body2" fontWeight="medium">
+                            {record.rentalAgreement.agreementNumber}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {record.rentalAgreement.tenantName}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        'N/A'
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {record.date || 'N/A'}
+                    </TableCell>
                     <TableCell>
                       <Chip
                         label={record.status}
@@ -360,11 +395,10 @@ const RentalManagementDashboard = () => {
                         size="small"
                       />
                     </TableCell>
-                    <TableCell>{format(new Date(record.createdAt), 'dd/MM/yyyy')}</TableCell>
                     <TableCell>
                       <IconButton
                         size="small"
-                        onClick={() => handleViewDetail(record._id)}
+                        onClick={() => handleViewDetail(record)}
                         color="info"
                         title="View Details"
                       >
@@ -393,8 +427,9 @@ const RentalManagementDashboard = () => {
                         onClick={() => handleDelete(record._id)}
                         color="error"
                         title="Delete"
+                        disabled={deleting}
                       >
-                        <DeleteIcon />
+                        {deleting ? <CircularProgress size={16} /> : <DeleteIcon />}
                       </IconButton>
                     </TableCell>
                   </TableRow>
@@ -412,6 +447,151 @@ const RentalManagementDashboard = () => {
         <form onSubmit={handleSubmit}>
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>
+              {/* Company Details Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1, color: 'text.secondary' }}>
+                  Company Details
+                </Typography>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Parent Company Name"
+                  name="parentCompanyName"
+                  value={formData.parentCompanyName}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="e.g., Sardar Group of Companies"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Subsidiary Name"
+                  name="subsidiaryName"
+                  value={formData.subsidiaryName}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="e.g., Gun & Country Club"
+                />
+              </Grid>
+
+              {/* Payment Details Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1, color: 'text.secondary' }}>
+                  Payment Details
+                </Typography>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Site"
+                  name="site"
+                  value={formData.site}
+                  onChange={handleInputChange}
+                  placeholder="Enter site location"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Payment Type</InputLabel>
+                  <Select
+                    name="paymentType"
+                    value={formData.paymentType}
+                    onChange={handleInputChange}
+                    label="Payment Type"
+                  >
+                    <MenuItem value="Payable">Payable</MenuItem>
+                    <MenuItem value="Reimbursement">Reimbursement</MenuItem>
+                    <MenuItem value="Advance">Advance</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="From Department"
+                  name="fromDepartment"
+                  value={formData.fromDepartment}
+                  onChange={handleInputChange}
+                  placeholder="Enter department name"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Custodian"
+                  name="custodian"
+                  value={formData.custodian}
+                  onChange={handleInputChange}
+                  placeholder="Enter custodian name"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Date"
+                  name="date"
+                  value={formData.date}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="DD/MM/YYYY"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Reference Number"
+                  name="referenceNumber"
+                  value={formData.referenceNumber}
+                  onChange={handleInputChange}
+                  placeholder="Enter reference number"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="To Whom Paid"
+                  name="toWhomPaid"
+                  value={formData.toWhomPaid}
+                  onChange={handleInputChange}
+                  placeholder="Enter recipient name"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Amount"
+                  name="amount"
+                  value={formData.amount}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="Enter amount"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Grand Total"
+                  name="grandTotal"
+                  value={formData.grandTotal}
+                  onChange={handleInputChange}
+                  required
+                  placeholder="Enter grand total"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="For What"
+                  name="forWhat"
+                  value={formData.forWhat}
+                  onChange={handleInputChange}
+                  multiline
+                  rows={3}
+                  placeholder="Describe the purpose of payment"
+                />
+              </Grid>
               <Grid item xs={12}>
                 <FormControl fullWidth>
                   <InputLabel>Rental Agreement</InputLabel>
@@ -421,136 +601,102 @@ const RentalManagementDashboard = () => {
                     onChange={handleInputChange}
                     label="Rental Agreement"
                   >
-                    {agreements.map((agreement) => (
+                    <MenuItem value="">
+                      <em>Select a rental agreement</em>
+                    </MenuItem>
+                    {rentalAgreements.map((agreement) => (
                       <MenuItem key={agreement._id} value={agreement._id}>
-                        {agreement.propertyName} - {agreement.agreementNumber}
+                        {agreement.agreementNumber} - {agreement.tenantName} ({agreement.propertyAddress})
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Advance Payment"
-                  name="advancePayment"
-                  type="number"
-                  value={formData.advancePayment}
-                  onChange={handleInputChange}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Agreement Date"
-                  name="agreementDate"
-                  type="date"
-                  value={formData.agreementDate}
-                  onChange={handleInputChange}
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Vendor ID Card"
-                  name="vendorIdCard"
-                  value={formData.vendorIdCard}
-                  onChange={handleInputChange}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Amount"
-                  name="amount"
-                  type="number"
-                  value={formData.amount}
-                  onChange={handleInputChange}
-                  required
-                />
-              </Grid>
+
+              {/* Authorization Details Section */}
               <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Status"
-                  name="status"
-                  select
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  required
-                >
-                  <MenuItem value="Draft">Draft</MenuItem>
-                  <MenuItem value="HOD Admin">HOD Admin</MenuItem>
-                  <MenuItem value="Audit">Audit</MenuItem>
-                  <MenuItem value="Finance">Finance</MenuItem>
-                  <MenuItem value="CEO/President">CEO/President</MenuItem>
-                  <MenuItem value="Approved">Approved</MenuItem>
-                  <MenuItem value="Paid">Paid</MenuItem>
-                  <MenuItem value="Rejected">Rejected</MenuItem>
-                </TextField>
+                <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1, color: 'text.secondary' }}>
+                  Authorization Details
+                </Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Title"
-                  name="title"
-                  value={formData.title}
+                  label="Prepared By"
+                  name="preparedBy"
+                  value={formData.preparedBy}
                   onChange={handleInputChange}
+                  placeholder="Enter preparer name"
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Subtitle"
-                  name="subtitle"
-                  value={formData.subtitle}
+                  label="Prepared By Designation"
+                  name="preparedByDesignation"
+                  value={formData.preparedByDesignation}
                   onChange={handleInputChange}
+                  placeholder="Enter designation"
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Location"
-                  name="location"
-                  value={formData.location}
+                  label="Verified By"
+                  name="verifiedBy"
+                  value={formData.verifiedBy}
                   onChange={handleInputChange}
+                  placeholder="Enter verifier name"
                 />
               </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Verified By Designation"
+                  name="verifiedByDesignation"
+                  value={formData.verifiedByDesignation}
+                  onChange={handleInputChange}
+                  placeholder="Enter designation"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Approved By"
+                  name="approvedBy"
+                  value={formData.approvedBy}
+                  onChange={handleInputChange}
+                  placeholder="Enter approver name"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Approved By Designation"
+                  name="approvedByDesignation"
+                  value={formData.approvedByDesignation}
+                  onChange={handleInputChange}
+                  placeholder="Enter designation"
+                />
+              </Grid>
+
+              {/* Status */}
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Custodian</InputLabel>
+                  <InputLabel>Status</InputLabel>
                   <Select
-                    name="custodian"
-                    value={formData.custodian}
+                    name="status"
+                    value={formData.status}
                     onChange={handleInputChange}
-                    label="Custodian"
+                    label="Status"
                   >
-                    <MenuItem value="">
-                      <em>Select Custodian</em>
-                    </MenuItem>
-                    {employees.length === 0 ? (
-                      <MenuItem disabled>No employees found</MenuItem>
-                    ) : (
-                      employees.map(employee => (
-                        <MenuItem key={employee._id} value={employee._id}>
-                          {employee.firstName} {employee.lastName} ({employee.employeeId})
-                        </MenuItem>
-                      ))
-                    )}
+                    <MenuItem value="Draft">Draft</MenuItem>
+                    <MenuItem value="Submitted">Submitted</MenuItem>
+                    <MenuItem value="Approved">Approved</MenuItem>
+                    <MenuItem value="Rejected">Rejected</MenuItem>
+                    <MenuItem value="Paid">Paid</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  multiline
-                  rows={3}
-                />
               </Grid>
             </Grid>
           </DialogContent>
@@ -562,6 +708,17 @@ const RentalManagementDashboard = () => {
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* View Details Modal */}
+      <RentalManagementDetail
+        open={viewDialog.open}
+        onClose={() => setViewDialog({ open: false, record: null })}
+        recordId={viewDialog.record?._id}
+        onEdit={(record) => {
+          setViewDialog({ open: false, record: null });
+          handleOpenDialog(record);
+        }}
+      />
     </Box>
   );
 };

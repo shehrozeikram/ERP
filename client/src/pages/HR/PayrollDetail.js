@@ -619,9 +619,104 @@ const PayrollDetail = () => {
                       <TableCell align="right">{formatPKR(payroll.attendanceDeduction || 0)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>Leave Deduction Amount</TableCell>
-                      <TableCell align="right">{formatPKR((payroll.dailyRate || 0) * (payroll.leaveDays || 0))}</TableCell>
+                      <TableCell>Leave Deduction</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.leaveDeduction || 0)}</TableCell>
                     </TableRow>
+                    
+                    {/* Advance Leave Breakdown */}
+                    {payroll.advanceLeaveDetails && payroll.advanceLeaveDetails.totalAdvanceLeaves > 0 && (
+                      <>
+                        <TableRow>
+                          <TableCell colSpan={2} sx={{ bgcolor: 'warning.light', py: 0.5 }}>
+                            <Typography variant="body2" fontWeight="bold" color="warning.dark">
+                              Advance Leave Breakdown:
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                        
+                        {payroll.advanceLeaveDetails.annualAdvance > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              <Typography variant="body2">
+                                Annual Advance ({payroll.advanceLeaveDetails.annualAdvance} days × {formatPKR(payroll.advanceLeaveDetails.dailyRate)})
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(payroll.advanceLeaveDetails.annualAdvance * payroll.advanceLeaveDetails.dailyRate)}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        {payroll.advanceLeaveDetails.sickAdvance > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              <Typography variant="body2">
+                                Sick Advance ({payroll.advanceLeaveDetails.sickAdvance} days × {formatPKR(payroll.advanceLeaveDetails.dailyRate)})
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(payroll.advanceLeaveDetails.sickAdvance * payroll.advanceLeaveDetails.dailyRate)}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        {payroll.advanceLeaveDetails.casualAdvance > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              <Typography variant="body2">
+                                Casual Advance ({payroll.advanceLeaveDetails.casualAdvance} days × {formatPKR(payroll.advanceLeaveDetails.dailyRate)})
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(payroll.advanceLeaveDetails.casualAdvance * payroll.advanceLeaveDetails.dailyRate)}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        <TableRow>
+                          <TableCell sx={{ pl: 4 }}>
+                            <Typography variant="body2" fontWeight="bold">
+                              Total Advance Deduction ({payroll.advanceLeaveDetails.totalAdvanceLeaves} days)
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold" color="error">
+                              {formatPKR(payroll.advanceLeaveDetails.advanceDeduction)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                        
+                        {payroll.advanceLeaveDetails.unpaidDeduction > 0 && (
+                          <TableRow>
+                            <TableCell sx={{ pl: 4 }}>
+                              <Typography variant="body2">
+                                Unpaid Leave Deduction
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" color="error">
+                                {formatPKR(payroll.advanceLeaveDetails.unpaidDeduction)}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        
+                        <TableRow>
+                          <TableCell colSpan={2} sx={{ py: 0.5 }}>
+                            <Alert severity="info" sx={{ py: 0.5, fontSize: '0.75rem' }}>
+                              Daily Rate: {formatPKR(payroll.advanceLeaveDetails.dailyRate)} (Basic Salary / 26 working days)
+                            </Alert>
+                          </TableCell>
+                        </TableRow>
+                      </>
+                    )}
+                    
                     <TableRow>
                       <TableCell>Provident Fund</TableCell>
                       <TableCell align="right">{formatPKR(payroll.providentFund || 0)}</TableCell>

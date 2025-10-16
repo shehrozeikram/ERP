@@ -38,7 +38,8 @@ import {
   Warning as WarningIcon,
   Info as InfoIcon,
   Close as CloseIcon,
-  Visibility as ViewIcon
+  Visibility as ViewIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import utilityBillService from '../../../services/utilityBillService';
@@ -132,6 +133,334 @@ const UtilityBillDetails = () => {
       month: 'long',
       day: 'numeric'
     });
+  };
+
+  const handlePrint = () => {
+    if (!bill) return;
+    
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank');
+    
+    // Get the current date and time for the print header
+    const printDate = new Date().toLocaleString();
+    
+    // Create the print content HTML with comprehensive styling
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Utility Bill - ${bill?.billNumber || 'N/A'}</title>
+          <style>
+            body {
+              font-family: 'Arial', sans-serif;
+              margin: 15px;
+              color: #000;
+              line-height: 1.5;
+              font-size: 14px;
+            }
+            .header {
+              text-align: center;
+              border: 3px solid #000;
+              padding: 20px;
+              margin-bottom: 25px;
+              background-color: #f9f9f9;
+            }
+            .header h1 {
+              margin: 0 0 10px 0;
+              color: #000;
+              font-size: 24px;
+              font-weight: bold;
+            }
+            .header .subtitle {
+              color: #333;
+              font-size: 16px;
+              margin-bottom: 8px;
+              font-weight: bold;
+            }
+            .print-date {
+              color: #666;
+              font-size: 12px;
+            }
+            .section {
+              margin-bottom: 25px;
+              page-break-inside: avoid;
+              border: 1px solid #ccc;
+              padding: 15px;
+            }
+            .section-title {
+              background-color: #e0e0e0;
+              padding: 10px 15px;
+              margin: -15px -15px 15px -15px;
+              border-bottom: 2px solid #000;
+              font-weight: bold;
+              font-size: 16px;
+              color: #000;
+              text-transform: uppercase;
+            }
+            .field-row {
+              display: flex;
+              margin-bottom: 8px;
+              border-bottom: 1px dotted #999;
+              padding-bottom: 5px;
+              min-height: 20px;
+            }
+            .field-label {
+              font-weight: bold;
+              min-width: 180px;
+              color: #000;
+              font-size: 13px;
+            }
+            .field-value {
+              flex: 1;
+              color: #000;
+              font-size: 13px;
+              word-wrap: break-word;
+            }
+            .status-chip {
+              display: inline-block;
+              padding: 3px 8px;
+              border: 1px solid #000;
+              font-size: 11px;
+              font-weight: bold;
+              text-transform: uppercase;
+              background-color: #f0f0f0;
+            }
+            .status-paid { background-color: #e8f5e8; }
+            .status-pending { background-color: #fff3cd; }
+            .status-overdue { background-color: #f8d7da; }
+            .footer {
+              margin-top: 30px;
+              padding-top: 15px;
+              border-top: 2px solid #000;
+              text-align: center;
+              color: #333;
+              font-size: 11px;
+            }
+            .important-info {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 10px;
+              margin: 10px 0;
+              font-weight: bold;
+            }
+            .record-id {
+              font-family: monospace;
+              background-color: #f8f9fa;
+              padding: 2px 5px;
+              border: 1px solid #ccc;
+            }
+            .bill-image {
+              max-width: 300px;
+              max-height: 200px;
+              border: 1px solid #ccc;
+              margin: 10px 0;
+            }
+            @media print {
+              body { margin: 0; }
+              .no-print { display: none; }
+              .section { page-break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>UTILITY BILL</h1>
+            <div class="subtitle">Bill Number: ${bill?.billNumber || 'N/A'}</div>
+            <div class="print-date">Printed on: ${printDate}</div>
+          </div>
+
+          <!-- Bill Summary -->
+          <div class="section">
+            <div class="section-title">📋 Bill Summary</div>
+            <div class="field-row">
+              <div class="field-label">Bill ID:</div>
+              <div class="field-value"><span class="record-id">${bill?._id || 'N/A'}</span></div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Status:</div>
+              <div class="field-value">
+                <span class="status-chip status-${bill?.status?.toLowerCase() || 'pending'}">${bill?.status || 'N/A'}</span>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Bill Number:</div>
+              <div class="field-value">${bill?.billNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Utility Type:</div>
+              <div class="field-value">${bill?.utilityType || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Total Amount:</div>
+              <div class="field-value">${bill?.amount ? formatCurrency(bill.amount) : 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Bill Details -->
+          <div class="section">
+            <div class="section-title">💡 Bill Details</div>
+            <div class="field-row">
+              <div class="field-label">Provider:</div>
+              <div class="field-value">${bill?.provider || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Account Number:</div>
+              <div class="field-value">${bill?.accountNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Location:</div>
+              <div class="field-value">${bill?.location || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Bill Date:</div>
+              <div class="field-value">${bill?.billDate ? formatDate(bill.billDate) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Due Date:</div>
+              <div class="field-value">${bill?.dueDate ? formatDate(bill.dueDate) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Description:</div>
+              <div class="field-value">${bill?.description || 'N/A'}</div>
+            </div>
+          </div>
+
+          <!-- Reading Information -->
+          ${bill?.previousReading !== undefined ? `
+          <div class="section">
+            <div class="section-title">📊 Reading Information</div>
+            <div class="field-row">
+              <div class="field-label">Previous Reading:</div>
+              <div class="field-value">${bill.previousReading || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Current Reading:</div>
+              <div class="field-value">${bill.currentReading || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Units Consumed:</div>
+              <div class="field-value">${bill.unitsConsumed || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Rate Per Unit:</div>
+              <div class="field-value">${bill.ratePerUnit ? formatCurrency(bill.ratePerUnit) : 'N/A'}</div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- Payment Information -->
+          <div class="section">
+            <div class="section-title">💳 Payment Information</div>
+            <div class="field-row">
+              <div class="field-label">Total Amount:</div>
+              <div class="field-value">${bill?.amount ? formatCurrency(bill.amount) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Paid Amount:</div>
+              <div class="field-value">${bill?.paidAmount ? formatCurrency(bill.paidAmount) : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Remaining Amount:</div>
+              <div class="field-value">${bill?.amount && bill?.paidAmount ? formatCurrency(bill.amount - bill.paidAmount) : 'N/A'}</div>
+            </div>
+            ${bill?.paymentMethod ? `
+            <div class="field-row">
+              <div class="field-label">Payment Method:</div>
+              <div class="field-value">${bill.paymentMethod}</div>
+            </div>
+            ` : ''}
+            ${bill?.paymentDate ? `
+            <div class="field-row">
+              <div class="field-label">Payment Date:</div>
+              <div class="field-value">${formatDate(bill.paymentDate)}</div>
+            </div>
+            ` : ''}
+          </div>
+
+          <!-- Tax Information -->
+          ${bill?.taxes && (bill.taxes.gst > 0 || bill.taxes.other > 0) ? `
+          <div class="section">
+            <div class="section-title">💰 Tax Breakdown</div>
+            ${bill.taxes.gst > 0 ? `
+            <div class="field-row">
+              <div class="field-label">GST:</div>
+              <div class="field-value">${formatCurrency(bill.taxes.gst)}</div>
+            </div>
+            ` : ''}
+            ${bill.taxes.other > 0 ? `
+            <div class="field-row">
+              <div class="field-label">Other Taxes:</div>
+              <div class="field-value">${formatCurrency(bill.taxes.other)}</div>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
+
+          <!-- Bill Image -->
+          ${bill?.billImage ? `
+          <div class="section">
+            <div class="section-title">📷 Bill Image</div>
+            <div class="field-row">
+              <div class="field-label">Image:</div>
+              <div class="field-value">
+                <img src="${getImageUrl(bill.billImage)}" alt="Bill Image" class="bill-image" />
+              </div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- System Information -->
+          <div class="section">
+            <div class="section-title">ℹ️ System Information</div>
+            <div class="field-row">
+              <div class="field-label">Created Date:</div>
+              <div class="field-value">${bill?.createdAt ? new Date(bill.createdAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Last Updated:</div>
+              <div class="field-value">${bill?.updatedAt ? new Date(bill.updatedAt).toLocaleString() : 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Record Version:</div>
+              <div class="field-value">${bill?.__v || '0'}</div>
+            </div>
+          </div>
+
+          <!-- Additional Information -->
+          <div class="section">
+            <div class="section-title">📝 Additional Information</div>
+            <div class="important-info">
+              This document contains all available information for Utility Bill ${bill?.billNumber || bill?._id || 'N/A'}
+            </div>
+            <div class="field-row">
+              <div class="field-label">Total Fields:</div>
+              <div class="field-value">${Object.keys(bill || {}).length} data fields</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Document Status:</div>
+              <div class="field-value">Complete - All available data included</div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <p><strong>Generated from SGC ERP System - Utility Bill Management Module</strong></p>
+            <p>Bill ID: <span class="record-id">${bill?._id || 'N/A'}</span> | Printed: ${printDate}</p>
+            <p>This is a complete record printout containing all available information</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Write the content to the new window
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+
+    // Wait for content to load, then trigger print
+    printWindow.onload = function() {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    };
   };
 
   if (loading) {
@@ -302,6 +631,13 @@ const UtilityBillDetails = () => {
           Utility Bill Details
         </Typography>
         <Box display="flex" gap={2}>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={handlePrint}
+          >
+            Print
+          </Button>
           <Button
             variant="outlined"
             startIcon={<ArrowBackIcon />}

@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize, authMiddleware } = require('../middleware/auth');
@@ -6,7 +7,9 @@ const LeaveRequest = require('../models/hr/LeaveRequest');
 const LeaveType = require('../models/hr/LeaveType');
 const LeavePolicy = require('../models/hr/LeavePolicy');
 const Employee = require('../models/hr/Employee');
+const LeaveBalance = require('../models/hr/LeaveBalance');
 const LeaveManagementService = require('../services/leaveManagementService');
+const LeaveIntegrationService = require('../services/leaveIntegrationService');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -53,7 +56,7 @@ const upload = multer({
 // @access  Private
 router.get('/types', 
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const leaveTypes = await LeaveType.find({ isActive: true })
       .sort({ name: 1 });
@@ -70,7 +73,7 @@ router.get('/types',
 // @access  Private (Admin, HR Manager)
 router.post('/types',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   [
     body('name').notEmpty().withMessage('Leave type name is required'),
     body('code').notEmpty().withMessage('Leave type code is required'),
@@ -109,7 +112,7 @@ router.post('/types',
 // @access  Private (Admin, HR Manager)
 router.get('/employees/balances',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     try {
       const { year = new Date().getFullYear() } = req.query;
@@ -145,9 +148,10 @@ router.get('/employees/balances',
             return {
               ...employee,
               leaveBalance: {
-                annual: { allocated: 14, used: 0, remaining: 14, carriedForward: 0 },
-                casual: { allocated: 10, used: 0, remaining: 10, carriedForward: 0 },
-                medical: { allocated: 8, used: 0, remaining: 8, carriedForward: 0 }
+                annual: { allocated: 20, used: 0, remaining: 20, carriedForward: 0, advance: 0 },
+                casual: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 },
+                sick: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 },
+                medical: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 }
               }
             };
           }
@@ -175,7 +179,7 @@ router.get('/employees/balances',
 // @access  Private (Admin, HR Manager)
 router.get('/requests',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const filters = {
       ...req.query,
@@ -198,7 +202,7 @@ router.get('/requests',
 // @access  Private
 router.get('/requests/:id',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const leaveRequest = await LeaveRequest.findById(req.params.id)
       .populate('employee', 'firstName lastName employeeId email phone')
@@ -226,7 +230,7 @@ router.get('/requests/:id',
 // @access  Private (Admin, HR Manager)
 router.post('/requests',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   upload.single('medicalCertificate'),
   [
     body('employee').isMongoId().withMessage('Valid employee ID is required'),
@@ -277,7 +281,7 @@ router.post('/requests',
 // @access  Private (Admin, HR Manager)
 router.put('/requests/:id/approve',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   [
     body('comments').optional().isLength({ max: 500 }).withMessage('Comments cannot exceed 500 characters')
   ],
@@ -310,7 +314,7 @@ router.put('/requests/:id/approve',
 // @access  Private (Admin, HR Manager)
 router.put('/requests/:id/reject',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   [
     body('reason').notEmpty().withMessage('Rejection reason is required'),
     body('reason').isLength({ max: 500 }).withMessage('Rejection reason cannot exceed 500 characters')
@@ -344,7 +348,7 @@ router.put('/requests/:id/reject',
 // @access  Private
 router.put('/requests/:id/cancel',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   [
     body('reason').notEmpty().withMessage('Cancellation reason is required'),
     body('reason').isLength({ max: 500 }).withMessage('Cancellation reason cannot exceed 500 characters')
@@ -390,27 +394,6 @@ router.put('/requests/:id/cancel',
   })
 );
 
-// ==================== LEAVE BALANCE ROUTES ====================
-
-// @route   GET /api/leaves/balance/:employeeId
-// @desc    Get employee leave balance (HR only)
-// @access  Private (Admin, HR Manager)
-router.get('/balance/:employeeId',
-  authMiddleware,
-  authorize('admin', 'hr_manager'),
-  asyncHandler(async (req, res) => {
-    const { employeeId } = req.params;
-    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
-
-    const balance = await LeaveManagementService.getEmployeeLeaveBalance(employeeId, year);
-
-    res.json({
-      success: true,
-      data: balance
-    });
-  })
-);
-
 // ==================== LEAVE CALENDAR ROUTES ====================
 
 // @route   GET /api/leaves/calendar
@@ -418,7 +401,7 @@ router.get('/balance/:employeeId',
 // @access  Private (Admin, HR Manager)
 router.get('/calendar',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
     const month = req.query.month ? parseInt(req.query.month) : new Date().getMonth() + 1;
@@ -439,7 +422,7 @@ router.get('/calendar',
 // @access  Private (Admin, HR Manager)
 router.get('/policy',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const policy = await LeavePolicy.getActivePolicy();
 
@@ -457,7 +440,7 @@ router.get('/policy',
 // @access  Private (Admin)
 router.post('/initialize',
   authMiddleware,
-  authorize('admin'),
+  authorize('super_admin', 'admin'),
   asyncHandler(async (req, res) => {
     await LeaveManagementService.initializeDefaultLeaveTypes();
     await LeaveManagementService.initializeDefaultLeavePolicy();
@@ -474,7 +457,7 @@ router.post('/initialize',
 // @access  Private (Admin)
 router.post('/carry-forward',
   authMiddleware,
-  authorize('admin'),
+  authorize('super_admin', 'admin'),
   [
     body('year').isInt({ min: 2020, max: 2030 }).withMessage('Valid year is required')
   ],
@@ -504,7 +487,7 @@ router.post('/carry-forward',
 // @access  Private (Admin, HR Manager)
 router.get('/statistics',
   authMiddleware,
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
 
@@ -558,6 +541,435 @@ router.get('/statistics',
     res.json({
       success: true,
       data: stats
+    });
+  })
+);
+
+// @route   GET /api/leaves/reports/department-stats
+// @desc    Get department-wise leave statistics
+// @access  Private (Admin, HR Manager)
+router.get('/reports/department-stats',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month) : null;
+
+    let dateFilter = {
+      startDate: {
+        $gte: new Date(year, 0, 1),
+        $lt: new Date(year + 1, 0, 1)
+      },
+      isActive: true
+    };
+
+    if (month) {
+      dateFilter.startDate = {
+        $gte: new Date(year, month - 1, 1),
+        $lt: new Date(year, month, 0)
+      };
+    }
+
+    const stats = await LeaveRequest.aggregate([
+      { $match: dateFilter },
+      {
+        $lookup: {
+          from: 'employees',
+          localField: 'employee',
+          foreignField: '_id',
+          as: 'employeeInfo'
+        }
+      },
+      { $unwind: '$employeeInfo' },
+      {
+        $lookup: {
+          from: 'departments',
+          localField: 'employeeInfo.department',
+          foreignField: '_id',
+          as: 'departmentInfo'
+        }
+      },
+      { $unwind: '$departmentInfo' },
+      {
+        $group: {
+          _id: '$departmentInfo.name',
+          totalRequests: { $sum: 1 },
+          totalDays: { $sum: '$totalDays' },
+          approvedRequests: {
+            $sum: { $cond: [{ $in: ['$status', ['Approved', 'approved']] }, 1, 0] }
+          },
+          approvedDays: {
+            $sum: { $cond: [{ $in: ['$status', ['Approved', 'approved']] }, '$totalDays', 0] }
+          },
+          pendingRequests: {
+            $sum: { $cond: [{ $in: ['$status', ['Pending', 'pending']] }, 1, 0] }
+          },
+          rejectedRequests: {
+            $sum: { $cond: [{ $in: ['$status', ['Rejected', 'rejected']] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { totalRequests: -1 } }
+    ]);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  })
+);
+
+// @route   GET /api/leaves/reports/employee-stats
+// @desc    Get employee-wise leave statistics
+// @access  Private (Admin, HR Manager)
+router.get('/reports/employee-stats',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month) : null;
+    const department = req.query.department || null;
+    const limit = parseInt(req.query.limit) || 20;
+
+    let dateFilter = {
+      startDate: {
+        $gte: new Date(year, 0, 1),
+        $lt: new Date(year + 1, 0, 1)
+      },
+      isActive: true
+    };
+
+    if (month) {
+      dateFilter.startDate = {
+        $gte: new Date(year, month - 1, 1),
+        $lt: new Date(year, month, 0)
+      };
+    }
+
+    let matchStage = { $match: dateFilter };
+
+    if (department) {
+      matchStage = {
+        $match: {
+          ...dateFilter,
+          'employeeInfo.department': new mongoose.Types.ObjectId(department)
+        }
+      };
+    }
+
+    const stats = await LeaveRequest.aggregate([
+      {
+        $lookup: {
+          from: 'employees',
+          localField: 'employee',
+          foreignField: '_id',
+          as: 'employeeInfo'
+        }
+      },
+      { $unwind: '$employeeInfo' },
+      {
+        $lookup: {
+          from: 'departments',
+          localField: 'employeeInfo.department',
+          foreignField: '_id',
+          as: 'departmentInfo'
+        }
+      },
+      { $unwind: '$departmentInfo' },
+      matchStage,
+      {
+        $group: {
+          _id: '$employee',
+          employeeName: { $first: { $concat: ['$employeeInfo.firstName', ' ', '$employeeInfo.lastName'] } },
+          employeeId: { $first: '$employeeInfo.employeeId' },
+          department: { $first: '$departmentInfo.name' },
+          totalRequests: { $sum: 1 },
+          totalDays: { $sum: '$totalDays' },
+          approvedRequests: {
+            $sum: { $cond: [{ $in: ['$status', ['Approved', 'approved']] }, 1, 0] }
+          },
+          approvedDays: {
+            $sum: { $cond: [{ $in: ['$status', ['Approved', 'approved']] }, '$totalDays', 0] }
+          },
+          pendingRequests: {
+            $sum: { $cond: [{ $in: ['$status', ['Pending', 'pending']] }, 1, 0] }
+          },
+          rejectedRequests: {
+            $sum: { $cond: [{ $in: ['$status', ['Rejected', 'rejected']] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { totalDays: -1 } },
+      { $limit: limit }
+    ]);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  })
+);
+
+// @route   GET /api/leaves/reports/monthly-trends
+// @desc    Get monthly leave trends
+// @access  Private (Admin, HR Manager)
+router.get('/reports/monthly-trends',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+
+    const trends = await LeaveRequest.aggregate([
+      {
+        $match: {
+          startDate: {
+            $gte: new Date(year, 0, 1),
+            $lt: new Date(year + 1, 0, 1)
+          },
+          isActive: true
+        }
+      },
+      {
+        $group: {
+          _id: {
+            month: { $month: '$startDate' },
+            status: '$status'
+          },
+          count: { $sum: 1 },
+          totalDays: { $sum: '$totalDays' }
+        }
+      },
+      {
+        $group: {
+          _id: '$_id.month',
+          data: {
+            $push: {
+              status: '$_id.status',
+              count: '$count',
+              totalDays: '$totalDays'
+            }
+          },
+          totalRequests: { $sum: '$count' },
+          totalDays: { $sum: '$totalDays' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Format the data for frontend consumption
+    const formattedTrends = trends.map(trend => ({
+      month: trend._id,
+      monthName: new Date(year, trend._id - 1).toLocaleString('default', { month: 'long' }),
+      totalRequests: trend.totalRequests,
+      totalDays: trend.totalDays,
+      breakdown: trend.data
+    }));
+
+    res.json({
+      success: true,
+      data: formattedTrends
+    });
+  })
+);
+
+// @route   GET /api/leaves/reports/leave-types
+// @desc    Get leave types for filtering
+// @access  Private (Admin, HR Manager)
+router.get('/reports/leave-types',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const leaveTypes = await LeaveType.find({ isActive: true })
+      .select('name description maxDays')
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: leaveTypes
+    });
+  })
+);
+
+// ==================== EMPLOYEE LEAVE INTEGRATION ROUTES ====================
+
+// @route   GET /api/leaves/employee/:employeeId/summary
+// @desc    Get employee leave summary with balance and history
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/employee/:employeeId/summary',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+
+    const summary = await LeaveIntegrationService.getEmployeeLeaveSummary(employeeId, year);
+
+    res.json({
+      success: true,
+      data: summary
+    });
+  })
+);
+
+// @route   GET /api/leaves/employee/:employeeId/balance
+// @desc    Get employee leave balance for a year
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/employee/:employeeId/balance',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+
+    const balance = await LeaveBalance.getOrCreateBalance(employeeId, year);
+
+    res.json({
+      success: true,
+      data: balance.getSummary()
+    });
+  })
+);
+
+// @route   PUT /api/leaves/employee/:employeeId/config
+// @desc    Update employee leave configuration
+// @access  Private (Admin, HR Manager, Super Admin)
+router.put('/employee/:employeeId/config',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  [
+    body('annualLimit').optional().isInt({ min: 0, max: 365 }).withMessage('Annual limit must be between 0 and 365'),
+    body('sickLimit').optional().isInt({ min: 0, max: 365 }).withMessage('Sick limit must be between 0 and 365'),
+    body('casualLimit').optional().isInt({ min: 0, max: 365 }).withMessage('Casual limit must be between 0 and 365'),
+    body('useGlobalDefaults').optional().isBoolean().withMessage('useGlobalDefaults must be a boolean')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors',
+        errors: errors.array()
+      });
+    }
+
+    const { employeeId } = req.params;
+    const config = req.body;
+
+    const employee = await LeaveIntegrationService.updateEmployeeLeaveConfig(employeeId, config);
+
+    res.json({
+      success: true,
+      message: 'Leave configuration updated successfully',
+      data: {
+        employeeId: employee.employeeId,
+        leaveConfig: employee.leaveConfig
+      }
+    });
+  })
+);
+
+// @route   POST /api/leaves/employee/:employeeId/initialize
+// @desc    Initialize leave balance for an employee
+// @access  Private (Admin, HR Manager, Super Admin)
+router.post('/employee/:employeeId/initialize',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+
+    const balance = await LeaveIntegrationService.initializeEmployeeLeaveBalance(employeeId);
+
+    res.json({
+      success: true,
+      message: 'Leave balance initialized successfully',
+      data: balance.getSummary()
+    });
+  })
+);
+
+// @route   POST /api/leaves/employee/:employeeId/sync
+// @desc    Sync leave balance from approved leave requests
+// @access  Private (Admin, HR Manager, Super Admin)
+router.post('/employee/:employeeId/sync',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+    const year = req.body.year || new Date().getFullYear();
+
+    const balance = await LeaveIntegrationService.syncLeaveBalance(employeeId, year);
+
+    res.json({
+      success: true,
+      message: 'Leave balance synced successfully',
+      data: balance.getSummary()
+    });
+  })
+);
+
+// @route   GET /api/leaves/employee/:employeeId/advance-deduction
+// @desc    Calculate advance leave deduction for payroll
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/employee/:employeeId/advance-deduction',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month) : new Date().getMonth() + 1;
+    const dailyRate = req.query.dailyRate ? parseFloat(req.query.dailyRate) : 0;
+
+    const deduction = await LeaveIntegrationService.calculateAdvanceLeaveDeduction(
+      employeeId,
+      year,
+      month,
+      dailyRate
+    );
+
+    res.json({
+      success: true,
+      data: deduction
+    });
+  })
+);
+
+// @route   GET /api/leaves/employee/:employeeId/monthly-stats
+// @desc    Get monthly leave statistics for payroll period
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/employee/:employeeId/monthly-stats',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month) : new Date().getMonth() + 1;
+
+    const stats = await LeaveIntegrationService.getMonthlyLeaveStats(employeeId, year, month);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  })
+);
+
+// @route   GET /api/leaves/global-config
+// @desc    Get global leave configuration defaults
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/global-config',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    // Return the standard company defaults (20, 10, 10)
+    const config = {
+      annualLimit: 20,
+      sickLimit: 10,
+      casualLimit: 10
+    };
+
+    res.json({
+      success: true,
+      data: config
     });
   })
 );

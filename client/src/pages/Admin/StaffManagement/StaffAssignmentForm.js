@@ -140,10 +140,10 @@ const StaffAssignmentForm = () => {
       if (field === 'assignmentType') {
         if (['Guard', 'Security', 'Maintenance', 'Driver'].includes(newValue)) {
           // Location-based assignments: clear department
-          updatedData.departmentId = '';
+          updatedData.departmentId = null;
         } else if (['Office Boy', 'Office Staff', 'Admin Staff', 'Receptionist'].includes(newValue)) {
           // Department-based assignments: clear location
-          updatedData.locationId = '';
+          updatedData.locationId = null;
         }
       }
       
@@ -158,11 +158,18 @@ const StaffAssignmentForm = () => {
       setLoading(true);
       setError(null);
 
+      // Sanitize form data - convert empty strings to null for ObjectId fields
+      const sanitizedData = {
+        ...formData,
+        departmentId: formData.departmentId === '' ? null : formData.departmentId,
+        locationId: formData.locationId === '' ? null : formData.locationId,
+        reportingManager: formData.reportingManager === '' ? null : formData.reportingManager
+      };
 
       if (isEdit) {
-        await staffAssignmentService.updateStaffAssignment(id, formData);
+        await staffAssignmentService.updateStaffAssignment(id, sanitizedData);
       } else {
-        await staffAssignmentService.createStaffAssignment(formData);
+        await staffAssignmentService.createStaffAssignment(sanitizedData);
       }
 
       navigate('/admin/staff-management');

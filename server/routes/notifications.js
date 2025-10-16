@@ -255,7 +255,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
 // @route   GET /api/notifications/admin/all
 // @desc    Get all notifications (Admin/HR only)
 // @access  Private (Admin/HR)
-router.get('/admin/all', authorize('admin', 'hr_manager'), asyncHandler(async (req, res) => {
+router.get('/admin/all', authorize('super_admin', 'admin', 'hr_manager'), asyncHandler(async (req, res) => {
   const { 
     page = 1, 
     limit = 50,
@@ -301,7 +301,7 @@ router.get('/admin/all', authorize('admin', 'hr_manager'), asyncHandler(async (r
 // @route   DELETE /api/notifications/admin/:id
 // @desc    Delete a notification completely (Admin/HR only)
 // @access  Private (Admin/HR)
-router.delete('/admin/:id', authorize('admin', 'hr_manager'), asyncHandler(async (req, res) => {
+router.delete('/admin/:id', authorize('super_admin', 'admin', 'hr_manager'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   const notification = await Notification.findByIdAndDelete(id);
@@ -322,7 +322,7 @@ router.delete('/admin/:id', authorize('admin', 'hr_manager'), asyncHandler(async
 // @route   POST /api/notifications/admin/cleanup
 // @desc    Clean up expired notifications (Admin/HR only)
 // @access  Private (Admin/HR)
-router.post('/admin/cleanup', authorize('admin', 'hr_manager'), asyncHandler(async (req, res) => {
+router.post('/admin/cleanup', authorize('super_admin', 'admin', 'hr_manager'), asyncHandler(async (req, res) => {
   const result = await NotificationService.deleteExpiredNotifications();
   
   res.json({

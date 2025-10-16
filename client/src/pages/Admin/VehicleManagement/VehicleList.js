@@ -32,7 +32,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Person as PersonIcon,
-  Search as SearchIcon
+  Search as SearchIcon,
+  Visibility as ViewIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import vehicleService from '../../../services/vehicleService';
@@ -260,7 +261,17 @@ const VehicleList = () => {
                     <TableCell>
                       <IconButton
                         size="small"
-                        onClick={() => navigate(`/admin/vehicles/${vehicle._id}`)}
+                        onClick={() => navigate(`/admin/vehicles/${vehicle._id}/view`)}
+                        color="info"
+                        title="View Details"
+                      >
+                        <ViewIcon />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => navigate(`/admin/vehicles/${vehicle._id}/edit`)}
+                        color="primary"
+                        title="Edit Vehicle"
                       >
                         <EditIcon />
                       </IconButton>
@@ -268,6 +279,7 @@ const VehicleList = () => {
                         size="small"
                         color="error"
                         onClick={() => setDeleteDialog({ open: true, vehicle })}
+                        title="Delete Vehicle"
                       >
                         <DeleteIcon />
                       </IconButton>

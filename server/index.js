@@ -18,6 +18,9 @@ require('./models/hr/VehicleLogBook');
 require('./models/hr/VehicleMaintenance');
 require('./models/hr/Vehicle');
 
+// Load IT models
+require('./models/it/PasswordWallet');
+
 // Connect to MongoDB
 connectDB();
 
@@ -28,6 +31,7 @@ const payrollRoutes = require('./routes/payroll');
 const attendanceRoutes = require('./routes/attendance');
 const biometricRoutes = require('./routes/biometric');
 const financeRoutes = require('./routes/finance');
+const financeAdvancedRoutes = require('./routes/financeAdvanced');
 const procurementRoutes = require('./routes/procurement');
 const salesRoutes = require('./routes/sales');
 const crmRoutes = require('./routes/crm');
@@ -77,16 +81,24 @@ const eventRoutes = require('./routes/events');
 const staffAssignmentRoutes = require('./routes/staffAssignments');
 const attendanceProxyRoutes = require('./routes/attendanceProxy');
 const utilityBillRoutes = require('./routes/utilityBills');
+const itRoutes = require('./routes/it');
 const arrearsRoutes = require('./routes/arrears');
 const rentalAgreementRoutes = require('./routes/rentalAgreements');
 const rentalManagementRoutes = require('./routes/rentalManagement');
 const staffManagementRoutes = require('./routes/staffManagement');
+const paymentSettlementRoutes = require('./routes/paymentSettlements');
+const auditRoutes = require('./routes/audit');
+const auditFindingsRoutes = require('./routes/auditFindings');
+const auditTrailRoutes = require('./routes/auditTrail');
+const subRoleRoutes = require('./routes/subRoles');
+const userSubRoleRoutes = require('./routes/userSubRoles');
 
 
 // Import services
 const attendanceService = require('./services/attendanceService');
 const ChangeStreamService = require('./services/changeStreamService');
 const ZKBioTimeWebSocketProxy = require('./services/zkbioTimeWebSocketProxy');
+const itNotificationService = require('./services/itNotificationService');
 
 // Initialize services
 let changeStreamService = null;
@@ -95,6 +107,7 @@ let zkbioTimeWebSocketProxy = null;
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
 const { authMiddleware } = require('./middleware/auth');
+const { logRequest } = require('./middleware/auditTrail');
 
 // Database connection already imported at the top
 
@@ -170,6 +183,7 @@ app.use(cors({
     
     const allowedOrigins = [
       'http://localhost:3000',
+      'http://localhost:5001',
       'http://tovus.net',
       'https://tovus.net',
       'http://www.tovus.net',
@@ -186,6 +200,9 @@ app.use(cors({
   credentials: true,
   optionsSuccessStatus: 200
 }));
+
+// Audit trail middleware (should be early in the middleware stack)
+app.use(logRequest);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -224,7 +241,7 @@ app.use('/api/hr', authMiddleware, hrRoutes);
 app.use('/api/payroll', authMiddleware, payrollRoutes);
 app.use('/api/attendance', authMiddleware, attendanceRoutes);
 app.use('/api/biometric', authMiddleware, biometricRoutes);
-app.use('/api/finance', authMiddleware, financeRoutes);
+app.use('/api/finance', authMiddleware, financeAdvancedRoutes);
 app.use('/api/procurement', authMiddleware, procurementRoutes);
 app.use('/api/sales', authMiddleware, salesRoutes);
 app.use('/api/crm', authMiddleware, crmRoutes);
@@ -283,6 +300,22 @@ app.use('/api/utility-bills', authMiddleware, utilityBillRoutes);
 app.use('/api/hr/arrears', authMiddleware, arrearsRoutes);
 app.use('/api/rental-agreements', authMiddleware, rentalAgreementRoutes);
 app.use('/api/rental-management', authMiddleware, rentalManagementRoutes);
+app.use('/api/payment-settlements', authMiddleware, paymentSettlementRoutes);
+app.use('/api/it', authMiddleware, itRoutes);
+// Audit sub-routes (must come before main audit route)
+app.use('/api/audit/findings', authMiddleware, auditFindingsRoutes);
+app.use('/api/audit/corrective-actions', authMiddleware, require('./routes/correctiveActions'));
+app.use('/api/audit/trail', authMiddleware, auditTrailRoutes);
+app.use('/api/audit/reports', authMiddleware, require('./routes/auditReports'));
+app.use('/api/audit/schedules', authMiddleware, require('./routes/auditSchedules'));
+
+// Main audit routes (must come after sub-routes)
+app.use('/api/audit', authMiddleware, auditRoutes);
+
+// Sub-role management routes
+app.use('/api/sub-roles', subRoleRoutes);
+app.use('/api/user-sub-roles', userSubRoleRoutes);
+app.use('/api/roles', authMiddleware, require('./routes/roles'));
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {
@@ -371,6 +404,12 @@ mongoose.connection.once('open', async () => {
     }, 2000); // Wait 2 seconds for server to be fully ready
     
     console.log('✅ ZKBio Time WebSocket Proxy initialized');
+    
+    // Start IT Notification Service
+    console.log('🔔 Starting IT Notification Service...');
+    itNotificationService.start();
+    console.log('✅ IT Notification Service started successfully');
+    
   } catch (error) {
     console.error('❌ Failed to initialize services:', error);
   }
@@ -428,6 +467,10 @@ process.on('SIGTERM', async () => {
   zkbioTimeBackgroundService.stop();
   console.log('✅ ZKBio Time background service stopped');
   
+  // Stop IT Notification Service
+  itNotificationService.stop();
+  console.log('✅ IT Notification Service stopped');
+  
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');
     process.exit(0);
@@ -452,6 +495,10 @@ process.on('SIGINT', async () => {
   // Stop ZKBio Time background service
   zkbioTimeBackgroundService.stop();
   console.log('✅ ZKBio Time background service stopped');
+  
+  // Stop IT Notification Service
+  itNotificationService.stop();
+  console.log('✅ IT Notification Service stopped');
   
   mongoose.connection.close().then(() => {
     console.log('MongoDB connection closed');

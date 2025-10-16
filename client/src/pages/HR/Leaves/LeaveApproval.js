@@ -15,6 +15,7 @@ import {
   TextField,
   Alert,
   CircularProgress,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
@@ -197,8 +198,94 @@ const LeaveApproval = () => {
 
   if (loading && leaveRequests.length === 0) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ p: 3 }}>
+        {/* Header Skeleton */}
+        <Box sx={{ mb: 3 }}>
+          <Skeleton variant="text" width="35%" height={60} />
+          <Skeleton variant="text" width="50%" height={30} />
+        </Box>
+
+        {/* Filters Skeleton */}
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Skeleton variant="text" width="20%" height={28} sx={{ mb: 2 }} />
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
+        {/* Leave Requests Table Skeleton */}
+        <Card>
+          <CardContent>
+            <Skeleton variant="text" width="25%" height={32} sx={{ mb: 2 }} />
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><Skeleton variant="text" width="70%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="60%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="80%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="50%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="60%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="40%" /></TableCell>
+                    <TableCell><Skeleton variant="text" width="50%" /></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[1, 2, 3, 4, 5, 6].map((row) => (
+                    <TableRow key={row}>
+                      <TableCell>
+                        <Box display="flex" alignItems="center">
+                          <Skeleton variant="circular" width={40} height={40} sx={{ mr: 2 }} />
+                          <Box>
+                            <Skeleton variant="text" width={140} height={20} />
+                            <Skeleton variant="text" width={100} height={16} />
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="rectangular" width={80} height={24} sx={{ borderRadius: 12 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Box>
+                          <Skeleton variant="text" width={100} height={16} />
+                          <Skeleton variant="text" width={80} height={16} />
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={60} height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="rectangular" width={70} height={24} sx={{ borderRadius: 12 }} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={80} height={16} />
+                      </TableCell>
+                      <TableCell>
+                        <Box display="flex" gap={1}>
+                          <Skeleton variant="rectangular" width={60} height={28} sx={{ borderRadius: 1 }} />
+                          <Skeleton variant="rectangular" width={60} height={28} sx={{ borderRadius: 1 }} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

@@ -12,7 +12,7 @@ const router = express.Router();
 // @desc    Get all positions
 // @access  Private (HR and Admin)
 router.get('/', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { department, search } = req.query;
     
@@ -41,7 +41,7 @@ router.get('/',
 // @desc    Get position by ID
 // @access  Private (HR and Admin)
 router.get('/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({
@@ -71,7 +71,7 @@ router.get('/:id',
 // @desc    Create new position
 // @access  Private (HR and Admin)
 router.post('/', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('title').trim().notEmpty().withMessage('Position title is required'),
   body('department').isMongoId().withMessage('Valid department ID is required'),
   body('level').optional().isIn(['Entry', 'Junior', 'Mid', 'Senior', 'Lead', 'Manager', 'Director', 'Executive']).withMessage('Valid level is required'),
@@ -113,7 +113,7 @@ router.post('/', [
 // @desc    Update position
 // @access  Private (HR and Admin)
 router.put('/:id', [
-  authorize('admin', 'hr_manager'),
+  authorize('super_admin', 'admin', 'hr_manager'),
   body('title').optional().trim().notEmpty().withMessage('Position title is required'),
   body('department').optional().isMongoId().withMessage('Valid department ID is required'),
   body('level').optional().isIn(['Entry', 'Junior', 'Mid', 'Senior', 'Lead', 'Manager', 'Director', 'Executive']).withMessage('Valid level is required'),
@@ -171,7 +171,7 @@ router.put('/:id', [
 // @desc    Delete position (soft delete)
 // @access  Private (HR and Admin)
 router.delete('/:id', 
-  authorize('admin', 'hr_manager'), 
+  authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({

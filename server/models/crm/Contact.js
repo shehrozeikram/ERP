@@ -38,9 +38,9 @@ const contactSchema = new mongoose.Schema({
     maxlength: [100, 'Job title cannot exceed 100 characters']
   },
   department: {
-    type: String,
-    trim: true,
-    maxlength: [100, 'Department cannot exceed 100 characters']
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
+    required: false
   },
 
   // Company Information
@@ -139,6 +139,20 @@ const contactSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+
+  // Lead Integration - Bidirectional Reference
+  leadId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Lead',
+    default: null
+  },
+  isConvertedFromLead: {
+    type: Boolean,
+    default: false
+  },
+  conversionDate: {
+    type: Date
   },
 
   // Tags

@@ -140,6 +140,13 @@ const companySchema = new mongoose.Schema({
     required: true
   },
 
+  // Lead Integration - Bidirectional Reference
+  leadId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Lead',
+    default: null
+  },
+
   // Tags
   tags: [{
     type: String,

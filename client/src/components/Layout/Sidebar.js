@@ -31,14 +31,17 @@ import {
   Settings,
   Logout,
   AdminPanelSettings,
-  Analytics
+  Analytics,
+  Security,
+  Computer
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getModuleMenuItems } from '../../utils/permissions';
+import { getModuleMenuItems, getUserAllowedSubmodules } from '../../utils/permissions';
 import NotificationService from '../../services/notificationService';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
+import api from '../../services/api';
 
 const drawerWidth = 280;
 
@@ -62,7 +65,9 @@ const iconMap = {
   PointOfSale: <PointOfSale />,
   ContactSupport: <ContactSupport />,
   AdminPanelSettings: <AdminPanelSettings />,
-  Analytics: <Analytics />
+  Analytics: <Analytics />,
+  Security: <Security />,
+  Computer: <Computer />
 };
   return iconMap[iconName] || <Dashboard />;
 };
@@ -82,24 +87,81 @@ const Sidebar = () => {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastClearedCount, setLastClearedCount] = useState(0);
 
-  // Debug: Log menu items for admin
-  React.useEffect(() => {
-    if (user?.role === 'admin') {
-      const menuItems = getMenuItems(user.role);
-      console.log('Admin menu items:', menuItems);
+  // Helper function to get allowed submodules from sub-role
+  const getAllowedSubmodules = (subRole) => {
+    if (!subRole.permissions) return [];
+    return subRole.permissions.map(permission => permission.submodule);
+  };
+
+  // Helper function to map menu item paths to submodule names
+  const getSubmoduleFromPath = (path) => {
+    const pathToSubmoduleMap = {
+      '/admin/users': 'user_management',
+      '/admin/sub-roles': 'sub_roles',
+      '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
+      '/admin/vehicle-management': 'vehicle_management',
+      '/admin/groceries': 'grocery_management',
+      '/admin/petty-cash': 'petty_cash_management',
+      '/admin/events': 'event_management',
+      '/admin/staff-management': 'staff_management',
+      '/admin/utility-bills': 'utility_bills_management',
+      '/admin/rental-agreements': 'rental_agreements',
+      '/admin/rental-management': 'rental_management',
+      '/admin/payment-settlement': 'payment_settlement'
+    };
+    return pathToSubmoduleMap[path];
+  };
+
+  // Filter menu items based on user's sub-roles
+  const getFilteredMenuItems = useCallback((userRole) => {
+    const baseMenuItems = getMenuItems(userRole);
+    
+    // If user has sub-roles, ONLY show sub-role allowed items (ignore main role permissions)
+    if (user?.subRoles && user.subRoles.length > 0) {
+      return baseMenuItems.map(module => {
+        if (module.subItems) {
+          // Filter submenu items based on sub-role permissions ONLY
+          const allowedSubmenuItems = module.subItems.filter(submenuItem => {
+            // Get the submodule name from the path
+            const submoduleName = getSubmoduleFromPath(submenuItem.path);
+            
+            // Check if user has sub-role permission for this submenu
+            const hasPermission = user.subRoles.some(subRole => {
+              const allowedSubmodules = getAllowedSubmodules(subRole);
+              
+              return subRole.module === 'admin' && 
+                     allowedSubmodules.includes(submoduleName);
+            });
+            
+            return hasPermission;
+          });
+          
+          return {
+            ...module,
+            subItems: allowedSubmenuItems
+          };
+        }
+        return module;
+      }).filter(module => {
+        // Remove modules that have no allowed submenu items
+        if (module.subItems) {
+          return module.subItems.length > 0;
+        }
+        return true;
+      });
     }
-  }, [user?.role]);
+    
+    // If user has NO sub-roles, return base menu items (main role permissions)
+    return baseMenuItems;
+  }, [user]);
 
   // Fetch candidate hired notification count for Employee submodule badge
   const fetchCandidateHiredCount = useCallback(async () => {
     if (user) {
       try {
-        console.log('🔄 Fetching candidate hired notification count...');
         const count = await NotificationService.getCandidateHiredNotificationCount();
-        console.log(`📊 Candidate hired notification count: ${count}`);
         setCandidateHiredCount(count);
       } catch (error) {
-        console.error('❌ Error fetching candidate hired notification count:', error);
         setCandidateHiredCount(0);
       }
     }
@@ -288,7 +350,7 @@ const Sidebar = () => {
         },
       }}>
         <List sx={{ pt: 1 }}>
-        {getMenuItems(user?.role).map((item) => (
+        {getFilteredMenuItems(user?.role).map((item) => (
           <Box key={item.text}>
             <ListItem disablePadding>
               <ListItemButton
@@ -326,7 +388,7 @@ const Sidebar = () => {
 
             {/* Submenu */}
             {item.subItems && (
-              <Collapse in={openSubmenu[item.text] || isSubmenuActive(item.subItems)} timeout="auto" unmountOnExit>
+              <Collapse in={openSubmenu[item.text] !== undefined ? openSubmenu[item.text] : isSubmenuActive(item.subItems)} timeout="auto" unmountOnExit>
                 <List component="div" disablePadding>
                   {item.subItems.map((subItem) => (
                     <Box key={subItem.path}>
@@ -338,7 +400,6 @@ const Sidebar = () => {
                               try {
                                 setIsMarkingRead(true);
                                 const countToClear = candidateHiredCount; // Store count before clearing
-                                console.log('🔄 Marking candidate hired notifications as read...');
                                 // Mark all candidate_hired notifications as read
                                 await NotificationService.markAllCandidateHiredAsRead();
                                 // Store the count that was cleared for success message
@@ -347,13 +408,12 @@ const Sidebar = () => {
                                 setCandidateHiredCount(0);
                                 // Show success message
                                 setShowSuccessMessage(true);
-                                console.log('✅ Candidate hired notifications marked as read');
                                 
                                 // Trigger a refresh of the top notification count
                                 // This will update the header notification badge
                                 window.dispatchEvent(new CustomEvent('refreshNotifications'));
                               } catch (error) {
-                                console.error('❌ Error marking notifications as read:', error);
+                                // Error handling - could add user notification here if needed
                               } finally {
                                 setIsMarkingRead(false);
                               }
@@ -463,7 +523,7 @@ const Sidebar = () => {
 
                       {/* Sub-submenu */}
                       {subItem.subItems && (
-                        <Collapse in={openSubmenu[subItem.text] || isSubmenuActive(subItem.subItems)} timeout="auto" unmountOnExit>
+                        <Collapse in={openSubmenu[subItem.text] !== undefined ? openSubmenu[subItem.text] : isSubmenuActive(subItem.subItems)} timeout="auto" unmountOnExit>
                           <List component="div" disablePadding>
                             {subItem.subItems.map((subSubItem) => (
                               <ListItemButton

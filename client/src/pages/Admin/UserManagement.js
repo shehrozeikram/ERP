@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -36,11 +36,12 @@ import {
 } from '@mui/icons-material';
 import { authService } from '../../services/authService';
 import { useAuth } from '../../contexts/AuthContext';
+import api from '../../services/api';
+import { ROLES, MODULE_KEYS } from '../../utils/permissions';
 
 const UserManagement = () => {
   const { user } = useAuth();
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalUsers, setTotalUsers] = useState(0);
@@ -55,12 +56,36 @@ const UserManagement = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [departments, setDepartments] = useState(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
+  const [subRoles, setSubRoles] = useState([]);
 
-  const departments = ['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'];
-  const roles = ['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'];
+  // Fetch sub-roles for a specific module
+  const fetchSubRoles = async (module) => {
+    try {
+      const response = await api.get(`/auth/sub-roles/${module}`);
+      setSubRoles(response.data.data.subRoles);
+    } catch (error) {
+      console.error('Error fetching sub-roles:', error);
+      setSubRoles([]);
+    }
+  };
+
+  // Fetch departments from API
+  const fetchDepartments = async () => {
+    try {
+      const response = await api.get('/hr/departments');
+      setDepartments(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+      // Fallback to hardcoded departments if API fails
+      setDepartments(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
+    }
+  };
+  const roles = ['super_admin', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'];
 
   const roleColors = {
-    admin: 'error',
+    super_admin: 'error',
+    admin: 'secondary',
     hr_manager: 'primary',
     finance_manager: 'success',
     procurement_manager: 'warning',
@@ -69,9 +94,8 @@ const UserManagement = () => {
     employee: 'default'
   };
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
-      setLoading(true);
       const params = {
         page: page + 1,
         limit: rowsPerPage,
@@ -86,14 +110,16 @@ const UserManagement = () => {
       setTotalUsers(response.data.data.pagination.total);
     } catch (error) {
       console.error('Error loading users:', error);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [page, rowsPerPage, search, departmentFilter, roleFilter, statusFilter]);
 
   useEffect(() => {
     loadUsers();
-  }, [page, rowsPerPage, search, departmentFilter, roleFilter, statusFilter]);
+  }, [page, rowsPerPage, search, departmentFilter, roleFilter, statusFilter, loadUsers]);
+
+  useEffect(() => {
+    fetchDepartments();
+  }, []);
 
   const handleEditUser = async (userData) => {
     try {
@@ -163,7 +189,7 @@ const UserManagement = () => {
     setPage(0);
   };
 
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'super_admin' && user?.role !== 'admin') {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">
@@ -225,7 +251,9 @@ const UserManagement = () => {
             >
               <MenuItem value="">All Departments</MenuItem>
               {departments.map((dept) => (
-                <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+                <MenuItem key={dept.name || dept} value={dept.name || dept}>
+                  {dept.name || dept}
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -270,6 +298,7 @@ const UserManagement = () => {
                 <TableCell>Employee ID</TableCell>
                 <TableCell>Department</TableCell>
                 <TableCell>Role</TableCell>
+                <TableCell>Sub-Roles</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
@@ -297,6 +326,24 @@ const UserManagement = () => {
                       color={roleColors[user.role]}
                       size="small"
                     />
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {user.subRoles?.map((subRole) => (
+                        <Chip 
+                          key={subRole._id} 
+                          label={subRole.name} 
+                          size="small" 
+                          color="secondary"
+                          variant="outlined"
+                        />
+                      ))}
+                      {(!user.subRoles || user.subRoles.length === 0) && (
+                        <Typography variant="caption" color="text.secondary">
+                          None
+                        </Typography>
+                      )}
+                    </Box>
                   </TableCell>
                   <TableCell>
                     <Chip
@@ -377,6 +424,7 @@ const UserManagement = () => {
               user={selectedUser}
               onSave={handleEditUser}
               onCancel={() => setEditDialogOpen(false)}
+              departments={departments}
             />
           )}
         </DialogContent>
@@ -403,6 +451,9 @@ const UserManagement = () => {
           <CreateUserForm
             onSave={handleCreateUser}
             onCancel={() => setCreateDialogOpen(false)}
+            departments={departments}
+            subRoles={subRoles}
+            onRoleChange={fetchSubRoles}
           />
         </DialogContent>
       </Dialog>
@@ -450,7 +501,7 @@ const UserManagement = () => {
 };
 
 // Edit User Form Component
-const EditUserForm = ({ user, onSave, onCancel }) => {
+const EditUserForm = ({ user, onSave, onCancel, departments }) => {
   const [formData, setFormData] = useState({
     firstName: user.firstName,
     lastName: user.lastName,
@@ -503,8 +554,10 @@ const EditUserForm = ({ user, onSave, onCancel }) => {
           onChange={(e) => setFormData({ ...formData, department: e.target.value })}
           label="Department"
         >
-          {['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'].map((dept) => (
-            <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+          {departments.map((dept) => (
+            <MenuItem key={dept.name || dept} value={dept.name || dept}>
+              {dept.name || dept}
+            </MenuItem>
           ))}
         </Select>
       </FormControl>
@@ -594,7 +647,7 @@ const ViewUserDetails = ({ user, onUpdateRole, onClose }) => {
 };
 
 // Create User Form Component
-const CreateUserForm = ({ onSave, onCancel }) => {
+const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange }) => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -604,7 +657,8 @@ const CreateUserForm = ({ onSave, onCancel }) => {
     position: '',
     employeeId: '',
     role: 'employee',
-    phone: ''
+    phone: '',
+    subRoles: []
   });
 
   const [errors, setErrors] = useState({});
@@ -703,8 +757,10 @@ const CreateUserForm = ({ onSave, onCancel }) => {
           onChange={(e) => setFormData({ ...formData, department: e.target.value })}
           label="Department"
         >
-          {['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations'].map((dept) => (
-            <MenuItem key={dept} value={dept}>{dept}</MenuItem>
+          {departments.map((dept) => (
+            <MenuItem key={dept.name || dept} value={dept.name || dept}>
+              {dept.name || dept}
+            </MenuItem>
           ))}
         </Select>
         {errors.department && (
@@ -717,7 +773,10 @@ const CreateUserForm = ({ onSave, onCancel }) => {
         <InputLabel>Role</InputLabel>
         <Select
           value={formData.role}
-          onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+          onChange={(e) => {
+            setFormData({ ...formData, role: e.target.value, subRoles: [] });
+            onRoleChange(e.target.value);
+          }}
           label="Role"
         >
           {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'].map((role) => (
@@ -727,6 +786,41 @@ const CreateUserForm = ({ onSave, onCancel }) => {
           ))}
         </Select>
       </FormControl>
+      
+      {/* Sub-Role Selection - Only show for roles that support sub-roles */}
+      {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager'].includes(formData.role) && (
+        <FormControl fullWidth margin="normal">
+          <InputLabel>Sub-Roles (Optional)</InputLabel>
+          <Select
+            multiple
+            value={formData.subRoles}
+            onChange={(e) => setFormData({ ...formData, subRoles: e.target.value })}
+            label="Sub-Roles (Optional)"
+            renderValue={(selected) => (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {selected.map((subRoleId) => {
+                  const subRole = subRoles.find(sr => sr._id === subRoleId);
+                  return <Chip key={subRoleId} label={subRole?.name} size="small" />;
+                })}
+              </Box>
+            )}
+          >
+            {subRoles
+              .filter(subRole => subRole.module === formData.role)
+              .map((subRole) => (
+                <MenuItem key={subRole._id} value={subRole._id}>
+                  <Box>
+                    <Typography variant="body1">{subRole.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {subRole.description}
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+      )}
+      
       <TextField
         fullWidth
         label="Phone (Optional)"

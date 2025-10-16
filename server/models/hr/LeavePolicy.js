@@ -18,7 +18,7 @@ const leavePolicySchema = new mongoose.Schema({
     annual: {
       days: {
         type: Number,
-        default: 14,
+        default: 20,
         min: [0, 'Annual leave days cannot be negative']
       },
       accrualMethod: {
@@ -69,7 +69,7 @@ const leavePolicySchema = new mongoose.Schema({
     medical: {
       days: {
         type: Number,
-        default: 8,
+        default: 10,
         min: [0, 'Medical leave days cannot be negative']
       },
       accrualMethod: {
