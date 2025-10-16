@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authMiddleware, authorize } = require('../middleware/auth');
-const { checkPermission } = require('../middleware/permissions');
+const permissions = require('../middleware/permissions');
 
 // Import IT models
 const ITAsset = require('../models/it/ITAsset');
@@ -51,7 +51,7 @@ router.use(authMiddleware);
 // @desc    Get all IT assets with filtering and pagination
 // @access  Private (IT, Admin)
 router.get('/assets', 
-  checkPermission('it_assets_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -117,7 +117,7 @@ router.get('/assets',
 // @desc    Get single IT asset by ID
 // @access  Private (IT, Admin)
 router.get('/assets/:id',
-  checkPermission('it_assets_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   asyncHandler(async (req, res) => {
     const asset = await ITAsset.findById(req.params.id)
       .populate('assignedTo.employee', 'firstName lastName employeeId department')
@@ -161,7 +161,7 @@ router.get('/assets/:id',
 // @desc    Create new IT asset
 // @access  Private (IT, Admin)
 router.post('/assets',
-  checkPermission('it_assets_create'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'create'),
   [
     body('assetName').trim().notEmpty().withMessage('Asset name is required'),
     body('category').isIn(['Laptop', 'Desktop', 'Server', 'Printer', 'Scanner', 'Router', 'Switch', 'Access Point', 'Firewall', 'UPS', 'Monitor', 'Keyboard', 'Mouse', 'Webcam', 'Headset', 'Projector', 'Tablet', 'Smartphone', 'Other']).withMessage('Invalid category'),
@@ -215,7 +215,7 @@ router.post('/assets',
 // @desc    Update IT asset
 // @access  Private (IT, Admin)
 router.put('/assets/:id',
-  checkPermission('it_assets_update'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'update'),
   asyncHandler(async (req, res) => {
     const asset = await ITAsset.findById(req.params.id);
 
@@ -247,7 +247,7 @@ router.put('/assets/:id',
 // @desc    Soft delete IT asset
 // @access  Private (IT, Admin)
 router.delete('/assets/:id',
-  checkPermission('it_assets_delete'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'delete'),
   asyncHandler(async (req, res) => {
     const asset = await ITAsset.findById(req.params.id);
 
@@ -278,7 +278,7 @@ router.delete('/assets/:id',
 // @desc    Assign asset to employee
 // @access  Private (IT, Admin)
 router.post('/assets/:id/assign',
-  checkPermission('it_assets_assign'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'update'),
   [
     body('employeeId').isMongoId().withMessage('Valid employee ID is required'),
     body('assignmentReason').isIn(['New Employee', 'Replacement', 'Upgrade', 'Temporary', 'Project', 'Other']).withMessage('Valid assignment reason is required'),
@@ -360,7 +360,7 @@ router.post('/assets/:id/assign',
 // @desc    Return assigned asset
 // @access  Private (IT, Admin)
 router.post('/assets/:id/return',
-  checkPermission('it_assets_return'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'update'),
   [
     body('conditionAtReturn').isIn(['Excellent', 'Good', 'Fair', 'Poor', 'Damaged']).withMessage('Valid condition is required')
   ],
@@ -427,7 +427,7 @@ router.post('/assets/:id/return',
 // @desc    Get all software inventory
 // @access  Private (IT, Admin)
 router.get('/software',
-  checkPermission('it_software_view'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'read'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -499,7 +499,7 @@ router.get('/software',
 // @desc    Create new software inventory
 // @access  Private (IT, Admin)
 router.post('/software',
-  checkPermission('it_software_create'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'create'),
   [
     body('softwareName').trim().notEmpty().withMessage('Software name is required'),
     body('version').trim().notEmpty().withMessage('Version is required'),
@@ -556,7 +556,7 @@ router.post('/software',
 // @desc    Get single software item by ID
 // @access  Private (IT, Admin)
 router.get('/software/:id',
-  checkPermission('it_software_view'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'read'),
   asyncHandler(async (req, res) => {
     const software = await SoftwareInventory.findById(req.params.id)
       .populate('vendor', 'vendorName contactInfo')
@@ -598,7 +598,7 @@ router.get('/software/:id',
 // @desc    Update software inventory
 // @access  Private (IT, Admin)
 router.put('/software/:id',
-  checkPermission('it_software_update'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'update'),
   asyncHandler(async (req, res) => {
     const software = await SoftwareInventory.findById(req.params.id);
 
@@ -644,7 +644,7 @@ router.put('/software/:id',
 // @desc    Soft delete software inventory
 // @access  Private (IT, Admin)
 router.delete('/software/:id',
-  checkPermission('it_software_delete'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'delete'),
   asyncHandler(async (req, res) => {
     const software = await SoftwareInventory.findById(req.params.id);
 
@@ -675,7 +675,7 @@ router.delete('/software/:id',
 // @desc    Get all network devices
 // @access  Private (IT, Admin)
 router.get('/network',
-  checkPermission('it_network_view'),
+  permissions.checkSubRolePermission('it', 'network_devices', 'read'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -738,7 +738,7 @@ router.get('/network',
 // @desc    Create new network device
 // @access  Private (IT, Admin)
 router.post('/network',
-  checkPermission('it_network_create'),
+  permissions.checkSubRolePermission('it', 'network_devices', 'create'),
   [
     body('deviceName').trim().notEmpty().withMessage('Device name is required'),
     body('deviceType').isIn(['Router', 'Switch', 'Firewall', 'Access Point', 'Server', 'NAS', 'Printer', 'Camera', 'UPS', 'Modem', 'Load Balancer', 'Proxy Server', 'DNS Server', 'DHCP Server', 'Mail Server', 'Web Server', 'Database Server', 'Other']).withMessage('Invalid device type'),
@@ -778,7 +778,7 @@ router.post('/network',
 // @desc    Get single network device by ID
 // @access  Private (IT, Admin)
 router.get('/network/:id',
-  checkPermission('it_network_view'),
+  permissions.checkSubRolePermission('it', 'network_devices', 'read'),
   asyncHandler(async (req, res) => {
     const device = await NetworkDevice.findById(req.params.id)
       .populate('createdBy', 'firstName lastName')
@@ -811,7 +811,7 @@ router.get('/network/:id',
 // @desc    Update network device
 // @access  Private (IT, Admin)
 router.put('/network/:id',
-  checkPermission('it_network_update'),
+  permissions.checkSubRolePermission('it', 'network_devices', 'update'),
   asyncHandler(async (req, res) => {
     const device = await NetworkDevice.findById(req.params.id);
 
@@ -841,7 +841,7 @@ router.put('/network/:id',
 // @desc    Soft delete network device
 // @access  Private (IT, Admin)
 router.delete('/network/:id',
-  checkPermission('it_network_delete'),
+  permissions.checkSubRolePermission('it', 'network_devices', 'delete'),
   asyncHandler(async (req, res) => {
     const device = await NetworkDevice.findById(req.params.id);
 
@@ -868,7 +868,7 @@ router.delete('/network/:id',
 // @desc    Add device log entry
 // @access  Private (IT, Admin)
 router.post('/network/:id/log',
-  checkPermission('it_network_update'),
+  permissions.checkSubRolePermission('it', 'network_devices', 'update'),
   [
     body('eventType').trim().notEmpty().withMessage('Event type is required'),
     body('description').trim().notEmpty().withMessage('Description is required')
@@ -920,7 +920,7 @@ router.post('/network/:id/log',
 // @desc    Get all IT vendors
 // @access  Private (IT, Admin)
 router.get('/vendors',
-  checkPermission('it_vendors_view'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'read'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -974,7 +974,7 @@ router.get('/vendors',
 // @desc    Create new IT vendor
 // @access  Private (IT, Admin)
 router.post('/vendors',
-  checkPermission('it_vendors_create'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'create'),
   [
     body('vendorName').trim().notEmpty().withMessage('Vendor name is required'),
     body('vendorType').isIn(['Hardware Supplier', 'Software Vendor', 'Service Provider', 'Consultant', 'Maintenance Provider', 'Cloud Provider', 'Security Provider', 'Network Provider', 'Training Provider', 'Other']).withMessage('Invalid vendor type')
@@ -1021,7 +1021,7 @@ router.post('/vendors',
 // @desc    Get all contracts for a vendor
 // @access  Private (IT, Admin)
 router.get('/vendors/:id/contracts',
-  checkPermission('it_vendors_view'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'read'),
   asyncHandler(async (req, res) => {
     try {
 
@@ -1065,7 +1065,7 @@ router.get('/vendors/:id/contracts',
 // @desc    Get single IT vendor by ID
 // @access  Private (IT, Admin)
 router.get('/vendors/:id',
-  checkPermission('it_vendors_view'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'read'),
   asyncHandler(async (req, res) => {
     const vendor = await ITVendor.findById(req.params.id)
       .populate('createdBy', 'firstName lastName')
@@ -1098,7 +1098,7 @@ router.get('/vendors/:id',
 // @desc    Update IT vendor
 // @access  Private (IT, Admin)
 router.put('/vendors/:id',
-  checkPermission('it_vendors_update'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'update'),
   asyncHandler(async (req, res) => {
     const vendor = await ITVendor.findById(req.params.id);
 
@@ -1139,7 +1139,7 @@ router.put('/vendors/:id',
 // @desc    Soft delete IT vendor
 // @access  Private (IT, Admin)
 router.delete('/vendors/:id',
-  checkPermission('it_vendors_delete'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'delete'),
   asyncHandler(async (req, res) => {
     const vendor = await ITVendor.findById(req.params.id);
 
@@ -1166,7 +1166,7 @@ router.delete('/vendors/:id',
 // @desc    Create vendor contract
 // @access  Private (IT, Admin)
 router.post('/vendors/:id/contract',
-  checkPermission('it_vendors_update'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'update'),
   [
     body('contractNumber').trim().notEmpty().withMessage('Contract number is required'),
     body('startDate').isISO8601().withMessage('Valid start date is required'),
@@ -1221,7 +1221,7 @@ router.post('/vendors/:id/contract',
 // @desc    Get single contract by ID
 // @access  Private (IT, Admin)
 router.get('/contracts/:contractId',
-  checkPermission('it_vendors_view'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'read'),
   asyncHandler(async (req, res) => {
     const contract = await VendorContract.findById(req.params.contractId)
       .populate('vendor', 'vendorName contactInfo')
@@ -1246,7 +1246,7 @@ router.get('/contracts/:contractId',
 // @desc    Update vendor contract
 // @access  Private (IT, Admin)
 router.put('/contracts/:contractId',
-  checkPermission('it_vendors_update'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'update'),
   [
     body('contractNumber').optional().trim().notEmpty().withMessage('Contract number is required'),
     body('startDate').optional().isISO8601().withMessage('Valid start date is required'),
@@ -1295,7 +1295,7 @@ router.put('/contracts/:contractId',
 // @desc    Delete vendor contract
 // @access  Private (IT, Admin)
 router.delete('/contracts/:contractId',
-  checkPermission('it_vendors_update'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'update'),
   asyncHandler(async (req, res) => {
     const contract = await VendorContract.findById(req.params.contractId);
     if (!contract) {
@@ -1322,7 +1322,7 @@ router.delete('/contracts/:contractId',
 // @desc    Get all passwords for a vendor
 // @access  Private (IT, Admin)
 router.get('/vendors/:id/passwords',
-  checkPermission('it_vendors_view'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'read'),
   asyncHandler(async (req, res) => {
     const vendor = await ITVendor.findById(req.params.id);
     if (!vendor) {
@@ -1358,7 +1358,7 @@ router.get('/vendors/:id/passwords',
 // @desc    Get all passwords across all vendors
 // @access  Private (IT, Admin)
 router.get('/passwords',
-  checkPermission('it_passwords_view'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'read'),
   asyncHandler(async (req, res) => {
     try {
       if (!PasswordWallet) {
@@ -1408,7 +1408,7 @@ router.get('/passwords',
 // @desc    Get passwords expiring soon
 // @access  Private (IT, Admin)
 router.get('/passwords/expiring',
-  checkPermission('it_vendors_view'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'read'),
   asyncHandler(async (req, res) => {
     const days = parseInt(req.query.days) || 30;
     const expiringPasswords = await PasswordWallet.findExpiringSoon(days)
@@ -1434,7 +1434,7 @@ router.get('/passwords/expiring',
 // @desc    Get single password by ID (with decrypted password)
 // @access  Private (IT, Admin)
 router.get('/passwords/:passwordId',
-  checkPermission('it_passwords_view'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'read'),
   asyncHandler(async (req, res) => {
     const password = await PasswordWallet.findById(req.params.passwordId)
       .populate('createdBy', 'firstName lastName')
@@ -1467,7 +1467,7 @@ router.get('/passwords/:passwordId',
 // @desc    Create new password entry
 // @access  Private (IT, Admin)
 router.post('/vendors/:id/passwords',
-  checkPermission('it_passwords_create'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'create'),
   [
     body('title').trim().notEmpty().withMessage('Title is required'),
     body('category').isIn([
@@ -1546,7 +1546,7 @@ router.post('/vendors/:id/passwords',
 // @desc    Create new password entry (without vendor requirement)
 // @access  Private (IT, Admin)
 router.post('/passwords',
-  checkPermission('it_passwords_create'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'create'),
   [
     body('title').trim().notEmpty().withMessage('Title is required'),
     body('category').isIn([
@@ -1611,7 +1611,7 @@ router.post('/passwords',
 // @desc    Update password entry
 // @access  Private (IT, Admin)
 router.put('/passwords/:passwordId',
-  checkPermission('it_passwords_update'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'update'),
   [
     body('title').optional().trim().notEmpty().withMessage('Title is required'),
     body('category').optional().isIn([
@@ -1671,7 +1671,7 @@ router.put('/passwords/:passwordId',
 // @desc    Delete password entry (soft delete)
 // @access  Private (IT, Admin)
 router.delete('/passwords/:passwordId',
-  checkPermission('it_passwords_delete'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'delete'),
   asyncHandler(async (req, res) => {
     const password = await PasswordWallet.findById(req.params.passwordId);
     if (!password) {
@@ -1698,7 +1698,7 @@ router.delete('/passwords/:passwordId',
 // @desc    Decrypt and return password (requires additional authentication)
 // @access  Private (IT, Admin)
 router.post('/passwords/:passwordId/decrypt',
-  checkPermission('it_passwords_view'),
+  permissions.checkSubRolePermission('it', 'password_wallet', 'read'),
   [
     body('masterPassword').notEmpty().withMessage('Master password is required')
   ],
@@ -1752,7 +1752,7 @@ router.post('/passwords/:passwordId/decrypt',
 // @desc    Assign asset to employee with HR integration
 // @access  Private (IT, Admin)
 router.post('/hr/assign-asset',
-  checkPermission('it_assets_assign'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'update'),
   [
     body('assetId').isMongoId().withMessage('Valid asset ID is required'),
     body('employeeId').isMongoId().withMessage('Valid employee ID is required'),
@@ -1796,7 +1796,7 @@ router.post('/hr/assign-asset',
 // @desc    Return asset from employee with HR integration
 // @access  Private (IT, Admin)
 router.post('/hr/return-asset',
-  checkPermission('it_assets_return'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'update'),
   [
     body('assetId').isMongoId().withMessage('Valid asset ID is required'),
     body('employeeId').isMongoId().withMessage('Valid employee ID is required'),
@@ -1839,7 +1839,7 @@ router.post('/hr/return-asset',
 // @desc    Assign software license to employee with HR integration
 // @access  Private (IT, Admin)
 router.post('/hr/assign-license',
-  checkPermission('it_software_view'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'read'),
   [
     body('softwareId').isMongoId().withMessage('Valid software ID is required'),
     body('employeeId').isMongoId().withMessage('Valid employee ID is required')
@@ -1881,7 +1881,7 @@ router.post('/hr/assign-license',
 // @desc    Get employee's IT assets and licenses
 // @access  Private (IT, Admin, HR)
 router.get('/hr/employee/:id/assets',
-  checkPermission('it_assets_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   asyncHandler(async (req, res) => {
     const result = await ITHrIntegrationService.getEmployeeITAssets(req.params.id);
 
@@ -1903,7 +1903,7 @@ router.get('/hr/employee/:id/assets',
 // @desc    Get department's IT assets and licenses
 // @access  Private (IT, Admin, HR)
 router.get('/hr/department/:id/assets',
-  checkPermission('it_assets_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   asyncHandler(async (req, res) => {
     const result = await ITHrIntegrationService.getDepartmentITAssets(req.params.id);
 
@@ -1925,7 +1925,7 @@ router.get('/hr/department/:id/assets',
 // @desc    Transfer asset between employees
 // @access  Private (IT, Admin)
 router.post('/hr/transfer-asset',
-  checkPermission('it_assets_assign'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'update'),
   [
     body('assetId').isMongoId().withMessage('Valid asset ID is required'),
     body('fromEmployeeId').isMongoId().withMessage('Valid from employee ID is required'),
@@ -1974,7 +1974,7 @@ router.post('/hr/transfer-asset',
 // @desc    Record IT asset purchase in finance module
 // @access  Private (IT, Admin, Finance)
 router.post('/finance/record-asset-purchase',
-  checkPermission('it_assets_create'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'create'),
   [
     body('assetName').trim().notEmpty().withMessage('Asset name is required'),
     body('purchasePrice').isNumeric().withMessage('Purchase price must be a number'),
@@ -2015,7 +2015,7 @@ router.post('/finance/record-asset-purchase',
 // @desc    Record software license purchase in finance module
 // @access  Private (IT, Admin, Finance)
 router.post('/finance/record-software-purchase',
-  checkPermission('it_software_create'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'create'),
   [
     body('softwareName').trim().notEmpty().withMessage('Software name is required'),
     body('version').trim().notEmpty().withMessage('Version is required'),
@@ -2057,7 +2057,7 @@ router.post('/finance/record-software-purchase',
 // @desc    Calculate and record asset depreciation
 // @access  Private (IT, Admin, Finance)
 router.post('/finance/calculate-depreciation',
-  checkPermission('it_assets_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   [
     body('assetId').isMongoId().withMessage('Valid asset ID is required'),
     body('depreciationPeriod').optional().isIn(['monthly', 'quarterly', 'yearly']).withMessage('Invalid depreciation period')
@@ -2097,7 +2097,7 @@ router.post('/finance/calculate-depreciation',
 // @desc    Record vendor payment for IT services
 // @access  Private (IT, Admin, Finance)
 router.post('/finance/record-vendor-payment',
-  checkPermission('it_vendors_update'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'update'),
   [
     body('contractId').isMongoId().withMessage('Valid contract ID is required'),
     body('paymentAmount').isNumeric().withMessage('Payment amount must be a number'),
@@ -2137,7 +2137,7 @@ router.post('/finance/record-vendor-payment',
 // @desc    Get IT financial summary
 // @access  Private (IT, Admin, Finance)
 router.get('/finance/summary',
-  checkPermission('it_reports_view'),
+  permissions.checkSubRolePermission('it', 'it_reports', 'read'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
     
@@ -2171,7 +2171,7 @@ router.get('/finance/summary',
 // @desc    Process monthly depreciation for all IT assets
 // @access  Private (IT, Admin, Finance)
 router.post('/finance/monthly-depreciation',
-  checkPermission('it_assets_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   asyncHandler(async (req, res) => {
     const result = await ITFinanceIntegrationService.recordMonthlyDepreciation();
 
@@ -2198,7 +2198,7 @@ router.post('/finance/monthly-depreciation',
 // @desc    Create purchase order for IT asset
 // @access  Private (IT, Admin, Procurement)
 router.post('/procurement/create-asset-order',
-  checkPermission('it_assets_create'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'create'),
   [
     body('assetName').trim().notEmpty().withMessage('Asset name is required'),
     body('category').trim().notEmpty().withMessage('Category is required'),
@@ -2240,7 +2240,7 @@ router.post('/procurement/create-asset-order',
 // @desc    Create purchase order for software license
 // @access  Private (IT, Admin, Procurement)
 router.post('/procurement/create-software-order',
-  checkPermission('it_software_create'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'create'),
   [
     body('softwareName').trim().notEmpty().withMessage('Software name is required'),
     body('version').trim().notEmpty().withMessage('Version is required'),
@@ -2283,7 +2283,7 @@ router.post('/procurement/create-software-order',
 // @desc    Create purchase order for license renewal
 // @access  Private (IT, Admin, Procurement)
 router.post('/procurement/create-renewal-order',
-  checkPermission('it_software_update'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'update'),
   [
     body('softwareId').isMongoId().withMessage('Valid software ID is required'),
     body('renewalPrice').isNumeric().withMessage('Renewal price must be a number'),
@@ -2324,7 +2324,7 @@ router.post('/procurement/create-renewal-order',
 // @desc    Create purchase order for vendor services
 // @access  Private (IT, Admin, Procurement)
 router.post('/procurement/create-service-order',
-  checkPermission('it_vendors_update'),
+  permissions.checkSubRolePermission('it', 'it_vendors', 'update'),
   [
     body('vendorId').isMongoId().withMessage('Valid vendor ID is required'),
     body('serviceDescription').trim().notEmpty().withMessage('Service description is required'),
@@ -2366,7 +2366,7 @@ router.post('/procurement/create-service-order',
 // @desc    Process approved asset purchase order
 // @access  Private (IT, Admin, Procurement)
 router.post('/procurement/process-asset-order',
-  checkPermission('it_assets_create'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'create'),
   [
     body('poId').isMongoId().withMessage('Valid purchase order ID is required'),
     body('serialNumber').trim().notEmpty().withMessage('Serial number is required'),
@@ -2408,7 +2408,7 @@ router.post('/procurement/process-asset-order',
 // @desc    Process approved software purchase order
 // @access  Private (IT, Admin, Procurement)
 router.post('/procurement/process-software-order',
-  checkPermission('it_software_create'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'create'),
   [
     body('poId').isMongoId().withMessage('Valid purchase order ID is required'),
     body('licenseKey').trim().notEmpty().withMessage('License key is required'),
@@ -2450,7 +2450,7 @@ router.post('/procurement/process-software-order',
 // @desc    Get IT procurement summary
 // @access  Private (IT, Admin, Procurement)
 router.get('/procurement/summary',
-  checkPermission('it_reports_view'),
+  permissions.checkSubRolePermission('it', 'it_reports', 'read'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
     
@@ -2484,7 +2484,7 @@ router.get('/procurement/summary',
 // @desc    Create auto-renewal orders for expiring licenses
 // @access  Private (IT, Admin)
 router.post('/procurement/auto-renewals',
-  checkPermission('it_software_update'),
+  permissions.checkSubRolePermission('it', 'software_licenses', 'update'),
   asyncHandler(async (req, res) => {
     const result = await ITProcurementIntegrationService.createAutoRenewalOrders();
 
@@ -2511,7 +2511,7 @@ router.post('/procurement/auto-renewals',
 // @desc    Get IT dashboard statistics
 // @access  Private (IT, Admin)
 router.get('/dashboard',
-  checkPermission('it_dashboard_view'),
+  permissions.checkSubRolePermission('it', 'asset_management', 'read'),
   asyncHandler(async (req, res) => {
     const [
       assetStats,
@@ -2572,7 +2572,7 @@ router.get('/dashboard',
 // @desc    Get asset utilization report
 // @access  Private (IT, Admin)
 router.get('/reports/assets',
-  checkPermission('it_reports_view'),
+  permissions.checkSubRolePermission('it', 'it_reports', 'read'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate, category, department } = req.query;
 
@@ -2648,7 +2648,7 @@ router.get('/reports/assets',
 // @desc    Get asset utilization report (alternative endpoint)
 // @access  Private (IT, Admin)
 router.get('/reports/asset-utilization',
-  checkPermission('it_reports_view'),
+  permissions.checkSubRolePermission('it', 'it_reports', 'read'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate, category, department } = req.query;
 
@@ -2752,7 +2752,7 @@ router.get('/reports/asset-utilization',
 // @desc    Get license expiry report
 // @access  Private (IT, Admin)
 router.get('/reports/license-expiry',
-  checkPermission('it_reports_view'),
+  permissions.checkSubRolePermission('it', 'it_reports', 'read'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate, days = 30 } = req.query;
 
@@ -2817,7 +2817,7 @@ router.get('/reports/license-expiry',
 // @desc    Get network uptime report
 // @access  Private (IT, Admin)
 router.get('/reports/network-uptime',
-  checkPermission('it_reports_view'),
+  permissions.checkSubRolePermission('it', 'it_reports', 'read'),
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
 

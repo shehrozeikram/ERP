@@ -69,6 +69,14 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     echo "📦 Installing server dependencies..."
     npm install --production --no-optional
     
+    # Copy build files to nginx web root
+    echo "📁 Copying build files to web root..."
+    cp -r /var/www/sgc-erp/client/build/* /var/www/html/
+    
+    # Reload nginx to serve new files
+    echo "🔄 Reloading nginx..."
+    systemctl reload nginx
+    
     # Start app
     echo "🚀 Starting application..."
     pm2 start ecosystem.config.js --env production
