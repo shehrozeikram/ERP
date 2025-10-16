@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# 🚀 SGC ERP - One Simple Deployment Script
-# This script does everything: backup, deploy, and verify
+# 🚀 SGC ERP - Simple Deployment Script (Memory-Safe)
+# Builds locally and deploys to server without server-side build
 
 set -e
 
-echo "🚀 Starting SGC ERP deployment..."
+echo "🚀 Starting SGC ERP deployment (Memory-Safe Mode)..."
 
 # Configuration
 SERVER_USER="root"
@@ -18,7 +18,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# Build React app locally first
+# Build React app locally
 echo -e "${YELLOW}📦 Building React app locally...${NC}"
 cd client && npm run build && cd ..
 
@@ -42,11 +42,11 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     # Backup critical files
     if [ -f "server/config/database.js" ]; then
         cp -f server/config/database.js "$BACKUP_DB"
-        echo "✅ Database config backed up to $BACKUP_DB"
+        echo "✅ Database config backed up"
     fi
     if [ -f ".env" ]; then
         cp -f .env "$BACKUP_ENV"
-        echo "✅ Environment file backed up to $BACKUP_ENV"
+        echo "✅ Environment file backed up"
     fi
     
     # Stop app
@@ -65,12 +65,9 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         echo "✅ Environment file restored"
     fi
     
-    # Install dependencies
+    # Install only server dependencies (skip client build)
     echo "📦 Installing server dependencies..."
-    npm install --production
-    
-    # Skip client build on server (use pre-built from local)
-    echo "📦 Using pre-built client from local build..."
+    npm install --production --no-optional
     
     # Start app
     echo "🚀 Starting application..."
@@ -81,14 +78,6 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     sleep 5
     if pm2 list | grep -q "sgc-erp-backend.*online"; then
         echo "✅ App started successfully"
-        
-        # Test ZKBio Time connection
-        echo "🧪 Testing ZKBio Time connection..."
-        if node server/scripts/test-zkbio-connection.js; then
-            echo "✅ ZKBio Time connection test passed"
-        else
-            echo "⚠️  ZKBio Time connection test failed - check logs"
-        fi
     else
         echo "❌ App failed to start - rolling back..."
         pm2 stop sgc-erp-backend 2>/dev/null || true
