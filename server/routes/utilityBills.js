@@ -40,7 +40,7 @@ const upload = multer({
 router.use(authMiddleware);
 
 // Get all utility bills with optional filters
-router.get('/', async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const { 
       search, 
@@ -101,7 +101,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get utility bills by type
-router.get('/by-type/:utilityType', async (req, res) => {
+router.get('/by-type/:utilityType', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const { utilityType } = req.params;
     const { status = 'Pending' } = req.query;
@@ -134,7 +134,7 @@ router.get('/by-type/:utilityType', async (req, res) => {
 });
 
 // Get utility bills summary by type
-router.get('/summary', async (req, res) => {
+router.get('/summary', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const summary = await UtilityBill.aggregate([
       {
@@ -203,7 +203,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // Get overdue bills
-router.get('/overdue', async (req, res) => {
+router.get('/overdue', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const bills = await UtilityBill.find({ 
       status: 'Overdue',
@@ -227,7 +227,7 @@ router.get('/overdue', async (req, res) => {
 });
 
 // Get pending bills
-router.get('/pending', async (req, res) => {
+router.get('/pending', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const bills = await UtilityBill.find({ status: 'Pending' })
       .populate('createdBy', 'firstName lastName')
@@ -248,7 +248,7 @@ router.get('/pending', async (req, res) => {
 });
 
 // Get single utility bill
-router.get('/:id', async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'read'), async (req, res) => {
   try {
     const bill = await UtilityBill.findById(req.params.id)
       .populate('createdBy', 'firstName lastName');
@@ -265,7 +265,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new utility bill
-router.post('/', permissions.checkPermission('utility_create'), upload.single('billImage'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'create'), upload.single('billImage'), async (req, res) => {
   try {
     const billData = {
       ...req.body,
@@ -306,7 +306,7 @@ router.post('/', permissions.checkPermission('utility_create'), upload.single('b
 });
 
 // Update utility bill
-router.put('/:id', permissions.checkPermission('utility_update'), upload.single('billImage'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), upload.single('billImage'), async (req, res) => {
   try {
     const updateData = { ...req.body };
 
@@ -348,7 +348,7 @@ router.put('/:id', permissions.checkPermission('utility_update'), upload.single(
 });
 
 // Record payment
-router.put('/:id/payment', permissions.checkPermission('utility_update'), async (req, res) => {
+router.put('/:id/payment', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'update'), async (req, res) => {
   try {
     const { paidAmount, paymentMethod, paymentDate, notes } = req.body;
 
@@ -386,7 +386,7 @@ router.put('/:id/payment', permissions.checkPermission('utility_update'), async 
 });
 
 // Delete utility bill
-router.delete('/:id', permissions.checkPermission('utility_delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('admin', 'utility_bills_management', 'delete'), async (req, res) => {
   try {
     const bill = await UtilityBill.findByIdAndDelete(req.params.id);
 

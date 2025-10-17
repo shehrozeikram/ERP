@@ -116,11 +116,11 @@ const Sidebar = () => {
   const getFilteredMenuItems = useCallback((userRole) => {
     const baseMenuItems = getMenuItems(userRole);
     
-    // If user has sub-roles, ONLY show sub-role allowed items (ignore main role permissions)
+    // If user has sub-roles, show only items they have permissions for
     if (user?.subRoles && user.subRoles.length > 0) {
       return baseMenuItems.map(module => {
         if (module.subItems) {
-          // Filter submenu items based on sub-role permissions ONLY
+          // Filter submenu items based on sub-role permissions
           const allowedSubmenuItems = module.subItems.filter(submenuItem => {
             // Get the submodule name from the path
             const submoduleName = getSubmoduleFromPath(submenuItem.path);

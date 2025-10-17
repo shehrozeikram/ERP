@@ -10,7 +10,7 @@ const Employee = require('../models/hr/Employee');
 router.use(authMiddleware);
 
 // Get all events with optional filters
-router.get('/', async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('admin', 'event_management', 'read'), async (req, res) => {
   try {
     const { 
       search, 
@@ -64,7 +64,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get single event
-router.get('/:id', async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('admin', 'event_management', 'read'), async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
       .populate('createdBy', 'firstName lastName');
@@ -81,7 +81,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new event
-router.post('/', permissions.checkPermission('event_create'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('admin', 'event_management', 'create'), async (req, res) => {
   try {
     const eventData = {
       ...req.body,
@@ -99,7 +99,7 @@ router.post('/', permissions.checkPermission('event_create'), async (req, res) =
 });
 
 // Update event
-router.put('/:id', permissions.checkPermission('event_update'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'event_management', 'update'), async (req, res) => {
   try {
     const event = await Event.findByIdAndUpdate(
       req.params.id,
@@ -119,7 +119,7 @@ router.put('/:id', permissions.checkPermission('event_update'), async (req, res)
 });
 
 // Delete event
-router.delete('/:id', permissions.checkPermission('event_delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('admin', 'event_management', 'delete'), async (req, res) => {
   try {
     const event = await Event.findByIdAndDelete(req.params.id);
     
@@ -138,7 +138,7 @@ router.delete('/:id', permissions.checkPermission('event_delete'), async (req, r
 });
 
 // Update event status
-router.put('/:id/status', permissions.checkPermission('event_update'), async (req, res) => {
+router.put('/:id/status', permissions.checkSubRolePermission('admin', 'event_management', 'update'), async (req, res) => {
   try {
     const { status } = req.body;
     
@@ -164,7 +164,7 @@ router.put('/:id/status', permissions.checkPermission('event_update'), async (re
 });
 
 // Get event participants
-router.get('/:id/participants', async (req, res) => {
+router.get('/:id/participants', permissions.checkSubRolePermission('admin', 'event_management', 'read'), async (req, res) => {
   try {
     const participants = await EventParticipant.find({ eventId: req.params.id })
       .populate('participantId', 'firstName lastName employeeId department position')
@@ -179,7 +179,7 @@ router.get('/:id/participants', async (req, res) => {
 });
 
 // Add participant to event
-router.post('/:id/participants', permissions.checkPermission('event_update'), async (req, res) => {
+router.post('/:id/participants', permissions.checkSubRolePermission('admin', 'event_management', 'update'), async (req, res) => {
   try {
     const { participantId, notes } = req.body;
 
@@ -228,7 +228,7 @@ router.post('/:id/participants', permissions.checkPermission('event_update'), as
 });
 
 // Update participant status
-router.put('/:id/participants/:participantId', permissions.checkPermission('event_update'), async (req, res) => {
+router.put('/:id/participants/:participantId', permissions.checkSubRolePermission('admin', 'event_management', 'update'), async (req, res) => {
   try {
     const { status, notes } = req.body;
 
@@ -258,7 +258,7 @@ router.put('/:id/participants/:participantId', permissions.checkPermission('even
 });
 
 // Remove participant from event
-router.delete('/:id/participants/:participantId', permissions.checkPermission('event_update'), async (req, res) => {
+router.delete('/:id/participants/:participantId', permissions.checkSubRolePermission('admin', 'event_management', 'update'), async (req, res) => {
   try {
     const participant = await EventParticipant.findOneAndDelete({
       eventId: req.params.id,

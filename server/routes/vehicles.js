@@ -9,7 +9,7 @@ const permissions = require('../middleware/permissions');
 router.use(authMiddleware);
 
 // GET /api/vehicles - Get all vehicles with simple filtering
-router.get('/', async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('admin', 'vehicle_management', 'read'), async (req, res) => {
   try {
     const { status, search, page = 1, limit = 10 } = req.query;
     
@@ -53,7 +53,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/vehicles/available - Get available vehicles only
-router.get('/available', async (req, res) => {
+router.get('/available', permissions.checkSubRolePermission('admin', 'vehicle_management', 'read'), async (req, res) => {
   try {
     const vehicles = await Vehicle.find({ status: 'Available' })
       .select('vehicleId make model year licensePlate color capacity')
@@ -73,7 +73,7 @@ router.get('/available', async (req, res) => {
 });
 
 // GET /api/vehicles/:id - Get single vehicle
-router.get('/:id', async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('admin', 'vehicle_management', 'read'), async (req, res) => {
   try {
     const vehicle = await Vehicle.findById(req.params.id)
       .populate('assignedDriver', 'firstName lastName employeeId department position')
@@ -100,7 +100,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/vehicles - Create new vehicle
-router.post('/', permissions.checkPermission('vehicle_create'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('admin', 'vehicle_management', 'create'), async (req, res) => {
   try {
     const vehicleData = {
       ...req.body,
@@ -135,7 +135,7 @@ router.post('/', permissions.checkPermission('vehicle_create'), async (req, res)
 });
 
 // PUT /api/vehicles/:id - Update vehicle
-router.put('/:id', permissions.checkPermission('vehicle_update'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'vehicle_management', 'update'), async (req, res) => {
   try {
     const vehicle = await Vehicle.findByIdAndUpdate(
       req.params.id,
@@ -172,7 +172,7 @@ router.put('/:id', permissions.checkPermission('vehicle_update'), async (req, re
 });
 
 // PUT /api/vehicles/:id/assign - Assign driver to vehicle
-router.put('/:id/assign', permissions.checkPermission('vehicle_update'), async (req, res) => {
+router.put('/:id/assign', permissions.checkSubRolePermission('admin', 'vehicle_management', 'update'), async (req, res) => {
   try {
     const { driverId } = req.body;
 
@@ -216,7 +216,7 @@ router.put('/:id/assign', permissions.checkPermission('vehicle_update'), async (
 });
 
 // DELETE /api/vehicles/:id - Delete vehicle
-router.delete('/:id', permissions.checkPermission('vehicle_delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('admin', 'vehicle_management', 'delete'), async (req, res) => {
   try {
     const vehicle = await Vehicle.findByIdAndDelete(req.params.id);
 

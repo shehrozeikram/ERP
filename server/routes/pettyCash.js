@@ -12,7 +12,7 @@ router.use(authMiddleware);
 // ========== PETTY CASH FUNDS ==========
 
 // GET /api/petty-cash/funds - Get all petty cash funds
-router.get('/funds', async (req, res) => {
+router.get('/funds', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'read'), async (req, res) => {
   try {
     const { status, search, page = 1, limit = 10 } = req.query;
     
@@ -55,7 +55,7 @@ router.get('/funds', async (req, res) => {
 });
 
 // GET /api/petty-cash/funds/:id - Get single fund
-router.get('/funds/:id', async (req, res) => {
+router.get('/funds/:id', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'read'), async (req, res) => {
   try {
     const fund = await PettyCashFund.findById(req.params.id)
       .populate('custodian', 'firstName lastName employeeId department position')
@@ -82,7 +82,7 @@ router.get('/funds/:id', async (req, res) => {
 });
 
 // POST /api/petty-cash/funds - Create new fund
-router.post('/funds', permissions.checkPermission('petty_cash_create'), async (req, res) => {
+router.post('/funds', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'create'), async (req, res) => {
   try {
     const fundData = {
       ...req.body,
@@ -118,7 +118,7 @@ router.post('/funds', permissions.checkPermission('petty_cash_create'), async (r
 });
 
 // PUT /api/petty-cash/funds/:id - Update fund
-router.put('/funds/:id', permissions.checkPermission('petty_cash_update'), async (req, res) => {
+router.put('/funds/:id', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'update'), async (req, res) => {
   try {
     const fund = await PettyCashFund.findByIdAndUpdate(
       req.params.id,
@@ -155,7 +155,7 @@ router.put('/funds/:id', permissions.checkPermission('petty_cash_update'), async
 });
 
 // PUT /api/petty-cash/funds/:id/balance - Update fund balance
-router.put('/funds/:id/balance', permissions.checkPermission('petty_cash_update'), async (req, res) => {
+router.put('/funds/:id/balance', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'update'), async (req, res) => {
   try {
     const { amount, operation } = req.body; // operation: 'add', 'subtract', 'set'
 
@@ -198,7 +198,7 @@ router.put('/funds/:id/balance', permissions.checkPermission('petty_cash_update'
 });
 
 // DELETE /api/petty-cash/funds/:id - Delete fund
-router.delete('/funds/:id', permissions.checkPermission('petty_cash_delete'), async (req, res) => {
+router.delete('/funds/:id', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'delete'), async (req, res) => {
   try {
     const fund = await PettyCashFund.findByIdAndDelete(req.params.id);
 
@@ -225,7 +225,7 @@ router.delete('/funds/:id', permissions.checkPermission('petty_cash_delete'), as
 // ========== PETTY CASH EXPENSES ==========
 
 // GET /api/petty-cash/expenses - Get all expenses
-router.get('/expenses', async (req, res) => {
+router.get('/expenses', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'read'), async (req, res) => {
   try {
     const { status, category, fundId, search, page = 1, limit = 10 } = req.query;
     
@@ -272,7 +272,7 @@ router.get('/expenses', async (req, res) => {
 });
 
 // GET /api/petty-cash/expenses/pending - Get pending expenses
-router.get('/expenses/pending', async (req, res) => {
+router.get('/expenses/pending', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'read'), async (req, res) => {
   try {
     const expenses = await PettyCashExpense.find({ status: 'Pending' })
       .populate('fundId', 'fundId name')
@@ -293,7 +293,7 @@ router.get('/expenses/pending', async (req, res) => {
 });
 
 // GET /api/petty-cash/expenses/:id - Get single expense
-router.get('/expenses/:id', async (req, res) => {
+router.get('/expenses/:id', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'read'), async (req, res) => {
   try {
     const expense = await PettyCashExpense.findById(req.params.id)
       .populate('fundId', 'fundId name currentBalance')
@@ -322,7 +322,7 @@ router.get('/expenses/:id', async (req, res) => {
 });
 
 // POST /api/petty-cash/expenses - Create new expense
-router.post('/expenses', permissions.checkPermission('petty_cash_create'), async (req, res) => {
+router.post('/expenses', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'create'), async (req, res) => {
   try {
     const expenseData = {
       ...req.body,
@@ -358,7 +358,7 @@ router.post('/expenses', permissions.checkPermission('petty_cash_create'), async
 });
 
 // PUT /api/petty-cash/expenses/:id - Update expense
-router.put('/expenses/:id', permissions.checkPermission('petty_cash_update'), async (req, res) => {
+router.put('/expenses/:id', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'update'), async (req, res) => {
   try {
     const expense = await PettyCashExpense.findByIdAndUpdate(
       req.params.id,
@@ -397,7 +397,7 @@ router.put('/expenses/:id', permissions.checkPermission('petty_cash_update'), as
 });
 
 // PUT /api/petty-cash/expenses/:id/approve - Approve/reject expense
-router.put('/expenses/:id/approve', permissions.checkPermission('petty_cash_approve'), async (req, res) => {
+router.put('/expenses/:id/approve', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'approve'), async (req, res) => {
   try {
     const { status, rejectionReason } = req.body;
 
@@ -438,7 +438,7 @@ router.put('/expenses/:id/approve', permissions.checkPermission('petty_cash_appr
 });
 
 // DELETE /api/petty-cash/expenses/:id - Delete expense
-router.delete('/expenses/:id', permissions.checkPermission('petty_cash_delete'), async (req, res) => {
+router.delete('/expenses/:id', permissions.checkSubRolePermission('admin', 'petty_cash_management', 'delete'), async (req, res) => {
   try {
     const expense = await PettyCashExpense.findByIdAndDelete(req.params.id);
 

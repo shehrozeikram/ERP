@@ -8,7 +8,7 @@ const Location = require('../models/hr/Location');
 router.use(authMiddleware);
 
 // Get all locations with optional filters
-router.get('/', async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
     const { 
       search, 
@@ -59,7 +59,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get single location
-router.get('/:id', async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
     const location = await Location.findById(req.params.id)
       .populate('createdBy', 'firstName lastName');
@@ -76,7 +76,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new location
-router.post('/', permissions.checkPermission('location_create'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('admin', 'staff_management', 'create'), async (req, res) => {
   try {
     const locationData = {
       ...req.body,
@@ -97,7 +97,7 @@ router.post('/', permissions.checkPermission('location_create'), async (req, res
 });
 
 // Update location
-router.put('/:id', permissions.checkPermission('location_update'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'update'), async (req, res) => {
   try {
     const location = await Location.findByIdAndUpdate(
       req.params.id,
@@ -117,7 +117,7 @@ router.put('/:id', permissions.checkPermission('location_update'), async (req, r
 });
 
 // Delete location
-router.delete('/:id', permissions.checkPermission('location_delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'delete'), async (req, res) => {
   try {
     const location = await Location.findByIdAndDelete(req.params.id);
     
@@ -133,7 +133,7 @@ router.delete('/:id', permissions.checkPermission('location_delete'), async (req
 });
 
 // Update location status
-router.put('/:id/status', permissions.checkPermission('location_update'), async (req, res) => {
+router.put('/:id/status', permissions.checkSubRolePermission('admin', 'staff_management', 'update'), async (req, res) => {
   try {
     const { status } = req.body;
     

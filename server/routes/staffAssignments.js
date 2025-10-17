@@ -11,7 +11,7 @@ const Department = require('../models/hr/Department');
 router.use(authMiddleware);
 
 // Get all staff assignments with optional filters
-router.get('/', async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
     const { 
       search, 
@@ -78,7 +78,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get assignments by type
-router.get('/by-type/:type', async (req, res) => {
+router.get('/by-type/:type', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
     const { type } = req.params;
     const { status = 'Active' } = req.query;
@@ -106,7 +106,7 @@ router.get('/by-type/:type', async (req, res) => {
 });
 
 // Get summary of assignments
-router.get('/summary', async (req, res) => {
+router.get('/summary', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
     const summary = await StaffAssignment.aggregate([
       {
@@ -153,7 +153,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // Get single staff assignment
-router.get('/:id', async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
     const assignment = await StaffAssignment.findById(req.params.id)
       .populate('staffId', 'firstName lastName employeeId department position')
@@ -289,7 +289,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update staff assignment
-router.put('/:id', permissions.checkPermission('staff_assignment_update'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'update'), async (req, res) => {
   try {
     // Sanitize data - convert empty strings to null for ObjectId fields
     const sanitizedData = {
@@ -323,7 +323,7 @@ router.put('/:id', permissions.checkPermission('staff_assignment_update'), async
 });
 
 // Delete staff assignment
-router.delete('/:id', permissions.checkPermission('staff_assignment_delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'delete'), async (req, res) => {
   try {
     const assignment = await StaffAssignment.findById(req.params.id);
     

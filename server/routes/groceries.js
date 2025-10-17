@@ -9,7 +9,7 @@ const permissions = require('../middleware/permissions');
 router.use(authMiddleware);
 
 // GET /api/groceries - Get all grocery items with simple filtering
-router.get('/', async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('admin', 'grocery_management', 'read'), async (req, res) => {
   try {
     const { category, status, search, page = 1, limit = 10 } = req.query;
     
@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/groceries/low-stock - Get low stock items
-router.get('/low-stock', async (req, res) => {
+router.get('/low-stock', permissions.checkSubRolePermission('admin', 'grocery_management', 'read'), async (req, res) => {
   try {
     const items = await GroceryItem.find({ status: 'Low Stock' })
       .sort({ currentStock: 1 });
@@ -71,7 +71,7 @@ router.get('/low-stock', async (req, res) => {
 });
 
 // GET /api/groceries/expired - Get expired items
-router.get('/expired', async (req, res) => {
+router.get('/expired', permissions.checkSubRolePermission('admin', 'grocery_management', 'read'), async (req, res) => {
   try {
     const items = await GroceryItem.find({ 
       status: 'Expired',
@@ -93,7 +93,7 @@ router.get('/expired', async (req, res) => {
 });
 
 // GET /api/groceries/:id - Get single grocery item
-router.get('/:id', async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('admin', 'grocery_management', 'read'), async (req, res) => {
   try {
     const item = await GroceryItem.findById(req.params.id)
       .populate('createdBy', 'firstName lastName');
@@ -119,7 +119,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/groceries - Create new grocery item
-router.post('/', permissions.checkPermission('grocery_create'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('admin', 'grocery_management', 'create'), async (req, res) => {
   try {
     const itemData = {
       ...req.body,
@@ -153,7 +153,7 @@ router.post('/', permissions.checkPermission('grocery_create'), async (req, res)
 });
 
 // PUT /api/groceries/:id - Update grocery item
-router.put('/:id', permissions.checkPermission('grocery_update'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('admin', 'grocery_management', 'update'), async (req, res) => {
   try {
     const item = await GroceryItem.findByIdAndUpdate(
       req.params.id,
@@ -189,7 +189,7 @@ router.put('/:id', permissions.checkPermission('grocery_update'), async (req, re
 });
 
 // PUT /api/groceries/:id/stock - Update stock level
-router.put('/:id/stock', permissions.checkPermission('grocery_update'), async (req, res) => {
+router.put('/:id/stock', permissions.checkSubRolePermission('admin', 'grocery_management', 'update'), async (req, res) => {
   try {
     const { currentStock, operation } = req.body; // operation: 'add', 'subtract', 'set'
 
@@ -231,7 +231,7 @@ router.put('/:id/stock', permissions.checkPermission('grocery_update'), async (r
 });
 
 // DELETE /api/groceries/:id - Delete grocery item
-router.delete('/:id', permissions.checkPermission('grocery_delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('admin', 'grocery_management', 'delete'), async (req, res) => {
   try {
     const item = await GroceryItem.findByIdAndDelete(req.params.id);
 

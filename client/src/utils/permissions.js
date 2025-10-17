@@ -228,6 +228,7 @@ export const getUserAllowedSubmodules = async (module) => {
     const userSubRoles = await getUserSubRoles();
     const allowedSubmodules = new Set();
     
+    // Collect all submodules the user has permissions for
     userSubRoles.forEach(userSubRole => {
       const subRole = userSubRole.subRole;
       if (subRole.module === module) {
@@ -248,6 +249,7 @@ export const hasSubRolePermission = async (module, submodule, action) => {
   try {
     const userSubRoles = await getUserSubRoles();
     
+    // Check if user has the specific permission in their sub-roles
     for (const userSubRole of userSubRoles) {
       const subRole = userSubRole.subRole;
       if (subRole.module === module) {
@@ -610,7 +612,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
   
   // Check if the path matches any module
   for (const [moduleKey, module] of Object.entries(MODULES)) {
-    // If user has sub-roles, ONLY check sub-role permissions (ignore main role)
+    // If user has sub-roles, check specific sub-role permissions
     if (userSubRoles && userSubRoles.length > 0) {
       // Check if user has any sub-role for this module
       const hasSubRoleForModule = userSubRoles.some(subRole => 

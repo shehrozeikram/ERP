@@ -423,13 +423,17 @@ const getUserSubRoles = async (userId) => {
 };
 
 const hasSubRolePermission = async (userId, module, submodule, action) => {
-  const User = require('../models/User');
-  const user = await User.findById(userId).populate('subRoles');
+  const UserSubRole = require('../models/UserSubRole');
   
-  if (!user || !user.subRoles) return false;
+  // Get user's active sub-role assignments
+  const userSubRoles = await UserSubRole.findActiveByUser(userId);
   
-  for (const subRole of user.subRoles) {
-    if (subRole.module === module && subRole.hasPermission(submodule, action)) {
+  if (!userSubRoles || userSubRoles.length === 0) return false;
+  
+  // Check if user has the specific permission in their sub-roles
+  for (const userSubRole of userSubRoles) {
+    const subRole = userSubRole.subRole;
+    if (subRole && subRole.module === module && subRole.hasPermission(submodule, action)) {
       return true;
     }
   }
@@ -439,8 +443,9 @@ const hasSubRolePermission = async (userId, module, submodule, action) => {
 
 const getUserAllowedSubmodules = async (userId, module) => {
   const User = require('../models/User');
-  const user = await User.findById(userId).populate('subRoles');
+  const UserSubRole = require('../models/UserSubRole');
   
+  const user = await User.findById(userId);
   if (!user) return [];
   
   // Super admin has access to everything
@@ -448,12 +453,16 @@ const getUserAllowedSubmodules = async (userId, module) => {
     return SUBMODULES[module] || [];
   }
   
-  // If user has sub-roles, ONLY return sub-role allowed submodules
-  if (user.subRoles && user.subRoles.length > 0) {
+  // Get user's active sub-role assignments
+  const userSubRoles = await UserSubRole.findActiveByUser(userId);
+  
+  // If user has sub-roles, return only the submodules they have permissions for
+  if (userSubRoles && userSubRoles.length > 0) {
     const allowedSubmodules = new Set();
     
-    for (const subRole of user.subRoles) {
-      if (subRole.module === module) {
+    for (const userSubRole of userSubRoles) {
+      const subRole = userSubRole.subRole;
+      if (subRole && subRole.module === module) {
         subRole.getAllowedSubmodules().forEach(submodule => {
           allowedSubmodules.add(submodule);
         });
@@ -473,15 +482,19 @@ const getUserAllowedSubmodules = async (userId, module) => {
 
 const checkSubRoleAccess = async (userId, module, submodule, action) => {
   const User = require('../models/User');
-  const user = await User.findById(userId).populate('subRoles');
+  const UserSubRole = require('../models/UserSubRole');
   
+  const user = await User.findById(userId);
   if (!user) return false;
   
   // Super admin has access to everything
   if (user.role === ROLES.SUPER_ADMIN) return true;
   
-  // If user has sub-roles, ONLY check sub-role permissions (ignore main role)
-  if (user.subRoles && user.subRoles.length > 0) {
+  // Get user's active sub-role assignments
+  const userSubRoles = await UserSubRole.findActiveByUser(userId);
+  
+  // If user has sub-roles, check specific sub-role permissions
+  if (userSubRoles && userSubRoles.length > 0) {
     return await hasSubRolePermission(userId, module, submodule, action);
   }
   
