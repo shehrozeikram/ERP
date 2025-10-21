@@ -10,6 +10,7 @@ const Employee = require('../models/hr/Employee');
 const LeaveBalance = require('../models/hr/LeaveBalance');
 const LeaveManagementService = require('../services/leaveManagementService');
 const LeaveIntegrationService = require('../services/leaveIntegrationService');
+const AnniversaryLeaveScheduler = require('../services/anniversaryLeaveScheduler');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -184,7 +185,7 @@ router.get('/requests',
     const filters = {
       ...req.query,
       page: parseInt(req.query.page) || 1,
-      limit: parseInt(req.query.limit) || 10
+      limit: parseInt(req.query.limit) || 100
     };
 
     const result = await LeaveManagementService.getLeaveRequests(filters);
@@ -970,6 +971,159 @@ router.get('/global-config',
     res.json({
       success: true,
       data: config
+    });
+  })
+);
+
+// ==================== ANNIVERSARY LEAVE MANAGEMENT ENDPOINTS ====================
+
+// @route   GET /api/leaves/anniversary/info/:employeeId
+// @desc    Get employee anniversary information
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/anniversary/info/:employeeId',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+
+    const anniversaryInfo = await LeaveIntegrationService.getEmployeeAnniversaryInfo(employeeId);
+
+    res.json({
+      success: true,
+      data: anniversaryInfo
+    });
+  })
+);
+
+// @route   GET /api/leaves/anniversary/balance/:employeeId/:workYear
+// @desc    Get leave balance for specific work year
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/anniversary/balance/:employeeId/:workYear',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId, workYear } = req.params;
+
+    const balance = await LeaveIntegrationService.getWorkYearBalance(employeeId, parseInt(workYear));
+
+    res.json({
+      success: true,
+      data: balance
+    });
+  })
+);
+
+// @route   POST /api/leaves/anniversary/process-renewals
+// @desc    Process anniversary renewals for all employees
+// @access  Private (Super Admin)
+router.post('/anniversary/process-renewals',
+  authMiddleware,
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    const results = await LeaveIntegrationService.processAnniversaryRenewals();
+
+    res.json({
+      success: true,
+      data: results,
+      message: `Processed ${results.processed} employees, renewed ${results.renewed}`
+    });
+  })
+);
+
+// @route   POST /api/leaves/anniversary/expire-old-leaves
+// @desc    Expire old annual leaves (older than 2 years)
+// @access  Private (Super Admin)
+router.post('/anniversary/expire-old-leaves',
+  authMiddleware,
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    const expiredCount = await LeaveIntegrationService.expireOldAnnualLeaves();
+
+    res.json({
+      success: true,
+      data: { expiredCount },
+      message: `Expired ${expiredCount} annual leave balances`
+    });
+  })
+);
+
+// @route   GET /api/leaves/anniversary/upcoming
+// @desc    Get employees with upcoming anniversaries (next 30 days)
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/anniversary/upcoming',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const upcomingAnniversaries = await AnniversaryLeaveScheduler.getUpcomingAnniversaries();
+
+    res.json({
+      success: true,
+      data: upcomingAnniversaries
+    });
+  })
+);
+
+// @route   GET /api/leaves/anniversary/scheduler/status
+// @desc    Get anniversary scheduler status
+// @access  Private (Super Admin)
+router.get('/anniversary/scheduler/status',
+  authMiddleware,
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    const status = AnniversaryLeaveScheduler.getStatus();
+
+    res.json({
+      success: true,
+      data: status
+    });
+  })
+);
+
+// @route   POST /api/leaves/anniversary/scheduler/start
+// @desc    Start anniversary scheduler
+// @access  Private (Super Admin)
+router.post('/anniversary/scheduler/start',
+  authMiddleware,
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    AnniversaryLeaveScheduler.start();
+
+    res.json({
+      success: true,
+      message: 'Anniversary scheduler started successfully'
+    });
+  })
+);
+
+// @route   POST /api/leaves/anniversary/scheduler/stop
+// @desc    Stop anniversary scheduler
+// @access  Private (Super Admin)
+router.post('/anniversary/scheduler/stop',
+  authMiddleware,
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    AnniversaryLeaveScheduler.stop();
+
+    res.json({
+      success: true,
+      message: 'Anniversary scheduler stopped successfully'
+    });
+  })
+);
+
+// @route   POST /api/leaves/anniversary/scheduler/run-manual
+// @desc    Run anniversary tasks manually
+// @access  Private (Super Admin)
+router.post('/anniversary/scheduler/run-manual',
+  authMiddleware,
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    const results = await AnniversaryLeaveScheduler.runManually();
+
+    res.json({
+      success: true,
+      data: results,
+      message: 'Anniversary tasks completed successfully'
     });
   })
 );

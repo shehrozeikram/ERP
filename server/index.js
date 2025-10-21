@@ -417,13 +417,22 @@ mongoose.connection.once('open', async () => {
 
 // Scheduled Sync Service is already initialized as singleton
 
+// Initialize Anniversary Leave Scheduler
+const AnniversaryLeaveScheduler = require('./services/anniversaryLeaveScheduler');
+
 server.listen(PORT, 'localhost', async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
   console.log(`📊 Environment: ${NODE_ENV}`);
   console.log(`🌐 API Base URL: http://0.0.0.0:${PORT}/api`);
   console.log(`🔒 Server bound to all interfaces (0.0.0.0)`);
   
-
+  // Start Anniversary Leave Scheduler
+  try {
+    AnniversaryLeaveScheduler.start();
+    console.log('✅ Anniversary Leave Scheduler started successfully');
+  } catch (error) {
+    console.error('❌ Failed to start Anniversary Leave Scheduler:', error);
+  }
   
   // Automatically sync any missed attendance records on startup
   // Note: This is disabled since we're using real-time WebSocket connection

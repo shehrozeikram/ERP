@@ -18,7 +18,11 @@ import {
   TableRow,
   Paper,
   Avatar,
-  Divider
+  Divider,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -214,13 +218,32 @@ const EmployeeLeaveHistory = () => {
           </Button>
           <Typography variant="h4">Leave History</Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={fetchLeaveHistory}
-        >
-          Refresh
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Year</InputLabel>
+            <Select
+              value={selectedYear}
+              label="Year"
+              onChange={(e) => setSelectedYear(e.target.value)}
+            >
+              {Array.from({ length: 10 }, (_, i) => {
+                const year = new Date().getFullYear() - i;
+                return (
+                  <MenuItem key={year} value={year}>
+                    {year}
+                  </MenuItem>
+                );
+              })}
+            </Select>
+          </FormControl>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={fetchLeaveHistory}
+          >
+            Refresh
+          </Button>
+        </Box>
       </Box>
 
       {/* Employee Info Card */}
@@ -230,13 +253,21 @@ const EmployeeLeaveHistory = () => {
             <Avatar sx={{ width: 56, height: 56, bgcolor: 'primary.main' }}>
               {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
             </Avatar>
-            <Box>
+            <Box sx={{ flex: 1 }}>
               <Typography variant="h6">
                 {employee.firstName} {employee.lastName}
               </Typography>
               <Typography variant="body2" color="textSecondary">
                 ID: {employee.employeeId} | Email: {employee.email}
               </Typography>
+              <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
+                Date of Joining: {formatDate(employee.hireDate)}
+              </Typography>
+              {leaveSummary.anniversaryInfo && (
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 0.5 }}>
+                  Work Year: {leaveSummary.workYear} | Next Anniversary: {formatDate(leaveSummary.anniversaryInfo.nextAnniversary)}
+                </Typography>
+              )}
             </Box>
           </Box>
         </CardContent>
@@ -333,6 +364,33 @@ const EmployeeLeaveHistory = () => {
         </Grid>
       </Grid>
 
+      {/* Anniversary Leave System Info */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom color="primary">
+            📅 Anniversary-Based Leave System
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                <strong>Annual Leaves:</strong> 20 days per year, given after completing 1 year of service
+              </Typography>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                <strong>Sick/Casual Leaves:</strong> 10 days each per year, available from first year
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                <strong>Carry Forward:</strong> Annual leaves carry forward for up to 2 years
+              </Typography>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                <strong>Expiration:</strong> Annual leaves expire automatically after 2 years
+              </Typography>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
       {/* Advance Leave Warning */}
       {balance.totalAdvanceLeaves > 0 && (
         <Alert severity="warning" sx={{ mb: 3 }}>
@@ -353,7 +411,10 @@ const EmployeeLeaveHistory = () => {
           
           {history.length === 0 ? (
             <Alert severity="info" sx={{ mt: 2 }}>
-              No leave requests found for {selectedYear}
+              <Typography variant="body2">
+                No leave requests found for {selectedYear}. 
+                Try selecting a different year from the dropdown above to view historical leave records.
+              </Typography>
             </Alert>
           ) : (
             <TableContainer component={Paper} sx={{ mt: 2 }}>

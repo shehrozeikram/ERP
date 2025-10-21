@@ -110,6 +110,12 @@ const leaveRequestSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  workYear: {
+    type: Number,
+    required: true,
+    min: [1, 'Work year must be 1 or later'],
+    max: [50, 'Work year must be less than 50']
+  },
   // Integration with attendance
   attendanceRecords: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -144,6 +150,8 @@ leaveRequestSchema.index({ leaveType: 1 });
 leaveRequestSchema.index({ startDate: 1, endDate: 1 });
 leaveRequestSchema.index({ status: 1 });
 leaveRequestSchema.index({ leaveYear: 1 });
+leaveRequestSchema.index({ workYear: 1 });
+leaveRequestSchema.index({ employee: 1, workYear: 1 });
 leaveRequestSchema.index({ appliedDate: -1 });
 
 // Pre-save middleware to calculate total days and leave year

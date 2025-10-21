@@ -184,8 +184,9 @@ class LeaveManagementService {
         throw new Error('Leave type not found');
       }
 
-      // Check leave balance (informational - we allow advance leaves)
-      const leaveBalance = await this.getEmployeeLeaveBalance(leaveData.employee, leaveData.startDate.getFullYear());
+      // Check leave balance using anniversary-based system
+      const currentWorkYear = LeaveIntegrationService.calculateWorkYear(employee.hireDate);
+      const leaveBalance = await LeaveIntegrationService.getWorkYearBalance(leaveData.employee, currentWorkYear);
       
       // Calculate if this will result in advance leaves
       let willBeAdvance = false;
@@ -205,10 +206,10 @@ class LeaveManagementService {
           advanceDays = leaveData.totalDays - leaveBalance.casual.remaining;
         }
       } else if (leaveType.code === 'MEDICAL' || leaveType.code === 'SICK' || leaveType.code === 'ML' || leaveType.code === 'SL') {
-        availableDays = leaveBalance.medical?.remaining || leaveBalance.sick?.remaining || 0;
-        if (availableDays < leaveData.totalDays) {
+        availableDays = leaveBalance.sick.remaining;
+        if (leaveBalance.sick.remaining < leaveData.totalDays) {
           willBeAdvance = true;
-          advanceDays = leaveData.totalDays - availableDays;
+          advanceDays = leaveData.totalDays - leaveBalance.sick.remaining;
         }
       }
       
@@ -227,7 +228,8 @@ class LeaveManagementService {
       const leaveRequest = new LeaveRequest({
         ...leaveData,
         createdBy: userId,
-        leaveYear: leaveData.startDate.getFullYear()
+        leaveYear: leaveData.startDate.getFullYear(),
+        workYear: currentWorkYear
       });
 
       await leaveRequest.save();
@@ -676,7 +678,7 @@ class LeaveManagementService {
         endDate,
         year,
         page = 1,
-        limit = 10,
+        limit = 100,
         sortBy = 'appliedDate',
         sortOrder = 'desc'
       } = filters;

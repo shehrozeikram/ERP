@@ -18,8 +18,11 @@ class LeaveIntegrationService {
         throw new Error('Employee not found');
       }
 
-      // Get or create leave balance
-      const balance = await LeaveBalance.getOrCreateBalance(employeeId, year);
+      // Calculate current work year
+      const currentWorkYear = this.calculateWorkYear(employee.hireDate);
+      
+      // Get or create leave balance for current work year
+      const balance = await this.getWorkYearBalance(employeeId, currentWorkYear);
 
       // Get leave requests for the year
       const leaveRequests = await LeaveRequest.find({
@@ -31,6 +34,12 @@ class LeaveIntegrationService {
         .populate('approvedBy', 'firstName lastName')
         .populate('rejectedBy', 'firstName lastName')
         .sort({ appliedDate: -1 });
+
+      // Sync balance with approved leave requests
+      await this.syncBalanceWithLeaveRequests(balance, leaveRequests);
+
+      // Get anniversary information
+      const anniversaryInfo = await this.getEmployeeAnniversaryInfo(employeeId);
 
       // Calculate statistics
       const stats = {
@@ -49,11 +58,14 @@ class LeaveIntegrationService {
           employeeId: employee.employeeId,
           firstName: employee.firstName,
           lastName: employee.lastName,
-          email: employee.email
+          email: employee.email,
+          hireDate: employee.hireDate
         },
         year,
+        workYear: currentWorkYear,
         balance: balance.getSummary(),
         leaveConfig: employee.leaveConfig,
+        anniversaryInfo: anniversaryInfo,
         statistics: stats,
         history: leaveRequests
       };
@@ -143,6 +155,49 @@ class LeaveIntegrationService {
       };
     } catch (error) {
       throw new Error(`Failed to calculate advance leave deduction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Sync balance with approved leave requests
+   * @param {Object} balance - Leave balance document
+   * @param {Array} leaveRequests - Array of leave requests
+   */
+  static async syncBalanceWithLeaveRequests(balance, leaveRequests) {
+    try {
+      // Reset used days to 0
+      balance.annual.used = 0;
+      balance.sick.used = 0;
+      balance.casual.used = 0;
+
+      // Update balance for each approved leave
+      const approvedLeaves = leaveRequests.filter(r => r.status === 'approved');
+      for (const leave of approvedLeaves) {
+        if (leave.leaveType && leave.leaveType.code) {
+          const typeMap = {
+            'ANNUAL': 'annual',
+            'AL': 'annual',
+            'annual': 'annual',
+            'SICK': 'sick',
+            'SL': 'sick',
+            'sick': 'sick',
+            'CASUAL': 'casual',
+            'CL': 'casual',
+            'casual': 'casual',
+            'MEDICAL': 'sick',
+            'ML': 'sick',
+            'medical': 'sick'
+          };
+
+          const balanceType = typeMap[leave.leaveType.code] || typeMap[leave.leaveType.code.toUpperCase()] || 'casual';
+          balance[balanceType].used += leave.totalDays;
+        }
+      }
+
+      // Save the updated balance
+      await balance.save();
+    } catch (error) {
+      console.error('Error syncing balance with leave requests:', error);
     }
   }
 
@@ -326,6 +381,214 @@ class LeaveIntegrationService {
       };
     } catch (error) {
       throw new Error(`Failed to get monthly leave stats: ${error.message}`);
+    }
+  }
+
+  /**
+   * Calculate work year based on hire date
+   * @param {Date} hireDate - Employee hire date
+   * @param {Date} currentDate - Current date (default: now)
+   * @returns {Number} Work year number
+   */
+  static calculateWorkYear(hireDate, currentDate = new Date()) {
+    const years = currentDate.getFullYear() - hireDate.getFullYear();
+    const months = currentDate.getMonth() - hireDate.getMonth();
+    
+    if (months < 0 || (months === 0 && currentDate.getDate() < hireDate.getDate())) {
+      return years; // Haven't reached anniversary yet
+    }
+    return years + 1; // Completed this many work years
+  }
+
+  /**
+   * Process anniversary-based leave allocation for an employee
+   * @param {String} employeeId - Employee ID
+   * @param {Number} workYear - Work year to allocate for
+   * @returns {Object} Created leave balance
+   */
+  static async processAnniversaryAllocation(employeeId, workYear) {
+    try {
+      const employee = await Employee.findById(employeeId);
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      const currentYear = new Date().getFullYear();
+      
+      // Check if balance already exists for this work year
+      const existingBalance = await LeaveBalance.findOne({
+        employee: employeeId,
+        workYear: workYear
+      });
+
+      if (existingBalance) {
+        return existingBalance;
+      }
+
+      // Calculate allocation based on work year
+      const allocation = LeaveBalance.calculateAnniversaryAllocation(workYear, employee.leaveConfig);
+      
+      // Set expiration date for annual leaves (2 years from allocation)
+      const expirationDate = new Date(currentYear + 2, 11, 31);
+
+      // Create new balance
+      const balance = new LeaveBalance({
+        employee: employeeId,
+        year: currentYear,
+        workYear: workYear,
+        expirationDate: expirationDate,
+        isCarriedForward: false,
+        annual: {
+          allocated: allocation.annual,
+          used: 0,
+          remaining: allocation.annual,
+          carriedForward: 0,
+          advance: 0
+        },
+        sick: {
+          allocated: allocation.sick,
+          used: 0,
+          remaining: allocation.sick,
+          carriedForward: 0,
+          advance: 0
+        },
+        casual: {
+          allocated: allocation.casual,
+          used: 0,
+          remaining: allocation.casual,
+          carriedForward: 0,
+          advance: 0
+        }
+      });
+
+      await balance.save();
+      return balance;
+    } catch (error) {
+      throw new Error(`Failed to process anniversary allocation: ${error.message}`);
+    }
+  }
+
+  /**
+   * Process anniversary renewals for all employees
+   * @returns {Object} Processing results
+   */
+  static async processAnniversaryRenewals() {
+    try {
+      const today = new Date();
+      const employees = await Employee.find({ 
+        isActive: true,
+        hireDate: { $exists: true }
+      });
+
+      const results = {
+        processed: 0,
+        renewed: 0,
+        errors: []
+      };
+
+      for (const employee of employees) {
+        try {
+          const currentWorkYear = this.calculateWorkYear(employee.hireDate, today);
+          
+          // Check if employee has reached a new work year
+          const lastBalance = await LeaveBalance.findOne({
+            employee: employee._id
+          }).sort({ workYear: -1 });
+
+          if (!lastBalance || lastBalance.workYear < currentWorkYear) {
+            // Process new work year allocation
+            await this.processAnniversaryAllocation(employee._id, currentWorkYear);
+            results.renewed++;
+          }
+          
+          results.processed++;
+        } catch (error) {
+          results.errors.push({
+            employeeId: employee._id,
+            employeeName: `${employee.firstName} ${employee.lastName}`,
+            error: error.message
+          });
+        }
+      }
+
+      return results;
+    } catch (error) {
+      throw new Error(`Failed to process anniversary renewals: ${error.message}`);
+    }
+  }
+
+  /**
+   * Expire old annual leaves (older than 2 years)
+   * @returns {Number} Number of expired balances
+   */
+  static async expireOldAnnualLeaves() {
+    try {
+      return await LeaveBalance.expireOldAnnualLeaves();
+    } catch (error) {
+      throw new Error(`Failed to expire old annual leaves: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get employee's anniversary information
+   * @param {String} employeeId - Employee ID
+   * @returns {Object} Anniversary information
+   */
+  static async getEmployeeAnniversaryInfo(employeeId) {
+    try {
+      const employee = await Employee.findById(employeeId);
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      const today = new Date();
+      const workYear = this.calculateWorkYear(employee.hireDate, today);
+      
+      // Calculate next anniversary date
+      const nextAnniversary = new Date(employee.hireDate);
+      nextAnniversary.setFullYear(today.getFullYear() + 1);
+      
+      // If next anniversary has passed this year, it's next year
+      if (nextAnniversary <= today) {
+        nextAnniversary.setFullYear(today.getFullYear() + 1);
+      }
+
+      const daysToAnniversary = Math.ceil((nextAnniversary - today) / (1000 * 60 * 60 * 24));
+
+      return {
+        hireDate: employee.hireDate,
+        currentWorkYear: workYear,
+        nextAnniversary: nextAnniversary,
+        daysToAnniversary: daysToAnniversary,
+        isAnniversaryThisMonth: nextAnniversary.getMonth() === today.getMonth() && 
+                               nextAnniversary.getFullYear() === today.getFullYear()
+      };
+    } catch (error) {
+      throw new Error(`Failed to get anniversary info: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get leave balance for specific work year
+   * @param {String} employeeId - Employee ID
+   * @param {Number} workYear - Work year
+   * @returns {Object} Leave balance for work year
+   */
+  static async getWorkYearBalance(employeeId, workYear) {
+    try {
+      const balance = await LeaveBalance.findOne({
+        employee: employeeId,
+        workYear: workYear
+      });
+
+      if (!balance) {
+        // Create balance for the work year if it doesn't exist
+        return await this.processAnniversaryAllocation(employeeId, workYear);
+      }
+
+      return balance;
+    } catch (error) {
+      throw new Error(`Failed to get work year balance: ${error.message}`);
     }
   }
 }

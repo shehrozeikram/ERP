@@ -31,7 +31,9 @@ import {
   MenuItem,
   Tabs,
   Tab,
-  Badge
+  Badge,
+  TablePagination,
+  TableFooter
 } from '@mui/material';
 import {
   CheckCircle as ApproveIcon,
@@ -47,11 +49,11 @@ import api from '../../../services/api';
 
 const LeaveApproval = () => {
   const [leaveRequests, setLeaveRequests] = useState([]);
-  const [filteredRequests, setFilteredRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
+  const [pagination, setPagination] = useState({ total: 0, current: 1, pages: 1, limit: 100 });
   
   // Dialog states
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -59,12 +61,7 @@ const LeaveApproval = () => {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   
-  // Filter states
-  const [filters, setFilters] = useState({
-    status: 'all',
-    leaveType: 'all',
-    dateRange: 'all'
-  });
+  // Filter states moved below with pagination states
   
   // Form states
   const [approveForm, setApproveForm] = useState({
@@ -75,21 +72,67 @@ const LeaveApproval = () => {
     reason: ''
   });
 
+  // Pagination states
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [filters, setFilters] = useState({
+    status: 'all',
+    leaveType: 'all',
+    startDate: '',
+    endDate: '',
+    employee: ''
+  });
+
   // Load data on component mount
   useEffect(() => {
-    loadData();
+    loadData(0, rowsPerPage, filters);
   }, []);
 
-  // Filter requests when filters change
+  // Load data when filters change (reset to page 0)
   useEffect(() => {
-    filterRequests();
-  }, [leaveRequests, filters]);
+    setPage(0);
+    loadData(0, rowsPerPage, filters);
+  }, [filters.status, filters.leaveType, filters.startDate, filters.endDate, filters.employee]);
 
-  const loadData = async () => {
+  // Load data when pagination changes
+  useEffect(() => {
+    if (page > 0) { // Avoid double load on initial render
+      loadData(page, rowsPerPage, filters);
+    }
+  }, [page, rowsPerPage]);
+
+  const loadData = async (pageNum = page, limit = rowsPerPage, currentFilters = filters) => {
     try {
       setLoading(true);
-      const response = await api.get('/leaves/requests');
+      
+      // Build query parameters
+      const params = {
+        page: pageNum + 1, // API uses 1-based pagination
+        limit: limit
+      };
+      
+      // Add filters if not 'all'
+      if (currentFilters.status !== 'all') {
+        params.status = currentFilters.status;
+      }
+      if (currentFilters.leaveType !== 'all') {
+        params.leaveType = currentFilters.leaveType;
+      }
+      if (currentFilters.startDate) {
+        params.startDate = currentFilters.startDate;
+      }
+      if (currentFilters.endDate) {
+        params.endDate = currentFilters.endDate;
+      }
+      if (currentFilters.employee) {
+        params.employee = currentFilters.employee;
+      }
+      
+      const response = await api.get('/leaves/requests', { params });
       setLeaveRequests(response.data.data);
+      if (response.data.pagination) {
+        setPagination(response.data.pagination);
+      }
     } catch (error) {
       console.error('Error loading leave requests:', error);
       setError('Failed to load leave requests');
@@ -98,43 +141,7 @@ const LeaveApproval = () => {
     }
   };
 
-  const filterRequests = () => {
-    let filtered = [...leaveRequests];
-
-    // Filter by status
-    if (filters.status !== 'all') {
-      filtered = filtered.filter(request => request.status === filters.status);
-    }
-
-    // Filter by leave type
-    if (filters.leaveType !== 'all') {
-      filtered = filtered.filter(request => request.leaveType._id === filters.leaveType);
-    }
-
-    // Filter by date range
-    if (filters.dateRange !== 'all') {
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      switch (filters.dateRange) {
-        case 'last7days':
-          filtered = filtered.filter(request => new Date(request.appliedDate) >= sevenDaysAgo);
-          break;
-        case 'last30days':
-          filtered = filtered.filter(request => new Date(request.appliedDate) >= thirtyDaysAgo);
-          break;
-        case 'thisMonth':
-          const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-          filtered = filtered.filter(request => new Date(request.appliedDate) >= thisMonth);
-          break;
-        default:
-          break;
-      }
-    }
-
-    setFilteredRequests(filtered);
-  };
+  // Filtering is now done server-side through API calls
 
   const handleApproveLeave = async () => {
     try {
@@ -189,6 +196,18 @@ const LeaveApproval = () => {
   const getPendingCount = () => {
     return leaveRequests.filter(request => request.status === 'pending').length;
   };
+
+  // Pagination handlers
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  // No need for local pagination - data comes paginated from server
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
@@ -359,7 +378,7 @@ const LeaveApproval = () => {
                 Total Requests
               </Typography>
               <Typography variant="h4" color="primary.main">
-                {leaveRequests.length}
+                {pagination.total}
               </Typography>
             </CardContent>
           </Card>
@@ -412,9 +431,14 @@ const LeaveApproval = () => {
       {/* Leave Requests Table */}
       <Card>
         <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Leave Requests
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">
+              Leave Requests
+            </Typography>
+                   <Typography variant="body2" color="text.secondary">
+                     Showing {leaveRequests.length} of {pagination.total} requests
+                   </Typography>
+          </Box>
           <TableContainer component={Paper}>
             <Table>
               <TableHead>
@@ -431,7 +455,45 @@ const LeaveApproval = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredRequests.map((request) => (
+                {loading ? (
+                  // Show loading skeletons
+                  Array.from({ length: rowsPerPage }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Box>
+                            <Skeleton variant="text" width={120} height={20} />
+                            <Skeleton variant="text" width={80} height={16} />
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell><Skeleton variant="text" width={80} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={100} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={100} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={40} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={150} /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" width={60} height={24} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={100} /></TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                          <Skeleton variant="circular" width={32} height={32} />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : leaveRequests.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                      <Typography variant="body1" color="text.secondary">
+                        No leave requests found matching your criteria.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  leaveRequests.map((request) => (
                   <TableRow key={request._id}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -513,8 +575,38 @@ const LeaveApproval = () => {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  ))
+                )}
               </TableBody>
+              <TableFooter>
+                <TableRow>
+                       <TablePagination
+                         rowsPerPageOptions={[10, 25, 50, 100]}
+                         colSpan={9}
+                         count={pagination.total}
+                         rowsPerPage={rowsPerPage}
+                         page={page}
+                         onPageChange={handleChangePage}
+                         onRowsPerPageChange={handleChangeRowsPerPage}
+                    labelRowsPerPage="Rows per page:"
+                    labelDisplayedRows={({ from, to, count }) => 
+                      `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`
+                    }
+                    sx={{
+                      '& .MuiTablePagination-toolbar': {
+                        paddingLeft: 2,
+                        paddingRight: 2,
+                      },
+                      '& .MuiTablePagination-selectLabel': {
+                        marginBottom: 0,
+                      },
+                      '& .MuiTablePagination-displayedRows': {
+                        marginBottom: 0,
+                      },
+                    }}
+                  />
+                </TableRow>
+              </TableFooter>
             </Table>
           </TableContainer>
         </CardContent>

@@ -12,6 +12,21 @@ const leaveBalanceSchema = new mongoose.Schema({
     min: [2020, 'Year must be 2020 or later'],
     max: [2100, 'Year must be before 2100']
   },
+  // Anniversary-based fields
+  workYear: {
+    type: Number,
+    required: [true, 'Work year is required'],
+    min: [1, 'Work year must be 1 or later'],
+    max: [50, 'Work year must be less than 50']
+  },
+  expirationDate: {
+    type: Date,
+    required: false
+  },
+  isCarriedForward: {
+    type: Boolean,
+    default: false
+  },
   // Leave type balances
   annual: {
     allocated: {
@@ -114,9 +129,10 @@ const leaveBalanceSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-leaveBalanceSchema.index({ employee: 1, year: 1 }, { unique: true });
+leaveBalanceSchema.index({ employee: 1, workYear: 1 }, { unique: true });
 leaveBalanceSchema.index({ year: 1 });
 leaveBalanceSchema.index({ employee: 1 });
+leaveBalanceSchema.index({ expirationDate: 1 });
 
 // Pre-save middleware to calculate remaining and advance leaves
 leaveBalanceSchema.pre('save', function(next) {
@@ -169,28 +185,40 @@ leaveBalanceSchema.statics.getOrCreateBalance = async function(employeeId, year)
       throw new Error('Employee not found');
     }
 
-    // Create new balance with employee's configured limits
+    // Calculate work year based on hire date
+    const workYear = this.calculateWorkYear(employee.hireDate, new Date(year, 0, 1));
+    
+    // Calculate anniversary-based allocation
+    const allocation = this.calculateAnniversaryAllocation(workYear, employee.leaveConfig);
+    
+    // Set expiration date for annual leaves (2 years from allocation)
+    const expirationDate = new Date(year + 2, 11, 31); // End of year + 2 years
+
+    // Create new balance with anniversary-based allocation
     balance = new this({
       employee: employeeId,
       year,
+      workYear,
+      expirationDate,
+      isCarriedForward: false,
       annual: {
-        allocated: employee.leaveConfig?.annualLimit || 20,
+        allocated: allocation.annual,
         used: 0,
-        remaining: employee.leaveConfig?.annualLimit || 20,
+        remaining: allocation.annual,
         carriedForward: 0,
         advance: 0
       },
       sick: {
-        allocated: employee.leaveConfig?.sickLimit || 10,
+        allocated: allocation.sick,
         used: 0,
-        remaining: employee.leaveConfig?.sickLimit || 10,
+        remaining: allocation.sick,
         carriedForward: 0,
         advance: 0
       },
       casual: {
-        allocated: employee.leaveConfig?.casualLimit || 10,
+        allocated: allocation.casual,
         used: 0,
-        remaining: employee.leaveConfig?.casualLimit || 10,
+        remaining: allocation.casual,
         carriedForward: 0,
         advance: 0
       }
@@ -267,6 +295,103 @@ leaveBalanceSchema.methods.getSummary = function() {
     },
     totalAdvanceLeaves: this.totalAdvanceLeaves
   };
+};
+
+// Static method to calculate work year based on hire date
+leaveBalanceSchema.statics.calculateWorkYear = function(hireDate, currentDate = new Date()) {
+  const years = currentDate.getFullYear() - hireDate.getFullYear();
+  const months = currentDate.getMonth() - hireDate.getMonth();
+  
+  if (months < 0 || (months === 0 && currentDate.getDate() < hireDate.getDate())) {
+    return years; // Haven't reached anniversary yet
+  }
+  return years + 1; // Completed this many work years
+};
+
+// Static method to calculate anniversary-based leave allocation
+leaveBalanceSchema.statics.calculateAnniversaryAllocation = function(workYear, leaveConfig) {
+  const config = leaveConfig || {};
+  
+  // Annual leaves: Only after completing 1 year (workYear >= 2)
+  const annualAllocation = workYear >= 2 ? (config.annualLimit || 20) : 0;
+  
+  // Sick and Casual leaves: Available from first year (workYear >= 1)
+  const sickAllocation = workYear >= 1 ? (config.sickLimit || 10) : 0;
+  const casualAllocation = workYear >= 1 ? (config.casualLimit || 10) : 0;
+  
+  return {
+    annual: annualAllocation,
+    sick: sickAllocation,
+    casual: casualAllocation
+  };
+};
+
+// Static method to process anniversary renewals
+leaveBalanceSchema.statics.processAnniversaryRenewal = async function(employeeId, newWorkYear) {
+  const Employee = mongoose.model('Employee');
+  const employee = await Employee.findById(employeeId);
+  
+  if (!employee) {
+    throw new Error('Employee not found');
+  }
+  
+  const currentYear = new Date().getFullYear();
+  const allocation = this.calculateAnniversaryAllocation(newWorkYear, employee.leaveConfig);
+  
+  // Create new balance for the new work year
+  const newBalance = new this({
+    employee: employeeId,
+    year: currentYear,
+    workYear: newWorkYear,
+    expirationDate: new Date(currentYear + 2, 11, 31),
+    isCarriedForward: false,
+    annual: {
+      allocated: allocation.annual,
+      used: 0,
+      remaining: allocation.annual,
+      carriedForward: 0,
+      advance: 0
+    },
+    sick: {
+      allocated: allocation.sick,
+      used: 0,
+      remaining: allocation.sick,
+      carriedForward: 0,
+      advance: 0
+    },
+    casual: {
+      allocated: allocation.casual,
+      used: 0,
+      remaining: allocation.casual,
+      carriedForward: 0,
+      advance: 0
+    }
+  });
+  
+  await newBalance.save();
+  return newBalance;
+};
+
+// Static method to expire old annual leaves
+leaveBalanceSchema.statics.expireOldAnnualLeaves = async function() {
+  const today = new Date();
+  
+  // Find balances with expired annual leaves
+  const expiredBalances = await this.find({
+    expirationDate: { $lt: today },
+    'annual.remaining': { $gt: 0 }
+  });
+  
+  for (const balance of expiredBalances) {
+    // Mark remaining annual leaves as expired
+    balance.annual.carriedForward = 0;
+    balance.annual.remaining = 0;
+    balance.annual.allocated = balance.annual.used; // Adjust allocated to match used
+    
+    await balance.save();
+  }
+  
+  return expiredBalances.length;
 };
 
 module.exports = mongoose.model('LeaveBalance', leaveBalanceSchema);
