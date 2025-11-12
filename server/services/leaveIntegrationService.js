@@ -5,12 +5,13 @@ const LeaveType = require('../models/hr/LeaveType');
 
 class LeaveIntegrationService {
   /**
-   * Get employee leave summary for a specific year
+   * Get employee leave summary for a specific work year
    * @param {String} employeeId - Employee ID
-   * @param {Number} year - Year (default: current year)
+   * @param {Number} workYear - Work year (optional, defaults to current work year)
+   * @param {Number} year - Calendar year (optional, for backward compatibility - will calculate workYear from this)
    * @returns {Object} Leave summary with balance and history
    */
-  static async getEmployeeLeaveSummary(employeeId, year = new Date().getFullYear()) {
+  static async getEmployeeLeaveSummary(employeeId, workYear = null, year = null) {
     try {
       // Get employee
       const employee = await Employee.findById(employeeId);
@@ -18,16 +19,47 @@ class LeaveIntegrationService {
         throw new Error('Employee not found');
       }
 
-      // Calculate current work year
-      const currentWorkYear = this.calculateWorkYear(employee.hireDate);
-      
-      // Get or create leave balance for current work year
-      const balance = await this.getWorkYearBalance(employeeId, currentWorkYear);
+      const hireDate = employee.hireDate || employee.joiningDate;
+      if (!hireDate) {
+        throw new Error('Employee does not have a hire date');
+      }
 
-      // Get leave requests for the year
+      // Calculate work year if not provided
+      let targetWorkYear = workYear;
+      let targetYear = year;
+      
+      if (targetWorkYear === null) {
+        if (targetYear !== null) {
+          // Calculate work year from calendar year
+          // The calendar year represents the anniversary year (when the work year period ends)
+          // Work Year 0: Nov 01, 2023 - Nov 01, 2024 -> anniversary year = 2024
+          // Work Year 1: Nov 01, 2024 - Nov 01, 2025 -> anniversary year = 2025
+          // Formula: workYear = anniversaryYear - hireYear - 1
+          const hireDateObj = new Date(hireDate);
+          const hireYear = hireDateObj.getFullYear();
+          targetWorkYear = targetYear - hireYear - 1;
+          
+          // Ensure workYear is not negative
+          targetWorkYear = Math.max(0, targetWorkYear);
+        } else {
+          // Default to current work year
+          targetWorkYear = this.calculateWorkYear(hireDate);
+          const hireDateObj = new Date(hireDate);
+          targetYear = hireDateObj.getFullYear() + targetWorkYear + 1; // Anniversary year
+        }
+      } else {
+        // Work year provided, calculate the calendar year (anniversary year)
+        const hireDateObj = new Date(hireDate);
+        targetYear = hireDateObj.getFullYear() + targetWorkYear + 1;
+      }
+      
+      // Get or create leave balance for the work year
+      const balance = await this.getWorkYearBalance(employeeId, targetWorkYear);
+
+      // Get leave requests for the work year (not calendar year)
       const leaveRequests = await LeaveRequest.find({
         employee: employeeId,
-        leaveYear: year,
+        workYear: targetWorkYear,
         isActive: true
       })
         .populate('leaveType', 'name code color')
@@ -40,6 +72,11 @@ class LeaveIntegrationService {
 
       // Get anniversary information
       const anniversaryInfo = await this.getEmployeeAnniversaryInfo(employeeId);
+
+      // Calculate work year period dates
+      const hireDateObj = new Date(hireDate);
+      const workYearStartDate = new Date(hireDateObj.getFullYear() + targetWorkYear, hireDateObj.getMonth(), hireDateObj.getDate());
+      const workYearEndDate = new Date(hireDateObj.getFullYear() + targetWorkYear + 1, hireDateObj.getMonth(), hireDateObj.getDate());
 
       // Calculate statistics
       const stats = {
@@ -61,8 +98,12 @@ class LeaveIntegrationService {
           email: employee.email,
           hireDate: employee.hireDate
         },
-        year,
-        workYear: currentWorkYear,
+        year: targetYear,
+        workYear: targetWorkYear,
+        workYearPeriod: {
+          startDate: workYearStartDate,
+          endDate: workYearEndDate
+        },
         balance: balance.getSummary(),
         leaveConfig: employee.leaveConfig,
         anniversaryInfo: anniversaryInfo,
@@ -227,6 +268,15 @@ class LeaveIntegrationService {
         leaveRequest.leaveYear
       );
 
+      // If it's an annual leave, recalculate carry forward for next work year
+      if (leaveRequest.leaveType.code === 'ANNUAL' || leaveRequest.leaveType.code === 'AL') {
+        await this.recalculateCarryForwardForNextYear(
+          leaveRequest.employee, 
+          leaveRequest.leaveYear, 
+          leaveRequest.workYear
+        );
+      }
+
       // Also update employee's leaveBalance field for backward compatibility
       const employee = await Employee.findById(leaveRequest.employee);
       if (employee) {
@@ -267,6 +317,90 @@ class LeaveIntegrationService {
       return balance;
     } catch (error) {
       throw new Error(`Failed to update balance on approval: ${error.message}`);
+    }
+  }
+
+  /**
+   * Recalculate carry forward for next work year after annual leave approval
+   * Uses workYear (anniversary-based) instead of calendar year
+   * @param {String} employeeId - Employee ID
+   * @param {Number} currentLeaveYear - Current leave year (anniversary year)
+   * @param {Number} currentWorkYear - Current work year (optional, will be calculated if not provided)
+   */
+  static async recalculateCarryForwardForNextYear(employeeId, currentLeaveYear, currentWorkYear = null) {
+    try {
+      // Get employee to calculate workYear if not provided
+      const employee = await Employee.findById(employeeId);
+      if (!employee) {
+        return; // Employee not found, skip
+      }
+
+      // Get current work year balance
+      // First try to find by workYear if provided
+      let currentBalance;
+      if (currentWorkYear !== null) {
+        currentBalance = await LeaveBalance.findOne({
+          employee: employeeId,
+          workYear: currentWorkYear
+        });
+      } else {
+        // Otherwise, find by leaveYear (anniversary year)
+        currentBalance = await LeaveBalance.findOne({
+          employee: employeeId,
+          year: currentLeaveYear
+        });
+        
+        // If found by year, get its workYear
+        if (currentBalance && currentBalance.workYear !== undefined) {
+          currentWorkYear = currentBalance.workYear;
+        } else {
+          // Calculate workYear from leave request's workYear
+          // This should have been set during import
+          return; // Can't determine work year, skip
+        }
+      }
+
+      if (!currentBalance) {
+        return; // No balance found, skip
+      }
+
+      // Get next work year balance (workYear + 1)
+      const nextWorkYear = currentWorkYear + 1;
+      let nextBalance = await LeaveBalance.findOne({
+        employee: employeeId,
+        workYear: nextWorkYear
+      });
+
+      // If next balance doesn't exist, try to create it
+      if (!nextBalance) {
+        const CarryForwardService = require('./carryForwardService');
+        try {
+          nextBalance = await CarryForwardService.ensureWorkYearBalance(employeeId, nextWorkYear);
+        } catch (error) {
+          // If creation fails, skip (balance will be created on anniversary)
+          return;
+        }
+      }
+
+      // Calculate carry forward with 40-day total cap
+      // Formula: carry forward = min(previous remaining, 20, 40 - new allocation)
+      const newAllocation = nextBalance.annual.allocated;
+      const individualCap = Math.min(currentBalance.annual.remaining, 20);
+      const maxCarryForwardWithTotalCap = Math.max(0, 40 - newAllocation); // Ensure non-negative
+      const carryForward = Math.min(individualCap, maxCarryForwardWithTotalCap);
+
+      // Only update if carry forward has changed
+      if (nextBalance.annual.carriedForward !== carryForward) {
+        nextBalance.annual.carriedForward = carryForward;
+        nextBalance.isCarriedForward = carryForward > 0;
+        await nextBalance.save();
+
+        const total = newAllocation + carryForward;
+        console.log(`✅ Updated carry forward for Work Year ${nextWorkYear}: ${carryForward} days (from Work Year ${currentWorkYear} remaining: ${currentBalance.annual.remaining}, new allocation: ${newAllocation}, total: ${total} ≤ 40)`);
+      }
+    } catch (error) {
+      console.error(`Error recalculating carry forward for next work year:`, error);
+      // Don't throw error, just log it
     }
   }
 
@@ -393,11 +527,65 @@ class LeaveIntegrationService {
   static calculateWorkYear(hireDate, currentDate = new Date()) {
     const years = currentDate.getFullYear() - hireDate.getFullYear();
     const months = currentDate.getMonth() - hireDate.getMonth();
+    const days = currentDate.getDate() - hireDate.getDate();
     
-    if (months < 0 || (months === 0 && currentDate.getDate() < hireDate.getDate())) {
-      return years; // Haven't reached anniversary yet
+    // Check if anniversary has passed this year
+    if (months < 0 || (months === 0 && days < 0)) {
+      return Math.max(0, years - 1); // Haven't reached anniversary yet
     }
-    return years + 1; // Completed this many work years
+    return years; // Completed this many work years (anniversary has passed)
+  }
+
+  /**
+   * Get available work years for an employee
+   * @param {String} employeeId - Employee ID
+   * @returns {Array} Array of work year objects with period information
+   */
+  static async getAvailableWorkYears(employeeId) {
+    try {
+      const employee = await Employee.findById(employeeId);
+      if (!employee) {
+        throw new Error('Employee not found');
+      }
+
+      const hireDate = employee.hireDate || employee.joiningDate;
+      if (!hireDate) {
+        throw new Error('Employee does not have a hire date');
+      }
+
+      const hireDateObj = new Date(hireDate);
+      const currentWorkYear = this.calculateWorkYear(hireDate);
+      const workYears = [];
+
+      const today = new Date();
+      let currentWorkYearValue = null;
+
+      // Get all work years from 0 to current + 1 (to show next year)
+      for (let wy = 0; wy <= currentWorkYear + 1; wy++) {
+        const workYearStart = new Date(hireDateObj.getFullYear() + wy, hireDateObj.getMonth(), hireDateObj.getDate());
+        const workYearEnd = new Date(hireDateObj.getFullYear() + wy + 1, hireDateObj.getMonth(), hireDateObj.getDate());
+        const anniversaryYear = hireDateObj.getFullYear() + wy + 1;
+
+        // Check if today falls within this work year period
+        const isCurrent = today >= workYearStart && today < workYearEnd;
+        if (isCurrent) {
+          currentWorkYearValue = wy;
+        }
+
+        workYears.push({
+          workYear: wy,
+          year: anniversaryYear, // Calendar year when anniversary occurs
+          startDate: workYearStart,
+          endDate: workYearEnd,
+          label: `${workYearStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${workYearEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+          isCurrent: isCurrent
+        });
+      }
+
+      return workYears.reverse(); // Most recent first
+    } catch (error) {
+      throw new Error(`Failed to get available work years: ${error.message}`);
+    }
   }
 
   /**
@@ -413,7 +601,13 @@ class LeaveIntegrationService {
         throw new Error('Employee not found');
       }
 
-      const currentYear = new Date().getFullYear();
+      // Calculate the correct year for this work year
+      const hireDate = employee.hireDate;
+      const workYearStartDate = new Date(hireDate.getFullYear() + workYear, hireDate.getMonth(), hireDate.getDate());
+      const workYearEndDate = new Date(hireDate.getFullYear() + workYear + 1, hireDate.getMonth(), hireDate.getDate());
+      
+      // Use the year that contains the work year
+      const year = workYearStartDate.getFullYear();
       
       // Check if balance already exists for this work year
       const existingBalance = await LeaveBalance.findOne({
@@ -425,38 +619,62 @@ class LeaveIntegrationService {
         return existingBalance;
       }
 
+      // Also check if balance exists for this year (to prevent duplicate key errors)
+      const existingYearBalance = await LeaveBalance.findOne({
+        employee: employeeId,
+        year: year
+      });
+
+      if (existingYearBalance) {
+        // Update the existing record with workYear if it's missing
+        if (!existingYearBalance.workYear) {
+          existingYearBalance.workYear = workYear;
+          await existingYearBalance.save();
+        }
+        return existingYearBalance;
+      }
+
       // Calculate allocation based on work year
       const allocation = LeaveBalance.calculateAnniversaryAllocation(workYear, employee.leaveConfig);
       
+      // Calculate carry forward ONLY for annual leaves (with 40-day cap)
+      // Sick and Casual leaves reset completely on anniversary - NO CARRY FORWARD
+      const CarryForwardService = require('./carryForwardService');
+      let annualCarryForward = 0;
+      if (workYear > 0) {
+        const carryForwardResult = await CarryForwardService.calculateCarryForward(employeeId, workYear, allocation.annual);
+        annualCarryForward = carryForwardResult.annual;
+      }
+      
       // Set expiration date for annual leaves (2 years from allocation)
-      const expirationDate = new Date(currentYear + 2, 11, 31);
+      const expirationDate = new Date(year + 2, 11, 31);
 
       // Create new balance
       const balance = new LeaveBalance({
         employee: employeeId,
-        year: currentYear,
+        year: year,
         workYear: workYear,
         expirationDate: expirationDate,
-        isCarriedForward: false,
+        isCarriedForward: annualCarryForward > 0, // Only true if annual leaves have carry forward
         annual: {
           allocated: allocation.annual,
           used: 0,
-          remaining: allocation.annual,
-          carriedForward: 0,
+          remaining: 0, // Will be calculated by pre-save middleware (allocated + carriedForward - used)
+          carriedForward: annualCarryForward, // ONLY annual leaves have carry forward (with 40-day cap)
           advance: 0
         },
         sick: {
           allocated: allocation.sick,
           used: 0,
-          remaining: allocation.sick,
-          carriedForward: 0,
+          remaining: 0, // Will be calculated by pre-save middleware
+          carriedForward: 0, // NO CARRY FORWARD - resets completely on anniversary
           advance: 0
         },
         casual: {
           allocated: allocation.casual,
           used: 0,
-          remaining: allocation.casual,
-          carriedForward: 0,
+          remaining: 0, // Will be calculated by pre-save middleware
+          carriedForward: 0, // NO CARRY FORWARD - resets completely on anniversary
           advance: 0
         }
       });
@@ -464,6 +682,18 @@ class LeaveIntegrationService {
       await balance.save();
       return balance;
     } catch (error) {
+      // Handle duplicate key error specifically
+      if (error.code === 11000) {
+        // Duplicate key error - try to find and return existing record
+        const existingBalance = await LeaveBalance.findOne({
+          employee: employeeId,
+          workYear: workYear
+        });
+        
+        if (existingBalance) {
+          return existingBalance;
+        }
+      }
       throw new Error(`Failed to process anniversary allocation: ${error.message}`);
     }
   }
@@ -576,17 +806,7 @@ class LeaveIntegrationService {
    */
   static async getWorkYearBalance(employeeId, workYear) {
     try {
-      const balance = await LeaveBalance.findOne({
-        employee: employeeId,
-        workYear: workYear
-      });
-
-      if (!balance) {
-        // Create balance for the work year if it doesn't exist
-        return await this.processAnniversaryAllocation(employeeId, workYear);
-      }
-
-      return balance;
+      return await LeaveBalance.getOrCreateBalanceWithCarryForward(employeeId, workYear);
     } catch (error) {
       throw new Error(`Failed to get work year balance: ${error.message}`);
     }

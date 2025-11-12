@@ -16,7 +16,7 @@ const leaveBalanceSchema = new mongoose.Schema({
   workYear: {
     type: Number,
     required: [true, 'Work year is required'],
-    min: [1, 'Work year must be 1 or later'],
+    min: [0, 'Work year must be 0 or later'],
     max: [50, 'Work year must be less than 50']
   },
   expirationDate: {
@@ -130,6 +130,7 @@ const leaveBalanceSchema = new mongoose.Schema({
 
 // Indexes for better query performance
 leaveBalanceSchema.index({ employee: 1, workYear: 1 }, { unique: true });
+leaveBalanceSchema.index({ employee: 1, year: 1 }, { unique: true });
 leaveBalanceSchema.index({ year: 1 });
 leaveBalanceSchema.index({ employee: 1 });
 leaveBalanceSchema.index({ expirationDate: 1 });
@@ -137,34 +138,80 @@ leaveBalanceSchema.index({ expirationDate: 1 });
 // Pre-save middleware to calculate remaining and advance leaves
 leaveBalanceSchema.pre('save', function(next) {
   // Calculate remaining and advance for annual leaves
-  const annualRemaining = this.annual.allocated + this.annual.carriedForward - this.annual.used;
-  if (annualRemaining >= 0) {
-    this.annual.remaining = annualRemaining;
-    this.annual.advance = 0;
-  } else {
-    this.annual.remaining = 0;
-    this.annual.advance = Math.abs(annualRemaining);
+  // Use allocated days first, then carry forward
+  let annualUsed = this.annual.used;
+  let annualCarriedForward = this.annual.carriedForward;
+  let annualAllocated = this.annual.allocated;
+  
+  // Use allocated days first
+  let annualAllocatedUsed = 0;
+  if (annualUsed > 0) {
+    annualAllocatedUsed = Math.min(annualUsed, annualAllocated);
+    annualUsed -= annualAllocatedUsed;
   }
+  
+  // Use carry forward only if allocated days are exhausted
+  let annualCarriedForwardUsed = 0;
+  if (annualUsed > 0 && annualCarriedForward > 0) {
+    annualCarriedForwardUsed = Math.min(annualUsed, annualCarriedForward);
+    annualUsed -= annualCarriedForwardUsed;
+  }
+  
+  // Calculate total available (allocated + carry forward)
+  // Note: The 40-day cap is now enforced during carry forward calculation,
+  // not here. This middleware only calculates remaining based on what's provided.
+  let totalAnnualAvailable = annualAllocated + annualCarriedForward;
+  
+  // Calculate remaining: total available minus used
+  const totalUsed = annualAllocatedUsed + annualCarriedForwardUsed;
+  this.annual.remaining = Math.max(0, totalAnnualAvailable - totalUsed);
+  this.annual.advance = annualUsed; // Anything left is advance
 
   // Calculate remaining and advance for sick leaves
-  const sickRemaining = this.sick.allocated + this.sick.carriedForward - this.sick.used;
-  if (sickRemaining >= 0) {
-    this.sick.remaining = sickRemaining;
-    this.sick.advance = 0;
-  } else {
-    this.sick.remaining = 0;
-    this.sick.advance = Math.abs(sickRemaining);
+  let sickUsed = this.sick.used;
+  let sickCarriedForward = this.sick.carriedForward; // Keep original value
+  let sickAllocated = this.sick.allocated;
+  
+  // Use allocated days first
+  let sickAllocatedUsed = 0;
+  if (sickUsed > 0) {
+    sickAllocatedUsed = Math.min(sickUsed, sickAllocated);
+    sickUsed -= sickAllocatedUsed;
   }
+  
+  // Use carry forward only if allocated days are exhausted
+  let sickCarriedForwardUsed = 0;
+  if (sickUsed > 0 && sickCarriedForward > 0) {
+    sickCarriedForwardUsed = Math.min(sickUsed, sickCarriedForward);
+    sickUsed -= sickCarriedForwardUsed;
+  }
+  
+  // Calculate remaining and advance WITHOUT modifying carriedForward
+  this.sick.remaining = Math.max(0, sickCarriedForward + sickAllocated - sickAllocatedUsed - sickCarriedForwardUsed);
+  this.sick.advance = sickUsed; // Anything left is advance
 
   // Calculate remaining and advance for casual leaves
-  const casualRemaining = this.casual.allocated + this.casual.carriedForward - this.casual.used;
-  if (casualRemaining >= 0) {
-    this.casual.remaining = casualRemaining;
-    this.casual.advance = 0;
-  } else {
-    this.casual.remaining = 0;
-    this.casual.advance = Math.abs(casualRemaining);
+  let casualUsed = this.casual.used;
+  let casualCarriedForward = this.casual.carriedForward; // Keep original value
+  let casualAllocated = this.casual.allocated;
+  
+  // Use allocated days first
+  let casualAllocatedUsed = 0;
+  if (casualUsed > 0) {
+    casualAllocatedUsed = Math.min(casualUsed, casualAllocated);
+    casualUsed -= casualAllocatedUsed;
   }
+  
+  // Use carry forward only if allocated days are exhausted
+  let casualCarriedForwardUsed = 0;
+  if (casualUsed > 0 && casualCarriedForward > 0) {
+    casualCarriedForwardUsed = Math.min(casualUsed, casualCarriedForward);
+    casualUsed -= casualCarriedForwardUsed;
+  }
+  
+  // Calculate remaining and advance WITHOUT modifying carriedForward
+  this.casual.remaining = Math.max(0, casualCarriedForward + casualAllocated - casualAllocatedUsed - casualCarriedForwardUsed);
+  this.casual.advance = casualUsed; // Anything left is advance
 
   // Calculate total advance leaves
   this.totalAdvanceLeaves = this.annual.advance + this.sick.advance + this.casual.advance;
@@ -224,7 +271,31 @@ leaveBalanceSchema.statics.getOrCreateBalance = async function(employeeId, year)
       }
     });
 
-    await balance.save();
+    try {
+      await balance.save();
+    } catch (error) {
+      // Handle duplicate key error
+      if (error.code === 11000) {
+        // Try to find the existing record
+        balance = await this.findOne({ employee: employeeId, year });
+        if (!balance) {
+          throw error; // Re-throw if we still can't find it
+        }
+      } else {
+        throw error;
+      }
+    }
+  } else {
+    // If balance exists but workYear is missing, calculate and update it
+    if (!balance.workYear) {
+      const Employee = mongoose.model('Employee');
+      const employee = await Employee.findById(employeeId);
+      
+      if (employee) {
+        balance.workYear = this.calculateWorkYear(employee.hireDate, new Date(year, 0, 1));
+        await balance.save();
+      }
+    }
   }
 
   return balance;
@@ -312,12 +383,12 @@ leaveBalanceSchema.statics.calculateWorkYear = function(hireDate, currentDate = 
 leaveBalanceSchema.statics.calculateAnniversaryAllocation = function(workYear, leaveConfig) {
   const config = leaveConfig || {};
   
-  // Annual leaves: Only after completing 1 year (workYear >= 2)
-  const annualAllocation = workYear >= 2 ? (config.annualLimit || 20) : 0;
+  // Annual leaves: Only after completing 1 year (workYear >= 1)
+  const annualAllocation = workYear >= 1 ? (config.annualLimit || 20) : 0;
   
-  // Sick and Casual leaves: Available from first year (workYear >= 1)
-  const sickAllocation = workYear >= 1 ? (config.sickLimit || 10) : 0;
-  const casualAllocation = workYear >= 1 ? (config.casualLimit || 10) : 0;
+  // Sick and Casual leaves: Available from first year (workYear >= 0)
+  const sickAllocation = workYear >= 0 ? (config.sickLimit || 10) : 0;
+  const casualAllocation = workYear >= 0 ? (config.casualLimit || 10) : 0;
   
   return {
     annual: annualAllocation,
@@ -392,6 +463,24 @@ leaveBalanceSchema.statics.expireOldAnnualLeaves = async function() {
   }
   
   return expiredBalances.length;
+};
+
+// Static method to get or create leave balance for employee with automatic carry forward
+leaveBalanceSchema.statics.getOrCreateBalanceWithCarryForward = async function(employeeId, workYear) {
+  const CarryForwardService = require('../../services/carryForwardService');
+  return await CarryForwardService.getOrCreateBalanceWithCarryForward(employeeId, workYear);
+};
+
+// Static method to recalculate carry forward for employee
+leaveBalanceSchema.statics.recalculateCarryForward = async function(employeeId) {
+  const CarryForwardService = require('../../services/carryForwardService');
+  return await CarryForwardService.recalculateCarryForward(employeeId);
+};
+
+// Static method to get carry forward summary for employee
+leaveBalanceSchema.statics.getCarryForwardSummary = async function(employeeId) {
+  const CarryForwardService = require('../../services/carryForwardService');
+  return await CarryForwardService.getCarryForwardSummary(employeeId);
 };
 
 module.exports = mongoose.model('LeaveBalance', leaveBalanceSchema);

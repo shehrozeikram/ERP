@@ -32,7 +32,9 @@ import {
   Block as BlockIcon,
   CheckCircle as ActivateIcon,
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  PhotoCamera as CameraIcon,
+  CloudUpload as UploadIcon
 } from '@mui/icons-material';
 import { authService } from '../../services/authService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -60,8 +62,26 @@ const UserManagement = () => {
   const [subRoles, setSubRoles] = useState([]);
 
   // Fetch sub-roles for a specific module
-  const fetchSubRoles = async (module) => {
+  const fetchSubRoles = async (role) => {
     try {
+      // Map role names to module names
+      const roleToModuleMap = {
+        'admin': 'admin',
+        'hr_manager': 'hr',
+        'finance_manager': 'finance',
+        'procurement_manager': 'procurement',
+        'sales_manager': 'sales',
+        'crm_manager': 'crm',
+        'audit_manager': 'audit',
+        'it_manager': 'it'
+      };
+      
+      const module = roleToModuleMap[role];
+      if (!module) {
+        setSubRoles([]);
+        return;
+      }
+      
       const response = await api.get(`/auth/sub-roles/${module}`);
       setSubRoles(response.data.data.subRoles);
     } catch (error) {
@@ -81,7 +101,7 @@ const UserManagement = () => {
       setDepartments(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
     }
   };
-  const roles = ['super_admin', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'];
+  const roles = ['super_admin', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'];
 
   const roleColors = {
     super_admin: 'error',
@@ -91,6 +111,9 @@ const UserManagement = () => {
     procurement_manager: 'warning',
     sales_manager: 'info',
     crm_manager: 'secondary',
+    audit_manager: 'warning',
+    auditor: 'info',
+    it_manager: 'primary',
     employee: 'default'
   };
 
@@ -157,6 +180,7 @@ const UserManagement = () => {
   const handleCreateUser = async (userData) => {
     try {
       setError(null);
+      console.log('Sending user data to backend:', userData);
       const response = await authService.createUser(userData);
       console.log('User created successfully:', response);
       setSuccess('User created successfully!');
@@ -164,7 +188,21 @@ const UserManagement = () => {
       loadUsers();
     } catch (error) {
       console.error('Failed to create user:', error);
-      setError(error.response?.data?.message || 'Failed to create user. Please try again.');
+      
+      // Show detailed error information
+      if (error.response && error.response.data) {
+        console.error('Backend error details:', error.response.data);
+        
+        // If there are validation errors from backend, show them
+        if (error.response.data.errors) {
+          console.error('Backend validation errors:', error.response.data.errors);
+          setError(`Validation failed: ${error.response.data.errors.map(err => err.msg).join(', ')}`);
+        } else {
+          setError(error.response.data.message || 'Failed to create user. Please try again.');
+        }
+      } else {
+        setError('Failed to create user. Please try again.');
+      }
     }
   };
 
@@ -540,7 +578,7 @@ const EditUserForm = ({ user, onSave, onCancel, departments }) => {
           onChange={(e) => setFormData({ ...formData, role: e.target.value })}
           label="Role"
         >
-          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'].map((role) => (
+          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'].map((role) => (
             <MenuItem key={role} value={role}>
               {role.replace('_', ' ').toUpperCase()}
             </MenuItem>
@@ -623,7 +661,7 @@ const ViewUserDetails = ({ user, onUpdateRole, onClose }) => {
             onChange={(e) => setSelectedRole(e.target.value)}
             label="Role"
           >
-            {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'].map((role) => (
+            {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'].map((role) => (
               <MenuItem key={role} value={role}>
                 {role.replace('_', ' ').toUpperCase()}
               </MenuItem>
@@ -658,99 +696,203 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
     employeeId: '',
     role: 'employee',
     phone: '',
-    subRoles: []
+    subRoles: [],
+    profileImage: ''
   });
 
   const [errors, setErrors] = useState({});
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  // Handle image upload
+  const handleImageUpload = async (file) => {
+    try {
+      setUploading(true);
+      const formData = new FormData();
+      formData.append('profileImage', file);
+
+      const response = await api.post('/hr/upload-image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data.success) {
+        setFormData(prevFormData => ({ 
+          ...prevFormData, 
+          profileImage: response.data.data.imagePath 
+        }));
+        setImagePreview(URL.createObjectURL(file));
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Handle file input change
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+      handleImageUpload(file);
+    }
+  };
 
   const validateForm = () => {
     const newErrors = {};
     
-    if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
-    if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
-    if (!formData.email.trim()) newErrors.email = 'Email is required';
-    if (!formData.password.trim()) newErrors.password = 'Password is required';
-    if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
-    if (!formData.department) newErrors.department = 'Department is required';
-    if (!formData.position.trim()) newErrors.position = 'Position is required';
-    if (!formData.employeeId.trim()) newErrors.employeeId = 'Employee ID is required';
+    // Check required fields with better error handling
+    if (!formData.firstName || formData.firstName.trim() === '') {
+      newErrors.firstName = 'First name is required';
+    }
+    
+    if (!formData.email || formData.email.trim() === '') {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+    
+    if (!formData.password || formData.password.trim() === '') {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+    
+    if (!formData.department || formData.department === '') {
+      newErrors.department = 'Department is required';
+    }
+    
+    if (!formData.position || formData.position.trim() === '') {
+      newErrors.position = 'Position is required';
+    }
+    
+    if (!formData.employeeId || formData.employeeId.trim() === '') {
+      newErrors.employeeId = 'Employee ID is required';
+    }
 
+    console.log('Validation errors:', newErrors);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    console.log('Form data before validation:', formData);
     if (validateForm()) {
       onSave(formData);
+    } else {
+      console.log('Validation failed. Please check the form fields.');
     }
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-      <TextField
-        fullWidth
-        label="First Name"
-        value={formData.firstName}
-        onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-        margin="normal"
-        required
-        error={!!errors.firstName}
-        helperText={errors.firstName}
-      />
-      <TextField
-        fullWidth
-        label="Last Name"
-        value={formData.lastName}
-        onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-        margin="normal"
-        required
-        error={!!errors.lastName}
-        helperText={errors.lastName}
-      />
-      <TextField
-        fullWidth
-        label="Email"
-        type="email"
-        value={formData.email}
-        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-        margin="normal"
-        required
-        error={!!errors.email}
-        helperText={errors.email}
-      />
-      <TextField
-        fullWidth
-        label="Password"
-        type="password"
-        value={formData.password}
-        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-        margin="normal"
-        required
-        error={!!errors.password}
-        helperText={errors.password}
-      />
-      <TextField
-        fullWidth
-        label="Employee ID"
-        value={formData.employeeId}
-        onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-        margin="normal"
-        required
-        error={!!errors.employeeId}
-        helperText={errors.employeeId}
-      />
-      <TextField
-        fullWidth
-        label="Position"
-        value={formData.position}
-        onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-        margin="normal"
-        required
-        error={!!errors.position}
-        helperText={errors.position}
-      />
-      <FormControl fullWidth margin="normal" error={!!errors.department}>
+    <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1, minHeight: '400px' }}>
+      {/* Show validation errors if any */}
+      {Object.keys(errors).length > 0 && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Please fix the following errors:
+          </Typography>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {Object.entries(errors).map(([field, error]) => (
+              <li key={field}>{error}</li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+      
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <TextField
+          fullWidth
+          label="First Name"
+          value={formData.firstName}
+          onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+          margin="normal"
+          required
+          error={!!errors.firstName}
+          helperText={errors.firstName}
+          variant="outlined"
+          InputLabelProps={{
+            shrink: true,
+          }}
+        />
+        <TextField
+          fullWidth
+          label="Last Name (Optional)"
+          value={formData.lastName}
+          onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+          margin="normal"
+          error={!!errors.lastName}
+          helperText={errors.lastName}
+          variant="outlined"
+          InputLabelProps={{
+            shrink: true,
+          }}
+        />
+        <TextField
+          fullWidth
+          label="Email"
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          margin="normal"
+          required
+          error={!!errors.email}
+          helperText={errors.email}
+          variant="outlined"
+          InputLabelProps={{
+            shrink: true,
+          }}
+        />
+        <TextField
+          fullWidth
+          label="Password"
+          type="password"
+          value={formData.password}
+          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          margin="normal"
+          required
+          error={!!errors.password}
+          helperText={errors.password}
+          variant="outlined"
+          InputLabelProps={{
+            shrink: true,
+          }}
+        />
+        <TextField
+          fullWidth
+          label="Employee ID"
+          value={formData.employeeId}
+          onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+          margin="normal"
+          required
+          error={!!errors.employeeId}
+          helperText={errors.employeeId}
+          variant="outlined"
+          InputLabelProps={{
+            shrink: true,
+          }}
+        />
+        <TextField
+          fullWidth
+          label="Position"
+          value={formData.position}
+          onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+          margin="normal"
+          required
+          error={!!errors.position}
+          helperText={errors.position}
+          variant="outlined"
+          InputLabelProps={{
+            shrink: true,
+          }}
+        />
+        
+        <FormControl fullWidth margin="normal" error={!!errors.department}>
         <InputLabel>Department</InputLabel>
         <Select
           value={formData.department}
@@ -779,7 +921,7 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
           }}
           label="Role"
         >
-          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'employee'].map((role) => (
+          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'].map((role) => (
             <MenuItem key={role} value={role}>
               {role.replace('_', ' ').toUpperCase()}
             </MenuItem>
@@ -788,7 +930,7 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
       </FormControl>
       
       {/* Sub-Role Selection - Only show for roles that support sub-roles */}
-      {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager'].includes(formData.role) && (
+      {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'it_manager'].includes(formData.role) && (
         <FormControl fullWidth margin="normal">
           <InputLabel>Sub-Roles (Optional)</InputLabel>
           <Select
@@ -806,7 +948,20 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
             )}
           >
             {subRoles
-              .filter(subRole => subRole.module === formData.role)
+              .filter(subRole => {
+                // Map role names to module names for filtering
+                const roleToModuleMap = {
+                  'admin': 'admin',
+                  'hr_manager': 'hr',
+                  'finance_manager': 'finance',
+                  'procurement_manager': 'procurement',
+                  'sales_manager': 'sales',
+                  'crm_manager': 'crm',
+                  'audit_manager': 'audit',
+                  'it_manager': 'it'
+                };
+                return subRole.module === roleToModuleMap[formData.role];
+              })
               .map((subRole) => (
                 <MenuItem key={subRole._id} value={subRole._id}>
                   <Box>
@@ -827,7 +982,104 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
         value={formData.phone}
         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
         margin="normal"
+        variant="outlined"
+        InputLabelProps={{
+          shrink: true,
+        }}
       />
+      </Box>
+      
+      {/* Profile Image Upload Section */}
+      <Box sx={{ mt: 2, mb: 2 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          Profile Image (Optional)
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {imagePreview ? (
+            <Box sx={{ position: 'relative' }}>
+              <img
+                src={imagePreview}
+                alt="Profile preview"
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  border: '2px solid #e0e0e0'
+                }}
+              />
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setImagePreview(null);
+                  setImageFile(null);
+                  setFormData(prevFormData => ({ 
+                    ...prevFormData, 
+                    profileImage: '' 
+                  }));
+                }}
+                sx={{
+                  position: 'absolute',
+                  top: -8,
+                  right: -8,
+                  backgroundColor: 'error.main',
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: 'error.dark',
+                  },
+                  width: 24,
+                  height: 24,
+                }}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          ) : (
+            <Box
+              sx={{
+                width: 80,
+                height: 80,
+                border: '2px dashed #ccc',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#f5f5f5',
+                cursor: 'pointer',
+                '&:hover': {
+                  backgroundColor: '#e0e0e0',
+                },
+              }}
+              onClick={() => document.getElementById('profile-image-upload').click()}
+            >
+              <CameraIcon sx={{ color: '#666' }} />
+            </Box>
+          )}
+          
+          <Box>
+            <input
+              id="profile-image-upload"
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<UploadIcon />}
+              onClick={() => document.getElementById('profile-image-upload').click()}
+              disabled={uploading}
+              size="small"
+            >
+              {uploading ? 'Uploading...' : 'Upload Image'}
+            </Button>
+            <Typography variant="caption" display="block" sx={{ mt: 0.5, color: 'text.secondary' }}>
+              Max 5MB, JPG/PNG/GIF
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+      
       <DialogActions>
         <Button onClick={onCancel}>Cancel</Button>
         <Button type="submit" variant="contained">Create User</Button>

@@ -60,6 +60,13 @@ import PresentChart from '../../components/PresentChart';
 import DeviceStatusChart from '../../components/DeviceStatusChart';
 import DepartmentChart from '../../components/DepartmentChart';
 
+const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
+const logDebug = (...args) => {
+  if (DASHBOARD_DEBUG) {
+    console.log(...args);
+  }
+};
+
 const Dashboard = () => {
   const theme = useTheme();
 
@@ -228,8 +235,8 @@ const Dashboard = () => {
         ]
       });
       
-      console.log('✅ Dashboard: Data set successfully');
-      console.log('✅ Dashboard: Overview data:', { totalEmployees, activeEmployees, totalPayrollAmount, presentPercentage });
+      logDebug('✅ Dashboard: Data set successfully');
+      logDebug('✅ Dashboard: Overview data:', { totalEmployees, activeEmployees, totalPayrollAmount, presentPercentage });
       
       // Trigger card animations
       setTimeout(() => setAnimateCards(true), 100);
@@ -259,12 +266,12 @@ const Dashboard = () => {
     });
 
     socket.on('connect', () => {
-      console.log('📊 Dashboard: Connected to server for Present data');
+      logDebug('📊 Dashboard: Connected to server for Present data');
       socket.emit('requestChartData');
     });
 
     socket.on('zkbioConnectionStatus', (status) => {
-      console.log('📊 Dashboard: ZKBio Time status:', status);
+      logDebug('📊 Dashboard: ZKBio Time status:', status);
     });
 
     socket.on('liveChartUpdate', (data) => {
@@ -291,7 +298,7 @@ const Dashboard = () => {
         }
 
         if (presentData && presentData.length > 0) {
-          console.log('📊 Dashboard: Received Present Chart data:', presentData);
+          logDebug('📊 Dashboard: Received Present Chart data:', presentData);
           setPresentChartData(presentData);
           presentChartDataRef.current = presentData;
           
@@ -303,7 +310,7 @@ const Dashboard = () => {
           const totalCount = presentCount + absentCount;
           const presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
           
-          console.log('📊 Dashboard: Calculated Present percentage:', {
+          logDebug('📊 Dashboard: Calculated Present percentage:', {
             presentCount,
             absentCount,
             totalCount,
@@ -329,7 +336,7 @@ const Dashboard = () => {
   // Update dashboard data when Present Chart data changes
   useEffect(() => {
     if (presentChartData && dashboardData) {
-      console.log('📊 Dashboard: Updating Present percentage with WebSocket data');
+      logDebug('📊 Dashboard: Updating Present percentage with WebSocket data');
       
       // Recalculate Present percentage with WebSocket data
       const presentItem = presentChartData.find(item => item.name === 'Present');
@@ -339,7 +346,7 @@ const Dashboard = () => {
       const totalCount = presentCount + absentCount;
       const presentPercentage = totalCount > 0 ? (presentCount / totalCount) * 100 : 0;
       
-      console.log('📊 Dashboard: Updating dashboard with Present percentage:', presentPercentage.toFixed(2) + '%');
+      logDebug('📊 Dashboard: Updating dashboard with Present percentage:', presentPercentage.toFixed(2) + '%');
       
       // Update dashboard data with new Present percentage
       setDashboardData(prevData => ({
@@ -710,8 +717,8 @@ const Dashboard = () => {
         <Container maxWidth="xl">
           {/* Welcome Section Skeleton */}
           <Box sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
-            <Skeleton variant="text" width={{ xs: 250, sm: 300, md: 300 }} height={{ xs: 32, sm: 36, md: 40 }} sx={{ mb: 1 }} />
-            <Skeleton variant="text" width={{ xs: 180, sm: 200, md: 200 }} height={{ xs: 20, sm: 22, md: 24 }} />
+            <Skeleton variant="text" sx={{ width: { xs: 250, sm: 300, md: 300 }, height: { xs: 32, sm: 36, md: 40 }, mb: 1 }} />
+            <Skeleton variant="text" sx={{ width: { xs: 180, sm: 200, md: 200 }, height: { xs: 20, sm: 22, md: 24 } }} />
           </Box>
 
           {/* User Profile and Modules Skeleton */}
@@ -722,8 +729,8 @@ const Dashboard = () => {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
                     <Skeleton variant="circular" width={60} height={60} />
                     <Box sx={{ flexGrow: 1 }}>
-                      <Skeleton variant="text" width={150} height={24} sx={{ mb: 1 }} />
-                      <Skeleton variant="text" width={100} height={20} />
+                    <Skeleton variant="text" sx={{ width: 150, height: 24, mb: 1 }} />
+                      <Skeleton variant="text" sx={{ width: 100, height: 20 }} />
                     </Box>
                   </Box>
                   <Skeleton variant="rectangular" width="100%" height={40} sx={{ borderRadius: 2, mb: 2 }} />
@@ -734,12 +741,12 @@ const Dashboard = () => {
             <Grid item xs={12} md={6}>
               <Card sx={{ height: '100%', borderRadius: 4 }}>
                 <CardContent sx={{ p: 3 }}>
-                  <Skeleton variant="text" width={120} height={28} sx={{ mb: 2 }} />
+                  <Skeleton variant="text" sx={{ width: 120, height: 28, mb: 2 }} />
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {[1, 2, 3, 4].map((i) => (
                       <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Skeleton variant="circular" width={24} height={24} />
-                        <Skeleton variant="text" width={120} height={20} />
+                        <Skeleton variant="text" sx={{ width: 120, height: 20 }} />
                       </Box>
                     ))}
                   </Box>
@@ -755,11 +762,11 @@ const Dashboard = () => {
                 <Card sx={{ height: '100%', borderRadius: 4 }}>
                   <CardContent sx={{ p: 3 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                      <Skeleton variant="text" width={100} height={20} />
+                      <Skeleton variant="text" sx={{ width: 100, height: 20 }} />
                       <Skeleton variant="circular" width={40} height={40} />
                     </Box>
-                    <Skeleton variant="text" width={80} height={32} sx={{ mb: 1 }} />
-                    <Skeleton variant="text" width={60} height={16} />
+                    <Skeleton variant="text" sx={{ width: 80, height: 32, mb: 1 }} />
+                    <Skeleton variant="text" sx={{ width: 60, height: 16 }} />
                   </CardContent>
                 </Card>
               </Grid>
@@ -773,7 +780,7 @@ const Dashboard = () => {
                 <Grid item xs={6}>
                   <Card sx={{ height: 280, borderRadius: 4 }}>
                     <CardContent sx={{ p: 2 }}>
-                      <Skeleton variant="text" width={100} height={24} sx={{ mb: 2 }} />
+                      <Skeleton variant="text" sx={{ width: 100, height: 24, mb: 2 }} />
                       <Skeleton variant="circular" width={200} height={200} sx={{ mx: 'auto' }} />
                     </CardContent>
                   </Card>
@@ -781,7 +788,7 @@ const Dashboard = () => {
                 <Grid item xs={6}>
                   <Card sx={{ height: 280, borderRadius: 4 }}>
                     <CardContent sx={{ p: 2 }}>
-                      <Skeleton variant="text" width={100} height={24} sx={{ mb: 2 }} />
+                      <Skeleton variant="text" sx={{ width: 100, height: 24, mb: 2 }} />
                       <Skeleton variant="circular" width={200} height={200} sx={{ mx: 'auto' }} />
                     </CardContent>
                   </Card>
@@ -789,7 +796,7 @@ const Dashboard = () => {
                 <Grid item xs={12}>
                   <Card sx={{ height: 200, borderRadius: 4 }}>
                     <CardContent sx={{ p: 2 }}>
-                      <Skeleton variant="text" width={120} height={24} sx={{ mb: 2 }} />
+                      <Skeleton variant="text" sx={{ width: 120, height: 24, mb: 2 }} />
                       <Skeleton variant="rectangular" width="100%" height={120} sx={{ borderRadius: 2 }} />
                     </CardContent>
                   </Card>
@@ -799,16 +806,16 @@ const Dashboard = () => {
             <Grid item xs={12} md={6}>
               <Card sx={{ height: '100%', borderRadius: 4 }}>
                 <CardContent sx={{ p: 3 }}>
-                  <Skeleton variant="text" width={150} height={28} sx={{ mb: 3 }} />
+                  <Skeleton variant="text" sx={{ width: 150, height: 28, mb: 3 }} />
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {[1, 2, 3, 4, 5].map((i) => (
                       <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Skeleton variant="circular" width={40} height={40} />
                         <Box sx={{ flexGrow: 1 }}>
-                          <Skeleton variant="text" width={120} height={16} sx={{ mb: 0.5 }} />
-                          <Skeleton variant="text" width={80} height={14} />
+                          <Skeleton variant="text" sx={{ width: 120, height: 16, mb: 0.5 }} />
+                          <Skeleton variant="text" sx={{ width: 80, height: 14 }} />
                         </Box>
-                        <Skeleton variant="text" width={60} height={16} />
+                        <Skeleton variant="text" sx={{ width: 60, height: 16 }} />
                       </Box>
                     ))}
                   </Box>
@@ -824,14 +831,14 @@ const Dashboard = () => {
                 <CardContent sx={{ p: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
                     <Skeleton variant="circular" width={40} height={40} />
-                    <Skeleton variant="text" width={120} height={28} />
+                    <Skeleton variant="text" sx={{ width: 120, height: 28 }} />
                   </Box>
                   <Grid container spacing={2}>
                     {[1, 2, 3, 4].map((i) => (
                       <Grid item xs={6} sm={3} key={i}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                           <Skeleton variant="circular" width={24} height={24} />
-                          <Skeleton variant="text" width={100} height={20} />
+                          <Skeleton variant="text" sx={{ width: 100, height: 20 }} />
                         </Box>
                       </Grid>
                     ))}
@@ -848,13 +855,13 @@ const Dashboard = () => {
                 <CardContent sx={{ p: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
                     <Skeleton variant="circular" width={40} height={40} />
-                    <Skeleton variant="text" width={150} height={28} />
+                    <Skeleton variant="text" sx={{ width: 150, height: 28 }} />
                   </Box>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {[1, 2, 3, 4, 5].map((i) => (
                       <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Skeleton variant="text" width={120} height={20} />
-                        <Skeleton variant="text" width={60} height={20} />
+                        <Skeleton variant="text" sx={{ width: 120, height: 20 }} />
+                        <Skeleton variant="text" sx={{ width: 60, height: 20 }} />
                       </Box>
                     ))}
                   </Box>
@@ -866,13 +873,13 @@ const Dashboard = () => {
                 <CardContent sx={{ p: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
                     <Skeleton variant="circular" width={40} height={40} />
-                    <Skeleton variant="text" width={120} height={28} />
+                    <Skeleton variant="text" sx={{ width: 120, height: 28 }} />
                   </Box>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {[1, 2, 3, 4, 5].map((i) => (
                       <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Skeleton variant="text" width={120} height={20} />
-                        <Skeleton variant="text" width={60} height={20} />
+                        <Skeleton variant="text" sx={{ width: 120, height: 20 }} />
+                        <Skeleton variant="text" sx={{ width: 60, height: 20 }} />
                       </Box>
                     ))}
                   </Box>
@@ -886,7 +893,7 @@ const Dashboard = () => {
   }
 
   if (!dashboardData) {
-    console.log('❌ Dashboard: dashboardData is null');
+    logDebug('❌ Dashboard: dashboardData is null');
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error" sx={{ borderRadius: 3 }}>
@@ -896,9 +903,9 @@ const Dashboard = () => {
     );
   }
 
-  console.log('✅ Dashboard: dashboardData loaded:', dashboardData);
-  console.log('✅ Dashboard: overview data:', dashboardData.overview);
-  console.log('✅ Dashboard: animateCards state:', animateCards);
+  logDebug('✅ Dashboard: dashboardData loaded:', dashboardData);
+  logDebug('✅ Dashboard: overview data:', dashboardData.overview);
+  logDebug('✅ Dashboard: animateCards state:', animateCards);
 
   return (
     <Box sx={{ 

@@ -109,7 +109,7 @@ router.post('/types',
 // ==================== EMPLOYEE LEAVE BALANCES ====================
 
 // @route   GET /api/leaves/employees/balances
-// @desc    Get all employees with their current leave balances
+// @desc    Get all employees with their current leave balances (OPTIMIZED)
 // @access  Private (Admin, HR Manager)
 router.get('/employees/balances',
   authMiddleware,
@@ -118,13 +118,18 @@ router.get('/employees/balances',
     try {
       const { year = new Date().getFullYear() } = req.query;
       
-      // Get all active employees
+      console.log(`🚀 Loading employee balances for year ${year}...`);
+      const startTime = Date.now();
+      
+      // Get all active employees with basic info
       const employees = await Employee.find({ 
         isActive: true, 
         isDeleted: false 
       })
-      .select('firstName lastName employeeId joiningDate leaveBalance')
+      .select('firstName lastName employeeId joiningDate hireDate leaveBalance leaveConfig')
       .lean();
+
+      console.log(`📊 Found ${employees.length} active employees`);
 
       // If no employees found, return empty array
       if (employees.length === 0) {
@@ -134,30 +139,128 @@ router.get('/employees/balances',
         });
       }
 
-      // Get leave balances for each employee
-      const employeesWithBalances = await Promise.all(
-        employees.map(async (employee) => {
-          try {
-            const balance = await LeaveManagementService.getEmployeeLeaveBalance(employee._id, year);
-            return {
-              ...employee,
-              leaveBalance: balance
-            };
-          } catch (error) {
-            console.error(`Error getting leave balance for employee ${employee._id}:`, error);
-            // Return employee with default balance if calculation fails
-            return {
-              ...employee,
-              leaveBalance: {
-                annual: { allocated: 20, used: 0, remaining: 20, carriedForward: 0, advance: 0 },
-                casual: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 },
-                sick: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 },
-                medical: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 }
-              }
-            };
+      // Get all leave balances for the year in one query
+      const employeeIds = employees.map(emp => emp._id);
+      const leaveBalances = await LeaveBalance.find({
+        employee: { $in: employeeIds },
+        year: year,
+        isActive: true
+      }).lean();
+
+      console.log(`📈 Found ${leaveBalances.length} leave balance records`);
+
+      // Create a map for quick lookup
+      const balanceMap = new Map();
+      leaveBalances.forEach(balance => {
+        balanceMap.set(balance.employee.toString(), balance);
+      });
+
+      // Get approved leave requests for the year to calculate used days
+      const approvedLeaves = await LeaveRequest.find({
+        employee: { $in: employeeIds },
+        status: 'approved',
+        isActive: true,
+        $or: [
+          { leaveYear: year },
+          { 
+            startDate: { 
+              $gte: new Date(year, 0, 1), 
+              $lt: new Date(year + 1, 0, 1) 
+            } 
           }
-        })
-      );
+        ]
+      })
+      .populate('leaveType', 'code')
+      .lean();
+
+      console.log(`📝 Found ${approvedLeaves.length} approved leave requests`);
+
+      // Create a map for leave usage by employee and type
+      const usageMap = new Map();
+      approvedLeaves.forEach(leave => {
+        const empId = leave.employee.toString();
+        if (!usageMap.has(empId)) {
+          usageMap.set(empId, { annual: 0, sick: 0, casual: 0, medical: 0 });
+        }
+        
+        const typeMap = {
+          'ANNUAL': 'annual',
+          'AL': 'annual',
+          'SICK': 'sick',
+          'SL': 'sick',
+          'CASUAL': 'casual',
+          'CL': 'casual',
+          'MEDICAL': 'medical',
+          'ML': 'medical'
+        };
+        
+        const balanceType = typeMap[leave.leaveType?.code] || 'casual';
+        usageMap.get(empId)[balanceType] += leave.totalDays || 0;
+      });
+
+      // Process employees and calculate balances
+      const employeesWithBalances = employees.map(employee => {
+        const empId = employee._id.toString();
+        const balance = balanceMap.get(empId);
+        const usage = usageMap.get(empId) || { annual: 0, sick: 0, casual: 0, medical: 0 };
+        
+        // Calculate work year
+        const currentWorkYear = LeaveIntegrationService.calculateWorkYear(employee.hireDate || employee.joiningDate);
+        
+        // Get leave config or use defaults
+        const config = employee.leaveConfig || {};
+        const annualLimit = config.annualLimit || 20;
+        const sickLimit = config.sickLimit || 10;
+        const casualLimit = config.casualLimit || 10;
+        
+        // Calculate allocations based on work year
+        const annualAllocated = currentWorkYear >= 1 ? annualLimit : 0;
+        const sickAllocated = currentWorkYear >= 0 ? sickLimit : 0;
+        const casualAllocated = currentWorkYear >= 0 ? casualLimit : 0;
+        
+        // Calculate remaining and carry forward
+        const annualRemaining = Math.max(0, annualAllocated - usage.annual);
+        const sickRemaining = Math.max(0, sickAllocated - usage.sick);
+        const casualRemaining = Math.max(0, casualAllocated - usage.casual);
+        const medicalRemaining = Math.max(0, sickAllocated - usage.medical);
+        
+        return {
+          ...employee,
+          leaveBalance: {
+            annual: { 
+              allocated: annualAllocated, 
+              used: usage.annual, 
+              remaining: annualRemaining, 
+              carriedForward: 0, 
+              advance: 0 
+            },
+            casual: { 
+              allocated: casualAllocated, 
+              used: usage.casual, 
+              remaining: casualRemaining, 
+              carriedForward: 0, 
+              advance: 0 
+            },
+            sick: { 
+              allocated: sickAllocated, 
+              used: usage.sick, 
+              remaining: sickRemaining, 
+              carriedForward: 0, 
+              advance: 0 
+            },
+            medical: { 
+              allocated: sickAllocated, 
+              used: usage.medical, 
+              remaining: medicalRemaining, 
+              carriedForward: 0, 
+              advance: 0 
+            }
+          }
+        };
+      });
+
+      const endTime = Date.now();
+      console.log(`✅ Employee balances loaded in ${endTime - startTime}ms`);
 
       res.json({
         success: true,
@@ -484,65 +587,83 @@ router.post('/carry-forward',
 // ==================== STATISTICS ROUTES ====================
 
 // @route   GET /api/leaves/statistics
-// @desc    Get leave statistics
+// @desc    Get leave statistics (OPTIMIZED)
 // @access  Private (Admin, HR Manager)
 router.get('/statistics',
   authMiddleware,
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
-    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    try {
+      const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+      
+      console.log(`📊 Loading leave statistics for year ${year}...`);
+      const startTime = Date.now();
 
-    const stats = await LeaveRequest.aggregate([
-      {
-        $match: {
-          startDate: {
-            $gte: new Date(year, 0, 1),
-            $lt: new Date(year + 1, 0, 1)
-          },
-          isActive: true
+      // Use aggregation pipeline for better performance
+      const stats = await LeaveRequest.aggregate([
+        {
+          $match: {
+            startDate: {
+              $gte: new Date(year, 0, 1),
+              $lt: new Date(year + 1, 0, 1)
+            },
+            isActive: true
+          }
+        },
+        {
+          $lookup: {
+            from: 'leavetypes',
+            localField: 'leaveType',
+            foreignField: '_id',
+            as: 'leaveTypeInfo'
+          }
+        },
+        {
+          $unwind: {
+            path: '$leaveTypeInfo',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $group: {
+            _id: {
+              status: '$status',
+              leaveType: '$leaveTypeInfo.name'
+            },
+            count: { $sum: 1 },
+            totalDays: { $sum: '$totalDays' }
+          }
+        },
+        {
+          $group: {
+            _id: '$_id.status',
+            leaveTypes: {
+              $push: {
+                name: '$_id.leaveType',
+                count: '$count',
+                totalDays: '$totalDays'
+              }
+            },
+            totalRequests: { $sum: '$count' },
+            totalDays: { $sum: '$totalDays' }
+          }
         }
-      },
-      {
-        $lookup: {
-          from: 'leavetypes',
-          localField: 'leaveType',
-          foreignField: '_id',
-          as: 'leaveTypeInfo'
-        }
-      },
-      {
-        $unwind: '$leaveTypeInfo'
-      },
-      {
-        $group: {
-          _id: {
-            status: '$status',
-            leaveType: '$leaveTypeInfo.name'
-          },
-          count: { $sum: 1 },
-          totalDays: { $sum: '$totalDays' }
-        }
-      },
-      {
-        $group: {
-          _id: '$_id.status',
-          leaveTypes: {
-            $push: {
-              name: '$_id.leaveType',
-              count: '$count',
-              totalDays: '$totalDays'
-            }
-          },
-          totalRequests: { $sum: '$count' },
-          totalDays: { $sum: '$totalDays' }
-        }
-      }
-    ]);
+      ]);
 
-    res.json({
-      success: true,
-      data: stats
-    });
+      const endTime = Date.now();
+      console.log(`✅ Leave statistics loaded in ${endTime - startTime}ms`);
+
+      res.json({
+        success: true,
+        data: stats
+      });
+    } catch (error) {
+      console.error('Error getting leave statistics:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error getting leave statistics'
+      });
+    }
   })
 );
 
@@ -801,13 +922,32 @@ router.get('/employee/:employeeId/summary',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { employeeId } = req.params;
-    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const workYear = req.query.workYear ? parseInt(req.query.workYear) : null;
+    const year = req.query.year ? parseInt(req.query.year) : null;
 
-    const summary = await LeaveIntegrationService.getEmployeeLeaveSummary(employeeId, year);
+    const summary = await LeaveIntegrationService.getEmployeeLeaveSummary(employeeId, workYear, year);
 
     res.json({
       success: true,
       data: summary
+    });
+  })
+);
+
+// @route   GET /api/leaves/employee/:employeeId/work-years
+// @desc    Get available work years for an employee
+// @access  Private (Admin, HR Manager, Super Admin)
+router.get('/employee/:employeeId/work-years',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { employeeId } = req.params;
+
+    const workYears = await LeaveIntegrationService.getAvailableWorkYears(employeeId);
+
+    res.json({
+      success: true,
+      data: workYears
     });
   })
 );

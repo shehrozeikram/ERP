@@ -223,6 +223,9 @@ router.post('/login', [
 // @desc    Get current user profile
 // @access  Private
 router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
+  // Populate subRoles before returning user profile
+  await req.user.populate('subRoles', 'name module permissions description');
+  
   res.json({
     success: true,
     data: {
@@ -392,9 +395,16 @@ router.post('/users', [
     .isLength({ min: 2, max: 50 })
     .withMessage('First name must be between 2 and 50 characters'),
   body('lastName')
-    .trim()
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Last name must be between 2 and 50 characters'),
+    .optional()
+    .custom((value) => {
+      if (value === '' || value === null || value === undefined) {
+        return true; // Allow empty values
+      }
+      if (value.trim().length < 2 || value.trim().length > 50) {
+        throw new Error('Last name must be between 2 and 50 characters');
+      }
+      return true;
+    }),
   body('email')
     .isEmail()
     .normalizeEmail()
@@ -454,7 +464,8 @@ router.post('/users', [
     employeeId,
     phone,
     role = 'employee',
-    subRoles = []
+    subRoles = [],
+    profileImage
   } = req.body;
 
   // Check if user already exists
@@ -482,7 +493,8 @@ router.post('/users', [
     employeeId,
     phone,
     role,
-    subRoles
+    subRoles,
+    profileImage
   });
 
   await user.save();

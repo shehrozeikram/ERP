@@ -96,6 +96,7 @@ const Sidebar = () => {
   // Helper function to map menu item paths to submodule names
   const getSubmoduleFromPath = (path) => {
     const pathToSubmoduleMap = {
+      // Admin Module
       '/admin/users': 'user_management',
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
@@ -107,9 +108,85 @@ const Sidebar = () => {
       '/admin/utility-bills': 'utility_bills_management',
       '/admin/rental-agreements': 'rental_agreements',
       '/admin/rental-management': 'rental_management',
-      '/admin/payment-settlement': 'payment_settlement'
+      '/admin/payment-settlement': 'payment_settlement',
+      
+      // HR Module
+      '/hr/employees': 'employee_management',
+      '/hr/departments': 'employee_management',
+      '/hr/attendance': 'attendance_management',
+      '/hr/attendance-record': 'attendance_management',
+      '/hr/attendance/report': 'attendance_management',
+      '/hr/biometric': 'attendance_management',
+      '/hr/payroll': 'payroll_management',
+      '/hr/loans': 'loan_management',
+      '/hr/settlements': 'settlement_management',
+      '/hr/increments': 'employee_management',
+      '/hr/leaves': 'leave_management',
+      '/hr/talent-acquisition': 'talent_acquisition',
+      '/hr/learning': 'learning_development',
+      '/hr/organizational-development': 'organizational_development',
+      '/hr/fbr-tax': 'fbr_tax_management',
+      '/hr/reports': 'reports',
+      
+      // Finance Module
+      '/finance/accounts': 'chart_of_accounts',
+      '/finance/journal-entries': 'journal_entries',
+      '/finance/general-ledger': 'general_ledger',
+      '/finance/accounts-receivable': 'accounts_receivable',
+      '/finance/accounts-payable': 'accounts_payable',
+      '/finance/banking': 'banking',
+      '/finance/reports': 'financial_reports',
+      
+      // Procurement Module
+      '/procurement/purchase-orders': 'purchase_orders',
+      '/procurement/vendors': 'vendors',
+      '/procurement/inventory': 'inventory',
+      '/procurement/reports': 'procurement_reports',
+      
+      // Sales Module
+      '/sales/orders': 'sales_orders',
+      '/sales/customers': 'customers',
+      '/sales/products': 'products',
+      '/sales/reports': 'sales_reports',
+      
+      // CRM Module
+      '/crm/leads': 'leads',
+      '/crm/contacts': 'contacts',
+      '/crm/campaigns': 'campaigns',
+      '/crm/companies': 'companies',
+      '/crm/opportunities': 'opportunities',
+      '/crm/reports': 'crm_reports',
+      
+      // Audit Module
+      '/audit/list': 'audit_management',
+      '/audit/findings': 'audit_findings',
+      '/audit/corrective-actions': 'corrective_actions',
+      '/audit/trail': 'audit_trail',
+      '/audit/reports': 'audit_reports',
+      '/audit/schedules': 'audit_schedules',
+      
+      // IT Module
+      '/it/assets': 'asset_management',
+      '/it/software': 'software_licenses',
+      '/it/network': 'network_devices',
+      '/it/vendors': 'it_vendors',
+      '/it/passwords': 'password_wallet',
+      '/it/reports': 'it_reports'
     };
     return pathToSubmoduleMap[path];
+  };
+
+  // Helper function to get module name from module path
+  const getModuleNameFromPath = (path) => {
+    if (path.startsWith('/admin')) return 'admin';
+    if (path.startsWith('/hr')) return 'hr';
+    if (path.startsWith('/finance')) return 'finance';
+    if (path.startsWith('/procurement')) return 'procurement';
+    if (path.startsWith('/sales')) return 'sales';
+    if (path.startsWith('/crm')) return 'crm';
+    if (path.startsWith('/audit')) return 'audit';
+    if (path.startsWith('/it')) return 'it';
+    return null;
   };
 
   // Filter menu items based on user's sub-roles
@@ -128,8 +205,15 @@ const Sidebar = () => {
             // Check if user has sub-role permission for this submenu
             const hasPermission = user.subRoles.some(subRole => {
               const allowedSubmodules = getAllowedSubmodules(subRole);
+              const moduleName = getModuleNameFromPath(submenuItem.path);
               
-              return subRole.module === 'admin' && 
+              // If no specific submodule mapping exists, check if user has any sub-role for this module
+              if (!submoduleName) {
+                return subRole.module === moduleName;
+              }
+              
+              // Check if subRole matches the current module and has permission for this submodule
+              return subRole.module === moduleName && 
                      allowedSubmodules.includes(submoduleName);
             });
             

@@ -711,7 +711,7 @@ const EmployeePayrollDetails = () => {
                       <TableRow>
                         <TableCell>Annual Leave</TableCell>
                         <TableCell align="right">
-                          {leaveBalance.balance.annual.remaining} / {leaveBalance.balance.annual.allocated}
+                          {leaveBalance.balance.annual.remaining} / {leaveBalance.balance.annual.allocated + leaveBalance.balance.annual.carriedForward}
                           {leaveBalance.balance.annual.advance > 0 && (
                             <Chip 
                               label={`Adv: ${leaveBalance.balance.annual.advance}`} 
@@ -726,7 +726,7 @@ const EmployeePayrollDetails = () => {
                       <TableRow>
                         <TableCell>Sick Leave</TableCell>
                         <TableCell align="right">
-                          {leaveBalance.balance.sick.remaining} / {leaveBalance.balance.sick.allocated}
+                          {leaveBalance.balance.sick.remaining} / {leaveBalance.balance.sick.allocated + leaveBalance.balance.sick.carriedForward}
                           {leaveBalance.balance.sick.advance > 0 && (
                             <Chip 
                               label={`Adv: ${leaveBalance.balance.sick.advance}`} 
@@ -741,7 +741,7 @@ const EmployeePayrollDetails = () => {
                       <TableRow>
                         <TableCell>Casual Leave</TableCell>
                         <TableCell align="right">
-                          {leaveBalance.balance.casual.remaining} / {leaveBalance.balance.casual.allocated}
+                          {leaveBalance.balance.casual.remaining} / {leaveBalance.balance.casual.allocated + leaveBalance.balance.casual.carriedForward}
                           {leaveBalance.balance.casual.advance > 0 && (
                             <Chip 
                               label={`Adv: ${leaveBalance.balance.casual.advance}`} 

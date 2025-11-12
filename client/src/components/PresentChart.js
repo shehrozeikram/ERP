@@ -9,8 +9,21 @@ import {
   alpha,
   useTheme,
   Zoom,
-  Chip
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  CircularProgress,
+  Alert
 } from '@mui/material';
+import TablePagination from '@mui/material/TablePagination';
 import {
   Refresh,
   People,
@@ -19,6 +32,14 @@ import {
 } from '@mui/icons-material';
 import * as echarts from 'echarts';
 import { io } from 'socket.io-client';
+import api from '../services/api';
+
+const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
+const logDebug = (...args) => {
+  if (DASHBOARD_DEBUG) {
+    console.log(...args);
+  }
+};
 
 const PresentChart = () => {
   const theme = useTheme();
@@ -26,6 +47,15 @@ const PresentChart = () => {
   const [chartData, setChartData] = useState(null);
   const [isLive, setIsLive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [presentEmployees, setPresentEmployees] = useState([]);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
+  const [modalStatus, setModalStatus] = useState('Present'); // 'Present' | 'Absent'
+  const dataCacheRef = useRef({}); // key: `${status}|${page}|${rowsPerPage}` -> { rows, totalCount, ts }
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
   const socketRef = useRef(null);
@@ -71,15 +101,15 @@ const PresentChart = () => {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('📊 PresentChart: Connected to server');
+      logDebug('📊 PresentChart: Connected to server');
       // Request initial chart data
       socket.emit('requestChartData');
     });
 
     socket.on('zkbioConnectionStatus', (status) => {
-      console.log('📊 PresentChart: ZKBio Time status:', status);
+      logDebug('📊 PresentChart: ZKBio Time status:', status);
       if (!status.connected && isLoading) {
-        console.log('📊 PresentChart: ZKBio Time not connected, reducing loading time');
+        logDebug('📊 PresentChart: ZKBio Time not connected, reducing loading time');
         // If ZKBio Time is not connected, reduce loading time
         setTimeout(() => {
           if (isLoading && !chartData) {
@@ -90,10 +120,10 @@ const PresentChart = () => {
     });
 
     socket.on('liveChartUpdate', (data) => {
-      console.log('📊 PresentChart: Received chart data:', data);
-      console.log('📊 PresentChart: Data type:', typeof data);
-      console.log('📊 PresentChart: Data.data structure:', data.data);
-      console.log('📊 PresentChart: Data.data.series:', data.data?.series);
+      logDebug('📊 PresentChart: Received chart data:', data);
+      logDebug('📊 PresentChart: Data type:', typeof data);
+      logDebug('📊 PresentChart: Data.data structure:', data.data);
+      logDebug('📊 PresentChart: Data.data.series:', data.data?.series);
       
       if (data.type === 'presentChart' && data.data) {
         let newChartData = [];
@@ -102,7 +132,7 @@ const PresentChart = () => {
         if (data.data.series && data.data.series[0] && data.data.series[0].data) {
           // Structure: { series: [{ data: [...] }] }
           const seriesData = data.data.series[0].data;
-          console.log('📊 PresentChart: Series data from ZKBio Time:', seriesData);
+          logDebug('📊 PresentChart: Series data from ZKBio Time:', seriesData);
           newChartData = seriesData.map(item => ({
             name: item.name,
             value: item.value,
@@ -136,7 +166,7 @@ const PresentChart = () => {
         }
 
         if (newChartData.length > 0) {
-          console.log('📊 PresentChart: Updated chart data:', newChartData);
+          logDebug('📊 PresentChart: Updated chart data:', newChartData);
           setChartData(newChartData);
           setIsLive(true);
           setIsLoading(false); // Stop loading when real data is received
@@ -150,15 +180,15 @@ const PresentChart = () => {
             });
           }
         } else {
-          console.log('📊 PresentChart: No valid chart data found in received data');
+          logDebug('📊 PresentChart: No valid chart data found in received data');
         }
       } else {
-        console.log('📊 PresentChart: Invalid data structure received:', data);
+        logDebug('📊 PresentChart: Invalid data structure received:', data);
       }
     });
 
     socket.on('disconnect', () => {
-      console.log('📊 PresentChart: Disconnected from server');
+      logDebug('📊 PresentChart: Disconnected from server');
       setIsLive(false);
       // Don't set loading to false on disconnect, keep trying
     });
@@ -169,7 +199,7 @@ const PresentChart = () => {
 
     // Listen for all Socket.IO events to debug
     socket.onAny((eventName, ...args) => {
-      console.log(`🔍 PresentChart Socket.IO Event Received: ${eventName}`, args);
+      logDebug(`🔍 PresentChart Socket.IO Event Received: ${eventName}`, args);
     });
 
     return () => {
@@ -181,7 +211,7 @@ const PresentChart = () => {
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (isLoading && !chartData) {
-        console.log('📊 PresentChart: Timeout - no data received, stopping loading');
+        logDebug('📊 PresentChart: Timeout - no data received, stopping loading');
         setIsLoading(false);
       }
     }, 5000); // 5 second timeout
@@ -254,6 +284,19 @@ const PresentChart = () => {
 
       chartInstance.current.setOption(option);
 
+      // Click handler to open modal when clicking on Present slice
+      const handleChartClick = (params) => {
+        if (params?.componentType === 'series' && params?.seriesType === 'pie') {
+          if (params?.name === 'Present') {
+            handleOpenModal('Present');
+          } else if (params?.name === 'Absent') {
+            handleOpenModal('Absent');
+          }
+        }
+      };
+
+      chartInstance.current.on('click', handleChartClick);
+
       // Handle window resize
       const handleResize = () => {
         if (chartInstance.current) {
@@ -266,211 +309,421 @@ const PresentChart = () => {
       return () => {
         window.removeEventListener('resize', handleResize);
         if (chartInstance.current) {
+          chartInstance.current.off('click');
           chartInstance.current.dispose();
         }
       };
     }
   }, [chartData, isLoading]);
 
-  return (
-    <Zoom in timeout={600}>
-      <Card sx={{
-        height: '400px',
-        borderRadius: 4,
-        background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.95)} 0%, ${alpha(theme.palette.background.paper, 0.85)} 100%)`,
-        backdropFilter: 'blur(20px)',
-        border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
-        position: 'relative',
-        overflow: 'hidden',
-        boxShadow: `0 8px 32px ${alpha(theme.palette.primary.main, 0.1)}`,
-        transition: 'all 0.3s ease',
-        '&:hover': {
-          transform: 'translateY(-4px)',
-          boxShadow: `0 12px 40px ${alpha(theme.palette.primary.main, 0.15)}`,
-          border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`
-        },
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '4px',
-          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${alpha(theme.palette.primary.main, 0.7)})`,
-          borderRadius: '16px 16px 0 0'
-        },
-        '&::after': {
-          content: '""',
-          position: 'absolute',
-          top: -50,
-          right: -50,
-          width: 100,
-          height: 100,
-          background: `radial-gradient(circle, ${alpha(theme.palette.primary.main, 0.1)} 0%, transparent 70%)`,
-          borderRadius: '50%',
-          opacity: 0.3
-        }
-      }}>
-        <CardContent sx={{ p: 3 }}>
-          {/* Header */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box
-                sx={{
-                  p: 1,
-                  borderRadius: 2,
-                  background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.2)} 0%, ${alpha(theme.palette.primary.main, 0.1)} 100%)`,
-                  color: theme.palette.primary.main
-                }}
-              >
-                <People sx={{ fontSize: 16 }} />
-              </Box>
-              <Typography variant="h6" sx={{ 
-                fontWeight: 'bold', 
-                color: theme.palette.text.primary,
-                background: `linear-gradient(135deg, ${theme.palette.text.primary} 0%, ${alpha(theme.palette.text.primary, 0.7)} 100%)`,
-                backgroundClip: 'text',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent'
-              }}>
-                Present Status
-              </Typography>
-              {isLive && (
-                <Chip 
-                  label="LIVE" 
-                  size="small" 
-                  color="success" 
-                  icon={<FlashOn />}
-                  sx={{ 
-                    fontSize: '0.7rem',
-                    height: 20,
-                    animation: 'pulse 2s infinite',
-                    '@keyframes pulse': {
-                      '0%': { opacity: 1 },
-                      '50%': { opacity: 0.7 },
-                      '100%': { opacity: 1 }
-                    }
-                  }}
-                />
-              )}
-            </Box>
-            <Box sx={{ display: 'flex', gap: 0.5 }}>
-              <Tooltip title="Refresh Data">
-                <IconButton 
-                  size="small" 
-                  onClick={handleRefresh}
-                  sx={{ 
-                    backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                    '&:hover': { 
-                      backgroundColor: alpha(theme.palette.primary.main, 0.2),
-                      transform: 'scale(1.1)'
-                    },
-                    width: 28,
-                    height: 28,
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  <Refresh sx={{ 
-                    fontSize: 14, 
-                    animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
-                    '@keyframes spin': {
-                      '0%': { transform: 'rotate(0deg)' },
-                      '100%': { transform: 'rotate(360deg)' }
-                    }
-                  }} />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Employee Management">
-                <IconButton 
-                  size="small"
-                  sx={{ 
-                    backgroundColor: alpha(theme.palette.info.main, 0.1), 
-                    width: 28, 
-                    height: 28,
-                    '&:hover': { 
-                      backgroundColor: alpha(theme.palette.info.main, 0.2),
-                      transform: 'scale(1.1)'
-                    },
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  <People sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Export Report">
-                <IconButton 
-                  size="small"
-                  sx={{ 
-                    backgroundColor: alpha(theme.palette.success.main, 0.1), 
-                    width: 28, 
-                    height: 28,
-                    '&:hover': { 
-                      backgroundColor: alpha(theme.palette.success.main, 0.2),
-                      transform: 'scale(1.1)'
-                    },
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  <Download sx={{ fontSize: 14 }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          </Box>
+  const fetchPresentEmployees = async (statusOverride) => {
+    setIsFetching(true);
+    setFetchError('');
+    try {
+      // Use our backend's ZKBio service to compute present/absent by punch without remote cookies
+      const effectiveStatus = statusOverride || modalStatus;
+      const endpoint = effectiveStatus === 'Absent' ? '/zkbio/zkbio/absent-by-punch' : '/zkbio/zkbio/present-by-punch';
+      // Serve cached data immediately if available (instant UI), then refresh
+      const instantKey = `${effectiveStatus}|${page}|${rowsPerPage}`;
+      const instant = dataCacheRef.current[instantKey];
+      if (instant && Array.isArray(instant.rows)) {
+        setPresentEmployees(instant.rows);
+        setTotalCount(instant.totalCount || instant.rows.length || 0);
+      }
+      const { data } = await api.get(endpoint, {
+        params: { departments: '', areas: '', page, page_size: rowsPerPage }
+      });
+      // Debug response shape
+      // eslint-disable-next-line no-console
+    logDebug('Present by punch response:', data);
 
-          {/* ECharts Pie Chart */}
-          <Box 
-            ref={chartRef}
-            sx={{ 
-              height: 280, 
-              width: '100%',
-              position: 'relative',
-              padding: '10px'
-            }}
-          />
-          
-          {/* Loading Overlay */}
-          {isLoading && (
-            <Box sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: alpha(theme.palette.background.paper, 0.8),
-              backdropFilter: 'blur(10px)',
-              borderRadius: 2
-            }}>
+      // Try multiple shapes
+      let list = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      setTotalCount(Number(data?.totalCount || list.length || 0));
+
+      // Normalize records to expected fields
+      const normalized = (list || []).map((row) => ({
+        emp_code: row.emp_code || row.employee_id || row.empId || '-',
+        first_name: row.first_name || row.firstName || '',
+        last_name: row.last_name || row.lastName || '',
+        dept_name: row.dept_name || row.department || '-',
+        att_date: row.att_date || row.date || '',
+        punch_set: row.punch_set || row.punch_time || row.time || row.last_punch || '-'
+      }));
+
+      setPresentEmployees(normalized);
+      dataCacheRef.current[instantKey] = {
+        rows: normalized,
+        totalCount: Number(data?.totalCount || normalized.length || 0),
+        ts: Date.now()
+      };
+    } catch (err) {
+      setFetchError(err?.message || 'Failed to fetch present employees');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleOpenModal = (status) => {
+    setModalStatus(status);
+    setIsModalOpen(true);
+    setPage(1);
+    setRowsPerPage(20);
+    // Instant cache serve if available
+    const cacheKey = `${status}|1|20`;
+    const cached = dataCacheRef.current[cacheKey];
+    if (cached && Array.isArray(cached.rows)) {
+      setPresentEmployees(cached.rows);
+      setTotalCount(cached.totalCount || cached.rows.length || 0);
+      setIsFetching(false);
+    }
+    // Fetch with explicit status to avoid stale state
+    fetchPresentEmployees(status);
+  };
+
+  const handleChangePage = async (_e, newPage) => {
+    const apiPage = newPage + 1; // MUI zero-based
+    setPage(apiPage);
+    setIsFetching(true);
+    setFetchError('');
+    try {
+      const endpoint = modalStatus === 'Absent' ? '/zkbio/zkbio/absent-by-punch' : '/zkbio/zkbio/present-by-punch';
+      const cacheKey = `${modalStatus}|${apiPage}|${rowsPerPage}`;
+      const cached = dataCacheRef.current[cacheKey];
+      if (cached && Array.isArray(cached.rows)) {
+        setPresentEmployees(cached.rows);
+        setTotalCount(cached.totalCount || cached.rows.length || 0);
+      }
+      const { data } = await api.get(endpoint, {
+        params: { departments: '', areas: '', page: apiPage, page_size: rowsPerPage }
+      });
+      // eslint-disable-next-line no-console
+      logDebug(`[${modalStatus}] page ${apiPage} resp:`, { totalCount: data?.totalCount, count: data?.count, sample: (data?.data || [])[0] });
+      const list = Array.isArray(data?.data) ? data.data : [];
+      setTotalCount(Number(data?.totalCount || list.length || 0));
+      const normalized = (list || []).map((row) => ({
+        emp_code: row.emp_code || row.employee_id || row.empId || '-',
+        first_name: row.first_name || row.firstName || '',
+        last_name: row.last_name || row.lastName || '',
+        dept_name: row.dept_name || row.department || '-',
+        att_date: row.att_date || row.date || '',
+        punch_set: row.punch_set || row.punch_time || row.time || row.last_punch || '-'
+      }));
+      setPresentEmployees(normalized);
+      dataCacheRef.current[cacheKey] = {
+        rows: normalized,
+        totalCount: Number(data?.totalCount || normalized.length || 0),
+        ts: Date.now()
+      };
+    } catch (err) {
+      setFetchError(err?.message || 'Failed to fetch present employees');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleChangeRowsPerPage = async (e) => {
+    const newSize = parseInt(e.target.value, 10);
+    setRowsPerPage(newSize);
+    setPage(1);
+    setIsFetching(true);
+    setFetchError('');
+    try {
+      const endpoint = modalStatus === 'Absent' ? '/zkbio/zkbio/absent-by-punch' : '/zkbio/zkbio/present-by-punch';
+      const cacheKey = `${modalStatus}|1|${newSize}`;
+      const cached = dataCacheRef.current[cacheKey];
+      if (cached && Array.isArray(cached.rows)) {
+        setPresentEmployees(cached.rows);
+        setTotalCount(cached.totalCount || cached.rows.length || 0);
+      }
+      const { data } = await api.get(endpoint, {
+        params: { departments: '', areas: '', page: 1, page_size: newSize }
+      });
+      // eslint-disable-next-line no-console
+      logDebug(`[${modalStatus}] page 1 (size ${newSize}) resp:`, { totalCount: data?.totalCount, count: data?.count, sample: (data?.data || [])[0] });
+      const list = Array.isArray(data?.data) ? data.data : [];
+      setTotalCount(Number(data?.totalCount || list.length || 0));
+      const normalized = (list || []).map((row) => ({
+        emp_code: row.emp_code || row.employee_id || row.empId || '-',
+        first_name: row.first_name || row.firstName || '',
+        last_name: row.last_name || row.lastName || '',
+        dept_name: row.dept_name || row.department || '-',
+        att_date: row.att_date || row.date || '',
+        punch_set: row.punch_set || row.punch_time || row.time || row.last_punch || '-'
+      }));
+      setPresentEmployees(normalized);
+      dataCacheRef.current[cacheKey] = {
+        rows: normalized,
+        totalCount: Number(data?.totalCount || normalized.length || 0),
+        ts: Date.now()
+      };
+    } catch (err) {
+      setFetchError(err?.message || 'Failed to fetch present employees');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  return (
+    <>
+      <Zoom in timeout={600}>
+        <Card sx={{
+          height: '400px',
+          borderRadius: 4,
+          background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.95)} 0%, ${alpha(theme.palette.background.paper, 0.85)} 100%)`,
+          backdropFilter: 'blur(20px)',
+          border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: `0 8px 32px ${alpha(theme.palette.primary.main, 0.1)}`,
+          transition: 'all 0.3s ease',
+          '&:hover': {
+            transform: 'translateY(-4px)',
+            boxShadow: `0 12px 40px ${alpha(theme.palette.primary.main, 0.15)}`,
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`
+          },
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '4px',
+            background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${alpha(theme.palette.primary.main, 0.7)})`,
+            borderRadius: '16px 16px 0 0'
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            top: -50,
+            right: -50,
+            width: 100,
+            height: 100,
+            background: `radial-gradient(circle, ${alpha(theme.palette.primary.main, 0.1)} 0%, transparent 70%)`,
+            borderRadius: '50%',
+            opacity: 0.3
+          }
+        }}>
+          <CardContent sx={{ p: 3 }}>
+            {/* Header */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    p: 1,
+                    borderRadius: 2,
+                    background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.2)} 0%, ${alpha(theme.palette.primary.main, 0.1)} 100%)`,
+                    color: theme.palette.primary.main
+                  }}
+                >
+                  <People sx={{ fontSize: 16 }} />
+                </Box>
+                <Typography variant="h6" sx={{ 
+                  fontWeight: 'bold', 
+                  color: theme.palette.text.primary,
+                  background: `linear-gradient(135deg, ${theme.palette.text.primary} 0%, ${alpha(theme.palette.text.primary, 0.7)} 100%)`,
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent'
+                }}>
+                  Present Status
+                </Typography>
+                {isLive && (
+                  <Chip 
+                    label="LIVE" 
+                    size="small" 
+                    color="success" 
+                    icon={<FlashOn />}
+                    sx={{ 
+                      fontSize: '0.7rem',
+                      height: 20,
+                      animation: 'pulse 2s infinite',
+                      '@keyframes pulse': {
+                        '0%': { opacity: 1 },
+                        '50%': { opacity: 0.7 },
+                        '100%': { opacity: 1 }
+                      }
+                    }}
+                  />
+                )}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Tooltip title="Refresh Data">
+                  <IconButton 
+                    size="small" 
+                    onClick={handleRefresh}
+                    sx={{ 
+                      backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                      '&:hover': { 
+                        backgroundColor: alpha(theme.palette.primary.main, 0.2),
+                        transform: 'scale(1.1)'
+                      },
+                      width: 28,
+                      height: 28,
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <Refresh sx={{ 
+                      fontSize: 14, 
+                      animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+                      '@keyframes spin': {
+                        '0%': { transform: 'rotate(0deg)' },
+                        '100%': { transform: 'rotate(360deg)' }
+                      }
+                    }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Employee Management">
+                  <IconButton 
+                    size="small"
+                    sx={{ 
+                      backgroundColor: alpha(theme.palette.info.main, 0.1), 
+                      width: 28, 
+                      height: 28,
+                      '&:hover': { 
+                        backgroundColor: alpha(theme.palette.info.main, 0.2),
+                        transform: 'scale(1.1)'
+                      },
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <People sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Export Report">
+                  <IconButton 
+                    size="small"
+                    sx={{ 
+                      backgroundColor: alpha(theme.palette.success.main, 0.1), 
+                      width: 28, 
+                      height: 28,
+                      '&:hover': { 
+                        backgroundColor: alpha(theme.palette.success.main, 0.2),
+                        transform: 'scale(1.1)'
+                      },
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <Download sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+
+            {/* ECharts Pie Chart */}
+            <Box 
+              ref={chartRef}
+              sx={{ 
+                height: 280, 
+                width: '100%',
+                position: 'relative',
+                padding: '10px'
+              }}
+            />
+            
+            {/* Loading Overlay */}
+            {isLoading && (
               <Box sx={{
-                width: 40,
-                height: 40,
-                border: `3px solid ${alpha(theme.palette.primary.main, 0.3)}`,
-                borderTop: `3px solid ${theme.palette.primary.main}`,
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite',
-                '@keyframes spin': {
-                  '0%': { transform: 'rotate(0deg)' },
-                  '100%': { transform: 'rotate(360deg)' }
-                }
-              }} />
-              <Typography variant="body2" sx={{ 
-                mt: 2, 
-                color: theme.palette.text.secondary,
-                fontWeight: 500
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: alpha(theme.palette.background.paper, 0.8),
+                backdropFilter: 'blur(10px)',
+                borderRadius: 2
               }}>
-                {isRefreshing ? 'Refreshing data...' : 'Loading latest data from ZKBio Time...'}
-              </Typography>
+                <Box sx={{
+                  width: 40,
+                  height: 40,
+                  border: `3px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                  borderTop: `3px solid ${theme.palette.primary.main}`,
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  '@keyframes spin': {
+                    '0%': { transform: 'rotate(0deg)' },
+                    '100%': { transform: 'rotate(360deg)' }
+                  }
+                }} />
+                <Typography variant="body2" sx={{ 
+                  mt: 2, 
+                  color: theme.palette.text.secondary,
+                  fontWeight: 500
+                }}>
+                  {isRefreshing ? 'Refreshing data...' : 'Loading latest data from ZKBio Time...'}
+                </Typography>
+              </Box>
+            )}
+
+
+          </CardContent>
+        </Card>
+      </Zoom>
+      {/* Present Employees Modal */}
+      <Dialog open={isModalOpen} onClose={() => setIsModalOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>{modalStatus}</DialogTitle>
+        <DialogContent dividers>
+          {isFetching && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
+              <CircularProgress size={28} />
             </Box>
           )}
-
-
-        </CardContent>
-      </Card>
-    </Zoom>
+          {!!fetchError && (
+            <Alert severity="error" sx={{ mb: 2 }}>{fetchError}</Alert>
+          )}
+          {!isFetching && !fetchError && (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Employee ID</TableCell>
+                  <TableCell>First Name</TableCell>
+                  <TableCell>Last Name</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Time</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {presentEmployees && presentEmployees.length > 0 ? (
+                  presentEmployees.map((emp, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{emp.emp_code || '-'}</TableCell>
+                      <TableCell>{emp.first_name || '-'}</TableCell>
+                      <TableCell>{emp.last_name || '-'}</TableCell>
+                      <TableCell>{emp.dept_name || '-'}</TableCell>
+                      <TableCell>{emp.att_date || '-'}</TableCell>
+                      <TableCell>{emp.punch_set || '-'}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center">No records found</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ alignItems: 'center' }}>
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={Math.max(0, page - 1)}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 20, 50, 100]}
+          />
+          <Button onClick={() => setIsModalOpen(false)} variant="contained">Close</Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 
 export default PresentChart;
+

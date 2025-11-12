@@ -148,33 +148,72 @@ const LeaveManagement = () => {
     try {
       setLoading(true);
       
-      const [typesRes, employeesRes, statsRes] = await Promise.all([
+      console.log('🚀 Loading leave management data...');
+      const startTime = Date.now();
+      
+      // Use Promise.allSettled to handle partial failures gracefully
+      const [typesResult, employeesResult, statsResult] = await Promise.allSettled([
         api.get('/leaves/types'),
         api.get('/leaves/employees/balances'),
         api.get('/leaves/statistics')
       ]);
       
-      setLeaveTypes(typesRes.data.data);
-      setEmployees(employeesRes.data.data);
+      // Handle leave types
+      if (typesResult.status === 'fulfilled') {
+        setLeaveTypes(typesResult.value.data.data);
+        console.log(`✅ Loaded ${typesResult.value.data.data.length} leave types`);
+      } else {
+        console.error('❌ Failed to load leave types:', typesResult.reason);
+        setLeaveTypes([]);
+      }
       
-      // Calculate quick stats
-      const totalEmployees = employeesRes.data.data.length;
-      const employeesOnLeave = employeesRes.data.data.filter(emp => 
-        emp.leaveBalance?.annual?.used > 0 || 
-        emp.leaveBalance?.casual?.used > 0 || 
-        emp.leaveBalance?.medical?.used > 0
-      ).length;
+      // Handle employees data
+      if (employeesResult.status === 'fulfilled') {
+        const employeesData = employeesResult.value.data.data;
+        setEmployees(employeesData);
+        console.log(`✅ Loaded ${employeesData.length} employees`);
+        
+        // Calculate quick stats
+        const totalEmployees = employeesData.length;
+        const employeesOnLeave = employeesData.filter(emp => 
+          emp.leaveBalance?.annual?.used > 0 || 
+          emp.leaveBalance?.casual?.used > 0 || 
+          emp.leaveBalance?.medical?.used > 0
+        ).length;
+        
+        setStats({
+          totalEmployees,
+          employeesOnLeave,
+          pendingRequests: 0, // Will be updated from stats API
+          totalLeaveDays: employeesData.reduce((sum, emp) => 
+            sum + (emp.leaveBalance?.annual?.used || 0) + 
+            (emp.leaveBalance?.casual?.used || 0) + 
+            (emp.leaveBalance?.medical?.used || 0), 0
+          )
+        });
+      } else {
+        console.error('❌ Failed to load employees:', employeesResult.reason);
+        setEmployees([]);
+        setStats({
+          totalEmployees: 0,
+          employeesOnLeave: 0,
+          pendingRequests: 0,
+          totalLeaveDays: 0
+        });
+      }
       
-      setStats({
-        totalEmployees,
-        employeesOnLeave,
-        pendingRequests: 0, // Will be updated from stats API
-        totalLeaveDays: employeesRes.data.data.reduce((sum, emp) => 
-          sum + (emp.leaveBalance?.annual?.used || 0) + 
-          (emp.leaveBalance?.casual?.used || 0) + 
-          (emp.leaveBalance?.medical?.used || 0), 0
-        )
-      });
+      // Handle statistics
+      if (statsResult.status === 'fulfilled') {
+        console.log('✅ Loaded leave statistics');
+        // Statistics are loaded but not directly used in this component
+        // They're used in the reports page
+      } else {
+        console.error('❌ Failed to load statistics:', statsResult.reason);
+      }
+      
+      const endTime = Date.now();
+      console.log(`🎉 Leave management data loaded in ${endTime - startTime}ms`);
+      
     } catch (error) {
       console.error('Error loading leave data:', error);
       console.error('Error details:', {
@@ -757,7 +796,7 @@ const LeaveManagement = () => {
                                 Annual:
                               </Typography>
                               <Typography variant="caption" fontWeight="bold">
-                                {employee.leaveBalance?.annual?.remaining || 0}/{employee.leaveBalance?.annual?.allocated || 14}
+                                {(employee.leaveBalance?.annual?.remaining || 0)}/{(employee.leaveBalance?.annual?.allocated || 14) + (employee.leaveBalance?.annual?.carriedForward || 0)}
                               </Typography>
                             </Box>
                             <Box display="flex" justifyContent="space-between" mb={0.5}>
@@ -765,7 +804,7 @@ const LeaveManagement = () => {
                                 Casual:
                               </Typography>
                               <Typography variant="caption" fontWeight="bold">
-                                {employee.leaveBalance?.casual?.remaining || 0}/{employee.leaveBalance?.casual?.allocated || 10}
+                                {(employee.leaveBalance?.casual?.remaining || 0)}/{(employee.leaveBalance?.casual?.allocated || 10) + (employee.leaveBalance?.casual?.carriedForward || 0)}
                               </Typography>
                             </Box>
                             <Box display="flex" justifyContent="space-between">
@@ -773,7 +812,7 @@ const LeaveManagement = () => {
                                 Medical:
                               </Typography>
                               <Typography variant="caption" fontWeight="bold">
-                                {employee.leaveBalance?.medical?.remaining || 0}/{employee.leaveBalance?.medical?.allocated || 8}
+                                {(employee.leaveBalance?.medical?.remaining || 0)}/{(employee.leaveBalance?.medical?.allocated || 8) + (employee.leaveBalance?.medical?.carriedForward || 0)}
                               </Typography>
                             </Box>
                           </Box>
@@ -1092,7 +1131,11 @@ const LeaveManagement = () => {
                   <Button
                     onClick={handleAddLeave}
                     variant="contained"
-                    disabled={loading || !leaveForm.employee || !leaveForm.leaveType || !leaveForm.startDate || !leaveForm.totalDays || !leaveForm.reason}
+                    disabled={loading || !leaveForm.employee || !leaveForm.leaveType || !leaveForm.startDate || (!leaveForm.totalDays && !calculateTotalDays()) || !leaveForm.reason}
+                    style={{
+                      backgroundColor: (loading || !leaveForm.employee || !leaveForm.leaveType || !leaveForm.startDate || (!leaveForm.totalDays && !calculateTotalDays()) || !leaveForm.reason) ? '#ccc' : '#1976d2',
+                      color: (loading || !leaveForm.employee || !leaveForm.leaveType || !leaveForm.startDate || (!leaveForm.totalDays && !calculateTotalDays()) || !leaveForm.reason) ? '#666' : 'white'
+                    }}
                   >
                     {loading ? <CircularProgress size={20} /> : 'Add Leave Request'}
                   </Button>

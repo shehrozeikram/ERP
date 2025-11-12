@@ -19,6 +19,22 @@ import {
 } from '@mui/icons-material';
 import * as echarts from 'echarts';
 import { io } from 'socket.io-client';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  CircularProgress,
+  Alert
+} from '@mui/material';
+import TablePagination from '@mui/material/TablePagination';
+import api from '../services/api';
 
 const DeviceStatusChart = () => {
   const theme = useTheme();
@@ -26,6 +42,14 @@ const DeviceStatusChart = () => {
   const [chartData, setChartData] = useState(null);
   const [isLive, setIsLive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalStatus, setModalStatus] = useState('Online'); // Online | Offline
+  const [devices, setDevices] = useState([]);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [totalCount, setTotalCount] = useState(0);
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
   const socketRef = useRef(null);
@@ -245,6 +269,19 @@ const DeviceStatusChart = () => {
 
       chartInstance.current.setOption(option);
 
+      // Click handler to open modal for Online/Offline slices
+      const handleChartClick = (params) => {
+        if (params?.componentType === 'series' && params?.seriesType === 'pie') {
+          if (params?.name === 'Online') {
+            openModal('Online');
+          } else if (params?.name === 'Offline') {
+            openModal('Offline');
+          }
+        }
+      };
+
+      chartInstance.current.on('click', handleChartClick);
+
       // Handle window resize
       const handleResize = () => {
         if (chartInstance.current) {
@@ -257,13 +294,71 @@ const DeviceStatusChart = () => {
       return () => {
         window.removeEventListener('resize', handleResize);
         if (chartInstance.current) {
+          chartInstance.current.off('click');
           chartInstance.current.dispose();
         }
       };
     }
   }, [chartData, isLoading]);
 
+  const fetchDevices = async (statusOverride) => {
+    setIsFetching(true);
+    setFetchError('');
+    try {
+      const effective = statusOverride || modalStatus;
+      const { data } = await api.get('/zkbio/zkbio/devices', {
+        params: {
+          status: effective === 'Offline' ? 'offline' : 'online',
+          areas: '',
+          page,
+          page_size: rowsPerPage
+        }
+      });
+      // eslint-disable-next-line no-console
+      console.log(`[Devices ${effective}] page ${page}, size ${rowsPerPage}:`, { totalCount: data?.totalCount, count: data?.count, sample: (data?.data || [])[0] });
+      const list = Array.isArray(data?.data) ? data.data : [];
+      setTotalCount(Number(data?.totalCount || list.length || 0));
+      const normalized = (list || []).map((row) => ({
+        serial_number: row.sn || row.serial_number || '-',
+        device_name: row.alias || '-',
+        area: (typeof row.area_alias === 'object')
+          ? (row.area_alias.area_name || row.area_alias.name || row.area_alias.title || '-')
+          : (row.area_alias || '-'),
+        device_ip: row.ip || '-',
+        firmware: row.fw_version || '-',
+        last_activity: row.last_activity || '-'
+      }));
+      setDevices(normalized);
+    } catch (err) {
+      setFetchError(err?.message || 'Failed to fetch device list');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const openModal = (status) => {
+    setModalStatus(status);
+    setIsModalOpen(true);
+    setPage(1);
+    setRowsPerPage(20);
+    fetchDevices(status);
+  };
+
+  const handleChangePage = async (_e, newPage) => {
+    const apiPage = newPage + 1;
+    setPage(apiPage);
+    await fetchDevices();
+  };
+
+  const handleChangeRowsPerPage = async (e) => {
+    const newSize = parseInt(e.target.value, 10);
+    setRowsPerPage(newSize);
+    setPage(1);
+    await fetchDevices();
+  };
+ 
   return (
+    <>
     <Zoom in timeout={700}>
       <Card sx={{
         height: '400px',
@@ -459,6 +554,63 @@ const DeviceStatusChart = () => {
         </CardContent>
       </Card>
     </Zoom>
+    {/* Devices Modal */}
+    <Dialog open={isModalOpen} onClose={() => setIsModalOpen(false)} fullWidth maxWidth="lg">
+        <DialogTitle>{modalStatus === 'Offline' ? 'Offline' : 'Online'}</DialogTitle>
+        <DialogContent dividers>
+          {isFetching && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
+              <CircularProgress size={28} />
+            </Box>
+          )}
+          {!!fetchError && <Alert severity="error" sx={{ mb: 2 }}>{fetchError}</Alert>}
+          {!isFetching && !fetchError && (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Serial Number</TableCell>
+                  <TableCell>Device Name</TableCell>
+                  <TableCell>Area</TableCell>
+                  <TableCell>Device IP</TableCell>
+                  <TableCell>Firmware Version</TableCell>
+                  <TableCell>Last Activity</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {devices && devices.length > 0 ? (
+                  devices.map((d, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell>{d.serial_number || '-'}</TableCell>
+                      <TableCell>{d.device_name || '-'}</TableCell>
+                      <TableCell>{d.area || '-'}</TableCell>
+                      <TableCell>{d.device_ip || '-'}</TableCell>
+                      <TableCell>{d.firmware || '-'}</TableCell>
+                      <TableCell>{d.last_activity || '-'}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center">No records found</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ alignItems: 'center' }}>
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={Math.max(0, page - 1)}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 20, 50, 100]}
+          />
+          <Button onClick={() => setIsModalOpen(false)} variant="contained">Close</Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 

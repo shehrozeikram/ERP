@@ -104,6 +104,13 @@ const HRReports = () => {
           description: 'Employee attendance summary and statistics',
           icon: <PieChart />,
           path: '/hr/reports/attendance/summary'
+        },
+        {
+          id: 'monthly_absent',
+          name: 'Monthly Absent Report',
+          description: 'Monthly absence summary with present and absent percentages',
+          icon: <TableChart />,
+          path: '/hr/reports/attendance/monthly_absent'
         }
       ]
     },

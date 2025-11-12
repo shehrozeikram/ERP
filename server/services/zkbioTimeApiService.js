@@ -629,21 +629,32 @@ class ZKBioTimeApiService {
       }
 
       console.log('🏢 Fetching departments from ZKBio Time...');
-      
-      const response = await axios.get(`${this.baseURL}/personnel/api/departments/`, {
-        headers: this.getAuthHeaders()
-      });
+      // Fetch all pages
+      let all = [];
+      let page = 1;
+      const pageSize = 200;
+      let hasMore = true;
 
-      if (response.data && response.data.data) {
-        console.log(`✅ Fetched ${response.data.data.length} departments`);
-        return {
-          success: true,
-          data: response.data.data,
-          count: response.data.count || response.data.data.length
-        };
+      while (hasMore) {
+        const resp = await axios.get(`${this.getRequestBaseURL()}/personnel/api/departments/`, {
+          headers: this.getAuthHeaders(),
+          params: { page_size: pageSize, page }
+        });
+
+        const data = resp.data && (resp.data.data || Array.isArray(resp.data) ? resp.data : []);
+        const list = Array.isArray(resp.data?.data) ? resp.data.data : (Array.isArray(resp.data) ? resp.data : []);
+        all = all.concat(list);
+        const next = resp.data?.next;
+        hasMore = !!next && list.length === pageSize;
+        page += 1;
       }
 
-      return { success: false, data: [], count: 0 };
+      console.log(`✅ Fetched ${all.length} departments (all pages)`);
+      return {
+        success: true,
+        data: all,
+        count: all.length
+      };
     } catch (error) {
       console.error('❌ Failed to fetch departments:', error.message);
       return { success: false, data: [], count: 0, error: error.message };
@@ -677,6 +688,44 @@ class ZKBioTimeApiService {
       return { success: false, data: [], count: 0 };
     } catch (error) {
       console.error('❌ Failed to fetch areas:', error.message);
+      return { success: false, data: [], count: 0, error: error.message };
+    }
+  }
+
+  /**
+   * Get all devices/terminals from ZKBio Time
+   */
+  async getDevices() {
+    try {
+      if (!(await this.ensureAuth())) {
+        throw new Error('Authentication failed');
+      }
+
+      console.log('📱 Fetching devices from ZKBio Time...');
+
+      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/terminals/`, {
+        headers: this.getAuthHeaders(),
+        params: {
+          page_size: 500,
+          page: 1,
+          ordering: 'sn'
+        }
+      });
+
+      if (response.data && (response.data.data || Array.isArray(response.data))) {
+        const list = Array.isArray(response.data) ? response.data : (response.data.data || []);
+        console.log(`✅ Fetched ${list.length} devices`);
+        return { success: true, data: list, count: list.length };
+      }
+
+      return { success: false, data: [], count: 0 };
+    } catch (error) {
+      console.error('❌ Failed to fetch devices:', error.message);
+      // Try with proxy if direct connection failed
+      if (await this.handleConnectionError(error)) {
+        console.log('🔄 Retrying devices with proxy...');
+        return await this.getDevices();
+      }
       return { success: false, data: [], count: 0, error: error.message };
     }
   }

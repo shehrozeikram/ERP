@@ -54,7 +54,13 @@ api.interceptors.response.use(
       const url = error.config?.url || '';
       
       // Don't auto-redirect for employee operations, let components handle it
-      if (url.includes('/hr/employees') || url.includes('/hr/departments') || url.includes('/hr/positions')) {
+      if (
+        url.includes('/hr/employees') ||
+        url.includes('/hr/departments') ||
+        url.includes('/hr/positions') ||
+        url.includes('/attendance-proxy') || // allow proxy consumers to handle auth errors gracefully
+        url.includes('/zkbio/') // allow zkbio endpoints to surface 401 to components
+      ) {
         console.log('🔐 401 error on HR endpoint, letting component handle it:', url);
         return Promise.reject(error);
       }

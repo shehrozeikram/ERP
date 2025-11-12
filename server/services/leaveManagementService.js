@@ -184,9 +184,20 @@ class LeaveManagementService {
         throw new Error('Leave type not found');
       }
 
-      // Check leave balance using anniversary-based system
-      const currentWorkYear = LeaveIntegrationService.calculateWorkYear(employee.hireDate);
-      const leaveBalance = await LeaveIntegrationService.getWorkYearBalance(leaveData.employee, currentWorkYear);
+      // Normalize dates
+      const leaveStartDate = new Date(leaveData.startDate);
+      const leaveEndDate = new Date(leaveData.endDate);
+      if (Number.isNaN(leaveStartDate.getTime()) || Number.isNaN(leaveEndDate.getTime())) {
+        throw new Error('Invalid leave start or end date');
+      }
+
+      // Determine work year based on leave period (anniversary-based)
+      const leaveWorkYear = LeaveIntegrationService.calculateWorkYear(employee.hireDate, leaveStartDate);
+      const hireDateObj = new Date(employee.hireDate);
+      const leaveYear = Math.max(hireDateObj.getFullYear() + 1, hireDateObj.getFullYear() + leaveWorkYear + 1);
+
+      // Check leave balance using the appropriate work year
+      const leaveBalance = await LeaveIntegrationService.getWorkYearBalance(leaveData.employee, leaveWorkYear);
       
       // Calculate if this will result in advance leaves
       let willBeAdvance = false;
@@ -219,7 +230,7 @@ class LeaveManagementService {
       }
 
       // Check for overlapping leaves
-      const overlappingLeaves = await this.checkOverlappingLeaves(leaveData.employee, leaveData.startDate, leaveData.endDate);
+      const overlappingLeaves = await this.checkOverlappingLeaves(leaveData.employee, leaveStartDate, leaveEndDate);
       if (overlappingLeaves.length > 0) {
         throw new Error('Leave request overlaps with existing approved leave');
       }
@@ -227,9 +238,11 @@ class LeaveManagementService {
       // Create leave request
       const leaveRequest = new LeaveRequest({
         ...leaveData,
+        startDate: leaveStartDate,
+        endDate: leaveEndDate,
         createdBy: userId,
-        leaveYear: leaveData.startDate.getFullYear(),
-        workYear: currentWorkYear
+        leaveYear,
+        workYear: leaveWorkYear
       });
 
       await leaveRequest.save();
@@ -248,115 +261,27 @@ class LeaveManagementService {
   // Get employee leave balance
   static async getEmployeeLeaveBalance(employeeId, year = new Date().getFullYear()) {
     try {
+      // Use the new LeaveIntegrationService to get proper anniversary-based balance
       const employee = await Employee.findById(employeeId);
       if (!employee) {
         throw new Error('Employee not found');
       }
-
-      // Get active leave policy
-      const policy = await LeavePolicy.getActivePolicy();
-      if (!policy) {
-        throw new Error('No active leave policy found');
-      }
-
-      // Calculate allocation based on joining date and policy
-      const joiningDate = new Date(employee.joiningDate);
-      const currentYear = new Date(year, 0, 1);
-      const yearEnd = new Date(year, 11, 31);
       
-      // Calculate prorated allocation based on joining date
-      const calculateProratedAllocation = (annualDays) => {
-        if (joiningDate <= currentYear) {
-          // Employee joined before or during this year - full allocation
-          return annualDays;
-        } else if (joiningDate <= yearEnd) {
-          // Employee joined during this year - prorated allocation
-          const monthsRemaining = 12 - joiningDate.getMonth();
-          return Math.round((annualDays / 12) * monthsRemaining);
-        } else {
-          // Employee joined after this year
-          return 0;
-        }
-      };
-
-      const allocation = {
-        annual: calculateProratedAllocation(policy.leaveAllocation.annual.days),
-        casual: calculateProratedAllocation(policy.leaveAllocation.casual.days),
-        medical: calculateProratedAllocation(policy.leaveAllocation.medical.days)
-      };
-
-      // Get used leaves for the year
-      const usedLeaves = await LeaveRequest.aggregate([
-        {
-          $match: {
-            employee: new mongoose.Types.ObjectId(employeeId),
-            startDate: {
-              $gte: new Date(year, 0, 1),
-              $lt: new Date(year + 1, 0, 1)
-            },
-            status: 'approved',
-            isActive: true
-          }
-        },
-        {
-          $lookup: {
-            from: 'leavetypes',
-            localField: 'leaveType',
-            foreignField: '_id',
-            as: 'leaveTypeInfo'
-          }
-        },
-        {
-          $unwind: '$leaveTypeInfo'
-        },
-        {
-          $group: {
-            _id: '$leaveTypeInfo.name',
-            totalDays: { $sum: '$totalDays' }
-          }
-        }
-      ]);
-
-      // Calculate balances
-      const balance = {
-        annual: {
-          allocated: allocation.annual,
-          used: 0,
-          remaining: allocation.annual,
-          carriedForward: employee.leaveBalance?.annual?.carriedForward || 0
-        },
-        casual: {
-          allocated: allocation.casual,
-          used: 0,
-          remaining: allocation.casual,
-          carriedForward: employee.leaveBalance?.casual?.carriedForward || 0
-        },
-        medical: {
-          allocated: allocation.medical,
-          used: 0,
-          remaining: allocation.medical,
-          carriedForward: employee.leaveBalance?.medical?.carriedForward || 0
-        }
-      };
-
-      // Update used days from database
-      usedLeaves.forEach(leave => {
-        const leaveTypeName = leave._id.toLowerCase();
-        if (leaveTypeName.includes('annual') && balance.annual) {
-          balance.annual.used = leave.totalDays;
-          balance.annual.remaining = Math.max(0, balance.annual.allocated - leave.totalDays + balance.annual.carriedForward);
-        } else if (leaveTypeName.includes('casual') && balance.casual) {
-          balance.casual.used = leave.totalDays;
-          balance.casual.remaining = Math.max(0, balance.casual.allocated - leave.totalDays + balance.casual.carriedForward);
-        } else if (leaveTypeName.includes('medical') && balance.medical) {
-          balance.medical.used = leave.totalDays;
-          balance.medical.remaining = Math.max(0, balance.medical.allocated - leave.totalDays + balance.medical.carriedForward);
-        }
-      });
-
-      return balance;
+      const currentWorkYear = LeaveIntegrationService.calculateWorkYear(employee.hireDate);
+      const balance = await LeaveIntegrationService.getWorkYearBalance(employeeId, currentWorkYear);
+      
+      // Return the balance in the format expected by the frontend
+      return balance.getSummary();
     } catch (error) {
-      throw error;
+      console.error(`Error getting leave balance for employee ${employeeId}:`, error);
+      
+      // Return default balance if calculation fails
+      return {
+        annual: { allocated: 20, used: 0, remaining: 20, carriedForward: 0, advance: 0 },
+        casual: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 },
+        sick: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 },
+        medical: { allocated: 10, used: 0, remaining: 10, carriedForward: 0, advance: 0 }
+      };
     }
   }
 

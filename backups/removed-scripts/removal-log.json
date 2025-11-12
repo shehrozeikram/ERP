@@ -1,0 +1,716 @@
+{
+  "removedFiles": [
+    {
+      "file": "server/routes/procurement.js.bak",
+      "category": "backups",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/backups/procurement.js.bak"
+    },
+    {
+      "file": "client/src/pages/HR/EmployeeForm.js.backup",
+      "category": "backups",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/backups/EmployeeForm.js.backup"
+    },
+    {
+      "file": "server/scripts/test-employee-leave-system.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-employee-leave-system.js"
+    },
+    {
+      "file": "server/scripts/test-carry-forward-employee-3.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-carry-forward-employee-3.js"
+    },
+    {
+      "file": "server/scripts/fix-test-employee-3.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/fix-test-employee-3.js"
+    },
+    {
+      "file": "server/scripts/detailed-carry-forward-test.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/detailed-carry-forward-test.js"
+    },
+    {
+      "file": "server/scripts/test-fix-carry-forward-all.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-fix-carry-forward-all.js"
+    },
+    {
+      "file": "server/scripts/test-carry-forward-all-employees.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-carry-forward-all-employees.js"
+    },
+    {
+      "file": "server/scripts/test-leave-types-reset.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-leave-types-reset.js"
+    },
+    {
+      "file": "server/scripts/test-carry-forward-40-cap.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-carry-forward-40-cap.js"
+    },
+    {
+      "file": "server/scripts/test-carry-forward-employee-2120.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-carry-forward-employee-2120.js"
+    },
+    {
+      "file": "server/scripts/test-carry-forward-anniversary.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-carry-forward-anniversary.js"
+    },
+    {
+      "file": "server/scripts/testCasualLeaveCreation.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testCasualLeaveCreation.js"
+    },
+    {
+      "file": "server/scripts/testEmployee06031Leave.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testEmployee06031Leave.js"
+    },
+    {
+      "file": "server/scripts/stepByStepCarryForwardTest.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/stepByStepCarryForwardTest.js"
+    },
+    {
+      "file": "server/scripts/fixAndTestCarryForward.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/fixAndTestCarryForward.js"
+    },
+    {
+      "file": "server/scripts/testAutoCarryForwardUpdate.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testAutoCarryForwardUpdate.js"
+    },
+    {
+      "file": "server/scripts/comprehensiveCarryForwardTest.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/comprehensiveCarryForwardTest.js"
+    },
+    {
+      "file": "server/scripts/testLeaveRequestEmployee06387.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testLeaveRequestEmployee06387.js"
+    },
+    {
+      "file": "server/scripts/testCarryForwardSimple.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testCarryForwardSimple.js"
+    },
+    {
+      "file": "server/scripts/testCarryForwardEmployee06387.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testCarryForwardEmployee06387.js"
+    },
+    {
+      "file": "server/scripts/testEmployee6387Workflow.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/testEmployee6387Workflow.js"
+    },
+    {
+      "file": "server/scripts/test-hire-date-api.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-hire-date-api.js"
+    },
+    {
+      "file": "server/scripts/test-employee-6031-anniversary-readonly.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-employee-6031-anniversary-readonly.js"
+    },
+    {
+      "file": "server/scripts/test-carry-forward-expiration.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-carry-forward-expiration.js"
+    },
+    {
+      "file": "server/scripts/test-employee-6031-anniversary.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-employee-6031-anniversary.js"
+    },
+    {
+      "file": "server/scripts/test-anniversary-leave-system.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-anniversary-leave-system.js"
+    },
+    {
+      "file": "server/scripts/test-leave-api-endpoint.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-leave-api-endpoint.js"
+    },
+    {
+      "file": "server/scripts/test-leave-api.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-leave-api.js"
+    },
+    {
+      "file": "server/scripts/simple-api-test.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/simple-api-test.js"
+    },
+    {
+      "file": "server/scripts/test-api-endpoint.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-api-endpoint.js"
+    },
+    {
+      "file": "server/scripts/test-zkbio-websocket-connection.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-zkbio-websocket-connection.js"
+    },
+    {
+      "file": "server/scripts/test-image-investigation.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-image-investigation.js"
+    },
+    {
+      "file": "server/scripts/test-server-status.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-server-status.js"
+    },
+    {
+      "file": "server/scripts/test-realtime-images.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-realtime-images.js"
+    },
+    {
+      "file": "server/scripts/test-zkbio-enhanced.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-zkbio-enhanced.js"
+    },
+    {
+      "file": "server/scripts/test-socket-connection.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-socket-connection.js"
+    },
+    {
+      "file": "server/scripts/test-simulate-attendance.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-simulate-attendance.js"
+    },
+    {
+      "file": "server/scripts/test-server-zkbio-connection.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-server-zkbio-connection.js"
+    },
+    {
+      "file": "server/scripts/comprehensive-zkbio-test.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/comprehensive-zkbio-test.js"
+    },
+    {
+      "file": "server/scripts/test-zkbio-connection.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-zkbio-connection.js"
+    },
+    {
+      "file": "server/scripts/test-hover-tooltips.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-hover-tooltips.js"
+    },
+    {
+      "file": "server/scripts/test-realtime-monitoring.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-realtime-monitoring.js"
+    },
+    {
+      "file": "server/scripts/test-websocket-image-flow.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-websocket-image-flow.js"
+    },
+    {
+      "file": "server/scripts/test-ultra-beautiful-tooltips.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-ultra-beautiful-tooltips.js"
+    },
+    {
+      "file": "server/scripts/test-error-handling-fix.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-error-handling-fix.js"
+    },
+    {
+      "file": "server/scripts/test-dashboard-integration.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-dashboard-integration.js"
+    },
+    {
+      "file": "server/scripts/test-loan-payroll-integration.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-loan-payroll-integration.js"
+    },
+    {
+      "file": "server/scripts/test-house-allowance-flow.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-house-allowance-flow.js"
+    },
+    {
+      "file": "server/scripts/test-employee-id.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-employee-id.js"
+    },
+    {
+      "file": "server/scripts/test-employee-direct.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-employee-direct.js"
+    },
+    {
+      "file": "server/scripts/test-time-formatting.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/test-time-formatting.js"
+    },
+    {
+      "file": "server/scripts/create-test-employee.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/create-test-employee.js"
+    },
+    {
+      "file": "server/scripts/import-single-employee-test.js",
+      "category": "testScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/testScripts/import-single-employee-test.js"
+    },
+    {
+      "file": "server/scripts/import-employees-from-excel.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-employees-from-excel.js"
+    },
+    {
+      "file": "server/scripts/fast-import-employees.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/fast-import-employees.js"
+    },
+    {
+      "file": "server/scripts/improved-import-employees.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/improved-import-employees.js"
+    },
+    {
+      "file": "server/scripts/ultra-fast-import.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/ultra-fast-import.js"
+    },
+    {
+      "file": "server/scripts/import-all-employees.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-all-employees.js"
+    },
+    {
+      "file": "server/scripts/import-all-leaves-from-csv.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-all-leaves-from-csv.js"
+    },
+    {
+      "file": "server/scripts/import-first-employee-leaves.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-first-employee-leaves.js"
+    },
+    {
+      "file": "server/scripts/import-first-1000-records.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-first-1000-records.js"
+    },
+    {
+      "file": "server/scripts/import-final-records.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-final-records.js"
+    },
+    {
+      "file": "server/scripts/import-missing-records.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-missing-records.js"
+    },
+    {
+      "file": "server/scripts/import-all-remaining-records.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/import-all-remaining-records.js"
+    },
+    {
+      "file": "server/scripts/reimport-historical-leaves.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/reimport-historical-leaves.js"
+    },
+    {
+      "file": "server/scripts/clear-and-import-test-records.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/clear-and-import-test-records.js"
+    },
+    {
+      "file": "server/scripts/test-import-few-records.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/test-import-few-records.js"
+    },
+    {
+      "file": "server/scripts/verify-import-complete.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/verify-import-complete.js"
+    },
+    {
+      "file": "server/scripts/verify-import-results.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/verify-import-results.js"
+    },
+    {
+      "file": "server/scripts/verify-sample-employees.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/verify-sample-employees.js"
+    },
+    {
+      "file": "server/scripts/verify-remove-duplicates.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/verify-remove-duplicates.js"
+    },
+    {
+      "file": "server/scripts/fix-verify-all-employees-leaves.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/fix-verify-all-employees-leaves.js"
+    },
+    {
+      "file": "server/scripts/fix-verify-employee-leaves.js",
+      "category": "oldImportScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldImportScripts/fix-verify-employee-leaves.js"
+    },
+    {
+      "file": "server/scripts/apply-carry-forward-employee-3.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/apply-carry-forward-employee-3.js"
+    },
+    {
+      "file": "server/scripts/apply-carry-forward-all-employees.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/apply-carry-forward-all-employees.js"
+    },
+    {
+      "file": "server/scripts/fix-cf-employee-3.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/fix-cf-employee-3.js"
+    },
+    {
+      "file": "server/scripts/applyCarryForwardCap.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/applyCarryForwardCap.js"
+    },
+    {
+      "file": "server/scripts/fixAllCarryForwardIssues.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/fixAllCarryForwardIssues.js"
+    },
+    {
+      "file": "server/scripts/verify2024CarryForward.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/verify2024CarryForward.js"
+    },
+    {
+      "file": "server/scripts/checkCurrentState.js",
+      "category": "oldCarryForwardScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldCarryForwardScripts/checkCurrentState.js"
+    },
+    {
+      "file": "server/scripts/removeEmployee06387Leaves.js",
+      "category": "employeeTestScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/employeeTestScripts/removeEmployee06387Leaves.js"
+    },
+    {
+      "file": "server/scripts/removeEmployee6387Leaves.js",
+      "category": "employeeTestScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/employeeTestScripts/removeEmployee6387Leaves.js"
+    },
+    {
+      "file": "server/scripts/employee6387Manager.js",
+      "category": "employeeTestScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/employeeTestScripts/employee6387Manager.js"
+    },
+    {
+      "file": "server/scripts/setupEmployee6387.js",
+      "category": "employeeTestScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/employeeTestScripts/setupEmployee6387.js"
+    },
+    {
+      "file": "server/scripts/removeAllApprovedLeaves.js",
+      "category": "oldRemoveScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldRemoveScripts/removeAllApprovedLeaves.js"
+    },
+    {
+      "file": "server/scripts/final-remove-duplicates.js",
+      "category": "oldRemoveScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/oldRemoveScripts/final-remove-duplicates.js"
+    },
+    {
+      "file": "server/scripts/examine-excel-structure.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/examine-excel-structure.js"
+    },
+    {
+      "file": "server/scripts/examine-aug-excel.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/examine-aug-excel.js"
+    },
+    {
+      "file": "server/scripts/examine-aug-excel-v2.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/examine-aug-excel-v2.js"
+    },
+    {
+      "file": "server/scripts/check-leave-balance-structure.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/check-leave-balance-structure.js"
+    },
+    {
+      "file": "server/scripts/check-all-employees.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/check-all-employees.js"
+    },
+    {
+      "file": "server/scripts/check-employees.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/check-employees.js"
+    },
+    {
+      "file": "server/scripts/check-cloud-database.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/check-cloud-database.js"
+    },
+    {
+      "file": "server/scripts/debug-employee-leave-balance.js",
+      "category": "examineScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/examineScripts/debug-employee-leave-balance.js"
+    },
+    {
+      "file": "server/scripts/fix-cloud-leave-balance.js",
+      "category": "fixScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/fixScripts/fix-cloud-leave-balance.js"
+    },
+    {
+      "file": "server/scripts/fix-cloud-leave-balance-v2.js",
+      "category": "fixScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/fixScripts/fix-cloud-leave-balance-v2.js"
+    },
+    {
+      "file": "server/scripts/fix-cloud-leave-balance-v3.js",
+      "category": "fixScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/fixScripts/fix-cloud-leave-balance-v3.js"
+    },
+    {
+      "file": "server/scripts/fix-leave-balance-schema.js",
+      "category": "fixScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/fixScripts/fix-leave-balance-schema.js"
+    },
+    {
+      "file": "server/scripts/fixLeaveBalanceIndexes.js",
+      "category": "fixScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/fixScripts/fixLeaveBalanceIndexes.js"
+    },
+    {
+      "file": "server/scripts/fix-total-earnings-calculation.js",
+      "category": "fixScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/fixScripts/fix-total-earnings-calculation.js"
+    },
+    {
+      "file": "server/scripts/2023 to 7 july 2025.xls",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/2023 to 7 july 2025.xls"
+    },
+    {
+      "file": "server/scripts/Leave_20251028152804.xlsx",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/Leave_20251028152804.xlsx"
+    },
+    {
+      "file": "server/scripts/leave-data-formatted.csv",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/leave-data-formatted.csv"
+    },
+    {
+      "file": "server/scripts/leave-data-formatted.json",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/leave-data-formatted.json"
+    },
+    {
+      "file": "server/scripts/leave-month-summary.csv",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/leave-month-summary.csv"
+    },
+    {
+      "file": "server/scripts/Master_File_Aug_2025.xlsx",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/Master_File_Aug_2025.xlsx"
+    },
+    {
+      "file": "server/scripts/Master_File_July-2025.xlsx",
+      "category": "dataFiles",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/dataFiles/Master_File_July-2025.xlsx"
+    },
+    {
+      "file": "server/scripts/create-admin-direct.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/create-admin-direct.js"
+    },
+    {
+      "file": "server/scripts/create-ceo-user.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/create-ceo-user.js"
+    },
+    {
+      "file": "server/scripts/create-default-admin.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/create-default-admin.js"
+    },
+    {
+      "file": "server/scripts/recreate-admin.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/recreate-admin.js"
+    },
+    {
+      "file": "server/scripts/migrateExistingRoles.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/migrateExistingRoles.js"
+    },
+    {
+      "file": "server/scripts/initialize-leave-management.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/initialize-leave-management.js"
+    },
+    {
+      "file": "server/scripts/seed-staff-types.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/seed-staff-types.js"
+    },
+    {
+      "file": "server/scripts/demo-staff-management.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/demo-staff-management.js"
+    },
+    {
+      "file": "server/scripts/populate-fbr-tax-slabs-2025.js",
+      "category": "setupScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/setupScripts/populate-fbr-tax-slabs-2025.js"
+    },
+    {
+      "file": "server/scripts/delete-payroll-records.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/delete-payroll-records.js"
+    },
+    {
+      "file": "server/scripts/delete-payrolls-except-august.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/delete-payrolls-except-august.js"
+    },
+    {
+      "file": "server/scripts/quick-delete-payrolls-except-august.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/quick-delete-payrolls-except-august.js"
+    },
+    {
+      "file": "server/scripts/clear-payrolls.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/clear-payrolls.js"
+    },
+    {
+      "file": "server/scripts/remove-all-arrears.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/remove-all-arrears.js"
+    },
+    {
+      "file": "server/scripts/remove-all-increments.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/remove-all-increments.js"
+    },
+    {
+      "file": "server/scripts/remove-all-employees.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/remove-all-employees.js"
+    },
+    {
+      "file": "server/scripts/clearAllLeaveData.js",
+      "category": "payrollScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/payrollScripts/clearAllLeaveData.js"
+    },
+    {
+      "file": "server/scripts/update-loan-deductions.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/update-loan-deductions.js"
+    },
+    {
+      "file": "server/scripts/update-payrolls-from-excel.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/update-payrolls-from-excel.js"
+    },
+    {
+      "file": "server/scripts/update-employee-gross-salary.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/update-employee-gross-salary.js"
+    },
+    {
+      "file": "server/scripts/recalc-tax-05898.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/recalc-tax-05898.js"
+    },
+    {
+      "file": "server/scripts/find-payroll-06382.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/find-payroll-06382.js"
+    },
+    {
+      "file": "server/scripts/migrate-excel-allowances-to-payrolls.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/migrate-excel-allowances-to-payrolls.js"
+    },
+    {
+      "file": "server/scripts/restructure-salary-system.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/restructure-salary-system.js"
+    },
+    {
+      "file": "server/scripts/updateLeavePolicyDefaults.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/updateLeavePolicyDefaults.js"
+    },
+    {
+      "file": "server/scripts/initialize-balances-for-work-years.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/initialize-balances-for-work-years.js"
+    },
+    {
+      "file": "server/scripts/optimizeLeaveIndexes.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/optimizeLeaveIndexes.js"
+    },
+    {
+      "file": "server/scripts/delete-unused-collections.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/delete-unused-collections.js"
+    },
+    {
+      "file": "server/scripts/quick-status-check.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/quick-status-check.js"
+    },
+    {
+      "file": "server/scripts/working-zkbio-connection.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/working-zkbio-connection.js"
+    },
+    {
+      "file": "server/scripts/final-dashboard-verification.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/final-dashboard-verification.js"
+    },
+    {
+      "file": "server/scripts/verify-employee.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/verify-employee.js"
+    },
+    {
+      "file": "server/scripts/annualLeaveDemo.js",
+      "category": "otherScripts",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/otherScripts/annualLeaveDemo.js"
+    },
+    {
+      "file": "server/routes/annualLeave.js",
+      "category": "unregisteredRoute",
+      "backupPath": "/Users/shehroze/Documents/My Web Projects/Node js Projects/SGC_ERP/backups/removed-scripts/unregisteredRoute/annualLeave.js"
+    }
+  ],
+  "timestamp": null,
+  "lastRemoval": "2025-11-06T13:18:01.203Z"
+}

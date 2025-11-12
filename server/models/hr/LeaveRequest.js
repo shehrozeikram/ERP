@@ -113,7 +113,7 @@ const leaveRequestSchema = new mongoose.Schema({
   workYear: {
     type: Number,
     required: true,
-    min: [1, 'Work year must be 1 or later'],
+    min: [0, 'Work year must be 0 or later'],
     max: [50, 'Work year must be less than 50']
   },
   // Integration with attendance

@@ -31,6 +31,25 @@ router.all('/zkbio-proxy/*', async (req, res) => {
       maxRedirects: 5
     };
 
+    // Inject remote auth cookies from env or forwarded headers
+    const envCookies = [];
+    if (process.env.ATTENDANCE_CSRFTOKEN) envCookies.push(`csrftoken=${process.env.ATTENDANCE_CSRFTOKEN}`);
+    if (process.env.ATTENDANCE_SESSIONID) envCookies.push(`sessionid=${process.env.ATTENDANCE_SESSIONID}`);
+    if (process.env.ATTENDANCE_ACCOUNT_INFO) envCookies.push(`account_info=${process.env.ATTENDANCE_ACCOUNT_INFO}`);
+    if (process.env.ATTENDANCE_DJANGO_LANGUAGE) envCookies.push(`django_language=${process.env.ATTENDANCE_DJANGO_LANGUAGE}`);
+
+    // Allow overriding via headers (e.g., X-Attendance-Cookie)
+    const headerCookie = req.headers['x-attendance-cookie'];
+    const cookieHeader = headerCookie || (envCookies.length ? envCookies.join('; ') : null);
+    if (cookieHeader) {
+      requestOptions.headers.Cookie = cookieHeader;
+      // Also set CSRF header if available
+      const csrfMatch = cookieHeader.match(/csrftoken=([^;]+)/);
+      if (csrfMatch) {
+        requestOptions.headers['X-CSRFToken'] = csrfMatch[1];
+      }
+    }
+
     // Add body for POST/PUT requests
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
       requestOptions.data = req.body;
@@ -43,8 +62,18 @@ router.all('/zkbio-proxy/*', async (req, res) => {
 
     // Make the request to the attendance system
     const response = await axios(requestOptions);
-    
-    // Forward the response
+
+    // If remote responded with HTML (likely login page), surface 401 to client
+    const contentType = response.headers['content-type'] || '';
+    if (contentType.includes('text/html')) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required for attendance system',
+        hint: 'Configure ATTENDANCE_* cookies on the server or provide X-Attendance-Cookie header.'
+      });
+    }
+
+    // Forward the JSON response
     res.status(response.status).json(response.data);
     
   } catch (error) {

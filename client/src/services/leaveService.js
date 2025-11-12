@@ -2,11 +2,28 @@ import api from './api';
 
 const leaveService = {
   // Get employee leave summary
-  getEmployeeLeaveSummary: async (employeeId, year = new Date().getFullYear()) => {
+  getEmployeeLeaveSummary: async (employeeId, workYear = null, year = null) => {
     try {
+      const params = {};
+      if (workYear !== null) {
+        params.workYear = workYear;
+      }
+      if (year !== null) {
+        params.year = year;
+      }
       const response = await api.get(`/leaves/employee/${employeeId}/summary`, {
-        params: { year }
+        params
       });
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  // Get available work years for an employee
+  getAvailableWorkYears: async (employeeId) => {
+    try {
+      const response = await api.get(`/leaves/employee/${employeeId}/work-years`);
       return response.data;
     } catch (error) {
       throw error.response?.data || error;

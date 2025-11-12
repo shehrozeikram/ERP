@@ -1,295 +1,564 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
+  Avatar,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
+  FormControl,
   Grid,
-  Button,
-  Chip,
-  Alert,
-  CircularProgress,
-  Skeleton,
+  InputLabel,
+  LinearProgress,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
-  Paper,
-  FormControl,
-  Tabs,
-  Tab,
-  Avatar,
-  InputLabel,
-  Select,
-  MenuItem,
   TextField,
-  Tooltip
+  Typography
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
+  Assessment as ReportIcon,
   Download as DownloadIcon,
   Refresh as RefreshIcon,
-  Assessment as ReportIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon
+  Search as SearchIcon,
+  TrendingDown as TrendingDownIcon,
+  TrendingUp as TrendingUpIcon
 } from '@mui/icons-material';
-import { format, subMonths, startOfYear, endOfYear, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter } from 'date-fns';
-import axios from 'axios';
-import api from '../../../services/api';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { format, eachDayOfInterval } from 'date-fns';
 
-// Debug authentication issues
-const debugAuthentication = () => {
-  console.log('🔍 Debugging Authentication...');
-  
-  const token = localStorage.getItem('token');
-  const user = localStorage.getItem('user');
-  
-  console.log('Token exists:', !!token);
-  console.log('User exists:', !!user);
-  
-  if (token) {
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      console.log('Token payload:', payload);
-      console.log('Token expires:', new Date(payload.exp * 1000));
-      console.log('Token expired:', Date.now() > payload.exp * 1000);
-    } catch (error) {
-      console.error('Error decoding token:', error);
-    }
+import api from '../../../services/api';
+
+const currentYear = new Date().getFullYear();
+const monthOptions = [
+  { value: 'all', label: 'Full Year' },
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' }
+];
+
+const years = Array.from({ length: 6 }, (_, index) => currentYear - index);
+
+const calculateTrend = (current, previous) => {
+  if (!previous || previous === 0) {
+    return current > 0 ? 100 : 0;
   }
-  
-  return { hasToken: !!token, hasUser: !!user, token, user };
+  return ((current - previous) / previous) * 100;
+};
+
+const getTrendIcon = (trend) => {
+  if (trend > 0) return <TrendingUpIcon color="success" fontSize="small" />;
+  if (trend < 0) return <TrendingDownIcon color="error" fontSize="small" />;
+  return null;
+};
+
+const getTrendColor = (trend) => {
+  if (trend > 0) return 'success.main';
+  if (trend < 0) return 'error.main';
+  return 'text.secondary';
+};
+
+const getEmployeeInitials = (name = '') => {
+  if (!name) return 'NA';
+  const parts = name.trim().split(' ').filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].substring(0, 2).toUpperCase();
+  }
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 };
 
 const LeaveReports = () => {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tabValue, setTabValue] = useState(0);
-  
-  // Filter states
+
   const [filters, setFilters] = useState({
-    year: 2025, // Default to 2025 where the data exists
-    month: 'all',
-    department: 'all',
-    leaveType: 'all',
-    status: 'all',
-    dateRange: 'year', // 'year', 'month', 'quarter', 'custom'
-    startDate: '',
-    endDate: ''
+    year: currentYear,
+    month: new Date().getMonth() + 1,
+    department: 'all'
   });
-  
-  // Data states
-  const [statistics, setStatistics] = useState({});
+
+  const [departments, setDepartments] = useState([]);
+  const [statistics, setStatistics] = useState(null);
   const [departmentStats, setDepartmentStats] = useState([]);
   const [employeeStats, setEmployeeStats] = useState([]);
   const [monthlyTrends, setMonthlyTrends] = useState([]);
-  const [leaveTypes, setLeaveTypes] = useState([]);
-  const [departments, setDepartments] = useState([]);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  const departmentNameById = useMemo(() => {
+    const map = new Map();
+    (departments || []).forEach((dept) => {
+      if (!dept) return;
+      const id = dept._id ? String(dept._id) : null;
+      if (id) {
+        const label = dept.name || dept.title || dept.code || dept.label || '';
+        if (label) {
+          map.set(id, label);
+        }
+      }
+    });
+    return map;
+  }, [departments]);
+
+  const resolveDepartmentName = useCallback(
+    (...candidates) => {
+      const normalize = (candidate) => {
+        if (!candidate) return '';
+        if (typeof candidate === 'string') {
+          return candidate.trim();
+        }
+        if (candidate.name) {
+          return String(candidate.name).trim();
+        }
+        if (candidate.department) {
+          return normalize(candidate.department);
+        }
+        if (candidate._id) {
+          const fromMap = departmentNameById.get(String(candidate._id));
+          return fromMap ? fromMap.trim() : '';
+        }
+        return '';
+      };
+
+      for (const candidate of candidates) {
+        const resolved = normalize(candidate);
+        if (resolved) return resolved;
+      }
+      return '';
+    },
+    [departmentNameById]
+  );
+
+  const departmentLookup = useMemo(() => {
+    const map = new Map();
+    (employeeStats || []).forEach((emp) => {
+      const employeeId = emp?.employeeId ? String(emp.employeeId).trim() : null;
+      if (!employeeId) return;
+
+      const deptName =
+        resolveDepartmentName(
+          emp.department,
+          emp.departmentName,
+          emp.employee?.department
+        ) || 'N/A';
+
+      map.set(employeeId, deptName);
+    });
+    return map;
+  }, [employeeStats, resolveDepartmentName]);
 
   useEffect(() => {
-    loadInitialData();
+    const loadDepartments = async () => {
+      try {
+        const response = await api.get('/hr/departments');
+        if (response.data?.success) {
+          setDepartments(response.data.data || []);
+        } else {
+          setDepartments([]);
+        }
+      } catch (err) {
+        console.error('Error loading departments:', err);
+        setDepartments([]);
+      }
+    };
+
+    loadDepartments();
   }, []);
 
-  useEffect(() => {
-    loadReportData();
-  }, [filters, tabValue]);
+  const loadReportData = useCallback(async () => {
+    setLoading(true);
+    setError('');
 
-  const loadInitialData = async () => {
     try {
-      console.log('🔍 Loading initial leave report data...');
-      
-      // Debug authentication
-      const authDebug = debugAuthentication();
-      console.log('Auth debug:', authDebug);
-      
-      const [typesRes, deptRes] = await Promise.all([
-        api.get('/leaves/types'),
-        api.get('/hr/departments')
-      ]);
-      
-      setLeaveTypes(typesRes.data.data);
-      setDepartments(deptRes.data.data);
-    } catch (error) {
-      console.error('Error loading initial data:', error);
-      console.error('Error details:', {
-        message: error.message,
-        status: error.response?.status,
-        code: error.code
-      });
-      
-      let errorMessage = 'Failed to load initial data';
-      if (error.code === 'ERR_NETWORK' || error.code === 'ERR_CONNECTION_REFUSED') {
-        errorMessage = 'Cannot connect to server. Please check if the backend is running.';
-      } else if (error.response?.status === 401) {
-        errorMessage = 'Authentication expired. Please login again.';
-      }
-      
-      setError(errorMessage);
-    }
-  };
-
-  const loadReportData = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      
-      console.log('🔍 Loading leave report data with filters:', filters);
-      
-      // Build query parameters
-      const params = new URLSearchParams({
-        year: filters.year
-      });
-      
-      if (filters.month && filters.month !== 'all') {
+      const params = new URLSearchParams();
+      params.append('year', filters.year);
+      if (filters.month !== 'all') {
         params.append('month', filters.month);
       }
-      
-      if (filters.department && filters.department !== 'all') {
+      if (filters.department !== 'all') {
         params.append('department', filters.department);
       }
-      
-      // Load all report data in parallel
-      const [
-        statsRes,
-        deptStatsRes,
-        empStatsRes,
-        trendsRes
-      ] = await Promise.all([
-        api.get(`/leaves/statistics?${params}`),
-        api.get(`/leaves/reports/department-stats?${params}`),
-        api.get(`/leaves/reports/employee-stats?${params}&limit=50`),
-        api.get(`/leaves/reports/monthly-trends?${params}`)
+
+      const [statsRes, deptRes, empRes, trendsRes] = await Promise.all([
+        api.get(`/leaves/statistics?${params.toString()}`),
+        api.get(`/leaves/reports/department-stats?${params.toString()}`),
+        api.get(`/leaves/reports/employee-stats?${params.toString()}&limit=200`),
+        api.get(`/leaves/reports/monthly-trends?${params.toString()}`)
       ]);
-      
-      console.log('📊 Report data loaded successfully');
-      console.log('Statistics:', statsRes.data.data);
-      console.log('Department Stats:', deptStatsRes.data.data);
-      console.log('Employee Stats:', empStatsRes.data.data);
-      console.log('Monthly Trends:', trendsRes.data.data);
-      
-      // Transform statistics from array format to object format
+
       const statsArray = Array.isArray(statsRes.data.data) ? statsRes.data.data : [];
-      const transformedStats = {
-        totalRequests: 0,
-        approvedRequests: 0,
-        pendingRequests: 0,
-        rejectedRequests: 0,
-        totalDays: 0,
-        approvedDays: 0,
-        pendingDays: 0,
-        rejectedDays: 0
-      };
-      
-      // Aggregate data from all status groups
-      statsArray.forEach(stat => {
-        transformedStats.totalRequests += stat.totalRequests || 0;
-        transformedStats.totalDays += stat.totalDays || 0;
-        
-        if (stat._id === 'approved') {
-          transformedStats.approvedRequests = stat.totalRequests || 0;
-          transformedStats.approvedDays = stat.totalDays || 0;
-        } else if (stat._id === 'pending') {
-          transformedStats.pendingRequests = stat.totalRequests || 0;
-          transformedStats.pendingDays = stat.totalDays || 0;
-        } else if (stat._id === 'rejected') {
-          transformedStats.rejectedRequests = stat.totalRequests || 0;
-          transformedStats.rejectedDays = stat.totalDays || 0;
+      const aggregatedStats = statsArray.reduce(
+        (acc, item) => {
+          const totalRequests = item.totalRequests || 0;
+          const totalDays = item.totalDays || 0;
+
+          acc.totalRequests += totalRequests;
+          acc.totalDays += totalDays;
+
+          switch (item._id) {
+            case 'approved':
+              acc.approvedRequests = totalRequests;
+              acc.approvedDays = totalDays;
+              break;
+            case 'pending':
+              acc.pendingRequests = totalRequests;
+              acc.pendingDays = totalDays;
+              break;
+            case 'rejected':
+              acc.rejectedRequests = totalRequests;
+              acc.rejectedDays = totalDays;
+              break;
+            default:
+              break;
+          }
+
+          return acc;
+        },
+        {
+          totalRequests: 0,
+          approvedRequests: 0,
+          pendingRequests: 0,
+          rejectedRequests: 0,
+          totalDays: 0,
+          approvedDays: 0,
+          pendingDays: 0,
+          rejectedDays: 0
         }
+      );
+
+      setStatistics(aggregatedStats);
+      const deptDataRaw = Array.isArray(deptRes.data.data) ? deptRes.data.data : [];
+      const deptData = deptDataRaw.map((dept) => {
+        const name =
+          resolveDepartmentName(
+            dept.name,
+            dept.departmentName,
+            dept.department,
+            typeof dept._id === 'string' ? dept._id : null,
+            dept._id
+          ) || 'N/A';
+
+        return { ...dept, name };
       });
-      
-      setStatistics(transformedStats);
-      setDepartmentStats(Array.isArray(deptStatsRes.data.data) ? deptStatsRes.data.data : []);
-      setEmployeeStats(Array.isArray(empStatsRes.data.data) ? empStatsRes.data.data : []);
-      
-      // Map monthly trends data to match frontend expectations
-      const mappedTrends = Array.isArray(trendsRes.data.data) ? trendsRes.data.data.map(trend => ({
-        month: trend.month,
-        monthName: trend.monthName,
-        requests: trend.totalRequests || 0,
-        days: trend.totalDays || 0,
-        trend: 0 // Default trend value since we don't have previous data for comparison
-      })) : [];
-      setMonthlyTrends(mappedTrends);
-      
-    } catch (error) {
-      console.error('Error loading report data:', error);
-      console.error('Error details:', {
-        message: error.message,
-        status: error.response?.status,
-        data: error.response?.data
+      setDepartmentStats(deptData);
+      const employeeDataRaw = Array.isArray(empRes.data.data) ? empRes.data.data : [];
+      const employeeData = employeeDataRaw.map((emp) => {
+        const employeeId = emp.employeeId || emp.employee?.employeeId || '';
+        const departmentName =
+          resolveDepartmentName(
+            emp.department,
+            emp.departmentName,
+            emp.employee?.department
+          ) || 'N/A';
+
+        return {
+          ...emp,
+          employeeId,
+          department: departmentName
+        };
       });
-      
-      let errorMessage = 'Failed to load report data';
-      if (error.response?.status === 401) {
-        errorMessage = 'Authentication expired. Please login again.';
-      } else if (error.response?.status === 403) {
-        errorMessage = 'You do not have permission to view leave reports.';
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      }
-      
-      setError(errorMessage);
+      setEmployeeStats(employeeData);
+
+      const mappedTrends = Array.isArray(trendsRes.data.data)
+        ? trendsRes.data.data
+            .reduce((acc, item) => {
+              const monthIndex = item._id?.month;
+              if (!monthIndex) return acc;
+              const existing = acc.get(monthIndex) || { month: monthIndex, totalRequests: 0, totalDays: 0 };
+              existing.totalRequests += item.count || 0;
+              existing.totalDays += item.totalDays || 0;
+              acc.set(monthIndex, existing);
+              return acc;
+            }, new Map())
+        : new Map();
+
+      const trendArray = Array.from(mappedTrends.values()).sort((a, b) => a.month - b.month);
+      setMonthlyTrends(trendArray);
+    } catch (err) {
+      console.error('Error loading leave report data:', err);
+      setError(err?.response?.data?.message || 'Failed to load leave report data.');
+      setStatistics(null);
+      setDepartmentStats([]);
+      setEmployeeStats([]);
+      setMonthlyTrends([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.department, filters.month, filters.year, departmentNameById]);
+
+  useEffect(() => {
+    loadReportData();
+  }, [loadReportData]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [searchTerm, filters.department, filters.month, filters.year, employeeStats]);
 
   const handleFilterChange = (field, value) => {
-    setFilters(prev => ({ ...prev, [field]: value }));
+    setFilters((prev) => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   const clearFilters = () => {
     setFilters({
-      year: 2025, // Default to 2025 where the data exists
-      month: 'all',
-      department: 'all',
-      leaveType: 'all',
-      status: 'all',
-      dateRange: 'year',
-      startDate: '',
-      endDate: ''
+      year: currentYear,
+      month: new Date().getMonth() + 1,
+      department: 'all'
     });
   };
 
-  const handleTabChange = (event, newValue) => {
-    setTabValue(newValue);
-  };
+  const filteredEmployees = useMemo(() => {
+    const list = Array.isArray(employeeStats) ? employeeStats : [];
+    if (!searchTerm.trim()) return list;
 
-  const exportReport = async (format = 'excel') => {
+    const term = searchTerm.trim().toLowerCase();
+    return list.filter((emp) => {
+      const name = emp.employeeName || '';
+      const id = emp.employeeId || '';
+      const dept = emp.department || '';
+      return (
+        name.toLowerCase().includes(term) ||
+        String(id).toLowerCase().includes(term) ||
+        dept.toLowerCase().includes(term)
+      );
+    });
+  }, [employeeStats, searchTerm]);
+
+  const paginatedEmployees = useMemo(() => {
+    const start = page * rowsPerPage;
+    return filteredEmployees.slice(start, start + rowsPerPage);
+  }, [filteredEmployees, page, rowsPerPage]);
+
+  const buildLeaveDetailRows = useCallback(async () => {
     try {
-      setLoading(true);
-      
-      if (format === 'excel') {
-        await exportToExcel();
-      } else if (format === 'pdf') {
-        await exportToPDF();
+      const rows = [];
+      const limit = 200;
+      let page = 1;
+      let totalPages = 1;
+
+      const rangeStart =
+        filters.month === 'all'
+          ? new Date(filters.year, 0, 1)
+          : new Date(filters.year, filters.month - 1, 1);
+      const rangeEnd =
+        filters.month === 'all'
+          ? new Date(filters.year, 11, 31, 23, 59, 59, 999)
+          : new Date(filters.year, filters.month, 0, 23, 59, 59, 999);
+
+      const paramsBase = {
+        limit,
+        sortBy: 'startDate',
+        sortOrder: 'asc',
+        year: filters.year,
+        startDate: rangeStart.toISOString(),
+        endDate: rangeEnd.toISOString()
+      };
+
+      const selectedDepartmentName =
+        filters.department !== 'all'
+          ? departmentNameById.get(filters.department) || null
+          : null;
+
+      while (page <= totalPages) {
+        const response = await api.get('/leaves/requests', {
+          params: { ...paramsBase, page }
+        });
+
+        if (!response.data?.success) {
+          break;
+        }
+
+        const data = Array.isArray(response.data.data) ? response.data.data : [];
+        const pagination = response.data.pagination || {};
+        totalPages = pagination.pages || page;
+
+        data.forEach((leave) => {
+          const employee = leave.employee || {};
+          const employeeId = String(employee.employeeId || '').trim();
+
+          const departmentName =
+            departmentLookup.get(employeeId) ||
+            selectedDepartmentName ||
+            resolveDepartmentName(
+              employee.department,
+              employee.departmentName
+            ) ||
+            'N/A';
+
+          if (selectedDepartmentName && departmentName !== selectedDepartmentName) {
+            return;
+          }
+
+          const leaveTypeName = leave.leaveType?.name || leave.leaveType?.code || 'Leave';
+          const status =
+            leave.status && typeof leave.status === 'string'
+              ? leave.status.charAt(0).toUpperCase() + leave.status.slice(1)
+              : 'Pending';
+
+          const leaveStart = new Date(leave.startDate);
+          const leaveEnd = new Date(leave.endDate);
+          const clampStart = new Date(
+            Math.max(leaveStart.getTime(), rangeStart.getTime())
+          );
+          const clampEnd = new Date(
+            Math.min(leaveEnd.getTime(), rangeEnd.getTime())
+          );
+
+          if (clampStart > clampEnd) {
+            return;
+          }
+
+          const days = eachDayOfInterval({ start: clampStart, end: clampEnd });
+          days.forEach((day) => {
+            const employeeName = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+            rows.push([
+              employeeId,
+              employeeName || 'N/A',
+              departmentName,
+              leaveTypeName,
+              status,
+              format(day, 'dd-MM-yyyy'),
+              format(day, 'EEEE'),
+              leave.totalDays || days.length,
+              leave.appliedDate ? format(new Date(leave.appliedDate), 'dd-MM-yyyy') : ''
+            ]);
+          });
+        });
+
+        if (!pagination.pages || page >= pagination.pages) {
+          break;
+        }
+        page += 1;
       }
-      
-    } catch (error) {
-      console.error('Error exporting report:', error);
-      setError('Failed to export report');
-    } finally {
-      setLoading(false);
+
+      return rows;
+    } catch (err) {
+      console.error('Error building leave detail rows:', err);
+      return [];
     }
+  }, [
+    filters.year,
+    filters.month,
+    filters.department,
+    departmentLookup,
+    departmentNameById,
+    resolveDepartmentName
+  ]);
+
+  const trendRows = useMemo(() => {
+    return monthlyTrends.map((monthData, index) => {
+      const previous = index > 0 ? monthlyTrends[index - 1] : null;
+      const trend = previous ? calculateTrend(monthData.totalDays, previous.totalDays) : 0;
+      return {
+        ...monthData,
+        trend
+      };
+    });
+  }, [monthlyTrends]);
+
+  const summaryCards = useMemo(() => {
+    if (!statistics) return [];
+    const approvalRate = statistics.totalRequests
+      ? Math.round((statistics.approvedRequests / statistics.totalRequests) * 100)
+      : 0;
+
+    return [
+      {
+        title: 'Total Leave Requests',
+        value: statistics.totalRequests || 0,
+        caption: 'Submitted within selected period',
+        color: '#1976d2'
+      },
+      {
+        title: 'Approved Requests',
+        value: statistics.approvedRequests || 0,
+        caption: `Approval Rate ${approvalRate}%`,
+        color: '#2e7d32'
+      },
+      {
+        title: 'Pending Requests',
+        value: statistics.pendingRequests || 0,
+        caption: 'Awaiting action',
+        color: '#ed6c02'
+      },
+      {
+        title: 'Total Leave Days',
+        value: statistics.totalDays || 0,
+        caption: 'Days consumed by employees',
+        color: '#d32f2f'
+      }
+    ];
+  }, [statistics]);
+
+  const handleChangePage = (_event, newPage) => {
+    setPage(newPage);
   };
 
-  const exportToExcel = async () => {
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const exportToExcel = useCallback(async () => {
+    if (!statistics) {
+      setError('No leave data available to export.');
+      return;
+    }
+
     try {
-      // Prepare data for Excel export
-      const workbook = XLSX.utils.book_new();
-      
-      // Overview Summary Sheet
+      const xlsx = await import('xlsx');
+      const workbook = xlsx.utils.book_new();
+      const detailHeaders = [
+        'Employee ID',
+        'Employee Name',
+        'Department',
+        'Leave Type',
+        'Status',
+        'Date',
+        'Weekday',
+        'Total Days',
+        'Applied On'
+      ];
+      const leaveDetailRows = await buildLeaveDetailRows();
+      const detailSheetData = [
+        detailHeaders,
+        ...(leaveDetailRows.length ? leaveDetailRows : [])
+      ];
+      const detailSheet = xlsx.utils.aoa_to_sheet(detailSheetData);
+      xlsx.utils.book_append_sheet(workbook, detailSheet, 'Leave Details');
+
       const overviewData = [
-        ['Leave Reports Summary', ''],
+        ['Leave Report Summary', ''],
         ['Generated Date', new Date().toLocaleDateString()],
         ['Year', filters.year],
+        [
+          'Month',
+          filters.month === 'all'
+            ? 'Full Year'
+            : format(new Date(filters.year, filters.month - 1, 1), 'MMMM')
+        ],
         ['Department', filters.department === 'all' ? 'All Departments' : filters.department],
-        ['Leave Type', filters.leaveType === 'all' ? 'All Types' : filters.leaveType],
-        ['Status', filters.status === 'all' ? 'All Status' : filters.status],
         ['', ''],
         ['Metric', 'Value'],
         ['Total Requests', statistics.totalRequests || 0],
@@ -299,156 +568,20 @@ const LeaveReports = () => {
         ['Total Days', statistics.totalDays || 0],
         ['Approved Days', statistics.approvedDays || 0],
         ['Pending Days', statistics.pendingDays || 0],
-        ['Rejected Days', statistics.rejectedDays || 0],
-        ['Approval Rate', statistics.totalRequests > 0 ? 
-          Math.round((statistics.approvedRequests / statistics.totalRequests) * 100) + '%' : '0%']
+        ['Rejected Days', statistics.rejectedDays || 0]
       ];
-      
-      const overviewSheet = XLSX.utils.aoa_to_sheet(overviewData);
-      XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Overview');
-      
-      // Department Analysis Sheet
-      if (Array.isArray(departmentStats) && departmentStats.length > 0) {
-        const deptData = [
-          ['Department', 'Total Requests', 'Approved Requests', 'Pending Requests', 'Rejected Requests', 'Total Days', 'Approval Rate']
-        ];
-        
-        departmentStats.forEach(dept => {
-          const approvalRate = dept.totalRequests > 0 ? 
-            Math.round((dept.approvedRequests / dept.totalRequests) * 100) + '%' : '0%';
-          deptData.push([
-            dept.name || dept._id,
-            dept.totalRequests || 0,
-            dept.approvedRequests || 0,
-            dept.pendingRequests || 0,
-            dept.rejectedRequests || 0,
-            dept.totalDays || 0,
-            approvalRate
-          ]);
-        });
-        
-        const deptSheet = XLSX.utils.aoa_to_sheet(deptData);
-        XLSX.utils.book_append_sheet(workbook, deptSheet, 'Department Analysis');
-      }
-      
-      // Employee Analysis Sheet
-      if (Array.isArray(employeeStats) && employeeStats.length > 0) {
-        const empData = [
-          ['Employee Name', 'Employee ID', 'Department', 'Total Requests', 'Approved Requests', 'Pending Requests', 'Rejected Requests', 'Total Days', 'Approval Rate']
-        ];
-        
-        employeeStats.forEach(emp => {
-          const approvalRate = emp.totalRequests > 0 ? 
-            Math.round((emp.approvedRequests / emp.totalRequests) * 100) + '%' : '0%';
-          empData.push([
-            emp.employeeName || 'N/A',
-            emp.employeeId || 'N/A',
-            emp.department || 'N/A',
-            emp.totalRequests || 0,
-            emp.approvedRequests || 0,
-            emp.pendingRequests || 0,
-            emp.rejectedRequests || 0,
-            emp.totalDays || 0,
-            approvalRate
-          ]);
-        });
-        
-        const empSheet = XLSX.utils.aoa_to_sheet(empData);
-        XLSX.utils.book_append_sheet(workbook, empSheet, 'Employee Analysis');
-      }
-      
-      // Monthly Trends Sheet
-      if (Array.isArray(monthlyTrends) && monthlyTrends.length > 0) {
-        const trendsData = [
-          ['Month', 'Total Requests', 'Total Days', 'Approved Requests', 'Pending Requests', 'Rejected Requests']
-        ];
-        
-        monthlyTrends.forEach(month => {
-          trendsData.push([
-            month.monthName || `Month ${month.month}`,
-            month.requests || 0,
-            month.days || 0,
-            month.approvedRequests || 0,
-            month.pendingRequests || 0,
-            month.rejectedRequests || 0
-          ]);
-        });
-        
-        const trendsSheet = XLSX.utils.aoa_to_sheet(trendsData);
-        XLSX.utils.book_append_sheet(workbook, trendsSheet, 'Monthly Trends');
-      }
-      
-      // Generate filename
-      const filename = `Leave_Reports_${filters.year}_${new Date().toISOString().split('T')[0]}.xlsx`;
-      
-      // Save the file
-      XLSX.writeFile(workbook, filename);
-      
-    } catch (error) {
-      console.error('Error exporting to Excel:', error);
-      throw error;
-    }
-  };
+      const overviewSheet = xlsx.utils.aoa_to_sheet(overviewData);
+      xlsx.utils.book_append_sheet(workbook, overviewSheet, 'Overview');
 
-  const exportToPDF = async () => {
-    try {
-      const doc = new jsPDF();
-      
-      // Add title
-      doc.setFontSize(20);
-      doc.text('Leave Reports', 20, 20);
-      
-      // Add generation info
-      doc.setFontSize(12);
-      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 35);
-      doc.text(`Year: ${filters.year}`, 20, 45);
-      doc.text(`Department: ${filters.department === 'all' ? 'All Departments' : filters.department}`, 20, 55);
-      
-      let yPosition = 70;
-      
-      // Overview Summary
-      doc.setFontSize(16);
-      doc.text('Overview Summary', 20, yPosition);
-      yPosition += 15;
-      
-      const overviewData = [
-        ['Metric', 'Value'],
-        ['Total Requests', statistics.totalRequests || 0],
-        ['Approved Requests', statistics.approvedRequests || 0],
-        ['Pending Requests', statistics.pendingRequests || 0],
-        ['Rejected Requests', statistics.rejectedRequests || 0],
-        ['Total Days', statistics.totalDays || 0],
-        ['Approved Days', statistics.approvedDays || 0],
-        ['Pending Days', statistics.pendingDays || 0],
-        ['Rejected Days', statistics.rejectedDays || 0],
-        ['Approval Rate', statistics.totalRequests > 0 ? 
-          Math.round((statistics.approvedRequests / statistics.totalRequests) * 100) + '%' : '0%']
-      ];
-      
-      doc.autoTable({
-        startY: yPosition,
-        head: [overviewData[0]],
-        body: overviewData.slice(1),
-        theme: 'grid',
-        headStyles: { fillColor: [41, 128, 185] },
-        margin: { left: 20, right: 20 }
-      });
-      
-      yPosition = doc.lastAutoTable.finalY + 20;
-      
-      // Department Analysis
-      if (Array.isArray(departmentStats) && departmentStats.length > 0) {
-        doc.setFontSize(16);
-        doc.text('Department Analysis', 20, yPosition);
-        yPosition += 15;
-        
+      if (departmentStats.length) {
         const deptData = [
           ['Department', 'Total Requests', 'Approved', 'Pending', 'Rejected', 'Total Days', 'Approval Rate']
         ];
-        
-        departmentStats.forEach(dept => {
-          const approvalRate = dept.totalRequests > 0 ? 
-            Math.round((dept.approvedRequests / dept.totalRequests) * 100) + '%' : '0%';
+
+        departmentStats.forEach((dept) => {
+          const approvalRate = dept.totalRequests
+            ? `${Math.round((dept.approvedRequests / dept.totalRequests) * 100)}%`
+            : '0%';
           deptData.push([
             dept.name || dept._id,
             dept.totalRequests || 0,
@@ -459,32 +592,27 @@ const LeaveReports = () => {
             approvalRate
           ]);
         });
-        
-        doc.autoTable({
-          startY: yPosition,
-          head: [deptData[0]],
-          body: deptData.slice(1),
-          theme: 'grid',
-          headStyles: { fillColor: [41, 128, 185] },
-          margin: { left: 20, right: 20 }
-        });
-        
-        yPosition = doc.lastAutoTable.finalY + 20;
+
+        const deptSheet = xlsx.utils.aoa_to_sheet(deptData);
+        xlsx.utils.book_append_sheet(workbook, deptSheet, 'Department Analysis');
       }
-      
-      // Employee Analysis
-      if (Array.isArray(employeeStats) && employeeStats.length > 0) {
-        doc.setFontSize(16);
-        doc.text('Employee Analysis', 20, yPosition);
-        yPosition += 15;
-        
+
+      if (employeeStats.length) {
         const empData = [
-          ['Employee Name', 'Employee ID', 'Department', 'Total Requests', 'Approved', 'Pending', 'Rejected', 'Total Days', 'Approval Rate']
+          [
+            'Employee Name',
+            'Employee ID',
+            'Department',
+            'Total Requests',
+            'Approved',
+            'Pending',
+            'Rejected',
+            'Total Days',
+            'Approved Days'
+          ]
         ];
-        
-        employeeStats.forEach(emp => {
-          const approvalRate = emp.totalRequests > 0 ? 
-            Math.round((emp.approvedRequests / emp.totalRequests) * 100) + '%' : '0%';
+
+        employeeStats.forEach((emp) => {
           empData.push([
             emp.employeeName || 'N/A',
             emp.employeeId || 'N/A',
@@ -494,306 +622,141 @@ const LeaveReports = () => {
             emp.pendingRequests || 0,
             emp.rejectedRequests || 0,
             emp.totalDays || 0,
-            approvalRate
+            emp.approvedDays || 0
           ]);
         });
-        
-        doc.autoTable({
-          startY: yPosition,
-          head: [empData[0]],
-          body: empData.slice(1),
-          theme: 'grid',
-          headStyles: { fillColor: [41, 128, 185] },
-          margin: { left: 20, right: 20 }
-        });
-        
-        yPosition = doc.lastAutoTable.finalY + 20;
+
+        const empSheet = xlsx.utils.aoa_to_sheet(empData);
+        xlsx.utils.book_append_sheet(workbook, empSheet, 'Employee Analysis');
       }
-      
-      // Monthly Trends
-      if (Array.isArray(monthlyTrends) && monthlyTrends.length > 0) {
-        doc.setFontSize(16);
-        doc.text('Monthly Trends', 20, yPosition);
-        yPosition += 15;
-        
-        const trendsData = [
-          ['Month', 'Total Requests', 'Total Days', 'Approved', 'Pending', 'Rejected']
-        ];
-        
-        monthlyTrends.forEach(month => {
+
+      if (monthlyTrends.length) {
+        const trendsData = [['Month', 'Total Requests', 'Total Days']];
+        monthlyTrends.forEach((month) => {
           trendsData.push([
-            month.monthName || `Month ${month.month}`,
-            month.requests || 0,
-            month.days || 0,
-            month.approvedRequests || 0,
-            month.pendingRequests || 0,
-            month.rejectedRequests || 0
+            format(new Date(filters.year, month.month - 1, 1), 'MMMM'),
+            month.totalRequests || 0,
+            month.totalDays || 0
           ]);
         });
-        
-        doc.autoTable({
-          startY: yPosition,
-          head: [trendsData[0]],
-          body: trendsData.slice(1),
-          theme: 'grid',
-          headStyles: { fillColor: [41, 128, 185] },
-          margin: { left: 20, right: 20 }
-        });
+        const trendsSheet = xlsx.utils.aoa_to_sheet(trendsData);
+        xlsx.utils.book_append_sheet(workbook, trendsSheet, 'Monthly Trends');
       }
-      
-      // Generate filename and save
-      const filename = `Leave_Reports_${filters.year}_${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(filename);
-      
-    } catch (error) {
-      console.error('Error exporting to PDF:', error);
-      throw error;
+
+      const fileSuffix =
+        filters.month === 'all'
+          ? `${filters.year}-all`
+          : `${filters.year}-${String(filters.month).padStart(2, '0')}`;
+      const filename = `leave-report-${fileSuffix}.xlsx`;
+
+      xlsx.writeFile(workbook, filename, { cellStyles: true });
+    } catch (err) {
+      console.error('Error exporting leave excel:', err);
+      setError('Failed to export leave data. Please try again.');
     }
-  };
-
-  const getEmployeeInitials = (employee) => {
-    return `${employee.firstName?.charAt(0) || ''}${employee.lastName?.charAt(0) || ''}`.toUpperCase();
-  };
-
-  const calculateTrend = (current, previous) => {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return ((current - previous) / previous) * 100;
-  };
-
-  const getTrendIcon = (trend) => {
-    if (trend && trend > 0) return <TrendingUpIcon color="error" />;
-    if (trend && trend < 0) return <TrendingDownIcon color="success" />;
-    return null;
-  };
-
-  const getTrendColor = (trend) => {
-    if (trend && trend > 0) return 'error.main';
-    if (trend && trend < 0) return 'success.main';
-    return 'text.secondary';
-  };
-
-  if (loading && Object.keys(statistics).length === 0) {
-    return (
-      <Box sx={{ p: 3 }}>
-        {/* Header Skeleton */}
-        <Box sx={{ mb: 3 }}>
-          <Skeleton variant="text" width="25%" height={60} />
-          <Skeleton variant="text" width="40%" height={30} />
-        </Box>
-
-        {/* Filters Skeleton */}
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={3}>
-                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <Skeleton variant="rectangular" width="100%" height={56} sx={{ borderRadius: 1 }} />
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <Box display="flex" gap={1}>
-                  <Skeleton variant="rectangular" width="50%" height={36} sx={{ borderRadius: 1 }} />
-                  <Skeleton variant="rectangular" width="50%" height={36} sx={{ borderRadius: 1 }} />
-                </Box>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
-        {/* Statistics Cards Skeleton */}
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          {[1, 2, 3, 4, 5, 6].map((item) => (
-            <Grid item xs={12} md={4} key={item}>
-              <Card>
-                <CardContent>
-                  <Box display="flex" alignItems="center" sx={{ mb: 2 }}>
-                    <Skeleton variant="circular" width={48} height={48} sx={{ mr: 2 }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Skeleton variant="text" width="70%" height={20} />
-                      <Skeleton variant="text" width="50%" height={16} />
-                    </Box>
-                  </Box>
-                  <Skeleton variant="text" width="80%" height={32} />
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-
-        {/* Tabs Skeleton */}
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-              <Box display="flex">
-                <Skeleton variant="rectangular" width={120} height={48} sx={{ mr: 2 }} />
-                <Skeleton variant="rectangular" width={120} height={48} sx={{ mr: 2 }} />
-                <Skeleton variant="rectangular" width={120} height={48} />
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-
-        {/* Reports Table Skeleton */}
-        <Card>
-          <CardContent>
-            <Skeleton variant="text" width="20%" height={32} sx={{ mb: 2 }} />
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell><Skeleton variant="text" width="60%" /></TableCell>
-                    <TableCell><Skeleton variant="text" width="50%" /></TableCell>
-                    <TableCell><Skeleton variant="text" width="70%" /></TableCell>
-                    <TableCell><Skeleton variant="text" width="40%" /></TableCell>
-                    <TableCell><Skeleton variant="text" width="60%" /></TableCell>
-                    <TableCell><Skeleton variant="text" width="50%" /></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {[1, 2, 3, 4, 5].map((row) => (
-                    <TableRow key={row}>
-                      <TableCell>
-                        <Box display="flex" alignItems="center">
-                          <Skeleton variant="circular" width={32} height={32} sx={{ mr: 2 }} />
-                          <Box>
-                            <Skeleton variant="text" width={120} height={20} />
-                            <Skeleton variant="text" width={80} height={16} />
-                          </Box>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="rectangular" width={80} height={24} sx={{ borderRadius: 12 }} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={100} height={20} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={60} height={20} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={80} height={20} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={70} height={20} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      </Box>
-    );
-  }
+  }, [
+    statistics,
+    departmentStats,
+    employeeStats,
+    monthlyTrends,
+    filters.year,
+    filters.month,
+    filters.department,
+    buildLeaveDetailRows
+  ]);
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Leave Reports
-      </Typography>
+      <Card
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          background: `linear-gradient(135deg, ${alpha('#1976d2', 0.12)} 0%, ${alpha('#1976d2', 0.04)} 100%)`,
+          border: `1px solid ${alpha('#1976d2', 0.16)}`
+        }}
+      >
+        <CardContent>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems="center">
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 72,
+                height: 72,
+                borderRadius: '16px',
+                backgroundColor: alpha('#1976d2', 0.15),
+                color: '#1976d2'
+              }}
+            >
+              <ReportIcon fontSize="large" />
+            </Box>
+            <Box flex={1}>
+              <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
+                Monthly Leave Report
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                Monitor leave utilization patterns by department and employee using a dashboard aligned with the
+                Monthly Attendance experience.
+              </Typography>
+            </Box>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
 
-      {/* Filters */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Filters
-          </Typography>
-          <Grid container spacing={2}>
-            {/* Date Range Filter */}
-            <Grid item xs={12} md={2}>
+          <Grid container spacing={2} alignItems="flex-end">
+            <Grid item xs={12} sm={4} md={3}>
               <FormControl fullWidth>
-                <InputLabel>Date Range</InputLabel>
+                <InputLabel>Year</InputLabel>
                 <Select
-                  value={filters.dateRange}
-                  onChange={(e) => handleFilterChange('dateRange', e.target.value)}
+                  value={filters.year}
+                  label="Year"
+                  onChange={(event) => handleFilterChange('year', event.target.value)}
                 >
-                  <MenuItem value="year">Full Year</MenuItem>
-                  <MenuItem value="month">Current Month</MenuItem>
-                  <MenuItem value="quarter">Current Quarter</MenuItem>
-                  <MenuItem value="custom">Custom Range</MenuItem>
+                  {years.map((year) => (
+                    <MenuItem key={year} value={year}>
+                      {year}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
-
-            {/* Year Filter */}
-            <Grid item xs={12} md={2}>
-              <TextField
-                fullWidth
-                label="Year"
-                type="number"
-                value={filters.year}
-                onChange={(e) => handleFilterChange('year', parseInt(e.target.value))}
-                inputProps={{ min: 2020, max: 2030 }}
-              />
+            <Grid item xs={12} sm={4} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Month</InputLabel>
+                <Select
+                  value={filters.month}
+                  label="Month"
+                  onChange={(event) => handleFilterChange('month', event.target.value)}
+                >
+                  {monthOptions.map((month) => (
+                    <MenuItem key={month.value} value={month.value}>
+                      {month.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
-
-            {/* Month Filter - only show if not custom range */}
-            {filters.dateRange !== 'custom' && (
-              <Grid item xs={12} md={2}>
-                <FormControl fullWidth>
-                  <InputLabel>Month</InputLabel>
-                  <Select
-                    value={filters.month}
-                    onChange={(e) => handleFilterChange('month', e.target.value)}
-                  >
-                    <MenuItem value="all">All Months</MenuItem>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <MenuItem key={i + 1} value={i + 1}>
-                        {format(new Date(2024, i), 'MMMM')}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
-
-            {/* Custom Date Range - only show if custom is selected */}
-            {filters.dateRange === 'custom' && (
-              <>
-                <Grid item xs={12} md={2}>
-                  <TextField
-                    fullWidth
-                    label="Start Date"
-                    type="date"
-                    value={filters.startDate}
-                    onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={2}>
-                  <TextField
-                    fullWidth
-                    label="End Date"
-                    type="date"
-                    value={filters.endDate}
-                    onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-              </>
-            )}
-
-            {/* Department Filter */}
-            <Grid item xs={12} md={2}>
+            <Grid item xs={12} sm={4} md={3}>
               <FormControl fullWidth>
                 <InputLabel>Department</InputLabel>
                 <Select
                   value={filters.department}
-                  onChange={(e) => handleFilterChange('department', e.target.value)}
+                  label="Department"
+                  onChange={(event) => handleFilterChange('department', event.target.value)}
                 >
                   <MenuItem value="all">All Departments</MenuItem>
-                  {Array.isArray(departments) && departments.map((dept) => (
+                  {departments.map((dept) => (
                     <MenuItem key={dept._id} value={dept._id}>
                       {dept.name}
                     </MenuItem>
@@ -801,355 +764,245 @@ const LeaveReports = () => {
                 </Select>
               </FormControl>
             </Grid>
-
-            {/* Leave Type Filter */}
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth>
-                <InputLabel>Leave Type</InputLabel>
-                <Select
-                  value={filters.leaveType}
-                  onChange={(e) => handleFilterChange('leaveType', e.target.value)}
-                >
-                  <MenuItem value="all">All Types</MenuItem>
-                  {Array.isArray(leaveTypes) && leaveTypes.map((type) => (
-                    <MenuItem key={type._id} value={type._id}>
-                      {type.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            {/* Status Filter */}
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                >
-                  <MenuItem value="all">All Status</MenuItem>
-                  <MenuItem value="Pending">Pending</MenuItem>
-                  <MenuItem value="Approved">Approved</MenuItem>
-                  <MenuItem value="Rejected">Rejected</MenuItem>
-                  <MenuItem value="Cancelled">Cancelled</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <Box sx={{ display: 'flex', gap: 1, height: '100%', alignItems: 'end' }}>
+            <Grid item xs={12} md={3}>
+              <Stack
+                direction="row"
+                spacing={1.5}
+                justifyContent={{ xs: 'flex-start', md: 'flex-end' }}
+              >
                 <Button
                   variant="outlined"
-                  startIcon={<RefreshIcon />}
+                  size="small"
+                  startIcon={<RefreshIcon fontSize="small" />}
                   onClick={loadReportData}
-                  fullWidth
                 >
                   Refresh
                 </Button>
                 <Button
-                  variant="outlined"
+                  variant="text"
                   color="secondary"
+                  size="small"
                   onClick={clearFilters}
-                  fullWidth
                 >
-                  Clear
+                  Reset
                 </Button>
-              </Box>
+              </Stack>
             </Grid>
           </Grid>
         </CardContent>
       </Card>
 
-      {/* Action Buttons */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
-        <Button
-          variant="contained"
-          startIcon={<DownloadIcon />}
-          onClick={() => exportReport('excel')}
-        >
-          Export Excel
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={() => exportReport('pdf')}
-        >
-          Export PDF
-        </Button>
-      </Box>
-
-      {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tabValue} onChange={handleTabChange}>
-          <Tab label="Overview" />
-          <Tab label="Department Analysis" />
-          <Tab label="Employee Analysis" />
-          <Tab label="Monthly Trends" />
-        </Tabs>
-      </Box>
-
-      {/* Overview Tab - Overview Cards + Detailed Records */}
-      {tabValue === 0 && (
-        <>
-          {/* Overview Cards */}
-          <Grid container spacing={3} sx={{ mb: 3 }}>
-            <Grid item xs={12} md={3}>
-              <Card>
+      {summaryCards.length > 0 && (
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          {summaryCards.map((card) => (
+            <Grid item xs={12} sm={6} md={3} key={card.title}>
+              <Card
+                sx={{
+                  height: '100%',
+                  borderRadius: 3,
+                  border: `1px solid ${alpha(card.color, 0.2)}`,
+                  background: `linear-gradient(135deg, ${alpha(card.color, 0.12)} 0%, ${alpha(
+                    card.color,
+                    0.04
+                  )} 100%)`
+                }}
+              >
                 <CardContent>
-                  <Typography variant="h6" color="primary" gutterBottom>
-                    Total Requests
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    {card.title}
                   </Typography>
-                  <Typography variant="h4" color="primary">
-                    {statistics.totalRequests || 0}
+                  <Typography variant="h4" sx={{ fontWeight: 700, color: card.color, mb: 1 }}>
+                    {card.value}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    This Year
+                    {card.caption}
                   </Typography>
                 </CardContent>
               </Card>
             </Grid>
-            <Grid item xs={12} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" color="success.main" gutterBottom>
-                    Approved Requests
-                  </Typography>
-                  <Typography variant="h4" color="success.main">
-                    {statistics.approvedRequests || 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {statistics.totalRequests > 0 ? 
-                      Math.round((statistics.approvedRequests / statistics.totalRequests) * 100) : 0}% Approval Rate
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" color="warning.main" gutterBottom>
-                    Pending Requests
-                  </Typography>
-                  <Typography variant="h4" color="warning.main">
-                    {statistics.pendingRequests || 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Awaiting Approval
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" color="error.main" gutterBottom>
-                    Total Days
-                  </Typography>
-                  <Typography variant="h4" color="error.main">
-                    {statistics.totalDays || 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Leave Days Taken
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-
-          {/* Detailed Records */}
-          <Grid container spacing={3}>
-            {/* Recent Leave Requests */}
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Recent Leave Requests
-                </Typography>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Employee</TableCell>
-                        <TableCell>Type</TableCell>
-                        <TableCell align="right">Days</TableCell>
-                        <TableCell>Status</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {Array.isArray(employeeStats) && employeeStats.slice(0, 5).map((emp) => (
-                        <TableRow key={emp._id}>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Avatar sx={{ width: 24, height: 24 }}>
-                                {getEmployeeInitials(emp)}
-                              </Avatar>
-                              <Box>
-                                <Typography variant="body2" fontWeight="medium">
-                                  {emp.employeeName}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {emp.employeeId}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell>Annual Leave</TableCell>
-                          <TableCell align="right">{emp.totalDays}</TableCell>
-                          <TableCell>
-                            <Chip 
-                              label="Approved" 
-                              color="success" 
-                              size="small"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Department Summary */}
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Department Summary
-                </Typography>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Department</TableCell>
-                        <TableCell align="right">Requests</TableCell>
-                        <TableCell align="right">Days</TableCell>
-                        <TableCell align="right">Approval Rate</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {Array.isArray(departmentStats) && departmentStats.map((dept) => (
-                        <TableRow key={dept._id}>
-                          <TableCell>{dept.name}</TableCell>
-                          <TableCell align="right">{dept.totalRequests}</TableCell>
-                          <TableCell align="right">{dept.totalDays}</TableCell>
-                          <TableCell align="right">
-                            {dept.totalRequests > 0 ? 
-                              Math.round((dept.approvedRequests / dept.totalRequests) * 100) : 0}%
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          </Grid>
+          ))}
         </Grid>
-        </>
       )}
 
-      {/* Department Analysis Tab */}
-      {tabValue === 1 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Department Analysis
-            </Typography>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Department</TableCell>
-                    <TableCell align="right">Total Requests</TableCell>
-                    <TableCell align="right">Approved</TableCell>
-                    <TableCell align="right">Pending</TableCell>
-                    <TableCell align="right">Total Days</TableCell>
-                    <TableCell align="right">Avg Days/Request</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {Array.isArray(departmentStats) && departmentStats.map((dept) => (
-                    <TableRow key={dept._id}>
-                      <TableCell>{dept.name}</TableCell>
-                      <TableCell align="right">{dept.totalRequests}</TableCell>
-                      <TableCell align="right">{dept.approvedRequests}</TableCell>
-                      <TableCell align="right">{dept.pendingRequests}</TableCell>
-                      <TableCell align="right">{dept.totalDays}</TableCell>
-                      <TableCell align="right">
-                        {dept.totalRequests > 0 ? 
-                          (dept.totalDays / dept.totalRequests).toFixed(1) : 0}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={2}
+            justifyContent="space-between"
+            alignItems={{ xs: 'stretch', md: 'center' }}
+            sx={{ mb: 2 }}
+          >
+            <TextField
+              fullWidth
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search employees by name, ID or department"
+              InputProps={{
+                startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
+              }}
+            />
+            <Stack direction="row" spacing={1.5}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<DownloadIcon fontSize="small" />}
+                onClick={exportToExcel}
+                sx={{ px: 1.5, py: 0.4, minWidth: 0, fontWeight: 500 }}
+              >
+                Export Excel
+              </Button>
+            </Stack>
+          </Stack>
 
-      {/* Employee Analysis Tab */}
-      {tabValue === 2 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Employee Analysis
-            </Typography>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
+          <Typography variant="h6" sx={{ mb: 1.5 }}>
+            Employee Leave Utilization
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Summary of approved, pending and rejected leave requests for each employee.
+          </Typography>
+
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Employee</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell align="right">Requests</TableCell>
+                  <TableCell align="right">Approved</TableCell>
+                  <TableCell align="right">Pending</TableCell>
+                  <TableCell align="right">Rejected</TableCell>
+                  <TableCell align="right">Total Days</TableCell>
+                  <TableCell align="right">Approved Days</TableCell>
+                  <TableCell align="right">Approval %</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paginatedEmployees.length === 0 && (
                   <TableRow>
-                    <TableCell>Employee</TableCell>
-                    <TableCell align="right">Total Requests</TableCell>
-                    <TableCell align="right">Total Days</TableCell>
-                    <TableCell align="right">Annual Used</TableCell>
-                    <TableCell align="right">Casual Used</TableCell>
-                    <TableCell align="right">Medical Used</TableCell>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {loading ? 'Loading leave data...' : 'No leave data available for the selected filters.'}
+                      </Typography>
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {Array.isArray(employeeStats) && employeeStats.map((emp) => (
+                )}
+                {paginatedEmployees.map((emp) => {
+                  const approvalRate = emp.totalRequests
+                    ? Math.round((emp.approvedRequests / emp.totalRequests) * 100)
+                    : 0;
+                  const name = emp.employeeName || 'N/A';
+
+                  return (
                     <TableRow key={emp._id}>
                       <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
                           <Avatar sx={{ width: 32, height: 32 }}>
-                            {getEmployeeInitials(emp)}
+                            {getEmployeeInitials(name)}
                           </Avatar>
                           <Box>
-                            <Typography variant="body2" fontWeight="medium">
-                              {emp.firstName} {emp.lastName}
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {name}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              {emp.employeeId}
+                              {emp.employeeId || '—'}
                             </Typography>
                           </Box>
-                        </Box>
+                        </Stack>
                       </TableCell>
-                      <TableCell align="right">{emp.totalRequests}</TableCell>
-                      <TableCell align="right">{emp.totalDays}</TableCell>
-                      <TableCell align="right">{emp.annualUsed}</TableCell>
-                      <TableCell align="right">{emp.casualUsed}</TableCell>
-                      <TableCell align="right">{emp.medicalUsed}</TableCell>
+                      <TableCell>{emp.department || '—'}</TableCell>
+                      <TableCell align="right">{emp.totalRequests || 0}</TableCell>
+                      <TableCell align="right">{emp.approvedRequests || 0}</TableCell>
+                      <TableCell align="right">{emp.pendingRequests || 0}</TableCell>
+                      <TableCell align="right">{emp.rejectedRequests || 0}</TableCell>
+                      <TableCell align="right">{emp.totalDays || 0}</TableCell>
+                      <TableCell align="right">{emp.approvedDays || 0}</TableCell>
+                      <TableCell align="right">{approvalRate}%</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
 
-      {/* Monthly Trends Tab */}
-      {tabValue === 3 && (
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Monthly Trends
-            </Typography>
-            <TableContainer component={Paper}>
-              <Table>
+          <TablePagination
+            component="div"
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            count={filteredEmployees.length}
+            rowsPerPage={rowsPerPage}
+            page={page}
+            onPageChange={handleChangePage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+          />
+        </CardContent>
+      </Card>
+
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <Card variant="outlined" sx={{ height: '100%' }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 1.5 }}>
+                Department Overview
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Compare leave utilisation across departments to identify hotspots and coverage risks.
+              </Typography>
+
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Department</TableCell>
+                      <TableCell align="right">Requests</TableCell>
+                      <TableCell align="right">Approved</TableCell>
+                      <TableCell align="right">Pending</TableCell>
+                      <TableCell align="right">Days</TableCell>
+                      <TableCell align="right">Approval %</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {departmentStats.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            {loading ? 'Loading department data...' : 'No department statistics available.'}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {departmentStats.map((dept) => {
+                      const approvalRate = dept.totalRequests
+                        ? Math.round((dept.approvedRequests / dept.totalRequests) * 100)
+                        : 0;
+                      return (
+                        <TableRow key={dept._id}>
+                          <TableCell>{dept.name || '—'}</TableCell>
+                          <TableCell align="right">{dept.totalRequests || 0}</TableCell>
+                          <TableCell align="right">{dept.approvedRequests || 0}</TableCell>
+                          <TableCell align="right">{dept.pendingRequests || 0}</TableCell>
+                          <TableCell align="right">{dept.totalDays || 0}</TableCell>
+                          <TableCell align="right">{approvalRate}%</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card variant="outlined" sx={{ height: '100%' }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 1.5 }}>
+                Monthly Leave Trend
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Track month-on-month leave volume and detect spikes that may impact operations.
+              </Typography>
+
+              <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Month</TableCell>
@@ -1159,32 +1012,45 @@ const LeaveReports = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {Array.isArray(monthlyTrends) && monthlyTrends.map((month, index) => (
+                  {trendRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {loading ? 'Calculating trends...' : 'Trend data will appear once leave records are available.'}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {trendRows.map((month) => (
                     <TableRow key={month.month}>
-                      <TableCell>{month.monthName || format(new Date(2024, month.month - 1), 'MMMM')}</TableCell>
-                      <TableCell align="right">{month.requests || 0}</TableCell>
-                      <TableCell align="right">{month.days || 0}</TableCell>
+                      <TableCell>{format(new Date(filters.year, month.month - 1, 1), 'MMMM')}</TableCell>
+                      <TableCell align="right">{month.totalRequests || 0}</TableCell>
+                      <TableCell align="right">{month.totalDays || 0}</TableCell>
                       <TableCell align="right">
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
+                        <Stack
+                          direction="row"
+                          spacing={0.5}
+                          alignItems="center"
+                          justifyContent="flex-end"
+                        >
                           {getTrendIcon(month.trend)}
-                          <Typography 
-                            variant="body2" 
-                            color={getTrendColor(month.trend)}
-                          >
-                            {month.trend && month.trend > 0 ? '+' : ''}{month.trend ? month.trend.toFixed(1) : '0.0'}%
+                          <Typography variant="body2" color={getTrendColor(month.trend)}>
+                            {month.trend > 0 ? '+' : ''}
+                            {month.trend.toFixed(1)}%
                           </Typography>
-                        </Box>
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
     </Box>
   );
 };
 
 export default LeaveReports;
+

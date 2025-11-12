@@ -32,6 +32,13 @@ import {
 import { io } from 'socket.io-client';
 import api from '../services/api';
 
+const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
+const logDebug = (...args) => {
+  if (DASHBOARD_DEBUG) {
+    console.log(...args);
+  }
+};
+
 const RealtimeAttendanceMonitor = () => {
   const theme = useTheme();
   const [socket, setSocket] = useState(null);
@@ -46,11 +53,11 @@ const RealtimeAttendanceMonitor = () => {
   // Load today's attendance data from ZKBio Time (same as Attendance Management page)
   const loadHistoricalAttendance = useCallback(async () => {
     try {
-      console.log('📊 Loading today\'s attendance data from ZKBio Time...');
+      logDebug('📊 Loading today\'s attendance data from ZKBio Time...');
       
       const response = await api.get('/zkbio/zkbio/today');
       
-      console.log('📋 ZKBio Time Today API Response:', {
+      logDebug('📋 ZKBio Time Today API Response:', {
         success: response.data.success,
         message: response.data.message,
         dataLength: response.data.data?.length || 0,
@@ -75,12 +82,12 @@ const RealtimeAttendanceMonitor = () => {
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
           .slice(0, 50);
         
-        console.log(`✅ Loaded ${sortedData.length} ZKBio Time today records`);
-        console.log('📋 Sample records:', sortedData.slice(0, 3));
+        logDebug(`✅ Loaded ${sortedData.length} ZKBio Time today records`);
+        logDebug('📋 Sample records:', sortedData.slice(0, 3));
         setAttendanceEvents(sortedData);
       } else {
-        console.log('⚠️  No ZKBio Time today data available');
-        console.log('   This might mean no attendance records for today');
+        logDebug('⚠️  No ZKBio Time today data available');
+        logDebug('   This might mean no attendance records for today');
       }
     } catch (error) {
       console.error('❌ Error loading ZKBio Time today attendance:', error);
@@ -99,43 +106,43 @@ const RealtimeAttendanceMonitor = () => {
     });
 
     newSocket.on('connect', () => {
-      console.log('✅ Connected to server');
-      console.log('🔍 Socket ID:', newSocket.id);
+      logDebug('✅ Connected to server');
+      logDebug('🔍 Socket ID:', newSocket.id);
       setIsConnected(true);
     });
 
     newSocket.on('disconnect', () => {
-      console.log('❌ Disconnected from server');
+      logDebug('❌ Disconnected from server');
       setIsConnected(false);
     });
 
     newSocket.on('zkbioConnectionStatus', (status) => {
-      console.log('📡 ZKBio Time status:', status);
-      console.log('🔍 ZKBio Time connected:', status.connected);
+      logDebug('📡 ZKBio Time status:', status);
+      logDebug('🔍 ZKBio Time connected:', status.connected);
       setConnectionStatus(status);
     });
 
     newSocket.on('liveAttendanceUpdate', (data) => {
-      console.log('🎉 LIVE ATTENDANCE UPDATE RECEIVED!');
-      console.log('📊 Live attendance update:', data);
+      logDebug('🎉 LIVE ATTENDANCE UPDATE RECEIVED!');
+      logDebug('📊 Live attendance update:', data);
       
       if (data.events && data.events.length > 0) {
-        console.log('🔍 REAL-TIME EVENT DEBUGGING:');
-        console.log('Raw event data:', data.events[0]);
-        console.log('Number of events:', data.events.length);
+        logDebug('🔍 REAL-TIME EVENT DEBUGGING:');
+        logDebug('Raw event data:', data.events[0]);
+        logDebug('Number of events:', data.events.length);
         
         // Map real-time events to include image data from ZKBio Time
         const mappedEvents = data.events.map(event => {
-          console.log(`🖼️ Processing REAL-TIME event for ${event.name}:`);
-          console.log(`   Original imagePath: ${event.imagePath}`);
-          console.log(`   Original photoPath: ${event.photoPath}`);
-          console.log(`   Event type: REAL-TIME (should have images)`);
+          logDebug(`🖼️ Processing REAL-TIME event for ${event.name}:`);
+          logDebug(`   Original imagePath: ${event.imagePath}`);
+          logDebug(`   Original photoPath: ${event.photoPath}`);
+          logDebug(`   Event type: REAL-TIME (should have images)`);
           
           const employeePhoto = event.employeePhoto || (event.photoPath ? `/api/images/zkbio-image${event.photoPath}` : null);
           const attendanceImage = event.attendanceImage || (event.imagePath ? `/api/images/zkbio-image${event.imagePath}` : null);
           
-          console.log(`   Constructed employeePhoto: ${employeePhoto}`);
-          console.log(`   Constructed attendanceImage: ${attendanceImage}`);
+          logDebug(`   Constructed employeePhoto: ${employeePhoto}`);
+          logDebug(`   Constructed attendanceImage: ${attendanceImage}`);
           
           return {
             ...event,
@@ -147,7 +154,7 @@ const RealtimeAttendanceMonitor = () => {
           };
         });
         
-        console.log('✅ Mapped REAL-TIME events with images:', mappedEvents);
+        logDebug('✅ Mapped REAL-TIME events with images:', mappedEvents);
         
         // Add new events to the beginning of the list (most recent first)
         // Keep only latest 50 records total (new events + existing historical data)
@@ -169,7 +176,7 @@ const RealtimeAttendanceMonitor = () => {
 
     // Listen for all Socket.IO events to debug
     newSocket.onAny((eventName, ...args) => {
-      console.log(`🔍 Socket.IO Event Received: ${eventName}`, args);
+      logDebug(`🔍 Socket.IO Event Received: ${eventName}`, args);
     });
 
     setSocket(newSocket);
@@ -538,11 +545,11 @@ const RealtimeAttendanceMonitor = () => {
                                   }
                                 }}
                                 onLoad={() => {
-                                  console.log(`✅ Real-time image loaded for ${event.name}:`, event.employeePhoto || event.attendanceImage);
-                                  console.log(`🖼️ Avatar should now be visible with image`);
+                                  logDebug(`✅ Real-time image loaded for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  logDebug('🖼️ Avatar should now be visible with image');
                                 }}
                                 onError={(e) => {
-                                  console.log(`❌ Real-time image failed for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  logDebug(`❌ Real-time image failed for ${event.name}:`, event.employeePhoto || event.attendanceImage);
                                   if (e.target) {
                                     e.target.style.display = 'none';
                                   }
@@ -825,11 +832,11 @@ const RealtimeAttendanceMonitor = () => {
                                   }
                                 }}
                                 onLoad={() => {
-                                  console.log(`✅ Main Avatar image loaded for ${event.name}:`, event.employeePhoto || event.attendanceImage);
-                                  console.log(`🖼️ Main Avatar should now be visible with image`);
+                                  logDebug(`✅ Main Avatar image loaded for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  logDebug('🖼️ Main Avatar should now be visible with image');
                                 }}
                                 onError={(e) => {
-                                  console.log(`❌ Main Avatar image failed for ${event.name}:`, event.employeePhoto || event.attendanceImage);
+                                  logDebug(`❌ Main Avatar image failed for ${event.name}:`, event.employeePhoto || event.attendanceImage);
                                   if (e.target) {
                                     e.target.style.display = 'none';
                                   }
@@ -947,7 +954,7 @@ const RealtimeAttendanceMonitor = () => {
             </Box>
           </Box>
         </CardContent>
-        <style jsx>{`
+        <style>{`
           @keyframes pulse {
             0% {
               transform: scale(1);

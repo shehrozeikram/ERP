@@ -136,17 +136,20 @@ class AnniversaryLeaveScheduler {
             currentBalance = await LeaveIntegrationService.processAnniversaryAllocation(employee._id, currentWorkYear);
           }
 
-          // Carry forward remaining annual leaves (max 2 years)
-          const carryForwardDays = Math.min(previousBalance.annual.remaining, 20); // Max 20 days carry forward
+          // Carry forward remaining annual leaves with 40-day cap enforcement
+          // Formula: carry forward = min(previous remaining, 40 - new allocation)
+          const newAllocation = currentBalance.annual.allocated;
+          const maxCarryForward = 40 - newAllocation;
+          const carryForwardDays = Math.min(previousBalance.annual.remaining, maxCarryForward);
           
           if (carryForwardDays > 0) {
             currentBalance.annual.carriedForward = carryForwardDays;
-            currentBalance.annual.remaining += carryForwardDays;
             currentBalance.isCarriedForward = true;
             
+            // Don't modify remaining directly - let pre-save middleware calculate it
             await currentBalance.save();
             
-            console.log(`📋 Carried forward ${carryForwardDays} annual leaves for ${employee.firstName} ${employee.lastName}`);
+            console.log(`📋 Carried forward ${carryForwardDays} annual leaves for ${employee.firstName} ${employee.lastName} (from ${previousBalance.annual.remaining} remaining, capped at ${maxCarryForward})`);
           }
         }
       } catch (error) {

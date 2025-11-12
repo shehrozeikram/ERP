@@ -21,6 +21,13 @@ import {
 import * as echarts from 'echarts';
 import { io } from 'socket.io-client';
 
+const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
+const logDebug = (...args) => {
+  if (DASHBOARD_DEBUG) {
+    console.log(...args);
+  }
+};
+
 const DepartmentChart = () => {
   const theme = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -79,13 +86,13 @@ const DepartmentChart = () => {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('🏢 DepartmentChart: Connected to server');
+      logDebug('🏢 DepartmentChart: Connected to server');
     });
 
     socket.on('zkbioConnectionStatus', (status) => {
-      console.log('🏢 DepartmentChart: ZKBio Time status:', status);
+      logDebug('🏢 DepartmentChart: ZKBio Time status:', status);
       if (!status.connected && isLoading) {
-        console.log('🏢 DepartmentChart: ZKBio Time not connected, reducing loading time');
+        logDebug('🏢 DepartmentChart: ZKBio Time not connected, reducing loading time');
         // If ZKBio Time is not connected, reduce loading time
         setTimeout(() => {
           if (isLoading && !chartData) {
@@ -96,7 +103,7 @@ const DepartmentChart = () => {
     });
 
     socket.on('liveDepartmentUpdate', (data) => {
-      console.log('🏢 DepartmentChart: Received department data:', data);
+      logDebug('🏢 DepartmentChart: Received department data:', data);
       
       if (data.type === 'departmentAttendance' && data.data && data.data.series && data.data.series[0] && data.data.xAxis) {
         const seriesData = data.data.series[0].data;
@@ -121,7 +128,7 @@ const DepartmentChart = () => {
           };
         });
 
-        console.log('🏢 DepartmentChart: Updated chart data:', newChartData);
+        logDebug('🏢 DepartmentChart: Updated chart data:', newChartData);
         setChartData(newChartData);
         setIsLive(true);
         setIsLoading(false); // Stop loading when real data is received
@@ -135,13 +142,13 @@ const DepartmentChart = () => {
               animationEasing: 'elasticOut',
               animationType: 'scale'
             }]
-          }, true); // true for lazy update to trigger animation
+          });
         }
       }
     });
 
     socket.on('disconnect', () => {
-      console.log('🏢 DepartmentChart: Disconnected from server');
+      logDebug('🏢 DepartmentChart: Disconnected from server');
       setIsLive(false);
       // Don't set loading to false on disconnect, keep trying
     });
@@ -159,7 +166,7 @@ const DepartmentChart = () => {
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (isLoading && !chartData) {
-        console.log('🏢 DepartmentChart: Timeout - no data received, stopping loading');
+        logDebug('🏢 DepartmentChart: Timeout - no data received, stopping loading');
         setIsLoading(false);
       }
     }, 5000); // 5 second timeout

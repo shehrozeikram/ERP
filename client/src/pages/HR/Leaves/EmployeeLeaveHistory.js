@@ -42,17 +42,40 @@ const EmployeeLeaveHistory = () => {
   const [leaveSummary, setLeaveSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedWorkYear, setSelectedWorkYear] = useState(null);
+  const [availableWorkYears, setAvailableWorkYears] = useState([]);
 
   useEffect(() => {
-    fetchLeaveHistory();
-  }, [employeeId, selectedYear]);
+    fetchAvailableWorkYears();
+  }, [employeeId]);
+
+  useEffect(() => {
+    if (selectedWorkYear !== null) {
+      fetchLeaveHistory();
+    }
+  }, [employeeId, selectedWorkYear]);
+
+  const fetchAvailableWorkYears = async () => {
+    try {
+      const response = await leaveService.getAvailableWorkYears(employeeId);
+      const workYears = response.data || [];
+      setAvailableWorkYears(workYears);
+      
+      // Set default to current work year (the one marked as isCurrent, or first in the list)
+      if (workYears.length > 0 && selectedWorkYear === null) {
+        const currentWorkYear = workYears.find(wy => wy.isCurrent) || workYears[0];
+        setSelectedWorkYear(currentWorkYear.workYear);
+      }
+    } catch (err) {
+      console.error('Error fetching available work years:', err);
+    }
+  };
 
   const fetchLeaveHistory = async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await leaveService.getEmployeeLeaveSummary(employeeId, selectedYear);
+      const response = await leaveService.getEmployeeLeaveSummary(employeeId, selectedWorkYear, null);
       setLeaveSummary(response.data);
     } catch (err) {
       console.error('Error fetching leave history:', err);
@@ -219,21 +242,18 @@ const EmployeeLeaveHistory = () => {
           <Typography variant="h4">Leave History</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Year</InputLabel>
+          <FormControl size="small" sx={{ minWidth: 300 }}>
+            <InputLabel>Work Year Period</InputLabel>
             <Select
-              value={selectedYear}
-              label="Year"
-              onChange={(e) => setSelectedYear(e.target.value)}
+              value={selectedWorkYear !== null ? selectedWorkYear : ''}
+              label="Work Year Period"
+              onChange={(e) => setSelectedWorkYear(e.target.value)}
             >
-              {Array.from({ length: 10 }, (_, i) => {
-                const year = new Date().getFullYear() - i;
-                return (
-                  <MenuItem key={year} value={year}>
-                    {year}
-                  </MenuItem>
-                );
-              })}
+              {availableWorkYears.map((wy) => (
+                <MenuItem key={wy.workYear} value={wy.workYear}>
+                  {wy.label}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
           <Button
@@ -282,10 +302,18 @@ const EmployeeLeaveHistory = () => {
                 Annual Leave
               </Typography>
               <Typography variant="h4" color="primary.main">
-                {balance.annual.remaining} / {balance.annual.allocated}
+                {balance.annual.remaining} / {balance.annual.allocated + balance.annual.carriedForward}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Used: {balance.annual.used}
+                {balance.annual.carriedForward > 0 && (
+                  <Chip 
+                    label={`CF: ${balance.annual.carriedForward}`} 
+                    size="small" 
+                    color="info" 
+                    sx={{ ml: 1, height: 18 }}
+                  />
+                )}
                 {balance.annual.advance > 0 && (
                   <Chip 
                     label={`Adv: ${balance.annual.advance}`} 
@@ -306,10 +334,18 @@ const EmployeeLeaveHistory = () => {
                 Sick Leave
               </Typography>
               <Typography variant="h4" color="success.main">
-                {balance.sick.remaining} / {balance.sick.allocated}
+                {balance.sick.remaining} / {balance.sick.allocated + balance.sick.carriedForward}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Used: {balance.sick.used}
+                {balance.sick.carriedForward > 0 && (
+                  <Chip 
+                    label={`CF: ${balance.sick.carriedForward}`} 
+                    size="small" 
+                    color="info" 
+                    sx={{ ml: 1, height: 18 }}
+                  />
+                )}
                 {balance.sick.advance > 0 && (
                   <Chip 
                     label={`Adv: ${balance.sick.advance}`} 
@@ -330,10 +366,18 @@ const EmployeeLeaveHistory = () => {
                 Casual Leave
               </Typography>
               <Typography variant="h4" color="info.main">
-                {balance.casual.remaining} / {balance.casual.allocated}
+                {balance.casual.remaining} / {balance.casual.allocated + balance.casual.carriedForward}
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 Used: {balance.casual.used}
+                {balance.casual.carriedForward > 0 && (
+                  <Chip 
+                    label={`CF: ${balance.casual.carriedForward}`} 
+                    size="small" 
+                    color="info" 
+                    sx={{ ml: 1, height: 18 }}
+                  />
+                )}
                 {balance.casual.advance > 0 && (
                   <Chip 
                     label={`Adv: ${balance.casual.advance}`} 
@@ -391,6 +435,64 @@ const EmployeeLeaveHistory = () => {
         </CardContent>
       </Card>
 
+      {/* Carry Forward Details */}
+      {(balance.annual.carriedForward > 0 || balance.sick.carriedForward > 0 || balance.casual.carriedForward > 0) && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom color="info.main">
+              📋 Carry Forward Details
+            </Typography>
+            <Grid container spacing={2}>
+              {balance.annual.carriedForward > 0 && (
+                <Grid item xs={12} md={4}>
+                  <Box sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      Annual Leave Carry Forward
+                    </Typography>
+                    <Typography variant="h5" color="info.dark">
+                      {balance.annual.carriedForward} days
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      From previous work year
+                    </Typography>
+                  </Box>
+                </Grid>
+              )}
+              {balance.sick.carriedForward > 0 && (
+                <Grid item xs={12} md={4}>
+                  <Box sx={{ p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      Sick Leave Carry Forward
+                    </Typography>
+                    <Typography variant="h5" color="success.dark">
+                      {balance.sick.carriedForward} days
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      From previous work year
+                    </Typography>
+                  </Box>
+                </Grid>
+              )}
+              {balance.casual.carriedForward > 0 && (
+                <Grid item xs={12} md={4}>
+                  <Box sx={{ p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      Casual Leave Carry Forward
+                    </Typography>
+                    <Typography variant="h5" color="warning.dark">
+                      {balance.casual.carriedForward} days
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      From previous work year
+                    </Typography>
+                  </Box>
+                </Grid>
+              )}
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Advance Leave Warning */}
       {balance.totalAdvanceLeaves > 0 && (
         <Alert severity="warning" sx={{ mb: 3 }}>
@@ -406,14 +508,14 @@ const EmployeeLeaveHistory = () => {
         <CardContent>
           <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <EventNoteIcon />
-            Leave Requests ({selectedYear})
+            Leave Requests ({leaveSummary.workYearPeriod ? `${formatDate(leaveSummary.workYearPeriod.startDate)} - ${formatDate(leaveSummary.workYearPeriod.endDate)}` : leaveSummary.year})
           </Typography>
           
           {history.length === 0 ? (
             <Alert severity="info" sx={{ mt: 2 }}>
               <Typography variant="body2">
-                No leave requests found for {selectedYear}. 
-                Try selecting a different year from the dropdown above to view historical leave records.
+                No leave requests found for this work year period. 
+                Try selecting a different period from the dropdown above to view historical leave records.
               </Typography>
             </Alert>
           ) : (
