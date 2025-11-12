@@ -22,6 +22,10 @@ NC='\033[0m'
 echo -e "${YELLOW}📦 Building React app locally...${NC}"
 cd client && npm run build && cd ..
 
+# Sync build artifacts to server
+echo -e "${YELLOW}📤 Uploading client build artifacts...${NC}"
+rsync -avz --delete client/build/ $SERVER_USER@$SERVER_IP:$SERVER_PATH/client/build/
+
 # Commit and push changes
 echo -e "${YELLOW}📤 Pushing to git...${NC}"
 git add .
@@ -68,6 +72,9 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     # Install only server dependencies (skip client build)
     echo "📦 Installing server dependencies..."
     npm install --production --no-optional
+    
+    # Ensure build directory exists before syncing
+    mkdir -p client/build
     
     # Copy build files to nginx web root
     echo "📁 Copying build files to web root..."
