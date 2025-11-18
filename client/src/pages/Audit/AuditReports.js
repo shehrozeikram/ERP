@@ -15,10 +15,10 @@ import {
   MenuItem,
   TextField,
   Alert,
-  CircularProgress,
   useTheme,
   Stack,
-  Divider
+  Divider,
+  Skeleton
 } from '@mui/material';
 import {
   Assessment as AssessmentIcon,
@@ -301,13 +301,32 @@ const AuditReports = () => {
     </Grid>
   );
 
+  const LoadingSkeleton = () => (
+    <Box sx={{ p: 3 }}>
+      <Skeleton variant="text" width={260} height={48} />
+      <Skeleton variant="text" width={360} height={24} sx={{ mb: 3 }} />
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2}>
+          {[3, 2, 2, 2, 3].map((size, idx) => (
+            <Grid item xs={12} md={size} key={idx}>
+              <Skeleton variant="rounded" height={48} />
+            </Grid>
+          ))}
+        </Grid>
+      </Paper>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <Skeleton variant="rounded" height={320} />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Skeleton variant="rounded" height={320} />
+        </Grid>
+      </Grid>
+    </Box>
+  );
+
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-        <CircularProgress />
-        <Typography variant="h6" sx={{ ml: 2 }}>Generating Report...</Typography>
-      </Box>
-    );
+    return <LoadingSkeleton />;
   }
 
   if (error) {

@@ -14,6 +14,7 @@ import {
   Paper,
   Alert,
   CircularProgress,
+  Skeleton,
   alpha,
   useTheme,
   Divider,
@@ -161,12 +162,31 @@ const AddAuditFinding = () => {
     }
   };
 
+  const FormSkeleton = () => (
+    <Box sx={{ p: 3 }}>
+      <Skeleton variant="rectangular" height={120} sx={{ mb: 3, borderRadius: 2 }} />
+      <Card>
+        <CardContent sx={{ p: 4 }}>
+          <Grid container spacing={3}>
+            {Array.from({ length: 10 }).map((_, idx) => (
+              <Grid item xs={12} md={idx % 2 === 0 ? 6 : 6} key={idx}>
+                <Skeleton variant="rounded" height={56} />
+              </Grid>
+            ))}
+            <Grid item xs={12}>
+              <Skeleton variant="rounded" height={140} />
+            </Grid>
+            <Grid item xs={12}>
+              <Skeleton variant="rounded" height={48} />
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+    </Box>
+  );
+
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <FormSkeleton />;
   }
 
   return (

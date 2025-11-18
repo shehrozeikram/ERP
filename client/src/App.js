@@ -118,6 +118,8 @@ import CorrectiveActions from './pages/Audit/CorrectiveActions';
 import AuditTrail from './pages/Audit/AuditTrail';
 import AuditReports from './pages/Audit/AuditReports';
 import AuditSchedules from './pages/Audit/AuditSchedules';
+import AuditForm from './pages/Audit/AuditForm';
+import CorrectiveActionForm from './pages/Audit/CorrectiveActionForm';
 
 import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
@@ -1191,6 +1193,14 @@ function App() {
               element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditList /></ProtectedRoute>} 
             />
             <Route 
+              path="/audit/new" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager"]}><AuditForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/:auditId/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager"]}><AuditForm /></ProtectedRoute>} 
+            />
+            <Route 
               path="/audit/findings" 
               element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditFindings /></ProtectedRoute>} 
             />
@@ -1201,6 +1211,14 @@ function App() {
             <Route 
               path="/audit/corrective-actions" 
               element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><CorrectiveActions /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/corrective-actions/new" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager"]}><CorrectiveActionForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/corrective-actions/:actionId/edit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager"]}><CorrectiveActionForm /></ProtectedRoute>} 
             />
             <Route 
               path="/audit/trail" 

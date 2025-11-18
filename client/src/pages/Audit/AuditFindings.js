@@ -31,7 +31,6 @@ import {
   ListItemText,
   Divider,
   Alert,
-  CircularProgress,
   Skeleton,
   alpha,
   useTheme,
@@ -229,13 +228,40 @@ const AuditFindings = () => {
     return <Chip label={status} color={color} size="small" />;
   };
 
+  const LoadingSkeleton = () => (
+    <Box sx={{ p: 3 }}>
+      <Skeleton variant="text" width={260} height={48} />
+      <Skeleton variant="text" width={340} height={24} sx={{ mb: 3 }} />
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2}>
+          {[4, 2, 2, 2].map((size, idx) => (
+            <Grid item xs={12} md={size} key={idx}>
+              <Skeleton variant="rounded" height={48} />
+            </Grid>
+          ))}
+        </Grid>
+      </Paper>
+      <Paper>
+        <Table>
+          <TableBody>
+            {Array.from({ length: 5 }).map((_, rowIdx) => (
+              <TableRow key={rowIdx}>
+                {Array.from({ length: 6 }).map((_, cellIdx) => (
+                  <TableCell key={cellIdx}>
+                    <Skeleton variant="text" width={`${90 - cellIdx * 10}%`} />
+                    {cellIdx === 0 && <Skeleton variant="text" width="60%" />}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Paper>
+    </Box>
+  );
+
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-        <CircularProgress />
-        <Typography variant="h6" sx={{ ml: 2 }}>Loading Audit Findings...</Typography>
-      </Box>
-    );
+    return <LoadingSkeleton />;
   }
 
   if (error) {

@@ -24,7 +24,6 @@ import {
   ListItemText,
   Divider,
   Alert,
-  CircularProgress,
   Skeleton,
   LinearProgress,
   alpha,
@@ -206,6 +205,31 @@ const AuditList = () => {
     }
   };
 
+  const ListSkeleton = () => (
+    <Box sx={{ p: 3 }}>
+      <Skeleton variant="text" width={240} height={48} />
+      <Skeleton variant="text" width={360} height={24} sx={{ mb: 3 }} />
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2}>
+          {[4, 2, 2, 2].map((size, idx) => (
+            <Grid item xs={12} md={size} key={idx}>
+              <Skeleton variant="rounded" height={48} />
+            </Grid>
+          ))}
+        </Grid>
+      </Paper>
+      {Array.from({ length: 3 }).map((_, idx) => (
+        <Card key={idx} sx={{ mb: 2 }}>
+          <CardContent>
+            <Skeleton variant="text" width="60%" height={32} />
+            <Skeleton variant="text" width="30%" />
+            <Skeleton variant="rectangular" height={80} sx={{ mt: 2, borderRadius: 2 }} />
+          </CardContent>
+        </Card>
+      ))}
+    </Box>
+  );
+
   const AuditCard = ({ audit }) => (
     <Card sx={{ mb: 2, '&:hover': { boxShadow: theme.shadows[4] } }}>
       <CardContent>
@@ -300,12 +324,8 @@ const AuditList = () => {
     </Card>
   );
 
-  if (loading && audits.length === 0) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Skeleton variant="rectangular" height={400} />
-      </Box>
-    );
+  if (loading) {
+    return <ListSkeleton />;
   }
 
   return (
@@ -417,11 +437,7 @@ const AuditList = () => {
       </Paper>
 
       {/* Audits List */}
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : audits.length === 0 ? (
+      {audits.length === 0 ? (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
           <AssessmentIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
           <Typography variant="h6" color="text.secondary" gutterBottom>

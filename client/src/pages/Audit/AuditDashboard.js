@@ -9,7 +9,6 @@ import {
   Chip,
   alpha,
   useTheme,
-  CircularProgress,
   Alert,
   List,
   ListItem,
@@ -17,7 +16,8 @@ import {
   ListItemText,
   Badge,
   Container,
-  Button
+  Button,
+  Skeleton
 } from '@mui/material';
 import {
   TrendingUp,
@@ -265,14 +265,34 @@ const AuditDashboard = () => {
     </ListItem>
   );
 
+  const DashboardSkeleton = () => (
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      <Skeleton variant="text" width={260} height={48} />
+      <Skeleton variant="text" width={380} height={28} sx={{ mb: 3 }} />
+      <Grid container spacing={3}>
+        {Array.from({ length: 4 }).map((_, idx) => (
+          <Grid item xs={12} sm={6} md={3} key={idx}>
+            <Skeleton variant="rounded" height={170} />
+          </Grid>
+        ))}
+        <Grid item xs={12} md={8}>
+          <Skeleton variant="rounded" height={320} />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Skeleton variant="rounded" height={320} />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Skeleton variant="rounded" height={280} />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <Skeleton variant="rounded" height={280} />
+        </Grid>
+      </Grid>
+    </Container>
+  );
+
   if (loading) {
-    return (
-      <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
-          <CircularProgress />
-        </Box>
-      </Container>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!dashboardData) {

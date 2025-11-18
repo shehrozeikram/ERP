@@ -229,14 +229,20 @@ auditSchema.virtual('isOverdue').get(function() {
   return new Date() > this.plannedEndDate;
 });
 
-// Pre-save middleware to generate audit number
-auditSchema.pre('save', async function(next) {
-  if (this.isNew && !this.auditNumber) {
+// Ensure audit number exists before validation runs
+auditSchema.pre('validate', async function(next) {
+  if (!this.isNew || this.auditNumber) {
+    return next();
+  }
+
+  try {
     const count = await this.constructor.countDocuments();
     const year = new Date().getFullYear();
     this.auditNumber = `AUD-${year}-${String(count + 1).padStart(4, '0')}`;
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 });
 
 // Method to update findings count

@@ -377,6 +377,14 @@ router.put('/:id',
     audit.updatedBy = req.user._id;
     await audit.save();
 
+    const changedFieldEntries = Object.keys(req.body)
+      .filter(key => req.body[key] !== undefined && key !== 'attachments')
+      .map(key => ({
+        field: key,
+        oldValue: oldValues[key],
+        newValue: audit[key]
+      }));
+
     // Log the audit update
     await AuditTrail.logAction({
       action: 'update',
@@ -391,7 +399,7 @@ router.put('/:id',
       description: `Updated audit: ${audit.title}`,
       oldValues,
       newValues: audit.toObject(),
-      changedFields: Object.keys(req.body).filter(key => req.body[key] !== undefined),
+      changedFields: changedFieldEntries,
       ipAddress: req.ip,
       userAgent: req.get('User-Agent'),
       requestMethod: req.method,
