@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { getZKBioTimeConfig, getUserAgent, updateCookies } = require('../config/zktecoConfig');
+const { getPakistanDayRange } = require('../utils/timezoneHelper');
 
 /**
  * ZKBio Time API Service
@@ -363,9 +364,7 @@ class ZKBioTimeApiService {
         throw new Error('Authentication failed');
       }
 
-      const today = new Date();
-      const startTime = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T00:00:00`;
-      const endTime = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}T23:59:59`;
+      const { startDateTime: startTime, endDateTime: endTime, dateString } = getPakistanDayRange();
 
       console.log('📊 Fetching fresh today\'s attendance from ZKBio Time...');
 
@@ -387,7 +386,7 @@ class ZKBioTimeApiService {
           success: true,
           data: response.data.data,
           count: response.data.count || response.data.data.length,
-          source: 'Today'
+          source: dateString
         };
       }
 

@@ -4,6 +4,7 @@ const axios = require('axios');
 const { authMiddleware } = require('../middleware/auth');
 const zkbioTimeApiService = require('../services/zkbioTimeApiService');
 const zkbioTimeDatabaseService = require('../services/zkbioTimeDatabaseService');
+const { getPakistanDayRange } = require('../utils/timezoneHelper');
 
 /**
  * GET /api/attendance/zkbio/today
@@ -54,12 +55,8 @@ router.get('/zkbio/present-by-punch', async (req, res) => {
   try {
     const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
 
-    // Determine today's date in YYYY-MM-DD
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}-${mm}-${dd}`;
+    // Determine today's date in Pakistan timezone (YYYY-MM-DD)
+    const { dateString: dateStr } = getPakistanDayRange();
 
     // Fetch employees and today's attendance
     const [employeeResult, attendanceResult] = await Promise.all([
@@ -172,11 +169,7 @@ router.get('/zkbio/absent-by-punch', async (req, res) => {
   try {
     const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
 
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}-${mm}-${dd}`;
+    const { dateString: dateStr } = getPakistanDayRange();
 
     // Fetch employees and today's attendance
     const [employeeResult, attendanceResult] = await Promise.all([

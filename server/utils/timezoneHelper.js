@@ -1,9 +1,21 @@
 /**
  * Timezone Helper Utilities
- * 
+ *
  * Provides consistent timezone handling for local Pakistan timezone
  * across the entire application. Automatically detects the local timezone.
  */
+
+const DEFAULT_PAKISTAN_TIMEZONE = process.env.PAKISTAN_TIMEZONE || 'Asia/Karachi';
+
+/**
+ * Normalize a date to Pakistan timezone regardless of server locale
+ * @param {Date|string|number} inputDate
+ * @returns {Date}
+ */
+function normalizeToPakistanTime(inputDate = new Date()) {
+  const sourceDate = inputDate instanceof Date ? inputDate : new Date(inputDate);
+  return new Date(sourceDate.toLocaleString('en-US', { timeZone: DEFAULT_PAKISTAN_TIMEZONE }));
+}
 
 /**
  * Get the local timezone of the system
@@ -138,6 +150,47 @@ function formatLocalDateTime(datetime, options = {}) {
 }
 
 /**
+ * Get Pakistan date parts (YYYY, MM, DD) for the provided date
+ * @param {Date|string|number} date
+ * @returns {{year: number, month: string, day: string, date: Date}}
+ */
+function getPakistanDateParts(date = new Date()) {
+  const pakistanDate = normalizeToPakistanTime(date);
+  const year = pakistanDate.getFullYear();
+  const month = String(pakistanDate.getMonth() + 1).padStart(2, '0');
+  const day = String(pakistanDate.getDate()).padStart(2, '0');
+
+  return { year, month, day, date: pakistanDate };
+}
+
+/**
+ * Get Pakistan ISO date (YYYY-MM-DD)
+ * @param {Date|string|number} date
+ * @returns {string}
+ */
+function getPakistanISODate(date = new Date()) {
+  const { year, month, day } = getPakistanDateParts(date);
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Get Pakistan day range for a provided date
+ * @param {Date|string|number} date
+ * @returns {{date: Date, dateString: string, startDateTime: string, endDateTime: string}}
+ */
+function getPakistanDayRange(date = new Date()) {
+  const { date: normalizedDate } = getPakistanDateParts(date);
+  const dateString = getPakistanISODate(normalizedDate);
+
+  return {
+    date: normalizedDate,
+    dateString,
+    startDateTime: `${dateString}T00:00:00`,
+    endDateTime: `${dateString}T23:59:59`
+  };
+}
+
+/**
  * Get current local time
  * @returns {Date} - Current time in local timezone
  */
@@ -249,5 +302,10 @@ module.exports = {
   getCurrentLocalTime,
   isWithinWorkingHours,
   processZKTecoTimestamp,
-  getTodayLocalDate
+  getTodayLocalDate,
+  normalizeToPakistanTime,
+  getPakistanDateParts,
+  getPakistanISODate,
+  getPakistanDayRange,
+  DEFAULT_PAKISTAN_TIMEZONE
 };
