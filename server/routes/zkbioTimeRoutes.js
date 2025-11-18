@@ -6,6 +6,57 @@ const zkbioTimeApiService = require('../services/zkbioTimeApiService');
 const zkbioTimeDatabaseService = require('../services/zkbioTimeDatabaseService');
 const { getPakistanDayRange } = require('../utils/timezoneHelper');
 
+const buildEmployeeResponse = (employee, employeeId) => {
+  const firstName = employee?.firstName || employee?.first_name || '';
+  const lastName = employee?.lastName || employee?.last_name || '';
+  const department =
+    employee?.department?.deptName ||
+    employee?.department?.dept_name ||
+    employee?.department ||
+    '';
+
+  let fullName = employee?.fullName || employee?.full_name;
+  if (!fullName) {
+    fullName = `${firstName} ${lastName}`.trim();
+  }
+  if (!fullName) {
+    fullName = `Employee ${employeeId}`;
+  }
+
+  return {
+    employeeId,
+    firstName,
+    lastName,
+    fullName,
+    department
+  };
+};
+
+const resolveEmployeeProfile = async (employeeId) => {
+  try {
+    const dbEmployee = await zkbioTimeDatabaseService.getEmployeeByCode(employeeId);
+    if (dbEmployee) {
+      return buildEmployeeResponse(dbEmployee, employeeId);
+    }
+  } catch (error) {
+    console.warn('⚠️ Unable to load employee from local DB:', error.message);
+  }
+
+  try {
+    const employeeResult = await zkbioTimeApiService.getEmployees();
+    if (employeeResult.success && Array.isArray(employeeResult.data)) {
+      const employee = employeeResult.data.find(emp => String(emp.emp_code || emp.empCode || '').trim() === employeeId);
+      if (employee) {
+        return buildEmployeeResponse(employee, employeeId);
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ Unable to load employee from ZKBio API:', error.message);
+  }
+
+  return buildEmployeeResponse(null, employeeId);
+};
+
 /**
  * GET /api/attendance/zkbio/today
  * Get today's attendance from ZKBio Time API
@@ -899,10 +950,15 @@ router.get('/zkbio/employees/attendance', async (req, res) => {
 router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
   try {
     const { employeeId } = req.params;
-    console.log(`🔍 Fetching attendance history for employee: ${employeeId}`);
+    const normalizedEmployeeId = String(employeeId).trim();
+    console.log(`🔍 Fetching attendance history for employee: ${normalizedEmployeeId}`);
     
-    const result = await zkbioTimeApiService.getCompleteEmployeeAttendanceHistory(employeeId);
+    const result = await zkbioTimeApiService.getCompleteEmployeeAttendanceHistory(normalizedEmployeeId);
     
+    if (!result.success && result.error) {
+      throw new Error(result.error);
+    }
+
     if (result.success && result.data.length > 0) {
       // Get employee details from the latest attendance record
       const latestRecord = result.data[0];
@@ -944,20 +1000,26 @@ router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
         success: true,
         data: {
           employee: {
-            employeeId: employeeId,
+            employeeId: normalizedEmployeeId,
             firstName: latestRecord.first_name || '',
             lastName: latestRecord.last_name || '',
             fullName: `${latestRecord.first_name || ''} ${latestRecord.last_name || ''}`.trim(),
             department: latestRecord.department || ''
           },
           attendance: groupedAttendance
-        }
+        },
+        message: `Fetched ${groupedAttendance.length} attendance records`
       });
     } else {
-      console.log(`⚠️ No attendance records found for employee ${employeeId}`);
-      res.status(404).json({
-        success: false,
-        message: 'Employee not found or no attendance records'
+      console.log(`⚠️ No attendance records found for employee ${normalizedEmployeeId}`);
+      const employeeProfile = await resolveEmployeeProfile(normalizedEmployeeId);
+      res.json({
+        success: true,
+        data: {
+          employee: employeeProfile,
+          attendance: []
+        },
+        message: 'No attendance records found for this employee'
       });
     }
   } catch (error) {

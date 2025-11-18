@@ -43,6 +43,7 @@ import {
   CalendarToday as CalendarIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import api from '../../services/api';
 import { getAbsentEmployees } from '../../services/attendanceService';
 
 const AttendanceList = () => {
@@ -91,8 +92,7 @@ const AttendanceList = () => {
       setAttendance([]);
       setTotalRecords(0);
       
-      const response = await fetch('/api/zkbio/zkbio/today');
-      const result = await response.json();
+      const { data: result } = await api.get('/zkbio/zkbio/today');
       
       if (result.success) {
         setAttendance(result.data);
@@ -116,8 +116,7 @@ const AttendanceList = () => {
   // Fetch departments for filter
   const fetchDepartments = async () => {
     try {
-      const response = await fetch('/api/zkbio/zkbio/departments');
-      const result = await response.json();
+      const { data: result } = await api.get('/zkbio/zkbio/departments');
       
       if (result.success) {
         setDepartments(result.data);
