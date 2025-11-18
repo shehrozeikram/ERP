@@ -1,10 +1,16 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const getItApiBaseUrl = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return `${window.location.origin}/api/it`;
+  }
+  const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+  return `${apiBase}/it`;
+};
 
 // Create axios instance with default config
 const itApi = axios.create({
-  baseURL: `${API_BASE_URL}/it`,
+  baseURL: getItApiBaseUrl(),
   timeout: 30000,
 });
 
