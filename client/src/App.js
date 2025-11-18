@@ -46,6 +46,10 @@ import PurchaseOrders from './pages/Procurement/PurchaseOrders';
 import Vendors from './pages/Procurement/Vendors';
 import Inventory from './pages/Procurement/Inventory';
 import SalesDashboard from './pages/Sales/SalesDashboard';
+import SalesOrders from './pages/Sales/SalesOrders';
+import SalesCustomers from './pages/Sales/SalesCustomers';
+import SalesProducts from './pages/Sales/SalesProducts';
+import SalesReports from './pages/Sales/SalesReports';
 import CRMDashboard from './pages/CRM/CRMDashboard';
 import Leads from './pages/CRM/Leads';
 import Contacts from './pages/CRM/Contacts';
@@ -739,6 +743,22 @@ function App() {
             <Route 
               path="/sales" 
               element={<ProtectedRoute><SalesDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/sales/orders" 
+              element={<ProtectedRoute><SalesOrders /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/sales/customers" 
+              element={<ProtectedRoute><SalesCustomers /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/sales/products" 
+              element={<ProtectedRoute><SalesProducts /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/sales/reports" 
+              element={<ProtectedRoute><SalesReports /></ProtectedRoute>} 
             />
 
             {/* CRM Module */}
