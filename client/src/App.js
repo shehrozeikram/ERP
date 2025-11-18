@@ -112,6 +112,29 @@ import PasswordWallet from './pages/IT/PasswordWallet';
 import PasswordWalletDashboard from './pages/IT/PasswordWalletDashboard';
 import PasswordForm from './pages/IT/PasswordForm';
 import ITReports from './pages/IT/Reports';
+import TajResidenciaDashboard from './pages/TajResidencia/TajResidenciaDashboard';
+
+// Taj Residencia - Land Acquisition Module Components
+import LandAcquisitionDashboard from './pages/TajResidencia/LandAcquisition/LandAcquisitionDashboard';
+import LandIdentification from './pages/TajResidencia/LandAcquisition/LandIdentification';
+import LandIdentificationList from './pages/TajResidencia/LandAcquisition/LandIdentificationList';
+import RecordVerification from './pages/TajResidencia/LandAcquisition/RecordVerification';
+import RecordVerificationList from './pages/TajResidencia/LandAcquisition/RecordVerificationList';
+import KhasraMapping from './pages/TajResidencia/LandAcquisition/KhasraMapping';
+import KhasraMappingList from './pages/TajResidencia/LandAcquisition/KhasraMappingList';
+import Demarcation from './pages/TajResidencia/LandAcquisition/Demarcation';
+import DemarcationList from './pages/TajResidencia/LandAcquisition/DemarcationList';
+import OwnerDueDiligence from './pages/TajResidencia/LandAcquisition/OwnerDueDiligence';
+import OwnerDueDiligenceList from './pages/TajResidencia/LandAcquisition/OwnerDueDiligenceList';
+import NegotiationBayana from './pages/TajResidencia/LandAcquisition/NegotiationBayana';
+import Registry from './pages/TajResidencia/LandAcquisition/Registry';
+import Mutation from './pages/TajResidencia/LandAcquisition/Mutation';
+import SocietyInternalProcessing from './pages/TajResidencia/LandAcquisition/SocietyInternalProcessing';
+import GISMapAlignment from './pages/TajResidencia/LandAcquisition/GISMapAlignment';
+import LandConversion from './pages/TajResidencia/LandAcquisition/LandConversion';
+import CompensationManagement from './pages/TajResidencia/LandAcquisition/CompensationManagement';
+import EncroachmentDispute from './pages/TajResidencia/LandAcquisition/EncroachmentDispute';
+import ReportingFramework from './pages/TajResidencia/LandAcquisition/ReportingFramework';
 
 // Audit Module Components
 import AuditDashboard from './pages/Audit/AuditDashboard';
@@ -1201,6 +1224,114 @@ function App() {
             <Route 
               path="/it/reports" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "it_manager"]}><ITReports /></ProtectedRoute>} 
+            />
+
+            {/* Taj Residencia Routes */}
+            <Route 
+              path="/taj-residencia" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><TajResidenciaDashboard /></ProtectedRoute>} 
+            />
+            
+            {/* Land Acquisition Routes */}
+            <Route 
+              path="/taj-residencia/land-acquisition" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><LandAcquisitionDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/land-identification/new" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><LandIdentification /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/land-identification/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><LandIdentification /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/land-identification" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><LandIdentificationList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/record-verification/new" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><RecordVerification /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/record-verification/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><RecordVerification /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/record-verification" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><RecordVerificationList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/khasra-mapping/new" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><KhasraMapping /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/khasra-mapping/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><KhasraMapping /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/khasra-mapping" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><KhasraMappingList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/demarcation/new" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><Demarcation /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/demarcation/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><Demarcation /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/demarcation" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><DemarcationList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/owner-due-diligence/new" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><OwnerDueDiligence /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/owner-due-diligence/:id" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><OwnerDueDiligence /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/owner-due-diligence" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><OwnerDueDiligenceList /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/negotiation-bayana" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><NegotiationBayana /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/registry" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><Registry /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/mutation" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><Mutation /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/society-internal-processing" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><SocietyInternalProcessing /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/gis-map-alignment" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><GISMapAlignment /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/land-conversion" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><LandConversion /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/compensation-management" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><CompensationManagement /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/encroachment-dispute" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><EncroachmentDispute /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/taj-residencia/land-acquisition/reporting-framework" 
+              element={<ProtectedRoute requiredRole={["super_admin"]}><ReportingFramework /></ProtectedRoute>} 
             />
 
             {/* Audit Module Routes */}

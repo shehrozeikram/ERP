@@ -92,6 +92,7 @@ const auditFindingsRoutes = require('./routes/auditFindings');
 const auditTrailRoutes = require('./routes/auditTrail');
 const subRoleRoutes = require('./routes/subRoles');
 const userSubRoleRoutes = require('./routes/userSubRoles');
+const tajResidenciaRoutes = require('./routes/tajResidencia');
 
 
 // Import services
@@ -316,6 +317,9 @@ app.use('/api/audit', authMiddleware, auditRoutes);
 app.use('/api/sub-roles', subRoleRoutes);
 app.use('/api/user-sub-roles', userSubRoleRoutes);
 app.use('/api/roles', authMiddleware, require('./routes/roles'));
+
+// Taj Residencia routes
+app.use('/api/taj-residencia', authMiddleware, tajResidenciaRoutes);
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {

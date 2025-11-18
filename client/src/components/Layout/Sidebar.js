@@ -33,7 +33,8 @@ import {
   AdminPanelSettings,
   Analytics,
   Security,
-  Computer
+  Computer,
+  LocationCity
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -67,7 +68,8 @@ const iconMap = {
   AdminPanelSettings: <AdminPanelSettings />,
   Analytics: <Analytics />,
   Security: <Security />,
-  Computer: <Computer />
+  Computer: <Computer />,
+  LocationCity: <LocationCity />
 };
   return iconMap[iconName] || <Dashboard />;
 };
@@ -171,7 +173,24 @@ const Sidebar = () => {
       '/it/network': 'network_devices',
       '/it/vendors': 'it_vendors',
       '/it/passwords': 'password_wallet',
-      '/it/reports': 'it_reports'
+      '/it/reports': 'it_reports',
+      
+      // Taj Residencia Module
+      '/taj-residencia/land-acquisition': 'land_acquisition',
+      '/taj-residencia/land-acquisition/land-identification': 'land_identification',
+      '/taj-residencia/land-acquisition/record-verification': 'record_verification',
+      '/taj-residencia/land-acquisition/khasra-mapping': 'khasra_mapping',
+      '/taj-residencia/land-acquisition/demarcation': 'demarcation',
+      '/taj-residencia/land-acquisition/owner-due-diligence': 'owner_due_diligence',
+      '/taj-residencia/land-acquisition/negotiation-bayana': 'negotiation_bayana',
+      '/taj-residencia/land-acquisition/registry': 'registry',
+      '/taj-residencia/land-acquisition/mutation': 'mutation',
+      '/taj-residencia/land-acquisition/society-internal-processing': 'society_internal_processing',
+      '/taj-residencia/land-acquisition/gis-map-alignment': 'gis_map_alignment',
+      '/taj-residencia/land-acquisition/land-conversion': 'land_conversion',
+      '/taj-residencia/land-acquisition/compensation-management': 'compensation_management',
+      '/taj-residencia/land-acquisition/encroachment-dispute': 'encroachment_dispute',
+      '/taj-residencia/land-acquisition/reporting-framework': 'reporting_framework'
     };
     return pathToSubmoduleMap[path];
   };
@@ -186,6 +205,7 @@ const Sidebar = () => {
     if (path.startsWith('/crm')) return 'crm';
     if (path.startsWith('/audit')) return 'audit';
     if (path.startsWith('/it')) return 'it';
+    if (path.startsWith('/taj-residencia')) return 'taj_residencia';
     return null;
   };
 

@@ -39,6 +39,7 @@ const MODULES = {
   CRM: 'crm',
   AUDIT: 'audit',
   IT: 'it',
+  TAJ_RESIDENCIA: 'taj_residencia',
   ADMIN: 'admin'
 };
 
@@ -114,6 +115,23 @@ const SUBMODULES = {
     'it_vendors',
     'password_wallet',
     'it_reports'
+  ],
+  [MODULES.TAJ_RESIDENCIA]: [
+    'land_acquisition',
+    'land_identification',
+    'record_verification',
+    'khasra_mapping',
+    'demarcation',
+    'owner_due_diligence',
+    'negotiation_bayana',
+    'registry',
+    'mutation',
+    'society_internal_processing',
+    'gis_map_alignment',
+    'land_conversion',
+    'compensation_management',
+    'encroachment_dispute',
+    'reporting_framework'
   ]
 };
 

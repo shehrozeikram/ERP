@@ -188,6 +188,7 @@ class ZKBioTimeApiService {
         updateCookies(cookieObj);
       } else {
         console.error('❌ No session cookies received from login response');
+        console.error('   Login response headers:', JSON.stringify(loginResponse.headers, null, 2));
         return false;
       }
 
@@ -209,14 +210,23 @@ class ZKBioTimeApiService {
         return true;
       } else {
         console.error('❌ Authentication verification failed - dashboard contains login page');
+        console.error('   Dashboard response length:', dashboardResponse.data?.length || 0);
+        console.error('   Dashboard response preview:', dashboardResponse.data?.substring(0, 200) || 'No data');
         return false;
       }
       
     } catch (error) {
       console.error('❌ ZKBio Time authentication failed:', error.message);
+      console.error('   Error code:', error.code);
+      console.error('   Error stack:', error.stack?.substring(0, 500));
       if (error.response) {
-        console.error('Response status:', error.response.status);
-        console.error('Response data:', error.response.data?.substring(0, 200));
+        console.error('   Response status:', error.response.status);
+        console.error('   Response headers:', JSON.stringify(error.response.headers, null, 2));
+        console.error('   Response data preview:', error.response.data?.substring?.(0, 200) || error.response.data);
+      }
+      if (error.request) {
+        console.error('   Request made but no response received');
+        console.error('   Request URL:', error.config?.url);
       }
       return false;
     }
@@ -230,12 +240,18 @@ class ZKBioTimeApiService {
   }
 
   /**
-   * Ensure authentication
+   * Ensure authentication with retry logic
    */
-  async ensureAuth() {
+  async ensureAuth(retryCount = 0, maxRetries = 2) {
     if (!this.isLoggedIn()) {
       console.log('🔐 Not authenticated, attempting to authenticate...');
-      return await this.authenticate();
+      const authResult = await this.authenticate();
+      if (!authResult && retryCount < maxRetries) {
+        console.log(`🔄 Authentication failed, retrying (${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+        return await this.ensureAuth(retryCount + 1, maxRetries);
+      }
+      return authResult;
     }
     
     // Test if current session is still valid by making a test request
@@ -255,13 +271,25 @@ class ZKBioTimeApiService {
         console.log('⚠️ Session expired, re-authenticating...');
         this.isAuthenticated = false;
         this.sessionCookies = null;
-        return await this.authenticate();
+        const authResult = await this.authenticate();
+        if (!authResult && retryCount < maxRetries) {
+          console.log(`🔄 Re-authentication failed, retrying (${retryCount + 1}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+          return await this.ensureAuth(retryCount + 1, maxRetries);
+        }
+        return authResult;
       }
     } catch (error) {
       console.log('⚠️ Session test failed, re-authenticating...', error.message);
       this.isAuthenticated = false;
       this.sessionCookies = null;
-      return await this.authenticate();
+      const authResult = await this.authenticate();
+      if (!authResult && retryCount < maxRetries) {
+        console.log(`🔄 Re-authentication failed after session test, retrying (${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+        return await this.ensureAuth(retryCount + 1, maxRetries);
+      }
+      return authResult;
     }
   }
 
@@ -696,8 +724,10 @@ class ZKBioTimeApiService {
    */
   async getDevices() {
     try {
-      if (!(await this.ensureAuth())) {
-        throw new Error('Authentication failed');
+      const authResult = await this.ensureAuth();
+      if (!authResult) {
+        console.error('❌ ZKBio Time authentication failed after retries');
+        return { success: false, data: [], count: 0, error: 'Authentication to ZKBio Time API failed. Please check server logs for details.' };
       }
 
       console.log('📱 Fetching devices from ZKBio Time...');
@@ -708,7 +738,8 @@ class ZKBioTimeApiService {
           page_size: 500,
           page: 1,
           ordering: 'sn'
-        }
+        },
+        timeout: 15000
       });
 
       if (response.data && (response.data.data || Array.isArray(response.data))) {
@@ -717,15 +748,19 @@ class ZKBioTimeApiService {
         return { success: true, data: list, count: list.length };
       }
 
-      return { success: false, data: [], count: 0 };
+      return { success: false, data: [], count: 0, error: 'No device data received from ZKBio Time API' };
     } catch (error) {
       console.error('❌ Failed to fetch devices:', error.message);
+      if (error.response) {
+        console.error('   Response status:', error.response.status);
+        console.error('   Response data:', error.response.data?.substring?.(0, 200) || error.response.data);
+      }
       // Try with proxy if direct connection failed
       if (await this.handleConnectionError(error)) {
         console.log('🔄 Retrying devices with proxy...');
         return await this.getDevices();
       }
-      return { success: false, data: [], count: 0, error: error.message };
+      return { success: false, data: [], count: 0, error: error.message || 'Failed to fetch devices from ZKBio Time API' };
     }
   }
 

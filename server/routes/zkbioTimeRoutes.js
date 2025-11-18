@@ -61,7 +61,7 @@ const resolveEmployeeProfile = async (employeeId) => {
  * GET /api/attendance/zkbio/today
  * Get today's attendance from ZKBio Time API
  */
-router.get('/zkbio/today', async (req, res) => {
+router.get('/zkbio/today', authMiddleware, async (req, res) => {
   try {
     const apiResult = await zkbioTimeApiService.getTodayAttendance();
     
@@ -102,7 +102,7 @@ router.get('/zkbio/today', async (req, res) => {
  * Returns list of employees who are present today, with punch times
  * Optional query: departments (comma-separated names), areas (comma-separated names)
  */
-router.get('/zkbio/present-by-punch', async (req, res) => {
+router.get('/zkbio/present-by-punch', authMiddleware, async (req, res) => {
   try {
     const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
 
@@ -216,7 +216,7 @@ router.get('/zkbio/present-by-punch', async (req, res) => {
  * Returns list of employees who are absent today
  * Optional query: departments (comma-separated names), areas (comma-separated names), page, page_size
  */
-router.get('/zkbio/absent-by-punch', async (req, res) => {
+router.get('/zkbio/absent-by-punch', authMiddleware, async (req, res) => {
   try {
     const { departments = '', areas = '', page = '1', page_size = '20' } = req.query;
 
@@ -295,7 +295,7 @@ router.get('/zkbio/absent-by-punch', async (req, res) => {
  * Query params: status=online|offline, areas, page, page_size
  * Returns normalized device list with pagination
  */
-router.get('/zkbio/devices', async (req, res) => {
+router.get('/zkbio/devices', authMiddleware, async (req, res) => {
   try {
     const { status = 'online', areas = '', page = '1', page_size = '20' } = req.query;
     const isOffline = String(status).toLowerCase() === 'offline';
@@ -303,7 +303,13 @@ router.get('/zkbio/devices', async (req, res) => {
     // Fetch devices via authenticated API
     const deviceResult = await zkbioTimeApiService.getDevices();
     if (!deviceResult.success) {
-      return res.status(401).json({ success: false, message: 'Authentication to attendance system failed' });
+      console.error('❌ ZKBio Time API authentication failed for devices endpoint');
+      console.error('   Error details:', deviceResult.error || 'Unknown error');
+      return res.status(503).json({ 
+        success: false, 
+        message: 'Attendance system authentication failed. Please try again in a moment.',
+        error: 'External API authentication error'
+      });
     }
 
     // Normalize
@@ -368,7 +374,7 @@ router.get('/zkbio/devices', async (req, res) => {
  * GET /api/zkbio/zkbio/departments
  * Returns ZKBio department list
  */
-router.get('/zkbio/departments', async (_req, res) => {
+router.get('/zkbio/departments', authMiddleware, async (_req, res) => {
   try {
     const result = await zkbioTimeApiService.getDepartments();
     return res.json(result.success ? { success: true, data: result.data, count: result.count } : { success: false, data: [], count: 0 });
@@ -382,7 +388,7 @@ router.get('/zkbio/departments', async (_req, res) => {
  * GET /api/zkbio/zkbio/monthly-punch
  * Params: page, page_size, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), departments (csv of ids or -1), areas, groups, employees
  */
-router.get('/zkbio/monthly-punch', async (req, res) => {
+router.get('/zkbio/monthly-punch', authMiddleware, async (req, res) => {
   try {
     const {
       page = '1',
@@ -500,7 +506,7 @@ router.get('/zkbio/monthly-punch', async (req, res) => {
  * GET /api/zkbio/zkbio/monthly-absent
  * Params: page, page_size, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), departments (csv of ids or -1), areas, groups, employees
  */
-router.get('/zkbio/monthly-absent', async (req, res) => {
+router.get('/zkbio/monthly-absent', authMiddleware, async (req, res) => {
   try {
     const {
       page = '1',
@@ -592,7 +598,7 @@ router.get('/zkbio/monthly-absent', async (req, res) => {
  * GET /api/zkbio/zkbio/total-timecard
  * Params: page, page_size, start_date, end_date, departments, areas, groups, employees
  */
-router.get('/zkbio/total-timecard', async (req, res) => {
+router.get('/zkbio/total-timecard', authMiddleware, async (req, res) => {
   try {
     const {
       page = '1',
@@ -720,7 +726,7 @@ router.post('/zkbio/sync', authMiddleware, async (req, res) => {
  * GET /api/attendance/zkbio/employees
  * Get all employees from ZKBio Time
  */
-router.get('/zkbio/employees', async (req, res) => {
+router.get('/zkbio/employees', authMiddleware, async (req, res) => {
   try {
     console.log('👥 API: Fetching ZKBio Time employees...');
     
@@ -772,7 +778,7 @@ router.get('/zkbio/employees', async (req, res) => {
  * GET /api/attendance/zkbio/departments
  * Get departments from ZKBio Time
  */
-router.get('/zkbio/departments', async (req, res) => {
+router.get('/zkbio/departments', authMiddleware, async (req, res) => {
   try {
     console.log('🏢 API: Fetching ZKBio Time departments...');
     
@@ -793,7 +799,7 @@ router.get('/zkbio/departments', async (req, res) => {
  * GET /api/zkbio/zkbio/areas
  * Returns ZKBio area list
  */
-router.get('/zkbio/areas', async (_req, res) => {
+router.get('/zkbio/areas', authMiddleware, async (_req, res) => {
   try {
     const result = await zkbioTimeApiService.getAreas();
     return res.json(result.success ? { success: true, data: result.data, count: result.count } : { success: false, data: [], count: 0 });
@@ -807,7 +813,7 @@ router.get('/zkbio/areas', async (_req, res) => {
  * GET /api/attendance/zkbio/date-range
  * Get attendance by date range
  */
-router.get('/zkbio/date-range', async (req, res) => {
+router.get('/zkbio/date-range', authMiddleware, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
@@ -877,7 +883,7 @@ router.get('/zkbio/date-range', async (req, res) => {
  * GET /api/zkbio/zkbio/employees/attendance
  * Get all employees with their latest attendance activity (with pagination)
  */
-router.get('/zkbio/employees/attendance', async (req, res) => {
+router.get('/zkbio/employees/attendance', authMiddleware, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 10;
@@ -947,7 +953,7 @@ router.get('/zkbio/employees/attendance', async (req, res) => {
  * GET /api/zkbio/zkbio/employees/:employeeId/attendance
  * Get specific employee's complete attendance history
  */
-router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
+router.get('/zkbio/employees/:employeeId/attendance', authMiddleware, async (req, res) => {
   try {
     const { employeeId } = req.params;
     const normalizedEmployeeId = String(employeeId).trim();
@@ -1053,7 +1059,7 @@ router.get('/zkbio/employees/:employeeId/attendance', async (req, res) => {
  * GET /api/zkbio/absent-employees
  * Get absent employees for a specific date
  */
-router.get('/absent-employees', async (req, res) => {
+router.get('/absent-employees', authMiddleware, async (req, res) => {
   try {
     const { date, excludeWeekends = 'true', excludeHolidays = 'true', onlyActiveEmployees = 'true', clearCache = 'false' } = req.query;
     

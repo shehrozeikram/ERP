@@ -26,6 +26,7 @@ export const MODULE_KEYS = {
   CRM: 'crm',
   AUDIT: 'audit',
   IT: 'it',
+  TAJ_RESIDENCIA: 'taj_residencia',
   ADMIN: 'admin'
 };
 
@@ -201,6 +202,23 @@ export const SUBMODULES = {
     'it_vendors',
     'password_wallet',
     'it_reports'
+  ],
+  [MODULE_KEYS.TAJ_RESIDENCIA]: [
+    'land_acquisition',
+    'land_identification',
+    'record_verification',
+    'khasra_mapping',
+    'demarcation',
+    'owner_due_diligence',
+    'negotiation_bayana',
+    'registry',
+    'mutation',
+    'society_internal_processing',
+    'gis_map_alignment',
+    'land_conversion',
+    'compensation_management',
+    'encroachment_dispute',
+    'reporting_framework'
   ]
 };
 
@@ -534,6 +552,36 @@ export const MODULES = {
       { name: 'Password Wallet', path: '/it/passwords' },
       { name: 'Reports & Analytics', path: '/it/reports' }
     ]
+  },
+
+  taj_residencia: {
+    name: 'Taj Residencia',
+    path: '/taj-residencia',
+    icon: 'LocationCity',
+    description: 'Taj Residencia management module',
+    roles: ['super_admin'],
+    subItems: [
+      {
+        name: 'Land Acquisition',
+        path: '/taj-residencia/land-acquisition',
+        subItems: [
+          { name: 'Land Identification', path: '/taj-residencia/land-acquisition/land-identification' },
+          { name: 'Record Verification', path: '/taj-residencia/land-acquisition/record-verification' },
+          { name: 'Khasra Mapping', path: '/taj-residencia/land-acquisition/khasra-mapping' },
+          { name: 'Demarcation', path: '/taj-residencia/land-acquisition/demarcation' },
+          { name: 'Owner Due-Diligence', path: '/taj-residencia/land-acquisition/owner-due-diligence' },
+          { name: 'Negotiation & Bayana', path: '/taj-residencia/land-acquisition/negotiation-bayana' },
+          { name: 'Registry (registry deed)', path: '/taj-residencia/land-acquisition/registry' },
+          { name: 'Mutation (Intiqal)', path: '/taj-residencia/land-acquisition/mutation' },
+          { name: 'Society Internal Land Department Processing', path: '/taj-residencia/land-acquisition/society-internal-processing' },
+          { name: 'GIS/Map Alignment', path: '/taj-residencia/land-acquisition/gis-map-alignment' },
+          { name: 'Land Conversion (Kanal → Plots)', path: '/taj-residencia/land-acquisition/land-conversion' },
+          { name: 'Compensation Management', path: '/taj-residencia/land-acquisition/compensation-management' },
+          { name: 'Encroachment & Dispute Handling', path: '/taj-residencia/land-acquisition/encroachment-dispute' },
+          { name: 'Reporting Framework', path: '/taj-residencia/land-acquisition/reporting-framework' }
+        ]
+      }
+    ]
   }
 };
 
@@ -674,7 +722,24 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/it/network': 'network_devices',
       '/it/vendors': 'it_vendors',
       '/it/passwords': 'password_wallet',
-      '/it/reports': 'it_reports'
+      '/it/reports': 'it_reports',
+      
+      // Taj Residencia Module
+      '/taj-residencia/land-acquisition': 'land_acquisition',
+      '/taj-residencia/land-acquisition/land-identification': 'land_identification',
+      '/taj-residencia/land-acquisition/record-verification': 'record_verification',
+      '/taj-residencia/land-acquisition/khasra-mapping': 'khasra_mapping',
+      '/taj-residencia/land-acquisition/demarcation': 'demarcation',
+      '/taj-residencia/land-acquisition/owner-due-diligence': 'owner_due_diligence',
+      '/taj-residencia/land-acquisition/negotiation-bayana': 'negotiation_bayana',
+      '/taj-residencia/land-acquisition/registry': 'registry',
+      '/taj-residencia/land-acquisition/mutation': 'mutation',
+      '/taj-residencia/land-acquisition/society-internal-processing': 'society_internal_processing',
+      '/taj-residencia/land-acquisition/gis-map-alignment': 'gis_map_alignment',
+      '/taj-residencia/land-acquisition/land-conversion': 'land_conversion',
+      '/taj-residencia/land-acquisition/compensation-management': 'compensation_management',
+      '/taj-residencia/land-acquisition/encroachment-dispute': 'encroachment_dispute',
+      '/taj-residencia/land-acquisition/reporting-framework': 'reporting_framework'
     };
     return pathToSubmoduleMap[path];
   };
@@ -689,6 +754,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
     if (path.startsWith('/crm')) return 'crm';
     if (path.startsWith('/audit')) return 'audit';
     if (path.startsWith('/it')) return 'it';
+    if (path.startsWith('/taj-residencia')) return 'taj_residencia';
     return null;
   };
   

@@ -13,9 +13,12 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
-console.log('🔧 API URL configured:', API_URL);
-console.log('🔧 Environment:', process.env.NODE_ENV);
-console.log('🔧 Origin:', window.location.origin);
+// Only log in development to avoid console noise in production
+if (process.env.NODE_ENV !== 'production') {
+  console.log('🔧 API URL configured:', API_URL);
+  console.log('🔧 Environment:', process.env.NODE_ENV);
+  console.log('🔧 Origin:', window.location.origin);
+}
 
 // Create axios instance with default config
 const api = axios.create({
@@ -23,6 +26,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // 30 seconds timeout for production network issues
+  withCredentials: false, // Don't send cookies, we use token in header
 });
 
 // Request interceptor to add auth token
@@ -45,30 +50,41 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor to handle auth errors (less aggressive)
+// Endpoints that should not trigger auto-redirect on 401
+const SKIP_AUTO_REDIRECT_ENDPOINTS = [
+  '/auth/me',
+  '/auth/profile',
+  '/hr/employees',
+  '/hr/departments',
+  '/hr/positions',
+  '/attendance-proxy',
+  '/zkbio/'
+];
+
+// Response interceptor to handle auth errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Only handle 401 errors for specific endpoints that should redirect
     if (error.response?.status === 401) {
       const url = error.config?.url || '';
+      const shouldSkipRedirect = SKIP_AUTO_REDIRECT_ENDPOINTS.some(endpoint => url.includes(endpoint));
       
-      // Don't auto-redirect for employee operations, let components handle it
-      if (
-        url.includes('/hr/employees') ||
-        url.includes('/hr/departments') ||
-        url.includes('/hr/positions') ||
-        url.includes('/attendance-proxy') || // allow proxy consumers to handle auth errors gracefully
-        url.includes('/zkbio/') // allow zkbio endpoints to surface 401 to components
-      ) {
-        console.log('🔐 401 error on HR endpoint, letting component handle it:', url);
+      if (shouldSkipRedirect) {
+        // Don't log for /auth/me to reduce console noise
+        if (process.env.NODE_ENV !== 'production' && !url.includes('/auth/me')) {
+          console.log('🔐 401 error on endpoint, letting component handle it:', url);
+        }
         return Promise.reject(error);
       }
       
-      // For other endpoints, redirect to login
-      console.log('🔐 401 error, redirecting to login:', url);
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Only redirect if not already on login page
+      if (window.location.pathname !== '/login') {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('🔐 401 error, redirecting to login:', url);
+        }
+        localStorage.removeItem('token');
+        window.location.replace('/login');
+      }
     }
     return Promise.reject(error);
   }
