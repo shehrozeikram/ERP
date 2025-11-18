@@ -8,6 +8,31 @@ const permissions = require('../middleware/permissions');
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
+const generateNextItemId = async () => {
+  const lastItem = await GroceryItem.findOne({ itemId: { $exists: true } })
+    .sort({ createdAt: -1 })
+    .select('itemId');
+
+  let nextNumber = 1;
+  if (lastItem?.itemId) {
+    const match = lastItem.itemId.match(/\d+$/);
+    if (match) {
+      nextNumber = parseInt(match[0], 10) + 1;
+    }
+  }
+
+  let candidate;
+  let exists = true;
+  while (exists) {
+    candidate = `GR${String(nextNumber).padStart(4, '0')}`;
+    // eslint-disable-next-line no-await-in-loop
+    exists = await GroceryItem.exists({ itemId: candidate });
+    nextNumber += exists ? 1 : 0;
+  }
+
+  return candidate;
+};
+
 // GET /api/groceries - Get all grocery items with simple filtering
 router.get('/', permissions.checkSubRolePermission('admin', 'grocery_management', 'read'), async (req, res) => {
   try {
@@ -125,6 +150,13 @@ router.post('/', permissions.checkSubRolePermission('admin', 'grocery_management
       ...req.body,
       createdBy: req.user._id
     };
+
+    if (!itemData.itemId) {
+      itemData.itemId = await generateNextItemId();
+    }
+    if (!itemData.barcode) {
+      delete itemData.barcode;
+    }
 
     const item = new GroceryItem(itemData);
     await item.save();

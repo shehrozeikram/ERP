@@ -104,6 +104,13 @@ const GroceryForm = () => {
         supplier: formData.supplier || null
       };
 
+      if (!isEdit) {
+        delete submitData.itemId;
+        if (!submitData.barcode) {
+          delete submitData.barcode;
+        }
+      }
+
       if (isEdit) {
         await groceryService.updateGrocery(id, submitData);
         setSuccess('Grocery item updated successfully!');
@@ -213,27 +220,33 @@ const GroceryForm = () => {
         <CardContent>
           <form onSubmit={handleSubmit}>
             <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Item ID"
-                  name="itemId"
-                  value={formData.itemId}
-                  onChange={handleChange}
-                  required
-                  placeholder="e.g., GR001"
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Barcode"
-                  name="barcode"
-                  value={formData.barcode}
-                  onChange={handleChange}
-                  placeholder="Optional barcode"
-                />
-              </Grid>
+              {isEdit && (
+                <>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Item ID"
+                      name="itemId"
+                      value={formData.itemId}
+                      onChange={handleChange}
+                      required
+                      placeholder="e.g., GR001"
+                      InputProps={{ readOnly: true }}
+                      helperText="Auto-generated for new items"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Barcode"
+                      name="barcode"
+                      value={formData.barcode}
+                      onChange={handleChange}
+                      placeholder="Optional barcode"
+                    />
+                  </Grid>
+                </>
+              )}
               
               <Grid item xs={12} md={6}>
                 <TextField
