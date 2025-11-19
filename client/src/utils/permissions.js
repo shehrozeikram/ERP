@@ -13,6 +13,7 @@ export const ROLES = {
   AUDIT_MANAGER: 'audit_manager',
   AUDITOR: 'auditor',
   IT_MANAGER: 'it_manager',
+  TAJ_RESIDENCIA_MANAGER: 'taj_residencia_manager',
   EMPLOYEE: 'employee'
 };
 
@@ -100,6 +101,13 @@ export const PERMISSIONS = {
     canAccessAll: false,
     modules: [MODULE_KEYS.IT],
     description: 'IT module management'
+  },
+  
+  // Taj Residencia Manager has access to Taj Residencia module
+  [ROLES.TAJ_RESIDENCIA_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.TAJ_RESIDENCIA],
+    description: 'Taj Residencia module management'
   },
   
   // Employee has limited access
@@ -218,7 +226,8 @@ export const SUBMODULES = {
     'land_conversion',
     'compensation_management',
     'encroachment_dispute',
-    'reporting_framework'
+    'reporting_framework',
+    'complains_tickets'
   ]
 };
 
@@ -559,7 +568,7 @@ export const MODULES = {
     path: '/taj-residencia',
     icon: 'LocationCity',
     description: 'Taj Residencia management module',
-    roles: ['super_admin'],
+    roles: ['super_admin', 'taj_residencia_manager'],
     subItems: [
       {
         name: 'Land Acquisition',
@@ -580,6 +589,10 @@ export const MODULES = {
           { name: 'Encroachment & Dispute Handling', path: '/taj-residencia/land-acquisition/encroachment-dispute' },
           { name: 'Reporting Framework', path: '/taj-residencia/land-acquisition/reporting-framework' }
         ]
+      },
+      {
+        name: 'Complains & Tickets',
+        path: '/taj-residencia/complains-tickets'
       }
     ]
   }
@@ -739,7 +752,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/taj-residencia/land-acquisition/land-conversion': 'land_conversion',
       '/taj-residencia/land-acquisition/compensation-management': 'compensation_management',
       '/taj-residencia/land-acquisition/encroachment-dispute': 'encroachment_dispute',
-      '/taj-residencia/land-acquisition/reporting-framework': 'reporting_framework'
+      '/taj-residencia/land-acquisition/reporting-framework': 'reporting_framework',
+      '/taj-residencia/complains-tickets': 'complains_tickets'
     };
     return pathToSubmoduleMap[path];
   };

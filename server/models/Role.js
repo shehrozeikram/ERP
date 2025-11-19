@@ -22,7 +22,7 @@ const roleSchema = new mongoose.Schema({
     module: {
       type: String,
       required: true,
-      enum: ['admin', 'hr', 'finance', 'procurement', 'sales', 'crm', 'it', 'dashboard', 'audit']
+      enum: ['admin', 'hr', 'finance', 'procurement', 'sales', 'crm', 'it', 'dashboard', 'audit', 'taj_residencia']
     },
     submodules: [{
       type: String,

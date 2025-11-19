@@ -73,7 +73,8 @@ const UserManagement = () => {
         'sales_manager': 'sales',
         'crm_manager': 'crm',
         'audit_manager': 'audit',
-        'it_manager': 'it'
+        'it_manager': 'it',
+        'taj_residencia_manager': 'taj_residencia'
       };
       
       const module = roleToModuleMap[role];
@@ -101,7 +102,7 @@ const UserManagement = () => {
       setDepartments(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
     }
   };
-  const roles = ['super_admin', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'];
+  const roles = ['super_admin', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'employee'];
 
   const roleColors = {
     super_admin: 'error',
@@ -114,6 +115,7 @@ const UserManagement = () => {
     audit_manager: 'warning',
     auditor: 'info',
     it_manager: 'primary',
+    taj_residencia_manager: 'secondary',
     employee: 'default'
   };
 
@@ -578,7 +580,7 @@ const EditUserForm = ({ user, onSave, onCancel, departments }) => {
           onChange={(e) => setFormData({ ...formData, role: e.target.value })}
           label="Role"
         >
-          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'].map((role) => (
+          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'employee'].map((role) => (
             <MenuItem key={role} value={role}>
               {role.replace('_', ' ').toUpperCase()}
             </MenuItem>
@@ -661,7 +663,7 @@ const ViewUserDetails = ({ user, onUpdateRole, onClose }) => {
             onChange={(e) => setSelectedRole(e.target.value)}
             label="Role"
           >
-            {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'].map((role) => (
+            {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'employee'].map((role) => (
               <MenuItem key={role} value={role}>
                 {role.replace('_', ' ').toUpperCase()}
               </MenuItem>
@@ -921,7 +923,7 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
           }}
           label="Role"
         >
-          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'employee'].map((role) => (
+          {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'employee'].map((role) => (
             <MenuItem key={role} value={role}>
               {role.replace('_', ' ').toUpperCase()}
             </MenuItem>
@@ -930,7 +932,7 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
       </FormControl>
       
       {/* Sub-Role Selection - Only show for roles that support sub-roles */}
-      {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'it_manager'].includes(formData.role) && (
+      {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'it_manager', 'taj_residencia_manager'].includes(formData.role) && (
         <FormControl fullWidth margin="normal">
           <InputLabel>Sub-Roles (Optional)</InputLabel>
           <Select
@@ -958,7 +960,8 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
                   'sales_manager': 'sales',
                   'crm_manager': 'crm',
                   'audit_manager': 'audit',
-                  'it_manager': 'it'
+                  'it_manager': 'it',
+                  'taj_residencia_manager': 'taj_residencia'
                 };
                 return subRole.module === roleToModuleMap[formData.role];
               })

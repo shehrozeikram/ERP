@@ -15,7 +15,7 @@ const subRoleSchema = new mongoose.Schema({
   module: {
     type: String,
     required: [true, 'Module is required'],
-    enum: ['admin', 'hr', 'finance', 'procurement', 'sales', 'crm', 'audit', 'it'],
+    enum: ['admin', 'hr', 'finance', 'procurement', 'sales', 'crm', 'audit', 'it', 'taj_residencia'],
     trim: true
   },
   isActive: {

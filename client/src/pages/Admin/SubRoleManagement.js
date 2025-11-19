@@ -75,7 +75,8 @@ const SubRoleManagement = () => {
     { value: 'sales', label: 'Sales' },
     { value: 'crm', label: 'CRM' },
     { value: 'audit', label: 'Audit' },
-    { value: 'it', label: 'IT' }
+    { value: 'it', label: 'IT' },
+    { value: 'taj_residencia', label: 'Taj Residencia' }
   ];
 
   const actions = [

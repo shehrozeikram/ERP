@@ -15,6 +15,7 @@ const ROLES = {
   AUDIT_MANAGER: 'audit_manager',
   AUDITOR: 'auditor',
   IT_MANAGER: 'it_manager',
+  TAJ_RESIDENCIA_MANAGER: 'taj_residencia_manager',
   EMPLOYEE: 'employee'
 };
 
@@ -131,7 +132,8 @@ const SUBMODULES = {
     'land_conversion',
     'compensation_management',
     'encroachment_dispute',
-    'reporting_framework'
+    'reporting_framework',
+    'complains_tickets'
   ]
 };
 
@@ -195,6 +197,12 @@ const ROLE_MODULE_ACCESS = {
     canAccessAll: false,
     modules: [MODULES.IT],
     description: 'IT module management'
+  },
+  
+  [ROLES.TAJ_RESIDENCIA_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULES.TAJ_RESIDENCIA],
+    description: 'Taj Residencia module management'
   },
   
   [ROLES.EMPLOYEE]: {
