@@ -1,10 +1,12 @@
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { getZKBioTimeConfig, getUserAgent, updateCookies } = require('../config/zktecoConfig');
 const { getPakistanDayRange } = require('../utils/timezoneHelper');
 
 /**
  * ZKBio Time API Service
- * Optimized service for ZKBio Time integration
+ * Optimized service with persistent session storage and proactive refresh
  */
 class ZKBioTimeApiService {
   constructor() {
@@ -15,21 +17,101 @@ class ZKBioTimeApiService {
     this.isAuthenticated = false;
     this.sessionCookies = null;
     this.csrfToken = null;
-    this.useProxy = false; // Flag to use proxy when direct connection fails
+    this.lastAuthFailureTime = 0;
+    this.sessionExpiryTime = null; // Track when session expires
+    this.refreshInterval = null; // Background refresh interval
     
-    // Add caching for better performance
+    // Session storage file path
+    this.sessionFile = path.join(__dirname, '..', 'zkbio-session.json');
+    
+    // Cache
     this.cache = {
-      employees: {
-        data: null,
-        timestamp: null,
-        ttl: 5 * 60 * 1000 // 5 minutes cache
-      },
-      attendance: {
-        data: {},
-        timestamp: {},
-        ttl: 2 * 60 * 1000 // 2 minutes cache
-      }
+      employees: { data: null, timestamp: null, ttl: 5 * 60 * 1000 },
+      attendance: { data: {}, timestamp: {}, ttl: 2 * 60 * 1000 }
     };
+    
+    // Load persisted session on startup
+    this.loadSession();
+    
+    // Start proactive refresh (every 15 minutes)
+    this.startProactiveRefresh();
+  }
+
+  /**
+   * Save session to file
+   */
+  saveSession() {
+    try {
+      const sessionData = {
+        sessionCookies: this.sessionCookies,
+        csrfToken: this.csrfToken,
+        isAuthenticated: this.isAuthenticated,
+        sessionExpiryTime: this.sessionExpiryTime,
+        savedAt: Date.now()
+      };
+      fs.writeFileSync(this.sessionFile, JSON.stringify(sessionData, null, 2));
+    } catch (error) {
+      console.error('❌ Failed to save session:', error.message);
+    }
+  }
+
+  /**
+   * Load session from file
+   */
+  loadSession() {
+    try {
+      if (fs.existsSync(this.sessionFile)) {
+        const sessionData = JSON.parse(fs.readFileSync(this.sessionFile, 'utf8'));
+        const now = Date.now();
+        
+        // Check if session is still valid (not expired)
+        if (sessionData.sessionExpiryTime && now < sessionData.sessionExpiryTime) {
+          this.sessionCookies = sessionData.sessionCookies;
+          this.csrfToken = sessionData.csrfToken;
+          this.isAuthenticated = sessionData.isAuthenticated;
+          this.sessionExpiryTime = sessionData.sessionExpiryTime;
+          console.log('✅ Loaded valid session from file');
+          return true;
+        } else {
+          console.log('⚠️ Saved session expired, will re-authenticate');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to load session:', error.message);
+    }
+    return false;
+  }
+
+  /**
+   * Start proactive session refresh (every 15 minutes)
+   */
+  startProactiveRefresh() {
+    // Clear any existing interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+    
+    // Refresh every 15 minutes (900000ms)
+    this.refreshInterval = setInterval(async () => {
+      try {
+        console.log('🔄 Proactive session refresh...');
+        await this.ensureAuth();
+      } catch (error) {
+        console.error('❌ Proactive refresh failed:', error.message);
+      }
+    }, 15 * 60 * 1000);
+    
+    console.log('✅ Proactive session refresh started (every 15 minutes)');
+  }
+
+  /**
+   * Stop proactive refresh (cleanup)
+   */
+  stopProactiveRefresh() {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
   }
 
   /**
@@ -206,12 +288,13 @@ class ZKBioTimeApiService {
 
       if (dashboardResponse.status === 200 && !dashboardResponse.data.includes('login')) {
         this.isAuthenticated = true;
+        // Set session expiry to 50 minutes from now (refresh before 60 min expiry)
+        this.sessionExpiryTime = Date.now() + (50 * 60 * 1000);
+        this.saveSession(); // Persist session
         console.log('✅ ZKBio Time authentication successful');
         return true;
       } else {
         console.error('❌ Authentication verification failed - dashboard contains login page');
-        console.error('   Dashboard response length:', dashboardResponse.data?.length || 0);
-        console.error('   Dashboard response preview:', dashboardResponse.data?.substring(0, 200) || 'No data');
         return false;
       }
       
@@ -240,99 +323,121 @@ class ZKBioTimeApiService {
   }
 
   /**
-   * Ensure authentication with retry logic
+   * Ensure authentication with retry logic and circuit breaker
    */
-  async ensureAuth(retryCount = 0, maxRetries = 2) {
-    if (!this.isLoggedIn()) {
-      console.log('🔐 Not authenticated, attempting to authenticate...');
-      const authResult = await this.authenticate();
-      if (!authResult && retryCount < maxRetries) {
-        console.log(`🔄 Authentication failed, retrying (${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
-        return await this.ensureAuth(retryCount + 1, maxRetries);
-      }
-      return authResult;
+  async ensureAuth(retryCount = 0, maxRetries = 3) {
+    // Circuit breaker: wait if recent failure
+    const lastFailureTime = this.lastAuthFailureTime || 0;
+    const timeSinceLastFailure = Date.now() - lastFailureTime;
+    if (lastFailureTime > 0 && timeSinceLastFailure < 30000) {
+      await new Promise(resolve => setTimeout(resolve, 30000 - timeSinceLastFailure));
     }
-    
-    // Test if current session is still valid by making a test request
-    try {
-      const testResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
-        headers: {
-          'Cookie': this.sessionCookies,
-          'User-Agent': getUserAgent()
-        },
-        timeout: 5000
-      });
-      
-      if (testResponse.status === 200 && !testResponse.data.includes('login')) {
-        console.log('✅ Session is still valid');
-        return true;
-      } else {
-        console.log('⚠️ Session expired, re-authenticating...');
-        this.isAuthenticated = false;
-        this.sessionCookies = null;
-        const authResult = await this.authenticate();
-        if (!authResult && retryCount < maxRetries) {
-          console.log(`🔄 Re-authentication failed, retrying (${retryCount + 1}/${maxRetries})...`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-          return await this.ensureAuth(retryCount + 1, maxRetries);
-        }
-        return authResult;
-      }
-    } catch (error) {
-      console.log('⚠️ Session test failed, re-authenticating...', error.message);
+
+    // Check if session is expired (proactive check)
+    if (this.sessionExpiryTime && Date.now() >= this.sessionExpiryTime) {
+      console.log('⚠️ Session expired (proactive check), re-authenticating...');
       this.isAuthenticated = false;
       this.sessionCookies = null;
+    }
+
+    if (!this.isLoggedIn()) {
       const authResult = await this.authenticate();
-      if (!authResult && retryCount < maxRetries) {
-        console.log(`🔄 Re-authentication failed after session test, retrying (${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+      if (!authResult) {
+        this.lastAuthFailureTime = Date.now();
+        if (retryCount < maxRetries) {
+          const backoffDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          return await this.ensureAuth(retryCount + 1, maxRetries);
+        }
+        return false;
+      }
+      this.lastAuthFailureTime = 0;
+      return true;
+    }
+    
+    // Quick session test (only if close to expiry)
+    const timeUntilExpiry = this.sessionExpiryTime ? (this.sessionExpiryTime - Date.now()) : 0;
+    if (timeUntilExpiry < 5 * 60 * 1000) { // Test if less than 5 min until expiry
+      try {
+        const testResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
+          headers: { 'Cookie': this.sessionCookies, 'User-Agent': getUserAgent() },
+          timeout: 10000
+        });
+        
+        if (testResponse.status === 200 && !testResponse.data.includes('login')) {
+          this.sessionExpiryTime = Date.now() + (50 * 60 * 1000);
+          this.saveSession();
+          return true;
+        }
+      } catch (error) {
+        // Silent fail, will re-auth below
+      }
+    } else {
+      return true; // Session still valid, no need to test
+    }
+    
+    // Re-authenticate if test failed or session expired
+    console.log('⚠️ Re-authenticating...');
+    this.isAuthenticated = false;
+    this.sessionCookies = null;
+    const authResult = await this.authenticate();
+    if (!authResult) {
+      this.lastAuthFailureTime = Date.now();
+      if (retryCount < maxRetries) {
+        const backoffDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
         return await this.ensureAuth(retryCount + 1, maxRetries);
       }
-      return authResult;
+      return false;
     }
+    this.lastAuthFailureTime = 0;
+    return true;
   }
 
-  /**
-   * Get the appropriate base URL (direct or proxy)
-   */
-  getRequestBaseURL() {
-    if (this.useProxy) {
-      return 'http://localhost:5001/api/attendance-proxy/zkbio-proxy';
-    }
-    return this.baseURL;
-  }
 
   /**
-   * Handle connection errors and switch to proxy if needed
+   * Get all employees (with pagination to get all employees) - ROBUST VERSION
    */
-  async handleConnectionError(error, retryWithProxy = true) {
-    if (retryWithProxy && !this.useProxy && 
-        (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND')) {
-      console.log('🔄 Direct connection failed, switching to proxy...');
-      this.useProxy = true;
-      return true; // Retry with proxy
-    }
-    return false; // Don't retry
-  }
-
-  /**
-   * Get all employees (with pagination to get all employees)
-   */
-  async getEmployees() {
+  async getEmployees(retryCount = 0, maxRetries = 2) {
     try {
-      // Check cache first
-      if (this.isCacheValid('employees', 'employees')) {
+      // Check cache first - use stale cache if available even if expired (graceful degradation)
+      const cachedData = this.getCachedData('employees', 'employees');
+      const isCacheValid = this.isCacheValid('employees', 'employees');
+      
+      if (isCacheValid && cachedData) {
         console.log('👥 Returning cached employees data');
         return {
           success: true,
-          data: this.getCachedData('employees', 'employees'),
-          count: this.getCachedData('employees', 'employees').length,
+          data: cachedData,
+          count: Array.isArray(cachedData) ? cachedData.length : 0,
           source: 'Cache'
         };
       }
 
+      // Use stale cache if available (graceful degradation)
+      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+        console.log('⚠️ Using stale cache for employees (API may be unavailable)');
+        return {
+          success: true,
+          data: cachedData,
+          count: cachedData.length,
+          source: 'Stale Cache',
+          warning: 'Using cached data - API may be unavailable'
+        };
+      }
+
       if (!(await this.ensureAuth())) {
+        // If auth fails but we have stale cache, return it
+        if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+          console.log('⚠️ Auth failed, using stale cache');
+          return {
+            success: true,
+            data: cachedData,
+            count: cachedData.length,
+            source: 'Stale Cache (Auth Failed)',
+            warning: 'Authentication failed - using cached data'
+          };
+        }
         throw new Error('Authentication failed');
       }
 
@@ -341,34 +446,61 @@ class ZKBioTimeApiService {
       let allEmployees = [];
       let page = 1;
       let hasMore = true;
-      const pageSize = 200; // Increased from 100 for faster fetching
+      const pageSize = 200;
+      const maxPages = 100; // Safety limit to prevent infinite loops
       
-      while (hasMore) {
-        const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
-          headers: this.getAuthHeaders(),
-          params: {
-            page_size: pageSize,
-            page: page,
-            ordering: 'emp_code'
-          }
-        });
+      while (hasMore && page <= maxPages) {
+        try {
+          const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
+            headers: this.getAuthHeaders(),
+            params: {
+              page_size: pageSize,
+              page: page,
+              ordering: 'emp_code'
+            },
+            timeout: 15000 // 15 second timeout per page
+          });
 
-        if (response.data && response.data.data && response.data.data.length > 0) {
-          allEmployees = allEmployees.concat(response.data.data);
-          console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
-          
-          // Check if there are more pages
-          hasMore = response.data.next !== null && response.data.data.length === pageSize;
-          page++;
-        } else {
-          hasMore = false;
+          if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
+            allEmployees = allEmployees.concat(response.data.data);
+            console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
+            
+            // Check if there are more pages
+            hasMore = response.data.next !== null && response.data.data.length === pageSize;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        } catch (pageError) {
+          console.error(`❌ Error fetching page ${page}:`, pageError.message);
+          // If we have some data, return it (partial success)
+          if (allEmployees.length > 0) {
+            console.log(`⚠️ Returning partial employee data (${allEmployees.length} employees)`);
+            this.setCachedData(allEmployees, 'employees', 'employees');
+            return {
+              success: true,
+              data: allEmployees,
+              count: allEmployees.length,
+              source: 'ZKBio Time API (Partial)',
+              warning: `Fetched ${allEmployees.length} employees before error occurred`
+            };
+          }
+          // If first page fails and we have retries, retry
+          if (retryCount < maxRetries && page === 1) {
+            console.log(`🔄 Retrying employee fetch (${retryCount + 1}/${maxRetries})...`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+            return await this.getEmployees(retryCount + 1, maxRetries);
+          }
+          throw pageError;
         }
       }
 
       console.log(`✅ Total employees fetched: ${allEmployees.length}`);
       
       // Cache the result
-      this.setCachedData(allEmployees, 'employees', 'employees');
+      if (allEmployees.length > 0) {
+        this.setCachedData(allEmployees, 'employees', 'employees');
+      }
       
       return {
         success: true,
@@ -379,7 +511,26 @@ class ZKBioTimeApiService {
 
     } catch (error) {
       console.error('❌ Failed to fetch employees:', error.message);
-      return { success: false, data: [], count: 0, error: error.message };
+      
+      // Return stale cache if available
+      const cachedData = this.getCachedData('employees', 'employees');
+      if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+        console.log('⚠️ Returning stale cache due to error');
+        return {
+          success: true,
+          data: cachedData,
+          count: cachedData.length,
+          source: 'Stale Cache (Error)',
+          warning: `Error occurred: ${error.message} - using cached data`
+        };
+      }
+      
+      return { 
+        success: false, 
+        data: [], 
+        count: 0, 
+        error: error.message 
+      };
     }
   }
 
@@ -397,7 +548,7 @@ class ZKBioTimeApiService {
       console.log('📊 Fetching fresh today\'s attendance from ZKBio Time...');
 
       // Use larger page size for faster fetching
-      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           start_time: startTime,
@@ -443,23 +594,60 @@ class ZKBioTimeApiService {
       return { success: false, data: [], count: 0, source: 'None' };
     } catch (error) {
       console.error('❌ Failed to fetch attendance:', error.message);
-      
-      // Try with proxy if direct connection failed
-      if (await this.handleConnectionError(error)) {
-        console.log('🔄 Retrying with proxy...');
-        return await this.getTodayAttendance();
-      }
-      
       return { success: false, data: [], count: 0, error: error.message };
     }
   }
 
   /**
-   * Get attendance for a specific date
+   * Get attendance for a specific date - ROBUST VERSION
    */
-  async getAttendanceForDate(targetDate) {
+  async getAttendanceForDate(targetDate, retryCount = 0, maxRetries = 2) {
     try {
+      // Validate date format
+      if (!targetDate || typeof targetDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+        console.error('❌ Invalid date format:', targetDate);
+        return { success: false, data: [], count: 0, error: 'Invalid date format. Expected YYYY-MM-DD' };
+      }
+
+      // Check cache first
+      const cacheKey = `attendance_${targetDate}`;
+      const cachedData = this.getCachedData(cacheKey, 'attendance');
+      const isCacheValid = this.isCacheValid(cacheKey, 'attendance');
+      
+      if (isCacheValid && cachedData) {
+        console.log(`📊 Returning cached attendance data for ${targetDate}`);
+        return {
+          success: true,
+          data: cachedData,
+          count: Array.isArray(cachedData) ? cachedData.length : 0,
+          source: 'Cache'
+        };
+      }
+
+      // Use stale cache if available
+      if (cachedData && Array.isArray(cachedData)) {
+        console.log(`⚠️ Using stale cache for attendance ${targetDate} (API may be unavailable)`);
+        return {
+          success: true,
+          data: cachedData,
+          count: cachedData.length,
+          source: 'Stale Cache',
+          warning: 'Using cached data - API may be unavailable'
+        };
+      }
+
       if (!(await this.ensureAuth())) {
+        // If auth fails but we have stale cache, return it
+        if (cachedData && Array.isArray(cachedData)) {
+          console.log('⚠️ Auth failed, using stale cache');
+          return {
+            success: true,
+            data: cachedData,
+            count: cachedData.length,
+            source: 'Stale Cache (Auth Failed)',
+            warning: 'Authentication failed - using cached data'
+          };
+        }
         throw new Error('Authentication failed');
       }
 
@@ -468,33 +656,99 @@ class ZKBioTimeApiService {
 
       console.log(`📊 Fetching attendance for ${targetDate} from ZKBio Time...`);
 
-      // Use larger page size for faster fetching
-      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
-        headers: this.getAuthHeaders(),
-        params: {
-          start_time: startTime,
-          end_time: endTime,
-          page_size: 1000, // Large page size to get all records for the date
-          page: 1,
-          ordering: '-punch_time'
-        }
-      });
+      // Fetch with pagination to handle large datasets
+      let allRecords = [];
+      let page = 1;
+      let hasMore = true;
+      const pageSize = 500; // Reasonable page size
+      const maxPages = 50; // Safety limit
 
-      if (response.data && response.data.data && response.data.data.length > 0) {
-        console.log(`✅ Fetched ${response.data.data.length} attendance records for ${targetDate}`);
-        return {
-          success: true,
-          data: response.data.data,
-          count: response.data.count || response.data.data.length,
-          source: targetDate
-        };
+      while (hasMore && page <= maxPages) {
+        try {
+          const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
+            headers: this.getAuthHeaders(),
+            params: {
+              start_time: startTime,
+              end_time: endTime,
+              page_size: pageSize,
+              page: page,
+              ordering: '-punch_time'
+            },
+            timeout: 20000 // 20 second timeout
+          });
+
+          if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
+            allRecords = allRecords.concat(response.data.data);
+            console.log(`📄 Fetched page ${page}: ${response.data.data.length} records`);
+            
+            hasMore = response.data.next !== null && response.data.data.length === pageSize;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        } catch (pageError) {
+          console.error(`❌ Error fetching attendance page ${page} for ${targetDate}:`, pageError.message);
+          // If we have some data, return it (partial success)
+          if (allRecords.length > 0) {
+            console.log(`⚠️ Returning partial attendance data (${allRecords.length} records)`);
+            this.setCachedData(allRecords, cacheKey, 'attendance');
+            return {
+              success: true,
+              data: allRecords,
+              count: allRecords.length,
+              source: targetDate + ' (Partial)',
+              warning: `Fetched ${allRecords.length} records before error occurred`
+            };
+          }
+          // If first page fails and we have retries, retry
+          if (retryCount < maxRetries && page === 1) {
+            console.log(`🔄 Retrying attendance fetch for ${targetDate} (${retryCount + 1}/${maxRetries})...`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+            return await this.getAttendanceForDate(targetDate, retryCount + 1, maxRetries);
+          }
+          throw pageError;
+        }
       }
 
-      console.log(`⚠️ No attendance data found for ${targetDate}`);
-      return { success: true, data: [], count: 0, source: targetDate };
+      console.log(`✅ Fetched ${allRecords.length} attendance records for ${targetDate}`);
+      
+      // Cache the result
+      if (allRecords.length > 0) {
+        this.setCachedData(allRecords, cacheKey, 'attendance');
+      } else {
+        // Cache empty result too (to avoid repeated API calls for dates with no data)
+        this.setCachedData([], cacheKey, 'attendance');
+      }
+      
+      return {
+        success: true,
+        data: allRecords,
+        count: allRecords.length,
+        source: targetDate
+      };
     } catch (error) {
       console.error(`❌ Failed to fetch attendance for ${targetDate}:`, error.message);
-      return { success: false, data: [], count: 0, error: error.message };
+      
+      // Return stale cache if available
+      const cacheKey = `attendance_${targetDate}`;
+      const cachedData = this.getCachedData(cacheKey, 'attendance');
+      if (cachedData && Array.isArray(cachedData)) {
+        console.log('⚠️ Returning stale cache due to error');
+        return {
+          success: true,
+          data: cachedData,
+          count: cachedData.length,
+          source: 'Stale Cache (Error)',
+          warning: `Error occurred: ${error.message} - using cached data`
+        };
+      }
+      
+      return { 
+        success: false, 
+        data: [], 
+        count: 0, 
+        error: error.message 
+      };
     }
   }
 
@@ -508,7 +762,7 @@ class ZKBioTimeApiService {
 
       console.log(`🔍 Fetching attendance history for employee ${employeeCode} (page_size: ${pageSize}, page: ${page})...`);
       
-      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           emp_code: employeeCode,
@@ -534,13 +788,6 @@ class ZKBioTimeApiService {
       return { success: false, data: [], count: 0, totalCount: 0, hasMore: false };
     } catch (error) {
       console.error('❌ Failed to fetch employee attendance history:', error.message);
-      
-      // Try with proxy if direct connection failed
-      if (await this.handleConnectionError(error)) {
-        console.log('🔄 Retrying with proxy...');
-        return await this.getEmployeeAttendanceHistory(employeeCode, pageSize, page);
-      }
-      
       return { success: false, data: [], count: 0, totalCount: 0, hasMore: false, error: error.message };
     }
   }
@@ -617,7 +864,7 @@ class ZKBioTimeApiService {
 
       console.log(`📊 Fetching attendance from ${startDate} to ${endDate}...`);
       
-      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/transactions/`, {
+      const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
         headers: this.getAuthHeaders(),
         params: {
           punch_time__gte: `${startDate} 00:00:00`,
@@ -663,7 +910,7 @@ class ZKBioTimeApiService {
       let hasMore = true;
 
       while (hasMore) {
-        const resp = await axios.get(`${this.getRequestBaseURL()}/personnel/api/departments/`, {
+        const resp = await axios.get(`${this.baseURL}/personnel/api/departments/`, {
           headers: this.getAuthHeaders(),
           params: { page_size: pageSize, page }
         });
@@ -732,7 +979,7 @@ class ZKBioTimeApiService {
 
       console.log('📱 Fetching devices from ZKBio Time...');
 
-      const response = await axios.get(`${this.getRequestBaseURL()}/iclock/api/terminals/`, {
+      const response = await axios.get(`${this.baseURL}/iclock/api/terminals/`, {
         headers: this.getAuthHeaders(),
         params: {
           page_size: 500,
@@ -751,15 +998,6 @@ class ZKBioTimeApiService {
       return { success: false, data: [], count: 0, error: 'No device data received from ZKBio Time API' };
     } catch (error) {
       console.error('❌ Failed to fetch devices:', error.message);
-      if (error.response) {
-        console.error('   Response status:', error.response.status);
-        console.error('   Response data:', error.response.data?.substring?.(0, 200) || error.response.data);
-      }
-      // Try with proxy if direct connection failed
-      if (await this.handleConnectionError(error)) {
-        console.log('🔄 Retrying devices with proxy...');
-        return await this.getDevices();
-      }
       return { success: false, data: [], count: 0, error: error.message || 'Failed to fetch devices from ZKBio Time API' };
     }
   }
