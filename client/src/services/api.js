@@ -15,9 +15,9 @@ const API_URL = getApiUrl();
 
 // Only log in development to avoid console noise in production
 if (process.env.NODE_ENV !== 'production') {
-  console.log('🔧 API URL configured:', API_URL);
-  console.log('🔧 Environment:', process.env.NODE_ENV);
-  console.log('🔧 Origin:', window.location.origin);
+console.log('🔧 API URL configured:', API_URL);
+console.log('🔧 Environment:', process.env.NODE_ENV);
+console.log('🔧 Origin:', window.location.origin);
 }
 
 // Create axios instance with default config
@@ -80,9 +80,9 @@ api.interceptors.response.use(
       // Only redirect if not already on login page
       if (window.location.pathname !== '/login') {
         if (process.env.NODE_ENV !== 'production') {
-          console.log('🔐 401 error, redirecting to login:', url);
+      console.log('🔐 401 error, redirecting to login:', url);
         }
-        localStorage.removeItem('token');
+      localStorage.removeItem('token');
         window.location.replace('/login');
       }
     }

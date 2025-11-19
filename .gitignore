@@ -133,7 +133,7 @@ uploads/
 
 # Cache files
 .cache/
-*.cache
+*.cache 
 
 # ZKBio Time session storage
 server/zkbio-session.json 

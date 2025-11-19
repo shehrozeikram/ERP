@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -14,8 +14,16 @@ import {
   TextField,
   InputAdornment,
   Divider,
-  Fab,
-  Pagination
+  Pagination,
+  CircularProgress,
+  Alert,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  List,
+  ListItem,
+  ListItemText
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -28,8 +36,10 @@ import {
   AssignmentTurnedIn,
   PendingActions,
   CheckCircle,
-  Add as AddIcon
+  History as HistoryIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
+import api from '../../services/api';
 
 const statusPalette = [
   { id: 'New', label: 'New', color: '#1e88e5', accent: '#e3f2fd' },
@@ -41,74 +51,6 @@ const statusPalette = [
   { id: 'Not Applicable', label: 'Not Applicable', color: '#9e9e9e', accent: '#f5f5f5' }
 ];
 
-const initialTickets = [
-  {
-    id: 'TR-001',
-    title: 'Street light not working',
-    description: 'Resident reported blackout in Block A street #4.',
-    reportedBy: 'Hamza Farooq',
-    contact: '0300-1234567',
-    email: 'hamza@example.com',
-    priority: 'High',
-    category: 'Utilities',
-    assignedTo: 'Maintenance',
-    updatedAt: '2025-11-18',
-    status: 'New'
-  },
-  {
-    id: 'TR-002',
-    title: 'Water pressure issue',
-    description: 'Low pressure in Phase 2 – needs inspection.',
-    reportedBy: 'Rabia Khalid',
-    contact: '0315-7654321',
-    email: 'rabia@example.com',
-    priority: 'Medium',
-    category: 'Infrastructure',
-    assignedTo: 'Operations',
-    updatedAt: '2025-11-17',
-    status: 'Contacted'
-  },
-  {
-    id: 'TR-003',
-    title: 'Plot demarcation query',
-    description: 'Buyer requesting expedited demarcation schedule.',
-    reportedBy: 'Zain Ali',
-    contact: '0345-9087766',
-    email: 'zain@example.com',
-    priority: 'Low',
-    category: 'Documentation',
-    assignedTo: 'Land Dept.',
-    updatedAt: '2025-11-15',
-    status: 'Approval Required'
-  },
-  {
-    id: 'TR-004',
-    title: 'Security guard rotation',
-    description: 'Request for additional guards on Main Boulevard.',
-    reportedBy: 'Security Team',
-    contact: 'N/A',
-    email: 'security@tajres.com',
-    priority: 'High',
-    category: 'Security',
-    assignedTo: 'HR & Security',
-    updatedAt: '2025-11-12',
-    status: 'Hold'
-  },
-  {
-    id: 'TR-005',
-    title: 'Tree trimming completed',
-    description: 'Civic maintenance completed as requested.',
-    reportedBy: 'Civic Dept.',
-    contact: '021-1234567',
-    email: 'civic@example.com',
-    priority: 'Medium',
-    category: 'Civic',
-    assignedTo: 'Landscape',
-    updatedAt: '2025-11-10',
-    status: 'Completed'
-  }
-];
-
 const priorityColors = {
   High: '#d32f2f',
   Medium: '#ed6c02',
@@ -116,22 +58,45 @@ const priorityColors = {
 };
 
 const ComplainsTickets = () => {
-  const [tickets, setTickets] = useState(initialTickets);
+  const [tickets, setTickets] = useState([]);
   const [draggedTicket, setDraggedTicket] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const maxPages = 50;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [historyTicket, setHistoryTicket] = useState(null);
   const draggedTicketRef = useRef(null);
+
+  const loadComplaints = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await api.get('/taj-residencia/complaints', {
+        params: { limit: 500 }
+      });
+      const items = response.data?.data || [];
+      setTickets(items);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Failed to load complaints');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadComplaints();
+  }, [loadComplaints]);
 
   const filteredTickets = useMemo(() => {
     if (!searchTerm.trim()) return tickets;
     const q = searchTerm.toLowerCase();
     return tickets.filter(ticket =>
-      ticket.title.toLowerCase().includes(q) ||
-      ticket.reportedBy.toLowerCase().includes(q) ||
-      ticket.category.toLowerCase().includes(q) ||
-      ticket.id.toLowerCase().includes(q)
+      ticket.title?.toLowerCase().includes(q) ||
+      ticket.reporter?.name?.toLowerCase().includes(q) ||
+      ticket.category?.toLowerCase().includes(q) ||
+      ticket.trackingCode?.toLowerCase().includes(q)
     );
   }, [tickets, searchTerm]);
 
@@ -202,29 +167,58 @@ const ComplainsTickets = () => {
   };
 
   const handleDrop = useCallback(
-    (e, newStatus) => {
+    async (e, newStatus) => {
       e.preventDefault();
       const ticket = draggedTicketRef.current;
-      if (!ticket || ticket.status === newStatus) {
+      if (!ticket) {
         setDraggedTicket(null);
         draggedTicketRef.current = null;
         return;
       }
+      const sameStatus = ticket.status === newStatus;
       setTickets(prev =>
         prev.map(item =>
-          item.id === ticket.id
+          item._id === ticket._id
             ? {
                 ...item,
-                status: newStatus,
-                updatedAt: new Date().toISOString().split('T')[0]
+                status: sameStatus ? item.status : newStatus,
+                updatedAt: new Date().toISOString(),
+                lastUpdatedBy: sameStatus ? item.lastUpdatedBy : 'Updating...',
+                history: [
+                  {
+                    status: sameStatus ? item.status : newStatus,
+                    changedAt: new Date().toISOString(),
+                    changedByName: sameStatus ? item.lastUpdatedBy || 'System' : 'Updating...',
+                    notes: sameStatus
+                      ? `Card dropped back in ${item.status}`
+                      : `Status updated to ${newStatus}`
+                  },
+                  ...(item.history || [])
+                ]
               }
             : item
         )
       );
+      if (!sameStatus) {
+        try {
+          const response = await api.patch(`/taj-residencia/complaints/${ticket._id}/status`, { status: newStatus });
+          const updated = response.data?.data;
+          if (updated) {
+            setTickets(prev =>
+              prev.map(item => (item._id === updated._id ? updated : item))
+            );
+          } else {
+            loadComplaints();
+          }
+        } catch (err) {
+          setError(err.response?.data?.message || 'Failed to update status');
+          loadComplaints();
+        }
+      }
       setDraggedTicket(null);
       draggedTicketRef.current = null;
     },
-    []
+    [loadComplaints]
   );
 
   const handleDragEnd = () => {
@@ -234,6 +228,11 @@ const ComplainsTickets = () => {
 
   const TicketCard = ({ ticket }) => {
     const statusColor = statusPalette.find(s => s.id === ticket.status)?.color || '#cfd8dc';
+    const reporterName = ticket.reporter?.name || 'Anonymous';
+    const reporterPhone = ticket.reporter?.phone || 'N/A';
+    const reporterEmail = ticket.reporter?.email || 'N/A';
+    const assignedTo = ticket.meta?.assignedTo || 'Unassigned';
+    const updatedDate = ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleDateString() : 'N/A';
     return (
       <Card
         draggable
@@ -242,28 +241,33 @@ const ComplainsTickets = () => {
         sx={{
           mb: 2.5,
           cursor: 'grab',
-          opacity: draggedTicket?.id === ticket.id ? 0.4 : 1,
-          borderRadius: 3,
-          border: `1px solid rgba(0,0,0,.05)`,
-          boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
-          '&:hover': { boxShadow: '0 15px 35px rgba(15,23,42,0.12)' },
+          borderRadius: 4,
+          border: `1px solid rgba(15,23,42,0.08)`,
+          backgroundColor: '#ffffff',
+          boxShadow: '0 12px 35px rgba(15,23,42,0.12)',
+          opacity: draggedTicket?._id === ticket._id ? 0.4 : 1,
+          transition: 'all .2s ease',
+          '&:hover': {
+            boxShadow: '0 18px 40px rgba(15,23,42,0.18)',
+            transform: 'translateY(-2px)'
+          },
           '&:active': { cursor: 'grabbing' }
         }}
       >
         <Box sx={{ height: 4, bgcolor: statusColor, borderTopLeftRadius: 12, borderTopRightRadius: 12 }} />
         <CardContent sx={{ p: 2.25 }}>
-          <Stack direction="row" alignItems="flex-start" justifyContent="space-between" mb={1.5}>
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" mb={1.5}>
             <Box>
               <Typography variant="subtitle1" fontWeight={700} gutterBottom noWrap>
                 {ticket.title}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                #{ticket.id} · {ticket.category}
+                #{ticket.trackingCode || ticket._id} · {ticket.category || 'General'}
               </Typography>
             </Box>
-            <Box>
+          <Stack direction="row" spacing={0.5}>
               <Tooltip title="View ticket">
-                <IconButton size="small">
+              <IconButton size="small">
                   <ViewIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -272,7 +276,12 @@ const ComplainsTickets = () => {
                   <EditIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-            </Box>
+            <Tooltip title="View history">
+              <IconButton size="small" onClick={() => setHistoryTicket(ticket)}>
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
           </Stack>
 
           <Typography variant="body2" color="text.secondary" mb={1.5}>
@@ -281,7 +290,7 @@ const ComplainsTickets = () => {
 
           <Stack direction="row" spacing={1} flexWrap="wrap" mb={1.5}>
             <Chip
-              label={ticket.assignedTo}
+            label={assignedTo}
               size="small"
               sx={{
                 bgcolor: '#f1f5ff',
@@ -301,6 +310,10 @@ const ComplainsTickets = () => {
             />
           </Stack>
 
+        <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+          Last updated by {ticket.lastUpdatedBy || 'Public Portal'}
+        </Typography>
+
           <Stack spacing={1} mb={1.5}>
             <Stack direction="row" spacing={1} alignItems="center">
               <Avatar sx={{ width: 32, height: 32, bgcolor: statusColor, fontSize: 14 }}>
@@ -311,26 +324,26 @@ const ComplainsTickets = () => {
                   Reported By
                 </Typography>
                 <Typography variant="body2" fontWeight={600}>
-                  {ticket.reportedBy}
+                  {reporterName}
                 </Typography>
               </Box>
             </Stack>
-            {ticket.contact !== 'N/A' && (
+            {reporterPhone && reporterPhone !== 'N/A' && (
               <Stack direction="row" spacing={1} alignItems="center">
                 <Phone sx={{ fontSize: 16, color: 'text.secondary' }} />
-                <Typography variant="caption">{ticket.contact}</Typography>
+                <Typography variant="caption">{reporterPhone}</Typography>
               </Stack>
             )}
             <Stack direction="row" spacing={1} alignItems="center">
               <Email sx={{ fontSize: 16, color: 'text.secondary' }} />
-              <Typography variant="caption">{ticket.email}</Typography>
+              <Typography variant="caption">{reporterEmail || 'N/A'}</Typography>
             </Stack>
           </Stack>
 
           <Divider sx={{ my: 1.5 }} />
           <Box display="flex" justifyContent="space-between">
             <Typography variant="caption" color="text.secondary">
-              Updated {ticket.updatedAt}
+              Updated {updatedDate}
             </Typography>
             <Typography variant="caption" fontWeight={700} color={statusColor}>
               {ticket.status}
@@ -390,7 +403,7 @@ const ComplainsTickets = () => {
         {groupedTickets[status.id]?.length ? (
           groupedTickets[status.id]
             .slice((page - 1) * pageSize, page * pageSize)
-            .map(ticket => <TicketCard key={ticket.id} ticket={ticket} />)
+            .map(ticket => <TicketCard key={ticket._id || ticket.trackingCode} ticket={ticket} />)
         ) : (
           <Box
             sx={{
@@ -408,18 +421,45 @@ const ComplainsTickets = () => {
     </Paper>
   );
 
+  if (loading) {
+    return (
+      <Box sx={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={loadComplaints}>
+              Retry
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#f5f6fa', minHeight: '100vh', position: 'relative' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'flex-start', md: 'center' }} justifyContent="space-between" gap={2} mb={3}>
-        <Box>
+        <Box display="flex" alignItems="center" gap={2}>
           <Typography variant="h4" fontWeight={700}>
             Complains & Tickets
           </Typography>
         </Box>
         <Tooltip title="Refresh board">
-          <IconButton sx={{ bgcolor: '#fff', boxShadow: 2 }}>
+          <span>
+          <IconButton sx={{ bgcolor: '#fff', boxShadow: 2 }} onClick={loadComplaints} disabled={loading}>
             <RefreshIcon />
           </IconButton>
+          </span>
         </Tooltip>
       </Stack>
 
@@ -446,7 +486,10 @@ const ComplainsTickets = () => {
       <Paper sx={{ mb: 3, p: 2.5, borderRadius: 3, boxShadow: '0 10px 30px rgba(15,23,42,0.08)' }}>
         <TextField
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setPage(1);
+          }}
           placeholder="Search tickets by title, reporter, category..."
           fullWidth
           size="small"
@@ -475,6 +518,50 @@ const ComplainsTickets = () => {
           shape="rounded"
         />
       </Box>
+
+      <Dialog open={Boolean(historyTicket)} onClose={() => setHistoryTicket(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          Complaint History
+          <IconButton onClick={() => setHistoryTicket(null)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {historyTicket?.history?.length ? (
+            <List>
+              {historyTicket.history
+                .slice()
+                .sort((a, b) => new Date(b.changedAt) - new Date(a.changedAt))
+                .map((entry, index) => (
+                  <React.Fragment key={index}>
+                    <ListItem alignItems="flex-start">
+                      <ListItemText
+                        primary={
+                          <Typography fontWeight={600}>
+                            {entry.status} · {entry.changedByName || 'System'}
+                          </Typography>
+                        }
+                        secondary={
+                          <>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(entry.changedAt).toLocaleString()}
+                            </Typography>
+                            {entry.notes && (
+                              <Typography variant="body2">{entry.notes}</Typography>
+                            )}
+                          </>
+                        }
+                      />
+                    </ListItem>
+                    {index < historyTicket.history.length - 1 && <Divider component="li" />}
+                  </React.Fragment>
+                ))}
+            </List>
+          ) : (
+            <Typography variant="body2">No history available.</Typography>
+          )}
+        </DialogContent>
+      </Dialog>
 
     </Box>
   );

@@ -20,9 +20,9 @@ const landIdentificationHandlers = createCRUDHandlers(LandIdentification, 'Land 
     'ownerDetails.ownerName'
   ],
   populateFields: [
-    { path: 'createdBy', select: 'fullName email' },
-    { path: 'updatedBy', select: 'fullName email' },
-    { path: 'assignedTo', select: 'fullName email' }
+        { path: 'createdBy', select: 'fullName email' },
+        { path: 'updatedBy', select: 'fullName email' },
+        { path: 'assignedTo', select: 'fullName email' }
   ],
   customFilters: {
     district: 'mauzaIdentification.district',
@@ -64,11 +64,11 @@ const recordVerificationHandlers = createCRUDHandlers(RecordVerification, 'Recor
     'fard.fardDetails.mauzaName'
   ],
   populateFields: [
-    { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
-    { path: 'createdBy', select: 'fullName email' },
-    { path: 'updatedBy', select: 'fullName email' },
-    { path: 'assignedTo', select: 'fullName email' }
-  ]
+        { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
+        { path: 'createdBy', select: 'fullName email' },
+        { path: 'updatedBy', select: 'fullName email' },
+        { path: 'assignedTo', select: 'fullName email' }
+      ]
 });
 
 router.get('/record-verification', authMiddleware, recordVerificationHandlers.getAll);
@@ -107,12 +107,12 @@ const khasraMappingHandlers = createCRUDHandlers(KhasraMapping, 'Khasra Mapping'
     'shajra.shajraNumber'
   ],
   populateFields: [
-    { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
-    { path: 'recordVerification', select: 'verificationNumber' },
-    { path: 'createdBy', select: 'fullName email' },
-    { path: 'updatedBy', select: 'fullName email' },
-    { path: 'assignedTo', select: 'fullName email' }
-  ]
+        { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
+        { path: 'recordVerification', select: 'verificationNumber' },
+        { path: 'createdBy', select: 'fullName email' },
+        { path: 'updatedBy', select: 'fullName email' },
+        { path: 'assignedTo', select: 'fullName email' }
+      ]
 });
 
 router.get('/khasra-mapping', authMiddleware, khasraMappingHandlers.getAll);
@@ -157,13 +157,13 @@ const demarcationHandlers = createCRUDHandlers(Demarcation, 'Demarcation', {
     'patwariQanoongoVisit.qanoongo.name'
   ],
   populateFields: [
-    { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
-    { path: 'recordVerification', select: 'verificationNumber' },
-    { path: 'khasraMapping', select: 'mappingNumber' },
-    { path: 'createdBy', select: 'fullName email' },
-    { path: 'updatedBy', select: 'fullName email' },
-    { path: 'assignedTo', select: 'fullName email' }
-  ]
+        { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
+        { path: 'recordVerification', select: 'verificationNumber' },
+        { path: 'khasraMapping', select: 'mappingNumber' },
+        { path: 'createdBy', select: 'fullName email' },
+        { path: 'updatedBy', select: 'fullName email' },
+        { path: 'assignedTo', select: 'fullName email' }
+      ]
 });
 
 router.get('/demarcation', authMiddleware, demarcationHandlers.getAll);
@@ -217,12 +217,12 @@ const ownerDueDiligenceHandlers = createCRUDHandlers(OwnerDueDiligence, 'Owner D
     'multipleHeirs.heirs.name'
   ],
   populateFields: [
-    { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
-    { path: 'recordVerification', select: 'verificationNumber' },
-    { path: 'createdBy', select: 'fullName email' },
-    { path: 'updatedBy', select: 'fullName email' },
-    { path: 'assignedTo', select: 'fullName email' }
-  ]
+        { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
+        { path: 'recordVerification', select: 'verificationNumber' },
+        { path: 'createdBy', select: 'fullName email' },
+        { path: 'updatedBy', select: 'fullName email' },
+        { path: 'assignedTo', select: 'fullName email' }
+      ]
 });
 
 router.get('/owner-due-diligence', authMiddleware, ownerDueDiligenceHandlers.getAll);
@@ -272,12 +272,12 @@ const negotiationBayanaHandlers = createCRUDHandlers(NegotiationBayana, 'Negotia
     'bayana.bayanaNumber'
   ],
   populateFields: [
-    { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
-    { path: 'ownerDueDiligence', select: 'dueDiligenceNumber' },
-    { path: 'createdBy', select: 'fullName email' },
-    { path: 'updatedBy', select: 'fullName email' },
-    { path: 'assignedTo', select: 'fullName email' }
-  ]
+        { path: 'landIdentification', select: 'identificationNumber mauzaIdentification' },
+        { path: 'ownerDueDiligence', select: 'dueDiligenceNumber' },
+        { path: 'createdBy', select: 'fullName email' },
+        { path: 'updatedBy', select: 'fullName email' },
+        { path: 'assignedTo', select: 'fullName email' }
+      ]
 });
 
 router.get('/negotiation-bayana', authMiddleware, negotiationBayanaHandlers.getAll);

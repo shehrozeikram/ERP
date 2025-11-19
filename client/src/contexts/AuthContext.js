@@ -120,13 +120,13 @@ export const AuthProvider = ({ children }) => {
             if (process.env.NODE_ENV !== 'production') {
               console.log('✅ Authentication successful');
             }
-            dispatch({
-              type: 'LOGIN_SUCCESS',
-              payload: {
+          dispatch({
+            type: 'LOGIN_SUCCESS',
+            payload: {
                 user: userData,
-                token
-              }
-            });
+              token
+            }
+          });
           } else {
             // Log the full response for debugging (only in dev)
             if (process.env.NODE_ENV !== 'production') {
@@ -147,8 +147,8 @@ export const AuthProvider = ({ children }) => {
             if (process.env.NODE_ENV !== 'production') {
               console.error('❌ Auth check failed: Invalid or expired token');
             }
-            localStorage.removeItem('token');
-            dispatch({ type: 'LOGIN_FAILURE', payload: 'Session expired' });
+          localStorage.removeItem('token');
+          dispatch({ type: 'LOGIN_FAILURE', payload: 'Session expired' });
           } else if (isNetworkError) {
             // Network error or timeout - keep token for retry
             if (process.env.NODE_ENV !== 'production') {
@@ -233,7 +233,7 @@ export const AuthProvider = ({ children }) => {
       await authService.logout();
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
-        console.error('Logout error:', error);
+      console.error('Logout error:', error);
       }
     } finally {
       localStorage.removeItem('token');

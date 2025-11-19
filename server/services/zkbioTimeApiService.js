@@ -348,7 +348,7 @@ class ZKBioTimeApiService {
           const backoffDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
           await new Promise(resolve => setTimeout(resolve, backoffDelay));
           return await this.ensureAuth(retryCount + 1, maxRetries);
-        }
+    }
         return false;
       }
       this.lastAuthFailureTime = 0;
@@ -358,18 +358,18 @@ class ZKBioTimeApiService {
     // Quick session test (only if close to expiry)
     const timeUntilExpiry = this.sessionExpiryTime ? (this.sessionExpiryTime - Date.now()) : 0;
     if (timeUntilExpiry < 5 * 60 * 1000) { // Test if less than 5 min until expiry
-      try {
-        const testResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
+    try {
+      const testResponse = await axios.get(`${this.baseURL}${this.endpoints.dashboard}`, {
           headers: { 'Cookie': this.sessionCookies, 'User-Agent': getUserAgent() },
           timeout: 10000
-        });
-        
-        if (testResponse.status === 200 && !testResponse.data.includes('login')) {
+      });
+      
+      if (testResponse.status === 200 && !testResponse.data.includes('login')) {
           this.sessionExpiryTime = Date.now() + (50 * 60 * 1000);
           this.saveSession();
-          return true;
-        }
-      } catch (error) {
+        return true;
+      }
+    } catch (error) {
         // Silent fail, will re-auth below
       }
     } else {
@@ -378,8 +378,8 @@ class ZKBioTimeApiService {
     
     // Re-authenticate if test failed or session expired
     console.log('⚠️ Re-authenticating...');
-    this.isAuthenticated = false;
-    this.sessionCookies = null;
+      this.isAuthenticated = false;
+      this.sessionCookies = null;
     const authResult = await this.authenticate();
     if (!authResult) {
       this.lastAuthFailureTime = Date.now();
@@ -387,7 +387,7 @@ class ZKBioTimeApiService {
         const backoffDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
         await new Promise(resolve => setTimeout(resolve, backoffDelay));
         return await this.ensureAuth(retryCount + 1, maxRetries);
-      }
+    }
       return false;
     }
     this.lastAuthFailureTime = 0;
@@ -451,25 +451,25 @@ class ZKBioTimeApiService {
       
       while (hasMore && page <= maxPages) {
         try {
-          const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
-            headers: this.getAuthHeaders(),
-            params: {
-              page_size: pageSize,
-              page: page,
-              ordering: 'emp_code'
+        const response = await axios.get(`${this.baseURL}/personnel/api/employees/`, {
+          headers: this.getAuthHeaders(),
+          params: {
+            page_size: pageSize,
+            page: page,
+            ordering: 'emp_code'
             },
             timeout: 15000 // 15 second timeout per page
-          });
+        });
 
           if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
-            allEmployees = allEmployees.concat(response.data.data);
-            console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
-            
-            // Check if there are more pages
-            hasMore = response.data.next !== null && response.data.data.length === pageSize;
-            page++;
-          } else {
-            hasMore = false;
+          allEmployees = allEmployees.concat(response.data.data);
+          console.log(`📄 Fetched page ${page}: ${response.data.data.length} employees`);
+          
+          // Check if there are more pages
+          hasMore = response.data.next !== null && response.data.data.length === pageSize;
+          page++;
+        } else {
+          hasMore = false;
           }
         } catch (pageError) {
           console.error(`❌ Error fetching page ${page}:`, pageError.message);
@@ -499,7 +499,7 @@ class ZKBioTimeApiService {
       
       // Cache the result
       if (allEmployees.length > 0) {
-        this.setCachedData(allEmployees, 'employees', 'employees');
+      this.setCachedData(allEmployees, 'employees', 'employees');
       }
       
       return {
@@ -666,16 +666,16 @@ class ZKBioTimeApiService {
       while (hasMore && page <= maxPages) {
         try {
           const response = await axios.get(`${this.baseURL}/iclock/api/transactions/`, {
-            headers: this.getAuthHeaders(),
-            params: {
-              start_time: startTime,
-              end_time: endTime,
+        headers: this.getAuthHeaders(),
+        params: {
+          start_time: startTime,
+          end_time: endTime,
               page_size: pageSize,
               page: page,
-              ordering: '-punch_time'
+          ordering: '-punch_time'
             },
             timeout: 20000 // 20 second timeout
-          });
+      });
 
           if (response.data && response.data.data && Array.isArray(response.data.data) && response.data.data.length > 0) {
             allRecords = allRecords.concat(response.data.data);
@@ -692,8 +692,8 @@ class ZKBioTimeApiService {
           if (allRecords.length > 0) {
             console.log(`⚠️ Returning partial attendance data (${allRecords.length} records)`);
             this.setCachedData(allRecords, cacheKey, 'attendance');
-            return {
-              success: true,
+        return {
+          success: true,
               data: allRecords,
               count: allRecords.length,
               source: targetDate + ' (Partial)',

@@ -9,6 +9,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout/Layout';
 import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
+import NoChromeLayout from './components/NoChromeLayout';
 
 // Pages
 import Login from './pages/Auth/Login';
@@ -192,6 +193,9 @@ import PublicApproval from './pages/Public/PublicApproval';
 import OfferAcceptance from './pages/Public/OfferAcceptance';
 import PublicJoiningDocument from './pages/Public/PublicJoiningDocument';
 import PublicEmployeeOnboarding from './pages/Public/PublicEmployeeOnboarding';
+import RegisterComplaint from './pages/Public/RegisterComplaint';
+import MyComplaints from './pages/Public/MyComplaints';
+import TajComplaintsPortal from './pages/Public/TajComplaintsPortal';
 
 // Increment Management Pages
 import IncrementList from './pages/Increments/IncrementList';
@@ -322,16 +326,21 @@ function App() {
   // If user is not authenticated, show login page and public routes
   if (!user) {
     return (
-      <Routes>
-        <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-        <Route path="/apply/:affiliateCode" element={<JobApplication />} />
-        <Route path="/public-approval/:id" element={<PublicApproval />} />
-        <Route path="/candidates/offer/:candidateId" element={<OfferAcceptance />} />
-        <Route path="/public-joining-document/:approvalId" element={<PublicJoiningDocument />} />
-        <Route path="/public-employee-onboarding/:id" element={<PublicEmployeeOnboarding />} />
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <NoChromeLayout>
+        <Routes>
+          <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          <Route path="/apply/:affiliateCode" element={<JobApplication />} />
+          <Route path="/public-approval/:id" element={<PublicApproval />} />
+          <Route path="/candidates/offer/:candidateId" element={<OfferAcceptance />} />
+          <Route path="/public-joining-document/:approvalId" element={<PublicJoiningDocument />} />
+          <Route path="/public-employee-onboarding/:id" element={<PublicEmployeeOnboarding />} />
+          <Route path="/taj-complaints" element={<TajComplaintsPortal />} />
+          <Route path="/taj-complaints/register" element={<RegisterComplaint />} />
+          <Route path="/taj-complaints/my" element={<MyComplaints />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </NoChromeLayout>
     );
   }
 
@@ -1401,6 +1410,19 @@ function App() {
             <Route 
               path="/hr/banks/manage" 
               element={<ProtectedRoute><BankManagement /></ProtectedRoute>} 
+            />
+
+            <Route 
+              path="/taj-complaints" 
+              element={<TajComplaintsPortal />} 
+            />
+            <Route 
+              path="/taj-complaints/register" 
+              element={<RegisterComplaint />} 
+            />
+            <Route 
+              path="/taj-complaints/my" 
+              element={<MyComplaints />} 
             />
 
             {/* Default redirects */}
