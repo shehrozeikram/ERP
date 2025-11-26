@@ -47,7 +47,7 @@ const RentalManagementDashboard = () => {
   const [deleting, setDeleting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
-  const [formData, setFormData] = useState({
+  const defaultFormData = {
     // Company Details
     parentCompanyName: '',
     subsidiaryName: '',
@@ -58,7 +58,6 @@ const RentalManagementDashboard = () => {
     fromDepartment: '',
     custodian: '',
     date: '',
-    referenceNumber: '',
     toWhomPaid: '',
     forWhat: '',
     amount: '',
@@ -77,7 +76,8 @@ const RentalManagementDashboard = () => {
     
     // Status
     status: 'Draft'
-  });
+  };
+  const [formData, setFormData] = useState(defaultFormData);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [viewDialog, setViewDialog] = useState({ open: false, record: null });
@@ -121,7 +121,6 @@ const RentalManagementDashboard = () => {
         fromDepartment: record.fromDepartment || '',
         custodian: record.custodian || '',
         date: record.date || '',
-        referenceNumber: record.referenceNumber || '',
         toWhomPaid: record.toWhomPaid || '',
         forWhat: record.forWhat || '',
         amount: record.amount || '',
@@ -137,27 +136,7 @@ const RentalManagementDashboard = () => {
       });
     } else {
       setEditingRecord(null);
-      setFormData({
-        parentCompanyName: '',
-        subsidiaryName: '',
-        site: '',
-        paymentType: '',
-        fromDepartment: '',
-        custodian: '',
-        date: '',
-        referenceNumber: '',
-        toWhomPaid: '',
-        forWhat: '',
-        amount: '',
-        grandTotal: '',
-        preparedBy: '',
-        preparedByDesignation: '',
-        verifiedBy: '',
-        verifiedByDesignation: '',
-        approvedBy: '',
-        approvedByDesignation: '',
-        status: 'Draft'
-      });
+      setFormData(defaultFormData);
     }
     setDialogOpen(true);
     setError('');
@@ -167,7 +146,7 @@ const RentalManagementDashboard = () => {
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setEditingRecord(null);
-    setFormData({});
+    setFormData(defaultFormData);
     setError('');
     setSuccess('');
   };
@@ -346,8 +325,8 @@ const RentalManagementDashboard = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Parent Company</TableCell>
-                  <TableCell>Subsidiary</TableCell>
+                  <TableCell>Tenant</TableCell>
+                  <TableCell>Purpose</TableCell>
                   <TableCell>To Whom Paid</TableCell>
                   <TableCell>Amount</TableCell>
                   <TableCell>Grand Total</TableCell>
@@ -456,23 +435,23 @@ const RentalManagementDashboard = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Parent Company Name"
+                  label="Tenant"
                   name="parentCompanyName"
                   value={formData.parentCompanyName}
                   onChange={handleInputChange}
                   required
-                  placeholder="e.g., Sardar Group of Companies"
+                  placeholder="e.g., Tenant Name"
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Subsidiary Name"
+                  label="Purpose"
                   name="subsidiaryName"
                   value={formData.subsidiaryName}
                   onChange={handleInputChange}
                   required
-                  placeholder="e.g., Gun & Country Club"
+                  placeholder="e.g., Office Rent"
                 />
               </Grid>
 
@@ -536,16 +515,6 @@ const RentalManagementDashboard = () => {
                   onChange={handleInputChange}
                   required
                   placeholder="DD/MM/YYYY"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Reference Number"
-                  name="referenceNumber"
-                  value={formData.referenceNumber}
-                  onChange={handleInputChange}
-                  placeholder="Enter reference number"
                 />
               </Grid>
               <Grid item xs={12} sm={6}>

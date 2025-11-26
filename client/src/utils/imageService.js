@@ -91,6 +91,7 @@ export const IMAGE_CONFIG = {
   UPLOAD_PATHS: {
     PROFILE_IMAGES: '/uploads/profile-images/',
     RENTAL_AGREEMENTS: '/uploads/rental-agreements/',
+    TAJ_RENTAL_AGREEMENTS: '/uploads/taj-rental-agreements/',
     DOCUMENTS: '/uploads/documents/'
   }
 };

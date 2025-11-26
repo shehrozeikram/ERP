@@ -492,27 +492,41 @@ router.get('/',
 router.get('/monthly',
   authorize('super_admin', 'admin', 'hr_manager'),
   asyncHandler(async (req, res) => {
-    const { status, employeeId, startDate, endDate } = req.query;
+    const { status, employeeId, startDate, endDate, limit } = req.query;
 
     const matchStage = {};
     
     if (status) matchStage.status = status;
     if (employeeId) matchStage.employee = employeeId;
     
+    // Apply date range filter if provided
     if (startDate && endDate) {
       const startDateObj = new Date(startDate);
       const endDateObj = new Date(endDate);
       
-      matchStage.$or = [
-        {
-          year: { $gte: startDateObj.getFullYear(), $lte: endDateObj.getFullYear() },
-          month: { $gte: startDateObj.getMonth() + 1, $lte: endDateObj.getMonth() + 1 }
-        }
-      ];
+      // Build date range query
+      const startYear = startDateObj.getFullYear();
+      const endYear = endDateObj.getFullYear();
+      const startMonth = startDateObj.getMonth() + 1;
+      const endMonth = endDateObj.getMonth() + 1;
+      
+      if (startYear === endYear) {
+        // Same year - filter by month range
+        matchStage.year = startYear;
+        matchStage.month = { $gte: startMonth, $lte: endMonth };
+      } else {
+        // Different years - use $or for year/month combinations
+        matchStage.$or = [
+          { year: startYear, month: { $gte: startMonth } },
+          { year: { $gt: startYear, $lt: endYear } },
+          { year: endYear, month: { $lte: endMonth } }
+        ];
+      }
     }
 
-    // Get all payrolls for monthly grouping (no pagination limit)
-    const payrolls = await Payroll.find(matchStage)
+    // Select only essential fields for list view to improve performance
+    const query = Payroll.find(matchStage)
+      .select('month year basicSalary grossSalary netSalary status employee createdAt')
       .populate({
         path: 'employee',
         select: 'firstName lastName employeeId placementProject',
@@ -524,9 +538,25 @@ router.get('/monthly',
       .sort({ year: -1, month: -1, createdAt: -1 })
       .lean(); // Use lean() for better performance since we don't need Mongoose documents
 
+    // Apply limit if provided (default to 5000 to prevent timeout)
+    // limit=0 means no limit (get all records)
+    if (limit !== undefined && limit !== null) {
+      const maxLimit = parseInt(limit);
+      if (maxLimit > 0) {
+        query.limit(maxLimit);
+      }
+      // If limit is 0, don't apply any limit (get all records)
+    } else {
+      // Default limit of 5000 to prevent timeout
+      query.limit(5000);
+    }
+
+    const payrolls = await query.exec();
+
     res.json({
       success: true,
-      data: payrolls
+      data: payrolls,
+      count: payrolls.length
     });
   })
 );

@@ -190,23 +190,19 @@ router.get('/employees',
     
     if (getAll === 'true' || getAll === true) {
       // Get all employees without pagination for dropdowns and forms
+      // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate probationPeriodMonths endOfProbationDate confirmationDate placementDepartment placementProject placementDesignation email phone isActive employmentStatus createdAt')
         .populate('bankName', 'name type')
-        .populate('placementCompany', 'name code type')
-        .populate('placementSector', 'name code')
         .populate('placementProject', 'name company')
         .populate('placementDepartment', 'name code')
-        .populate('placementSection', 'name department')
         .populate('placementDesignation', 'title level')
-        .populate('oldDesignation', 'title level')
-        .populate('placementLocation', 'name type')
-        .populate('manager', 'firstName lastName employeeId')
         .sort({ 
           // First priority: Status (inactive/draft employees come first)
           isActive: 1, // false (inactive) comes before true (active)
           employmentStatus: 1, // 'Draft' comes before 'Active'
-          // Second priority: Creation date (newest first)
-          createdAt: -1 
+          // Second priority: Employee ID (ascending) - uses indexed field
+          employeeId: 1
         })
         .lean();
     } else {
@@ -245,6 +241,201 @@ router.get('/employees',
     res.json({
       success: true,
       data: employeesWithVirtuals
+    });
+  })
+);
+
+const classifyDesignationCategory = (title = '', level = '') => {
+  const normalizedTitle = title.toLowerCase();
+  const normalizedLevel = level?.toLowerCase?.() || '';
+
+  const whiteSpecificTitles = [
+    '3d visualizer', 'am', 'aso to president', 'advisor', 'architect',
+    'assistant vice president', 'autocad operator', 'biology teacher',
+    'building inspector', 'cro', 'chemistry teacher', 'clinical instructor',
+    'complaint attendant', 'content writer', 'document controller',
+    'english teacher', 'graphic designer', 'intern', 'internal auditor',
+    'internee', 'islamyat/quran teacher', 'laravel developer',
+    'lecturar computer science', 'lecturer', 'lecturer computer science',
+    'lecturer-economics', 'librarian',
+    'member steering committee', 'montessori', 'montessori teacher',
+    'nursing lecturer', 'pak studies & political science',
+    'patron-in-chief-education', 'play group teacher', 'president',
+    'principal', 'principal law college', 'principal secretary to president',
+    'receptionist', 'research assistant', 'research associate',
+    'science teacher', 'secretary', 'sharia education & sociology',
+    'sr architect', 'teacher', 'teacher it', 'teacher mathematics',
+    'teacher pre-school', 'teacher social study', 'urdu teacher',
+    'vice principle', 'web developer'
+  ];
+
+  if (whiteSpecificTitles.some(item => normalizedTitle === item.toLowerCase())) {
+    return 'white_collar';
+  }
+
+  const whiteKeywords = ['manager', 'officer', 'engineer', 'specialist', 'analyst', 'head', 'director', 'executive', 'supervisor', 'lead', 'coordinator', 'administrator', 'consultant', 'teacher', 'developer', 'designer', 'architect', 'inspector', 'secretary', 'principal', 'president'];
+  const blueKeywords = ['worker', 'technician', 'operator', 'labour', 'labor', 'helper', 'driver', 'mechanic', 'foreman', 'inspector', 'attendant'];
+
+  const isWhiteLevel = ['manager', 'lead', 'senior', 'director', 'executive'].some(keyword => normalizedLevel.includes(keyword));
+  const isBlueLevel = ['entry'].some(keyword => normalizedLevel.includes(keyword));
+
+  if (whiteKeywords.some(keyword => normalizedTitle.includes(keyword)) || isWhiteLevel) {
+    return 'white_collar';
+  }
+
+  if (blueKeywords.some(keyword => normalizedTitle.includes(keyword)) || isBlueLevel) {
+    return 'blue_collar';
+  }
+
+  return 'white_collar';
+};
+
+// @route   GET /api/hr/employees/designations/test
+// @desc    Diagnostic endpoint listing unique designations present in employee records
+// @access  Private (HR and Admin)
+router.get('/employees/designations/test',
+  authorize('super_admin', 'admin', 'hr_manager'),
+  asyncHandler(async (req, res) => {
+    const { department, includeSamples = 'true', sampleLimit = 5 } = req.query;
+
+    const matchStage = {
+      isDeleted: false,
+      placementDesignation: { $ne: null }
+    };
+
+    if (department) {
+      if (!mongoose.Types.ObjectId.isValid(department)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid department ID format'
+        });
+      }
+      matchStage.placementDepartment = new mongoose.Types.ObjectId(department);
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: 'designations',
+          localField: 'placementDesignation',
+          foreignField: '_id',
+          as: 'designation'
+        }
+      },
+      { $unwind: '$designation' },
+      {
+        $group: {
+          _id: '$designation._id',
+          title: { $first: '$designation.title' },
+          code: { $first: '$designation.code' },
+          level: { $first: '$designation.level' },
+          departmentId: { $first: '$designation.department' },
+          sectionId: { $first: '$designation.section' },
+          holderCount: { $sum: 1 },
+          employees: {
+            $push: {
+              employeeId: '$employeeId',
+              name: {
+                $trim: {
+                  input: {
+                    $concat: [
+                      { $ifNull: ['$firstName', ''] },
+                      ' ',
+                      { $ifNull: ['$lastName', ''] }
+                    ]
+                  }
+                }
+              },
+              placementDepartment: '$placementDepartment'
+            }
+          }
+        }
+      },
+      {
+        $lookup: {
+          from: 'departments',
+          localField: 'departmentId',
+          foreignField: '_id',
+          as: 'departmentInfo'
+        }
+      },
+      {
+        $lookup: {
+          from: 'sections',
+          localField: 'sectionId',
+          foreignField: '_id',
+          as: 'sectionInfo'
+        }
+      },
+      {
+        $project: {
+          title: 1,
+          code: 1,
+          level: 1,
+          holderCount: 1,
+          departmentInfo: { $arrayElemAt: ['$departmentInfo', 0] },
+          sectionInfo: { $arrayElemAt: ['$sectionInfo', 0] },
+          employees: 1
+        }
+      },
+      { $sort: { title: 1 } }
+    ];
+
+    const aggregation = await Employee.aggregate(pipeline);
+    const normalizedLimit = Math.max(0, Math.min(parseInt(sampleLimit, 10) || 5, 25));
+    const includeSample = includeSamples !== 'false';
+
+    const data = aggregation.map(entry => {
+      const category = classifyDesignationCategory(entry.title || '', entry.level || '');
+      const sampleEmployees = includeSample
+        ? entry.employees.slice(0, normalizedLimit).map(emp => ({
+            employeeId: emp.employeeId,
+            name: emp.name ? emp.name.trim() : '',
+            placementDepartment: emp.placementDepartment ? emp.placementDepartment.toString() : null
+          }))
+        : undefined;
+
+      return {
+        designationId: entry._id,
+        title: entry.title || 'Unknown',
+        code: entry.code || '',
+        level: entry.level || null,
+        holderCount: entry.holderCount || 0,
+        category,
+        department: entry.departmentInfo
+          ? { id: entry.departmentInfo._id, name: entry.departmentInfo.name }
+          : null,
+        section: entry.sectionInfo
+          ? { id: entry.sectionInfo._id, name: entry.sectionInfo.name }
+          : null,
+        sampleEmployees
+      };
+    });
+
+    const categorySummary = data.reduce(
+      (acc, item) => {
+        if (item.category === 'blue_collar') {
+          acc.blueCollar.designations += 1;
+          acc.blueCollar.employees += item.holderCount || 0;
+        } else if (item.category === 'white_collar') {
+          acc.whiteCollar.designations += 1;
+          acc.whiteCollar.employees += item.holderCount || 0;
+        }
+        return acc;
+      },
+      {
+        blueCollar: { designations: 0, employees: 0 },
+        whiteCollar: { designations: 0, employees: 0 }
+      }
+    );
+
+    res.json({
+      success: true,
+      totalDesignations: data.length,
+      sampleLimit: includeSample ? normalizedLimit : 0,
+      summary: categorySummary,
+      data
     });
   })
 );

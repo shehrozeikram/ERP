@@ -140,13 +140,17 @@ const Payroll = () => {
   const fetchMonthlyPayrolls = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       
       const params = new URLSearchParams({
         ...filters
-        // No limit - get all data for proper monthly grouping
+        // Backend limits to 5000 records by default to prevent timeout
+        // Omit limit parameter to use backend default, or set limit=0 for all records
       });
 
-      const response = await api.get(`/payroll/monthly?${params}`);
+      const response = await api.get(`/payroll/monthly?${params}`, {
+        timeout: 90000 // 90 seconds timeout for large payroll datasets
+      });
       const payrollData = response.data.data || [];
       
       // Validate payroll data before setting state
@@ -159,9 +163,19 @@ const Payroll = () => {
       
       setPayrolls(validatedPayrolls);
       setTotalItems(validatedPayrolls.length);
+      
+      if (response.data.count && response.data.count >= 5000) {
+        console.warn(`⚠️ Loaded ${response.data.count} payrolls. If data seems incomplete, try filtering by date range.`);
+      }
     } catch (error) {
       console.error('Error fetching monthly payrolls:', error);
-      setError('Failed to load payroll data');
+      if (error.code === 'ECONNABORTED') {
+        setError('Request timed out. Try filtering by a smaller date range or contact support.');
+      } else {
+        setError('Failed to load payroll data. Please try again or filter by date range.');
+      }
+      setPayrolls([]);
+      setTotalItems(0);
     } finally {
       setLoading(false);
     }

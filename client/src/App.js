@@ -40,6 +40,15 @@ import AccountsReceivable from './pages/Finance/AccountsReceivable';
 import AccountsPayable from './pages/Finance/AccountsPayable';
 import Banking from './pages/Finance/Banking';
 import FinancialReports from './pages/Finance/FinancialReports';
+import RentalAgreementsFinance from './pages/Finance/TajUtilities/RentalAgreements';
+import RentalAgreementDetailFinance from './pages/Finance/TajUtilities/RentalAgreementDetail';
+import RentalManagementFinance from './pages/Finance/TajUtilities/RentalManagement';
+import TajProperties from './pages/Finance/TajUtilities/TajProperties';
+import TajPropertyDetail from './pages/Finance/TajUtilities/TajPropertyDetail';
+import RentalManagementDetailFinance from './pages/Finance/TajUtilities/RentalManagementDetail';
+import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
+import Electricity from './pages/Finance/TajUtilities/Electricity';
+import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -156,6 +165,12 @@ import BankManagement from './pages/HR/BankManagement';
 import NotFound from './pages/NotFound/NotFound';
 
 import FBRTaxManagement from './pages/HR/FBRTaxManagement';
+import EvaluationDocuments from './pages/HR/EvaluationAppraisal/EvaluationDocuments';
+import EvaluationAuthorities from './pages/HR/EvaluationAppraisal/EvaluationAuthorities';
+import EvaluationDashboard from './pages/HR/EvaluationAppraisal/EvaluationDashboard';
+import DocumentsTracking from './pages/HR/DocumentsTracking';
+import DocumentsTrackingDashboard from './pages/DocumentsTracking/DocumentsTrackingDashboard';
+import EvaluationTracking from './pages/DocumentsTracking/EvaluationTracking';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -193,6 +208,7 @@ import PublicApproval from './pages/Public/PublicApproval';
 import OfferAcceptance from './pages/Public/OfferAcceptance';
 import PublicJoiningDocument from './pages/Public/PublicJoiningDocument';
 import PublicEmployeeOnboarding from './pages/Public/PublicEmployeeOnboarding';
+import PublicEvaluationForm from './pages/Public/PublicEvaluationForm';
 import RegisterComplaint from './pages/Public/RegisterComplaint';
 import MyComplaints from './pages/Public/MyComplaints';
 import TajComplaintsPortal from './pages/Public/TajComplaintsPortal';
@@ -334,6 +350,7 @@ function App() {
           <Route path="/candidates/offer/:candidateId" element={<OfferAcceptance />} />
           <Route path="/public-joining-document/:approvalId" element={<PublicJoiningDocument />} />
           <Route path="/public-employee-onboarding/:id" element={<PublicEmployeeOnboarding />} />
+          <Route path="/hr/evaluation-appraisal/fill/:id" element={<PublicEvaluationForm />} />
           <Route path="/taj-complaints" element={<TajComplaintsPortal />} />
           <Route path="/taj-complaints/register" element={<RegisterComplaint />} />
           <Route path="/taj-complaints/my" element={<MyComplaints />} />
@@ -465,6 +482,38 @@ function App() {
             <Route
               path="/hr/fbr-tax"
               element={<ProtectedRoute><FBRTaxManagement /></ProtectedRoute>}
+            />
+
+            {/* Evaluation & Appraisal Routes */}
+            <Route
+              path="/hr/evaluation-appraisal/fill/:id"
+              element={<PublicEvaluationForm />}
+            />
+            <Route
+              path="/hr/evaluation-appraisal/dashboard"
+              element={<ProtectedRoute><EvaluationDashboard /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/evaluation-appraisal/documents"
+              element={<ProtectedRoute><EvaluationDocuments /></ProtectedRoute>}
+            />
+            <Route
+              path="/hr/evaluation-appraisal/authorities"
+              element={<ProtectedRoute><EvaluationAuthorities /></ProtectedRoute>}
+            />
+
+            {/* Documents Tracking Routes */}
+            <Route
+              path="/documents-tracking/dashboard"
+              element={<ProtectedRoute><DocumentsTrackingDashboard /></ProtectedRoute>}
+            />
+            <Route
+              path="/documents-tracking/evaluation"
+              element={<ProtectedRoute><EvaluationTracking /></ProtectedRoute>}
+            />
+            <Route
+              path="/documents-tracking"
+              element={<ProtectedRoute><DocumentsTracking /></ProtectedRoute>}
             />
 
             {/* Loan Management Routes */}
@@ -752,6 +801,82 @@ function App() {
             <Route 
               path="/finance/reports" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinancialReports /></ProtectedRoute>} 
+            />
+            <Route
+              path="/finance/taj-utilities-charges"
+              element={<Navigate to="/finance/taj-utilities-charges/cam-charges" replace />}
+            />
+            <Route
+              path="/finance/taj-utilities-charges/cam-charges"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <CAMCharges />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/electricity-bills"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <Electricity />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/rental-agreements"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <RentalAgreementsFinance />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/rental-agreements/:id"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <RentalAgreementDetailFinance />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/rental-management"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <RentalManagementFinance />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/rental-management/:id"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <RentalManagementDetailFinance />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/taj-properties"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <TajProperties />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/taj-properties/:id"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <TajPropertyDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/charges-slabs"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <ChargesSlabs />
+                </ProtectedRoute>
+              }
             />
 
             {/* Procurement Module */}

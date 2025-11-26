@@ -26,7 +26,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 seconds timeout for production network issues
+  timeout: 60000, // 60 seconds timeout for large data fetches
   withCredentials: false, // Don't send cookies, we use token in header
 });
 

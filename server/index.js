@@ -84,6 +84,7 @@ const utilityBillRoutes = require('./routes/utilityBills');
 const itRoutes = require('./routes/it');
 const arrearsRoutes = require('./routes/arrears');
 const rentalAgreementRoutes = require('./routes/rentalAgreements');
+const tajRentalAgreementRoutes = require('./routes/tajRentalAgreements');
 const rentalManagementRoutes = require('./routes/rentalManagement');
 const staffManagementRoutes = require('./routes/staffManagement');
 const paymentSettlementRoutes = require('./routes/paymentSettlements');
@@ -94,6 +95,14 @@ const subRoleRoutes = require('./routes/subRoles');
 const userSubRoleRoutes = require('./routes/userSubRoles');
 const tajResidenciaRoutes = require('./routes/tajResidencia');
 const tajResidenciaComplaintsRoutes = require('./routes/tajResidenciaComplaints');
+const tajRentalManagementRoutes = require('./routes/tajRentalManagement');
+const camChargesRoutes = require('./routes/camCharges');
+const electricityRoutes = require('./routes/electricity');
+const tajPropertiesRoutes = require('./routes/tajProperties');
+const chargesSlabsRoutes = require('./routes/chargesSlabs');
+const waterUtilitySlabsRoutes = require('./routes/waterUtilitySlabs');
+const documentTrackingRoutes = require('./routes/documentTracking');
+const evaluationDocumentsRoutes = require('./routes/evaluationDocuments');
 
 
 // Import services
@@ -301,6 +310,7 @@ app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, utilityBillRoutes);
 app.use('/api/hr/arrears', authMiddleware, arrearsRoutes);
 app.use('/api/rental-agreements', authMiddleware, rentalAgreementRoutes);
+app.use('/api/taj-rental-agreements', authMiddleware, tajRentalAgreementRoutes);
 app.use('/api/rental-management', authMiddleware, rentalManagementRoutes);
 app.use('/api/payment-settlements', authMiddleware, paymentSettlementRoutes);
 app.use('/api/it', authMiddleware, itRoutes);
@@ -322,6 +332,16 @@ app.use('/api/roles', authMiddleware, require('./routes/roles'));
 // Taj Residencia routes
 app.use('/api/taj-residencia', authMiddleware, tajResidenciaRoutes);
 app.use('/api', tajResidenciaComplaintsRoutes);
+app.use('/api/taj-utilities/rental-management', authMiddleware, tajRentalManagementRoutes);
+app.use('/api/taj-utilities/cam-charges', authMiddleware, camChargesRoutes);
+app.use('/api/taj-utilities/electricity', authMiddleware, electricityRoutes);
+app.use('/api/taj-utilities/properties', authMiddleware, tajPropertiesRoutes);
+app.use('/api/taj-utilities/charges-slabs', authMiddleware, chargesSlabsRoutes);
+app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, waterUtilitySlabsRoutes);
+app.use('/api/document-tracking', authMiddleware, documentTrackingRoutes);
+app.use('/api/evaluation-documents', authMiddleware, evaluationDocumentsRoutes);
+// Public evaluation documents route (token-based access)
+app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 
 // Catch-all route for non-API requests - return 404 for any non-API routes
 app.get('*', (req, res) => {

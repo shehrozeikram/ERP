@@ -2,13 +2,27 @@ const nodemailer = require('nodemailer');
 
 class EmailService {
   constructor() {
-    this.transporter = nodemailer.createTransport({
-      service: 'gmail',
+    // SMTP Configuration from environment variables
+    const smtpConfig = {
+      host: process.env.SMTP_HOST || 'mail.txy.co',
+      port: parseInt(process.env.SMTP_PORT) || 465,
+      secure: true, // true for 465, false for other ports (SSL/TLS)
       auth: {
-        user: 'shehrozeikram2@gmail.com', // Your Gmail address
-        pass: 'khzv jkft zpml uwtj' // Your Gmail app password
+        user: process.env.SMTP_USER || 'shehroze.ikram@txy.co',
+        pass: process.env.SMTP_PASS || ''
+      },
+      tls: {
+        // Do not fail on invalid certs
+        rejectUnauthorized: false
       }
-    });
+    };
+
+    this.transporter = nodemailer.createTransport(smtpConfig);
+  }
+
+  // Get the from email address from environment or use default
+  getFromAddress() {
+    return process.env.SMTP_USER || 'shehroze.ikram@txy.co';
   }
 
   // Send shortlist notification email
@@ -18,7 +32,7 @@ class EmailService {
       const textContent = this.generateShortlistEmailText(candidate, jobPosting, application);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: candidate.email,
         subject: `🎉 Congratulations! You've Been Shortlisted - ${jobPosting.title}`,
         html: htmlContent,
@@ -236,7 +250,7 @@ class EmailService {
                           <div class="details">
                 <h4>📞 Contact Information</h4>
                 <p>If you have any questions, please don't hesitate to contact us:</p>
-                <p><strong>Email:</strong> shehrozeikram2@gmail.com</p>
+                <p><strong>Email:</strong> shehroze.ikram@txy.co</p>
                 <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
               </div>
 
@@ -294,7 +308,7 @@ Please ensure your contact information is up to date and be prepared for a phone
 
 CONTACT INFORMATION:
 If you have any questions, please don't hesitate to contact us:
-- Email: shehrozeikram2@gmail.com
+- Email: shehroze.ikram@txy.co
 - Phone: +92-XXX-XXXXXXX
 
 Application ID: ${application.applicationId || application._id}
@@ -315,7 +329,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateApprovalRequestText(approval, level);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approverEmail,
         subject: `🔐 Candidate Approval Required - Level ${level} - ${approval.candidate.firstName} ${approval.candidate.lastName}`,
         html: htmlContent,
@@ -363,7 +377,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateApprovalReminderText(approval, level);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approverEmail,
         subject: `⏰ Reminder: Candidate Approval Pending - Level ${level} - ${approval.candidate.firstName} ${approval.candidate.lastName}`,
         html: htmlContent,
@@ -396,7 +410,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateAppointmentLetterText(approval);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approval.candidate.email,
         subject: `🎉 Congratulations! Appointment Letter - ${approval.jobPosting.title}`,
         html: htmlContent,
@@ -440,7 +454,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateHiringConfirmationText(approval);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approval.candidate.email,
         subject: `🎉 Congratulations! You're Hired - ${approval.jobPosting.title}`,
         html: htmlContent,
@@ -484,7 +498,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateEmployeeOnboardingText(approval, onboarding);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approval.candidate.email,
         subject: `🚀 Welcome to SGC! Employee Onboarding Complete - ${approval.jobPosting.title}`,
         html: htmlContent,
@@ -517,7 +531,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateJoiningDocumentRequestText(approval);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approval.candidate.email,
         subject: `📝 Action Required: Complete Your Joining Document - ${approval.jobPosting.title}`,
         html: htmlContent,
@@ -561,7 +575,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateEmployeeOnboardingRequestText(approval);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: approval.candidate.email,
         subject: `🚀 Welcome! Complete Your Employee Onboarding - ${approval.jobPosting.title}`,
         html: htmlContent,
@@ -1040,7 +1054,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateJobOfferText(candidate, jobPosting, offerDetails);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: candidate.email,
         subject: `🎉 Job Offer - ${jobPosting.title} Position`,
         html: htmlContent,
@@ -1096,7 +1110,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
       const textContent = this.generateOfferAcceptanceText(candidate, jobPosting);
       
       const mailOptions = {
-        from: `"SGC ERP HR Team" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
         to: candidate.email,
         subject: `✅ Offer Accepted - ${jobPosting.title} Position`,
         html: htmlContent,
@@ -1599,7 +1613,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
   async testEmailConfig() {
     try {
       const testEmail = {
-        from: `"SGC ERP Test" <shehrozeikram2@gmail.com>`,
+        from: `"SGC ERP Test" <${this.getFromAddress()}>`,
         to: 'shehroze.ikram@txy.co',
         subject: 'SGC ERP Email Service Test',
         text: 'This is a test email to verify the email service configuration.',
@@ -1842,6 +1856,129 @@ WHAT HAPPENS NEXT?
 ---
 This is an automated message from SGC ERP System
 Please do not reply to this email. For inquiries, contact our HR team.
+    `;
+  }
+
+  // Send evaluation document email to authority
+  async sendEvaluationDocumentEmail(evaluator, employee, document, formType, accessLink) {
+    try {
+      const htmlContent = this.generateEvaluationEmailHTML(evaluator, employee, document, formType, accessLink);
+      const textContent = this.generateEvaluationEmailText(evaluator, employee, document, formType, accessLink);
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
+        to: evaluator.email,
+        subject: `📋 Evaluation Form Required - ${employee.firstName} ${employee.lastName}`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Evaluation email sent to ${evaluator.email}: ${result.messageId}`);
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: evaluator.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send evaluation email to ${evaluator.email}:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        email: evaluator.email,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
+  // Generate HTML email template for evaluation documents
+  generateEvaluationEmailHTML(evaluator, employee, document, formType, accessLink) {
+    const formTypeLabel = formType === 'blue_collar' ? 'Blue Collar' : 'White Collar';
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Evaluation Form Required</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .info-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+          .button { display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+          .label { font-weight: bold; color: #555; }
+          .value { color: #333; margin-bottom: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📋 Employee Evaluation Required</h1>
+            <p>Please complete the evaluation form</p>
+          </div>
+          
+          <div class="content">
+            <p>Dear ${evaluator.firstName} ${evaluator.lastName},</p>
+            
+            <p>You have been assigned to evaluate the following employee:</p>
+            
+            <div class="info-box">
+              <p><span class="label">Employee Name:</span> <span class="value">${employee.firstName} ${employee.lastName}</span></p>
+              <p><span class="label">Employee ID:</span> <span class="value">${employee.employeeId || 'N/A'}</span></p>
+              <p><span class="label">Form Type:</span> <span class="value">${formTypeLabel}</span></p>
+              <p><span class="label">Department:</span> <span class="value">${document.department?.name || 'N/A'}</span></p>
+            </div>
+            
+            <p>Please click the button below to access and complete the evaluation form:</p>
+            
+            <div style="text-align: center;">
+              <a href="${accessLink}" class="button">Complete Evaluation Form</a>
+            </div>
+            
+            <p style="margin-top: 20px; font-size: 14px; color: #666;">
+              If the button doesn't work, copy and paste this link into your browser:<br>
+              <a href="${accessLink}" style="color: #667eea; word-break: break-all;">${accessLink}</a>
+            </p>
+            
+            <div class="footer">
+              <p>This is an automated email from SGC ERP System.</p>
+              <p>Please complete the evaluation at your earliest convenience.</p>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate text email template for evaluation documents
+  generateEvaluationEmailText(evaluator, employee, document, formType, accessLink) {
+    const formTypeLabel = formType === 'blue_collar' ? 'Blue Collar' : 'White Collar';
+    
+    return `
+Employee Evaluation Required
+
+Dear ${evaluator.firstName} ${evaluator.lastName},
+
+You have been assigned to evaluate the following employee:
+
+Employee Name: ${employee.firstName} ${employee.lastName}
+Employee ID: ${employee.employeeId || 'N/A'}
+Form Type: ${formTypeLabel}
+Department: ${document.department?.name || 'N/A'}
+
+Please complete the evaluation form by clicking the link below:
+
+${accessLink}
+
+This is an automated email from SGC ERP System.
+Please complete the evaluation at your earliest convenience.
     `;
   }
 }

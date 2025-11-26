@@ -41,11 +41,6 @@ const rentalManagementSchema = new mongoose.Schema({
     required: [true, 'Date is required'],
     trim: true
   },
-  referenceNumber: {
-    type: String,
-    trim: true,
-    maxlength: [100, 'Reference number cannot exceed 100 characters']
-  },
   toWhomPaid: {
     type: String,
     trim: true,
@@ -162,7 +157,6 @@ const rentalManagementSchema = new mongoose.Schema({
 // Indexes for better query performance
 rentalManagementSchema.index({ parentCompanyName: 1 });
 rentalManagementSchema.index({ subsidiaryName: 1 });
-rentalManagementSchema.index({ referenceNumber: 1 });
 rentalManagementSchema.index({ status: 1 });
 rentalManagementSchema.index({ createdAt: -1 });
 
@@ -181,7 +175,6 @@ rentalManagementSchema.methods.getRentalSummary = function() {
     id: this._id,
     parentCompanyName: this.parentCompanyName,
     subsidiaryName: this.subsidiaryName,
-    referenceNumber: this.referenceNumber,
     toWhomPaid: this.toWhomPaid,
     amount: this.formattedAmount,
     grandTotal: this.formattedGrandTotal,

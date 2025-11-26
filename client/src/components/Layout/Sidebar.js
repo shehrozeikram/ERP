@@ -34,7 +34,8 @@ import {
   Analytics,
   Security,
   Computer,
-  LocationCity
+  LocationCity,
+  Description
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -69,7 +70,8 @@ const iconMap = {
   Analytics: <Analytics />,
   Security: <Security />,
   Computer: <Computer />,
-  LocationCity: <LocationCity />
+  LocationCity: <LocationCity />,
+  Description: <Description />
 };
   return iconMap[iconName] || <Dashboard />;
 };
@@ -128,7 +130,13 @@ const Sidebar = () => {
       '/hr/learning': 'learning_development',
       '/hr/organizational-development': 'organizational_development',
       '/hr/fbr-tax': 'fbr_tax_management',
+      '/hr/evaluation-appraisal/dashboard': 'evaluation_appraisal',
+      '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',
+      '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
       '/hr/reports': 'reports',
+      
+      // Documents Tracking Module
+      '/documents-tracking': 'document_tracking',
       
       // Finance Module
       '/finance/accounts': 'chart_of_accounts',
@@ -137,6 +145,12 @@ const Sidebar = () => {
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/banking': 'banking',
+      '/finance/taj-utilities-charges': 'taj_utilities_charges',
+      '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
+      '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
+      '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
+      '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
+      '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
@@ -206,6 +220,7 @@ const Sidebar = () => {
     if (path.startsWith('/audit')) return 'audit';
     if (path.startsWith('/it')) return 'it';
     if (path.startsWith('/taj-residencia')) return 'taj_residencia';
+    if (path.startsWith('/documents-tracking')) return 'documents_tracking';
     return null;
   };
 

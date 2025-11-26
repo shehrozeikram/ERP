@@ -28,6 +28,7 @@ export const MODULE_KEYS = {
   AUDIT: 'audit',
   IT: 'it',
   TAJ_RESIDENCIA: 'taj_residencia',
+  DOCUMENTS_TRACKING: 'documents_tracking',
   ADMIN: 'admin'
 };
 
@@ -173,7 +174,12 @@ export const SUBMODULES = {
     'accounts_receivable',
     'accounts_payable',
     'banking',
-    'financial_reports'
+    'financial_reports',
+    'taj_utilities_charges',
+    'taj_cam_charges',
+    'taj_electricity_bills',
+    'taj_rental_agreements',
+    'taj_rental_management'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'purchase_orders',
@@ -424,6 +430,15 @@ export const MODULES = {
         ]
       },
       { name: 'FBR Tax Management', path: '/hr/fbr-tax' },
+      { 
+        name: 'Evaluation & Appraisal', 
+        path: '/hr/evaluation-appraisal/dashboard',
+        subItems: [
+          { name: 'Dashboard', path: '/hr/evaluation-appraisal/dashboard' },
+          { name: 'Documents', path: '/hr/evaluation-appraisal/documents' },
+          { name: 'Authorities', path: '/hr/evaluation-appraisal/authorities' }
+        ]
+      },
       { name: 'Reports', path: '/hr/reports' }
     ]
   },
@@ -442,6 +457,36 @@ export const MODULES = {
       { name: 'Accounts Receivable', path: '/finance/accounts-receivable' },
       { name: 'Accounts Payable', path: '/finance/accounts-payable' },
       { name: 'Banking', path: '/finance/banking' },
+      {
+        name: 'Taj Utilities & Charges',
+        path: '/finance/taj-utilities-charges',
+        subItems: [
+          {
+            name: 'CAM Charges',
+            path: '/finance/taj-utilities-charges/cam-charges'
+          },
+          {
+            name: 'Electricity Bills',
+            path: '/finance/taj-utilities-charges/electricity-bills'
+          },
+          {
+            name: 'Rental Agreements',
+            path: '/finance/taj-utilities-charges/rental-agreements'
+          },
+          {
+            name: 'Rental Management',
+            path: '/finance/taj-utilities-charges/rental-management'
+          },
+          {
+            name: 'Taj Properties',
+            path: '/finance/taj-utilities-charges/taj-properties'
+          },
+          {
+            name: 'Charges Slabs',
+            path: '/finance/taj-utilities-charges/charges-slabs'
+          }
+        ]
+      },
       { name: 'Financial Reports', path: '/finance/reports' }
     ]
   },
@@ -595,6 +640,18 @@ export const MODULES = {
         path: '/taj-residencia/complains-tickets'
       }
     ]
+  },
+
+  documents_tracking: {
+    name: 'Documents Tracking',
+    path: '/documents-tracking',
+    icon: 'Description',
+    description: 'Document tracking and movement management',
+    roles: ['super_admin', 'admin', 'hr_manager'],
+    subItems: [
+      { name: 'Dashboard', path: '/documents-tracking/dashboard' },
+      { name: 'Documents List', path: '/documents-tracking' }
+    ]
   }
 };
 
@@ -690,6 +747,9 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/hr/learning': 'learning_development',
       '/hr/organizational-development': 'organizational_development',
       '/hr/fbr-tax': 'fbr_tax_management',
+      '/hr/evaluation-appraisal': 'evaluation_appraisal',
+      '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',
+      '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
       '/hr/reports': 'reports',
       
       // Finance Module
@@ -699,6 +759,12 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/banking': 'banking',
+      '/finance/taj-utilities-charges': 'taj_utilities_charges',
+      '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
+      '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
+      '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
+      '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
+      '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module

@@ -349,11 +349,11 @@ const RentalManagementDetail = ({
           <div class="section">
             <div class="section-title">🏢 Company Details</div>
             <div class="field-row">
-              <div class="field-label">Parent Company:</div>
+              <div class="field-label">Tenant:</div>
               <div class="field-value">${record?.parentCompanyName || 'N/A'}</div>
             </div>
             <div class="field-row">
-              <div class="field-label">Subsidiary:</div>
+              <div class="field-label">Purpose:</div>
               <div class="field-value">${record?.subsidiaryName || 'N/A'}</div>
             </div>
           </div>
@@ -364,10 +364,6 @@ const RentalManagementDetail = ({
             <div class="field-row">
               <div class="field-label">Voucher Number:</div>
               <div class="field-value">${record?.voucherNumber || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Reference Number:</div>
-              <div class="field-value">${record?.referenceNumber || 'N/A'}</div>
             </div>
             <div class="field-row">
               <div class="field-label">Payment Date:</div>
@@ -626,7 +622,7 @@ const RentalManagementDetail = ({
                         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                           <BusinessIcon color="primary" fontSize="small" />
                           <Typography variant="subtitle2" color="text.secondary">
-                            Parent Company
+                            Tenant
                           </Typography>
                         </Stack>
                         <Typography variant="body1" fontWeight="medium">
@@ -639,7 +635,7 @@ const RentalManagementDetail = ({
                         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                           <AccountBalanceIcon color="primary" fontSize="small" />
                           <Typography variant="subtitle2" color="text.secondary">
-                            Subsidiary
+                            Purpose
                           </Typography>
                         </Stack>
                         <Typography variant="body1" fontWeight="medium">
@@ -673,19 +669,6 @@ const RentalManagementDetail = ({
                         </Stack>
                         <Typography variant="body1" fontWeight="medium">
                           {record.voucherNumber || 'N/A'}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <AssignmentIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Reference Number
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {record.referenceNumber || 'N/A'}
                         </Typography>
                       </Box>
                     </Grid>
