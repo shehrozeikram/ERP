@@ -11,6 +11,7 @@ echo "🚀 Starting SGC ERP deployment (Memory-Safe Mode)..."
 SERVER_USER="root"
 SERVER_IP="68.183.215.177"
 SERVER_PATH="/var/www/sgc-erp"
+ENV_FILE=".env"
 
 # Colors
 GREEN='\033[0;32m'
@@ -25,6 +26,14 @@ cd client && npm run build && cd ..
 # Sync build artifacts to server
 echo -e "${YELLOW}📤 Uploading client build artifacts...${NC}"
 rsync -avz --delete client/build/ $SERVER_USER@$SERVER_IP:$SERVER_PATH/client/build/
+
+# Sync environment file so production matches development SMTP config
+if [ -f "$ENV_FILE" ]; then
+  echo -e "${YELLOW}🔐 Uploading environment configuration...${NC}"
+  scp "$ENV_FILE" $SERVER_USER@$SERVER_IP:$SERVER_PATH/.env.deploy
+else
+  echo -e "${RED}⚠️ Environment file '$ENV_FILE' not found. Skipping env sync.${NC}"
+fi
 
 # Commit and push changes
 echo -e "${YELLOW}📤 Pushing to git...${NC}"
@@ -64,9 +73,12 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         cp -f "$BACKUP_DB" server/config/database.js
         echo "✅ Database config restored"
     fi
-    if [ -f "$BACKUP_ENV" ]; then
+    if [ -f ".env.deploy" ]; then
+        mv .env.deploy .env
+        echo "✅ Environment file updated from deployment package"
+    elif [ -f "$BACKUP_ENV" ]; then
         cp -f "$BACKUP_ENV" .env
-        echo "✅ Environment file restored"
+        echo "✅ Environment file restored from backup"
     fi
     
     # Install only server dependencies (skip client build)
