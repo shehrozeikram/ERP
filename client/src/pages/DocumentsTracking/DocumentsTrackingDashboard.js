@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -7,7 +7,6 @@ import {
   CardContent,
   Stack,
   Avatar,
-  Paper,
   Table,
   TableBody,
   TableCell,
@@ -27,10 +26,7 @@ import {
   CheckCircle,
   Schedule,
   Error,
-  Archive,
-  Send,
   Visibility,
-  TrendingUp,
   Person
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -87,11 +83,7 @@ const DocumentsTrackingDashboard = () => {
   const [evaluationDocs, setEvaluationDocs] = useState([]);
 
   // Load dashboard data
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -121,7 +113,11 @@ const DocumentsTrackingDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   // Status distribution data for chart
   const statusDistribution = useMemo(() => {

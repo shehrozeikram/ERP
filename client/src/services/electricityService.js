@@ -20,12 +20,24 @@ export const deleteElectricity = (id) =>
 export const bulkCreateElectricityBills = (data) =>
   api.post(`${base}/bulk-create`, data);
 
+export const addPaymentToElectricityBill = (billId, paymentData) =>
+  api.post(`${base}/${billId}/payments`, paymentData);
+
+export const addPaymentToPropertyElectricity = (propertyId, paymentData) =>
+  api.post(`${base}/property/${propertyId}/payments`, paymentData);
+
+export const deletePaymentFromElectricityBill = (billId, paymentId) =>
+  api.delete(`${base}/${billId}/payments/${paymentId}`);
+
 export default {
   fetchElectricity,
   fetchElectricityById,
   createElectricity,
   updateElectricity,
   deleteElectricity,
-  bulkCreateElectricityBills
+  bulkCreateElectricityBills,
+  addPaymentToElectricityBill,
+  addPaymentToPropertyElectricity,
+  deletePaymentFromElectricityBill
 };
 

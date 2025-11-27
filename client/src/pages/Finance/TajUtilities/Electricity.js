@@ -27,8 +27,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  Collapse,
-  CircularProgress
+  CircularProgress,
+  Collapse
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -37,19 +37,24 @@ import {
   Refresh as RefreshIcon,
   Close as CloseIcon,
   Visibility as ViewIcon,
-  ExpandMore as ExpandMoreIcon,
   GroupWork as GroupWorkIcon,
   Print as PrintIcon,
-  Download as DownloadIcon
+  Download as DownloadIcon,
+  Payment as PaymentIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
+import { useNavigate } from 'react-router-dom';
 import {
   fetchElectricity,
   createElectricity,
   updateElectricity,
   deleteElectricity,
-  bulkCreateElectricityBills
+  bulkCreateElectricityBills,
+  addPaymentToPropertyElectricity,
+  deletePaymentFromElectricityBill
 } from '../../../services/electricityService';
 import api from '../../../services/api';
 
@@ -138,6 +143,7 @@ const months = [
 ];
 
 const Electricity = () => {
+  const navigate = useNavigate();
   const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -149,12 +155,25 @@ const Electricity = () => {
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   
-  // General Electricity Bills state
-  const [currentOverview, setCurrentOverview] = useState(null);
+  // Properties state
+  const [properties, setProperties] = useState([]);
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
-  const [generalWaterElectricityExpanded, setGeneralWaterElectricityExpanded] = useState(false);
-  const [generalWaterElectricityPage, setGeneralWaterElectricityPage] = useState(0);
-  const [generalWaterElectricityRowsPerPage, setGeneralWaterElectricityRowsPerPage] = useState(10);
+  const [expandedRows, setExpandedRows] = useState(new Set());
+  
+  // Payment state
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [selectedProperty, setSelectedProperty] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: 0,
+    arrears: 0,
+    paymentDate: dayjs().format('YYYY-MM-DD'),
+    periodFrom: dayjs().format('YYYY-MM-DD'),
+    periodTo: dayjs().format('YYYY-MM-DD'),
+    invoiceNumber: '',
+    paymentMethod: 'Bank Transfer',
+    reference: '',
+    notes: ''
+  });
   
   // Bulk Create state
   const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
@@ -183,63 +202,101 @@ const Electricity = () => {
 
   useEffect(() => {
     loadCharges();
-    fetchCurrentOverview();
+    loadProperties();
   }, []);
 
-  useEffect(() => {
-    if (generalWaterElectricityExpanded) {
-      fetchCurrentOverview();
-    }
-  }, [generalWaterElectricityExpanded]);
-
-  const fetchCurrentOverview = async () => {
+  const loadProperties = async () => {
     try {
       setCurrentOverviewLoading(true);
       const response = await api.get('/taj-utilities/electricity/current-overview');
-      setCurrentOverview(response.data.data);
+      setProperties(response.data.data?.properties || []);
     } catch (error) {
-      console.error('Error fetching current overview:', error);
-      setError('Failed to load current Electricity Bills overview');
+      console.error('Error fetching properties:', error);
+      setError('Failed to load properties');
     } finally {
       setCurrentOverviewLoading(false);
     }
   };
 
-  const toggleGeneralWaterElectricityExpansion = () => {
-    setGeneralWaterElectricityExpanded(!generalWaterElectricityExpanded);
-  };
-
-  const handleGeneralWaterElectricityPageChange = (newPage) => {
-    setGeneralWaterElectricityPage(newPage);
-  };
-
-  const handleGeneralWaterElectricityRowsPerPageChange = (newRowsPerPage) => {
-    setGeneralWaterElectricityRowsPerPage(parseInt(newRowsPerPage, 10));
-    setGeneralWaterElectricityPage(0);
-  };
-
-  const getPaginatedGeneralWaterElectricityProperties = () => {
-    if (!currentOverview) {
-      return {
-        paginatedProperties: [],
-        currentPage: generalWaterElectricityPage,
-        currentRowsPerPage: generalWaterElectricityRowsPerPage,
-        totalProperties: 0,
-        totalPages: 0
-      };
+  const toggleRowExpansion = (propertyId) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(propertyId)) {
+      newExpanded.delete(propertyId);
+    } else {
+      newExpanded.add(propertyId);
     }
-    
-    const propertiesToShow = currentOverview.properties || [];
-    const startIndex = generalWaterElectricityPage * generalWaterElectricityRowsPerPage;
-    const endIndex = startIndex + generalWaterElectricityRowsPerPage;
-    
-    return {
-      paginatedProperties: propertiesToShow.slice(startIndex, endIndex),
-      currentPage: generalWaterElectricityPage,
-      currentRowsPerPage: generalWaterElectricityRowsPerPage,
-      totalProperties: propertiesToShow.length,
-      totalPages: Math.ceil(propertiesToShow.length / generalWaterElectricityRowsPerPage)
-    };
+    setExpandedRows(newExpanded);
+  };
+
+  const totalPayments = (payments) => {
+    return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
+  };
+
+  const getPaymentStatusConfig = (status) => {
+    const normalized = (status || 'unpaid').toLowerCase();
+    switch (normalized) {
+      case 'paid':
+        return { color: 'success', label: 'Paid', iconColor: 'success.main' };
+      case 'partial_paid':
+        return { color: 'warning', label: 'Partial Paid', iconColor: 'warning.main' };
+      case 'unpaid':
+      default:
+        return { color: 'error', label: 'Unpaid', iconColor: 'error.main' };
+    }
+  };
+
+  const handleOpenPaymentDialog = (property) => {
+    setSelectedProperty(property);
+    setPaymentForm({
+      amount: property.electricityAmount || 0,
+      arrears: property.electricityArrears || 0,
+      paymentDate: dayjs().format('YYYY-MM-DD'),
+      periodFrom: dayjs().format('YYYY-MM-DD'),
+      periodTo: dayjs().format('YYYY-MM-DD'),
+      invoiceNumber: '',
+      paymentMethod: 'Bank Transfer',
+      reference: '',
+      notes: ''
+    });
+    setPaymentDialog(true);
+  };
+
+  const handlePaymentSave = async () => {
+    try {
+      setError('');
+      if (!selectedProperty) return;
+      
+      await addPaymentToPropertyElectricity(selectedProperty._id, paymentForm);
+      setSuccess('Payment recorded successfully');
+      setPaymentDialog(false);
+      loadProperties();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to record payment');
+    }
+  };
+
+  const handleDeletePayment = async (property, payment) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) {
+      return;
+    }
+
+    try {
+      setError('');
+      // Find the bill ID from the payment
+      const billId = payment.chargeId;
+      const paymentId = payment._id;
+
+      if (!billId || !paymentId) {
+        setError('Payment information is incomplete');
+        return;
+      }
+
+      await deletePaymentFromElectricityBill(billId, paymentId);
+      setSuccess('Payment deleted successfully');
+      loadProperties();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete payment');
+    }
   };
 
   const handleOpenViewDialog = (charge) => {
@@ -832,6 +889,7 @@ const Electricity = () => {
       // Fetch current overview to get properties
       const response = await api.get('/taj-utilities/electricity/current-overview');
       const overview = response.data.data;
+      setProperties(overview?.properties || []);
       
       // Initialize properties with empty current reading
       const properties = (overview.properties || []).map(prop => ({
@@ -898,7 +956,7 @@ const Electricity = () => {
       
       // Refresh data
       loadCharges();
-      fetchCurrentOverview();
+      loadProperties();
       
       const summary = response.data.data;
       let message = `✅ Successfully created ${summary.created} electricity bills for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}!\n\n`;
@@ -966,9 +1024,6 @@ const Electricity = () => {
           <Button variant="outlined" startIcon={<GroupWorkIcon />} onClick={handleOpenBulkCreate} disabled={bulkCreateLoading}>
             Bulk Create
           </Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
-            New Bill
-          </Button>
         </Stack>
       </Stack>
 
@@ -983,379 +1038,220 @@ const Electricity = () => {
         </Alert>
       )}
 
-      {/* General Electricity Bills Overview Card */}
-      <Card sx={{ mb: 3, bgcolor: 'primary.50' }}>
-        <CardContent>
-          <Typography variant="h6" color="primary.main" sx={{ mb: 2, fontWeight: 600 }}>
-            📋 General Electricity Bills
-          </Typography>
-          
-          <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Property Overview</TableCell>
-                    <TableCell>Total Properties</TableCell>
-                    <TableCell>Active Properties</TableCell>
-                    <TableCell>Total Amount</TableCell>
-                    <TableCell>Total Arrears</TableCell>
-                    <TableCell align="center">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  <TableRow hover sx={{ bgcolor: 'background.paper' }}>
-                    <TableCell>
-                      <Box>
-                        <Typography variant="subtitle2">
-                          Current Properties
-                        </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          General
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {currentOverviewLoading ? (
-                          <CircularProgress size={16} />
-                        ) : (
-                          `${currentOverview?.totalProperties || 0} Properties`
-                        )}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {currentOverviewLoading ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        `${currentOverview?.totalActiveProperties || 0} Active`
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {currentOverviewLoading ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        formatCurrency(currentOverview?.totalAmount || 0)
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {currentOverviewLoading ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        <Typography color={currentOverview?.totalArrears > 0 ? 'error.main' : 'text.secondary'}>
-                          {formatCurrency(currentOverview?.totalArrears || 0)}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Tooltip title={generalWaterElectricityExpanded ? "Hide Details" : "View Details"}>
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={toggleGeneralWaterElectricityExpansion}
-                        >
-                          {generalWaterElectricityExpanded ? <ExpandMoreIcon /> : <ViewIcon />}
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-          
-          {/* Expanded Property Details for General Electricity Bills */}
-          <Collapse in={generalWaterElectricityExpanded} timeout="auto" unmountOnExit>
-            <Box sx={{ margin: 1 }}>
-              <Typography variant="h6" gutterBottom component="div">
-                Property Details - Current Electricity Bills
-                <Chip 
-                  label="↑ Sorted by Serial Number" 
-                  size="small" 
-                  color="primary" 
-                  variant="outlined"
-                  sx={{ ml: 2, fontSize: '0.75rem', height: 24 }}
-                />
-              </Typography>
-              
-              {/* Property Details Pagination Info */}
-              {(() => {
-                const paginationInfo = getPaginatedGeneralWaterElectricityProperties();
-                return (
-                  <Box sx={{ 
-                    mb: 2, 
-                    p: 2, 
-                    bgcolor: 'grey.50', 
-                    borderRadius: 2, 
-                    border: '1px solid',
-                    borderColor: 'grey.200'
-                  }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                      <Box>
-                        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
-                          🏠 Property List
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalProperties)} of {paginationInfo.totalProperties} properties
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" color="textSecondary">
-                          Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages || 1}
-                        </Typography>
-                        {paginationInfo.totalPages > 1 && (
-                          <Chip 
-                            label={`${paginationInfo.totalPages} pages`} 
-                            size="small" 
-                            color="primary" 
-                            variant="outlined"
-                          />
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                );
-              })()}
-
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Sr. No</TableCell>
-                    <TableCell>Property</TableCell>
-                    <TableCell>Location</TableCell>
-                    <TableCell>Owner</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell align="right">Electricity Amount</TableCell>
-                    <TableCell align="right">Arrears</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {(() => {
-                    const paginationInfo = getPaginatedGeneralWaterElectricityProperties();
-                    if (paginationInfo.paginatedProperties.length === 0) {
-                      return (
-                        <TableRow>
-                          <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                            <Box sx={{ textAlign: 'center' }}>
-                              <Typography variant="body2" color="textSecondary">
-                                {currentOverviewLoading ? 'Loading properties...' : 'No properties found'}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    }
-                    
-                    return paginationInfo.paginatedProperties.map((property) => {
-                      return (
-                        <TableRow key={property._id}>
-                          <TableCell>{property.srNo || '—'}</TableCell>
-                          <TableCell>
-                            <Box>
-                              <Typography variant="subtitle2">
-                                {property.propertyName || property.propertyType || '—'}
-                              </Typography>
-                              <Typography variant="caption" color="textSecondary">
-                                {property.plotNumber || '—'} / {property.rdaNumber || '—'}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">{property.address || '—'}</Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              {property.street || '—'} • Sector {property.sector || '—'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={600}>{property.ownerName || '—'}</Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              {property.contactNumber || '—'}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={property.status || 'Pending'}
-                              color={
-                                property.status === 'Active' || property.status === 'active' ? 'success' :
-                                property.status === 'Pending' || property.status === 'pending' ? 'warning' :
-                                property.status === 'Completed' || property.status === 'completed' ? 'info' : 'default'
-                              }
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography fontWeight={600}>
-                              {formatCurrency(property.electricityAmount || 0)}
-                            </Typography>
-                            {!property.hasWaterElectricity && (
-                              <Typography variant="caption" color="textSecondary" display="block">
-                                No charge
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography color={property.electricityArrears > 0 ? 'error.main' : 'text.secondary'}>
-                              {formatCurrency(property.electricityArrears || 0)}
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    });
-                  })()}
-                </TableBody>
-              </Table>
-
-              {/* General Electricity Bills Property Details Pagination Controls */}
-              {(() => {
-                const paginationInfo = getPaginatedGeneralWaterElectricityProperties();
-                if (paginationInfo.totalPages <= 1) return null;
-                
-                return (
-                  <Box sx={{ 
-                    mt: 2, 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: 2
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Typography variant="body2" color="textSecondary">
-                        Properties per page:
-                      </Typography>
-                      <FormControl size="small" sx={{ minWidth: 80 }}>
-                        <Select
-                          value={paginationInfo.currentRowsPerPage}
-                          onChange={(e) => handleGeneralWaterElectricityRowsPerPageChange(e.target.value)}
-                          sx={{ height: 32 }}
-                        >
-                          <MenuItem value={5}>5</MenuItem>
-                          <MenuItem value={10}>10</MenuItem>
-                          <MenuItem value={25}>25</MenuItem>
-                          <MenuItem value={50}>50</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Button
-                        size="small"
-                        onClick={() => handleGeneralWaterElectricityPageChange(paginationInfo.currentPage - 1)}
-                        disabled={paginationInfo.currentPage === 0}
-                        variant="outlined"
-                      >
-                        Previous
-                      </Button>
-                      
-                      <Typography variant="body2" sx={{ px: 2 }}>
-                        {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
-                      </Typography>
-                      
-                      <Button
-                        size="small"
-                        onClick={() => handleGeneralWaterElectricityPageChange(paginationInfo.currentPage + 1)}
-                        disabled={paginationInfo.currentPage >= paginationInfo.totalPages - 1}
-                        variant="outlined"
-                      >
-                        Next
-                      </Button>
-                    </Box>
-                  </Box>
-                );
-              })()}
-            </Box>
-          </Collapse>
-        </CardContent>
-      </Card>
-
       <Card>
         <CardContent>
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell width={50}></TableCell>
                   <TableCell>Sr. No</TableCell>
-                  <TableCell>Invoice #</TableCell>
-                  <TableCell>Plot / RDA</TableCell>
+                  <TableCell>Property</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Owner</TableCell>
-                  <TableCell>Project</TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell align="right">Amount</TableCell>
-                  <TableCell align="right">Arrears</TableCell>
+                  <TableCell>Payment Status</TableCell>
+                  <TableCell align="right">Electricity Amount</TableCell>
+                  <TableCell align="right">Total Payments</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredCharges.map((charge) => (
-                  <TableRow key={charge._id} hover>
-                    <TableCell>{charge.serialNumber || '—'}</TableCell>
-                    <TableCell>
-                      <Typography fontWeight={600}>{charge.invoiceNumber || '—'}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography fontWeight={600}>{charge.plotNo || '—'}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        RDA: {charge.rdaNo || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography>{charge.address || '—'}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Street {charge.street || '—'} • Sector {charge.sector || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography fontWeight={600}>{charge.owner}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {charge.contactNo || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{charge.project || '—'}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={charge.status || 'Active'}
-                        size="small"
-                        color={
-                          charge.status === 'Active' ? 'success' :
-                          charge.status === 'Pending' ? 'warning' :
-                          charge.status === 'Completed' ? 'info' : 'default'
-                        }
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight={600}>{formatCurrency(charge.amount)}</Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography color={charge.arrears > 0 ? 'error.main' : 'text.secondary'}>
-                        {formatCurrency(charge.arrears)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Tooltip title="View">
-                        <IconButton size="small" onClick={() => handleOpenViewDialog(charge)}>
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => handleOpenDialog(charge)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => handleDeleteCharge(charge._id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {!filteredCharges.length && !loading && (
+                {currentOverviewLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center">
-                      <Typography color="text.secondary">No Electricity bills found</Typography>
+                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                      <CircularProgress />
                     </TableCell>
                   </TableRow>
+                ) : properties.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                      <Typography color="text.secondary">No properties found</Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  properties.map((property) => (
+                    <React.Fragment key={property._id}>
+                      <TableRow hover>
+                        <TableCell>
+                          <IconButton
+                            size="small"
+                            onClick={() => toggleRowExpansion(property._id)}
+                          >
+                            {expandedRows.has(property._id) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                          </IconButton>
+                        </TableCell>
+                        <TableCell>{property.srNo || '—'}</TableCell>
+                        <TableCell>
+                          <Box>
+                            <Typography variant="subtitle2" fontWeight={600}>
+                              {property.propertyName || property.propertyType || '—'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {property.plotNumber || '—'} / {property.rdaNumber || '—'}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">{property.address || '—'}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {property.street || '—'} • Sector {property.sector || '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>{property.ownerName || '—'}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {property.contactNumber || '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={property.status || 'Pending'}
+                            size="small"
+                            color={
+                              property.status === 'Active' || property.status === 'active' ? 'success' :
+                              property.status === 'Pending' || property.status === 'pending' ? 'warning' :
+                              property.status === 'Completed' || property.status === 'completed' ? 'info' : 'default'
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const { color, label } = getPaymentStatusConfig(property.paymentStatus || 'unpaid');
+                            return (
+                              <Chip
+                                label={label}
+                                color={color}
+                                size="small"
+                              />
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight={600}>
+                            {formatCurrency(property.electricityAmount || 0)}
+                          </Typography>
+                          {property.electricityArrears > 0 && (
+                            <Typography variant="caption" color="error.main" display="block">
+                              Arrears: {formatCurrency(property.electricityArrears || 0)}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight={600}>
+                            {formatCurrency(totalPayments(property.payments || []))}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {(property.payments || []).length} payment(s)
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="View Details">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => navigate(`/finance/taj-utilities-charges/taj-properties/${property._id}`)}
+                              >
+                                <ViewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Add Payment">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleOpenPaymentDialog(property)}
+                              >
+                                <PaymentIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={10} sx={{ py: 0, border: 0 }}>
+                          <Collapse in={expandedRows.has(property._id)} timeout="auto" unmountOnExit>
+                            <Box sx={{ py: 2, px: 3 }}>
+                              <Typography variant="subtitle2" gutterBottom>
+                                Payment History
+                              </Typography>
+                              {property.payments && property.payments.length > 0 ? (
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Date</TableCell>
+                                      <TableCell>Period</TableCell>
+                                      <TableCell>Invoice #</TableCell>
+                                      <TableCell>Amount</TableCell>
+                                      <TableCell>Status</TableCell>
+                                      <TableCell>Method</TableCell>
+                                      <TableCell align="right">Actions</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {property.payments.map((payment, idx) => (
+                                      <TableRow key={idx}>
+                                        <TableCell>
+                                          {dayjs(payment.paymentDate).format('MMM D, YYYY')}
+                                        </TableCell>
+                                        <TableCell>
+                                          {payment.periodFrom && payment.periodTo ? (
+                                            `${dayjs(payment.periodFrom).format('MMM D')} - ${dayjs(payment.periodTo).format('MMM D, YYYY')}`
+                                          ) : (
+                                            'N/A'
+                                          )}
+                                        </TableCell>
+                                        <TableCell>{payment.invoiceNumber || 'N/A'}</TableCell>
+                                        <TableCell>{formatCurrency(payment.totalAmount || payment.amount || 0)}</TableCell>
+                                        <TableCell>
+                                          {(() => {
+                                            const { color, label } = getPaymentStatusConfig(payment.status || 'unpaid');
+                                            return (
+                                              <Chip
+                                                label={label}
+                                                color={color}
+                                                size="small"
+                                              />
+                                            );
+                                          })()}
+                                        </TableCell>
+                                        <TableCell>{payment.paymentMethod || 'N/A'}</TableCell>
+                                        <TableCell align="right">
+                                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                            <Tooltip title="View Details">
+                                              <IconButton
+                                                size="small"
+                                                color="primary"
+                                              >
+                                                <ViewIcon fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
+                                            <Tooltip title="Delete Payment">
+                                              <IconButton
+                                                size="small"
+                                                color="error"
+                                                onClick={() => handleDeletePayment(property, payment)}
+                                              >
+                                                <DeleteIcon fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
+                                          </Stack>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">
+                                  No payments recorded yet
+                                </Typography>
+                              )}
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </React.Fragment>
+                  ))
                 )}
               </TableBody>
             </Table>
@@ -2012,6 +1908,141 @@ const Electricity = () => {
               </Button>
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Record Payment
+          <IconButton
+            onClick={() => setPaymentDialog(false)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary">
+                Property: {selectedProperty?.propertyName || selectedProperty?.plotNumber} ({selectedProperty?.srNo || 'N/A'})
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Amount (PKR)"
+                type="number"
+                fullWidth
+                value={paymentForm.amount}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Arrears (PKR)"
+                type="number"
+                fullWidth
+                value={paymentForm.arrears}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, arrears: Number(e.target.value) }))}
+                helperText="Outstanding amount from previous periods"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ 
+                p: 2, 
+                borderRadius: 1, 
+                backgroundColor: '#f5f5f5',
+                borderLeft: '3px solid #1976d2'
+              }}>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Total Payment Amount
+                </Typography>
+                <Typography variant="h6" fontWeight={600} color="primary">
+                  {formatCurrency((paymentForm.amount || 0) + (paymentForm.arrears || 0))}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Payment Date"
+                type="date"
+                fullWidth
+                value={paymentForm.paymentDate}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentDate: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Period From"
+                type="date"
+                fullWidth
+                value={paymentForm.periodFrom}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, periodFrom: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Period To"
+                type="date"
+                fullWidth
+                value={paymentForm.periodTo}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, periodTo: e.target.value }))}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Invoice Number"
+                fullWidth
+                value={paymentForm.invoiceNumber}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, invoiceNumber: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Payment Method</InputLabel>
+                <Select
+                  value={paymentForm.paymentMethod}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  label="Payment Method"
+                >
+                  <MenuItem value="Cash">Cash</MenuItem>
+                  <MenuItem value="Bank Transfer">Bank Transfer</MenuItem>
+                  <MenuItem value="Cheque">Cheque</MenuItem>
+                  <MenuItem value="Online">Online</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Reference/Transaction ID"
+                fullWidth
+                value={paymentForm.reference}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, reference: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Notes"
+                fullWidth
+                multiline
+                rows={3}
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handlePaymentSave}>
+            Record Payment
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

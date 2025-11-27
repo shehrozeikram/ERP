@@ -123,7 +123,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         camCharges = await CAMCharge.find({
           $or: queryConditions
         })
-          .select('address plotNo owner amount arrears status')
+          .select('address plotNo owner amount arrears status payments paymentStatus')
           .lean();
         console.log(`✅ Found ${camCharges.length} CAM charges`);
       } catch (queryError) {
@@ -162,6 +162,29 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           const propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
           const propertyArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
           
+          // Get all payments from related charges
+          const allPayments = relatedCharges.flatMap(charge => (charge.payments || []).map(payment => ({
+            ...payment,
+            chargeId: charge._id,
+            chargeInvoiceNumber: charge.invoiceNumber
+          })));
+          
+          // Calculate payment status based on total payments vs total CAM amount
+          const totalCAMAmount = propertyAmount + propertyArrears;
+          const totalPaid = allPayments.reduce((sum, payment) => sum + (payment.totalAmount || payment.amount || 0), 0);
+          
+          let paymentStatus = 'unpaid';
+          if (totalPaid >= totalCAMAmount && totalCAMAmount > 0) {
+            paymentStatus = 'paid';
+          } else if (totalPaid > 0) {
+            paymentStatus = 'partial_paid';
+          }
+          
+          // Update all payments with the calculated status
+          allPayments.forEach(payment => {
+            payment.status = paymentStatus;
+          });
+          
           totalAmount += propertyAmount;
           totalArrears += propertyArrears;
 
@@ -190,7 +213,9 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             // CAM Charge related fields
             camAmount: propertyAmount || 0,
             camArrears: propertyArrears || 0,
-            hasCAMCharge: relatedCharges.length > 0
+            hasCAMCharge: relatedCharges.length > 0,
+            payments: allPayments || [],
+            paymentStatus: paymentStatus
           };
         } catch (propError) {
           console.error('❌ Error processing property:', property._id, propError);
@@ -249,6 +274,219 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     }
     
     res.status(500).json(errorResponse);
+  }
+});
+
+// Add payment to CAM Charge by property ID (finds most recent charge)
+router.post('/property/:propertyId/payments', authMiddleware, async (req, res) => {
+  try {
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+
+    // Find property
+    const property = await TajProperty.findById(req.params.propertyId);
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    // Find most recent CAM charge for this property
+    const propertyKey = property.address || property.plotNumber || property.ownerName;
+    const charge = await CAMCharge.findOne({
+      $or: [
+        { address: propertyKey },
+        { plotNo: property.plotNumber },
+        { owner: property.ownerName }
+      ]
+    }).sort({ createdAt: -1 });
+
+    if (!charge) {
+      return res.status(404).json({ success: false, message: 'No CAM charge found for this property' });
+    }
+
+    const paymentAmount = Number(amount) || 0;
+    const arrearsAmount = Number(arrears) || 0;
+    const paymentTotal = paymentAmount + arrearsAmount;
+
+    charge.payments.push({
+      amount: paymentAmount,
+      arrears: arrearsAmount,
+      totalAmount: paymentTotal,
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+      periodTo: periodTo ? new Date(periodTo) : undefined,
+      invoiceNumber: invoiceNumber || '',
+      paymentMethod: paymentMethod || 'Bank Transfer',
+      reference: reference || '',
+      notes: notes || '',
+      recordedBy: req.user.id
+    });
+
+    // Recalculate payment status after adding payment
+    const chargeTotal = charge.amount + (charge.arrears || 0);
+    const totalPaid = charge.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    if (totalPaid >= chargeTotal && chargeTotal > 0) {
+      charge.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      charge.paymentStatus = 'partial_paid';
+    } else {
+      charge.paymentStatus = 'unpaid';
+    }
+
+    await charge.save();
+    res.json({ success: true, data: charge });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Add payment to CAM Charge by charge ID
+router.post('/:id/payments', authMiddleware, async (req, res) => {
+  try {
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+
+    const charge = await CAMCharge.findById(req.params.id);
+    if (!charge) {
+      return res.status(404).json({ success: false, message: 'CAM Charge not found' });
+    }
+
+    const paymentAmount = Number(amount) || 0;
+    const arrearsAmount = Number(arrears) || 0;
+    const paymentTotal = paymentAmount + arrearsAmount;
+
+    charge.payments.push({
+      amount: paymentAmount,
+      arrears: arrearsAmount,
+      totalAmount: paymentTotal,
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+      periodTo: periodTo ? new Date(periodTo) : undefined,
+      invoiceNumber: invoiceNumber || '',
+      paymentMethod: paymentMethod || 'Bank Transfer',
+      reference: reference || '',
+      notes: notes || '',
+      recordedBy: req.user.id
+    });
+
+    // Recalculate payment status after adding payment
+    const chargeTotal = charge.amount + (charge.arrears || 0);
+    const totalPaid = charge.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    if (totalPaid >= chargeTotal && chargeTotal > 0) {
+      charge.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      charge.paymentStatus = 'partial_paid';
+    } else {
+      charge.paymentStatus = 'unpaid';
+    }
+
+    await charge.save();
+    res.json({ success: true, data: charge });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Delete all payments from CAM Charge by property ID
+router.delete('/property/:propertyId/payments', authMiddleware, async (req, res) => {
+  try {
+    // Find property
+    const property = await TajProperty.findById(req.params.propertyId);
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    // Find all CAM charges for this property
+    const propertyKey = property.address || property.plotNumber || property.ownerName;
+    const charges = await CAMCharge.find({
+      $or: [
+        { address: propertyKey },
+        { plotNo: property.plotNumber },
+        { owner: property.ownerName }
+      ]
+    });
+
+    if (charges.length === 0) {
+      return res.status(404).json({ success: false, message: 'No CAM charges found for this property' });
+    }
+
+    // Remove all payments from all charges
+    for (const charge of charges) {
+      charge.payments = [];
+      charge.paymentStatus = 'unpaid';
+      await charge.save();
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Removed all payments from ${charges.length} CAM charge(s)`,
+      data: { chargesUpdated: charges.length }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Delete all payments from CAM Charge by charge ID
+router.delete('/:id/payments', authMiddleware, async (req, res) => {
+  try {
+    const charge = await CAMCharge.findById(req.params.id);
+    if (!charge) {
+      return res.status(404).json({ success: false, message: 'CAM Charge not found' });
+    }
+
+    charge.payments = [];
+    charge.paymentStatus = 'unpaid';
+    await charge.save();
+
+    res.json({ 
+      success: true, 
+      message: 'All payments removed from CAM charge',
+      data: charge
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Delete a specific payment from CAM Charge
+router.delete('/:chargeId/payments/:paymentId', authMiddleware, async (req, res) => {
+  try {
+    const charge = await CAMCharge.findById(req.params.chargeId);
+    if (!charge) {
+      return res.status(404).json({ success: false, message: 'CAM Charge not found' });
+    }
+
+    const paymentIndex = charge.payments.findIndex(
+      p => p._id.toString() === req.params.paymentId
+    );
+
+    if (paymentIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    charge.payments.splice(paymentIndex, 1);
+
+    // Recalculate payment status after removing payment
+    const chargeTotal = charge.amount + (charge.arrears || 0);
+    const totalPaid = charge.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    if (totalPaid >= chargeTotal && chargeTotal > 0) {
+      charge.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      charge.paymentStatus = 'partial_paid';
+    } else {
+      charge.paymentStatus = 'unpaid';
+    }
+
+    await charge.save();
+
+    res.json({ 
+      success: true, 
+      message: 'Payment removed successfully',
+      data: charge
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
   }
 });
 

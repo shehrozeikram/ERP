@@ -183,6 +183,60 @@ const electricitySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Payment Tracking
+  payments: [{
+    amount: {
+      type: Number,
+      required: true
+    },
+    arrears: {
+      type: Number,
+      default: 0
+    },
+    totalAmount: {
+      type: Number,
+      default: function() {
+        return (this.amount || 0) + (this.arrears || 0);
+      }
+    },
+    paymentDate: {
+      type: Date,
+      required: true
+    },
+    periodFrom: Date,
+    periodTo: Date,
+    invoiceNumber: {
+      type: String,
+      trim: true
+    },
+    paymentMethod: {
+      type: String,
+      enum: ['Cash', 'Bank Transfer', 'Cheque', 'Online'],
+      default: 'Bank Transfer'
+    },
+    reference: {
+      type: String,
+      trim: true
+    },
+    notes: {
+      type: String,
+      trim: true
+    },
+    recordedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    recordedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  // Payment Status (auto-calculated)
+  paymentStatus: {
+    type: String,
+    enum: ['unpaid', 'partial_paid', 'paid'],
+    default: 'unpaid'
+  },
   // Metadata
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -210,6 +264,22 @@ electricitySchema.pre('save', async function(next) {
     const lastRecord = await this.constructor.findOne({}, {}, { sort: { serialNumber: -1 } });
     this.serialNumber = lastRecord ? lastRecord.serialNumber + 1 : 1;
   }
+  next();
+});
+
+// Auto-calculate payment status based on payments
+electricitySchema.pre('save', function(next) {
+  const totalAmount = (this.totalBill || this.amount) + (this.arrears || 0);
+  const totalPaid = (this.payments || []).reduce((sum, payment) => sum + (payment.totalAmount || payment.amount || 0), 0);
+  
+  if (totalPaid >= totalAmount && totalAmount > 0) {
+    this.paymentStatus = 'paid';
+  } else if (totalPaid > 0) {
+    this.paymentStatus = 'partial_paid';
+  } else {
+    this.paymentStatus = 'unpaid';
+  }
+  
   next();
 });
 

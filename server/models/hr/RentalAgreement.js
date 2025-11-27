@@ -10,40 +10,6 @@ const rentalAgreementSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  propertyAddress: {
-    type: String,
-    required: true
-  },
-  landlordName: {
-    type: String,
-    required: true
-  },
-  landlordContact: {
-    type: String,
-    required: true
-  },
-  landlordIdCard: {
-    type: String
-  },
-  monthlyRent: {
-    type: Number,
-    required: true
-  },
-  securityDeposit: {
-    type: Number,
-    default: 0
-  },
-  startDate: {
-    type: Date,
-    required: true
-  },
-  endDate: {
-    type: Date,
-    required: true
-  },
-  terms: {
-    type: String
-  },
   agreementImage: {
     type: String // Path to uploaded agreement image
   },

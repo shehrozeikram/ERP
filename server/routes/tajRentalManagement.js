@@ -249,6 +249,25 @@ router.post('/properties/:id/payments', authMiddleware, async (req, res) => {
       recordedBy: req.user.id
     });
 
+    // Calculate payment status based on total payments vs expected rent
+    const monthlyRent = property.rentalAgreement?.monthlyRent || property.expectedRent || 0;
+    const totalPaid = property.rentalPayments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    // Calculate overall payment status for the property
+    let overallStatus = 'unpaid';
+    if (totalPaid >= monthlyRent && monthlyRent > 0) {
+      overallStatus = 'paid';
+    } else if (totalPaid > 0) {
+      overallStatus = 'partial_paid';
+    }
+    
+    // Update payment status for each payment - all payments share the same status
+    // since they're cumulative towards the monthly rent
+    property.rentalPayments.forEach((payment) => {
+      payment.status = overallStatus;
+      payment.statusUpdatedAt = new Date();
+    });
+
     await property.save();
     await property.populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard');
     res.json({ success: true, data: mapRentalPropertyResponse(property.toObject()) });

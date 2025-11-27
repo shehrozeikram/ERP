@@ -15,9 +15,14 @@ export const getImageUrl = (imagePath) => {
   if (imagePath.startsWith('http')) return imagePath;
   
   // Construct full URL based on environment
-  const baseUrl = process.env.NODE_ENV === 'production' 
-    ? window.location.origin 
-    : window.location.origin; // Uses proxy in development
+  let baseUrl;
+  if (process.env.NODE_ENV === 'production') {
+    baseUrl = window.location.origin;
+  } else {
+    // In development, use the backend server directly for uploads
+    // The proxy doesn't handle /uploads paths, so we need to use the backend URL
+    baseUrl = process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001';
+  }
   
   return `${baseUrl}${imagePath}`;
 };

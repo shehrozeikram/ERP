@@ -31,7 +31,8 @@ import {
   Stack,
   Divider,
   Skeleton,
-  CircularProgress
+  CircularProgress,
+  Tooltip
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -41,7 +42,8 @@ import {
   CloudUpload as UploadIcon,
   Image as ImageIcon,
   Close as CloseIcon,
-  PhotoCamera as PhotoCameraIcon
+  PhotoCamera as PhotoCameraIcon,
+  PictureAsPdf as PdfIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
@@ -58,15 +60,6 @@ const RentalAgreementList = () => {
   const [formData, setFormData] = useState({
     agreementNumber: '',
     propertyName: '',
-    propertyAddress: '',
-    landlordName: '',
-    landlordContact: '',
-    landlordIdCard: '',
-    monthlyRent: '',
-    securityDeposit: '',
-    startDate: '',
-    endDate: '',
-    terms: '',
     status: 'Active'
   });
   const [selectedImage, setSelectedImage] = useState(null);
@@ -96,15 +89,6 @@ const RentalAgreementList = () => {
       setFormData({
         agreementNumber: agreement.agreementNumber,
         propertyName: agreement.propertyName,
-        propertyAddress: agreement.propertyAddress,
-        landlordName: agreement.landlordName,
-        landlordContact: agreement.landlordContact,
-        landlordIdCard: agreement.landlordIdCard || '',
-        monthlyRent: agreement.monthlyRent,
-        securityDeposit: agreement.securityDeposit || '',
-        startDate: agreement.startDate ? format(new Date(agreement.startDate), 'yyyy-MM-dd') : '',
-        endDate: agreement.endDate ? format(new Date(agreement.endDate), 'yyyy-MM-dd') : '',
-        terms: agreement.terms || '',
         status: agreement.status
       });
       setImagePreview(agreement.agreementImage || null);
@@ -113,15 +97,6 @@ const RentalAgreementList = () => {
       setFormData({
         agreementNumber: '',
         propertyName: '',
-        propertyAddress: '',
-        landlordName: '',
-        landlordContact: '',
-        landlordIdCard: '',
-        monthlyRent: '',
-        securityDeposit: '',
-        startDate: '',
-        endDate: '',
-        terms: '',
         status: 'Active'
       });
       setImagePreview(null);
@@ -153,24 +128,35 @@ const RentalAgreementList = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        setError('Please select an image file');
+      // Validate file type (images or PDFs)
+      const isValidType = file.type.startsWith('image/') || file.type === 'application/pdf';
+      if (!isValidType) {
+        setError('Please select an image or PDF file');
         return;
       }
       
-      // Validate file size (5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Image size should be less than 5MB');
+      // Validate file size (10MB for PDFs, 5MB for images)
+      const maxSize = file.type === 'application/pdf' ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+      if (file.size > maxSize) {
+        setError(file.type === 'application/pdf' 
+          ? 'PDF size should be less than 10MB' 
+          : 'Image size should be less than 5MB');
         return;
       }
       
       setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target.result);
-      };
-      reader.readAsDataURL(file);
+      
+      // For images, show preview; for PDFs, show file info
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setImagePreview(e.target.result);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        // For PDFs, set a placeholder or file info
+        setImagePreview(null);
+      }
       setError(''); // Clear any previous errors
     }
   };
@@ -184,6 +170,13 @@ const RentalAgreementList = () => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
+      // Validate file type
+      const isValidType = file.type.startsWith('image/') || file.type === 'application/pdf';
+      if (!isValidType) {
+        setError('Please drop an image or PDF file');
+        return;
+      }
+      
       const event = {
         target: {
           files: [file]
@@ -206,7 +199,7 @@ const RentalAgreementList = () => {
     
     try {
       // Validate required fields
-      const requiredFields = ['agreementNumber', 'propertyName', 'propertyAddress', 'landlordName', 'landlordContact', 'monthlyRent', 'startDate', 'endDate'];
+      const requiredFields = ['agreementNumber', 'propertyName'];
       const missingFields = requiredFields.filter(field => {
         const value = formData[field];
         return !value || value.toString().trim() === '' || value === '';
@@ -215,26 +208,6 @@ const RentalAgreementList = () => {
       if (missingFields.length > 0) {
         setError(`Please fill in all required fields: ${missingFields.join(', ')}`);
         console.log('❌ Validation failed - missing fields:', missingFields);
-        return;
-      }
-
-      // Validate dates
-      if (new Date(formData.startDate) >= new Date(formData.endDate)) {
-        setError('End date must be after start date');
-        console.log('❌ Validation failed - invalid date range');
-        return;
-      }
-
-      // Validate numbers
-      if (isNaN(formData.monthlyRent) || formData.monthlyRent <= 0) {
-        setError('Monthly rent must be a positive number');
-        console.log('❌ Validation failed - invalid monthly rent');
-        return;
-      }
-
-      if (formData.securityDeposit && (isNaN(formData.securityDeposit) || formData.securityDeposit < 0)) {
-        setError('Security deposit must be a positive number');
-        console.log('❌ Validation failed - invalid security deposit');
         return;
       }
 
@@ -438,10 +411,6 @@ const RentalAgreementList = () => {
                 <TableRow>
                   <TableCell>Agreement #</TableCell>
                   <TableCell>Property Name</TableCell>
-                  <TableCell>Landlord</TableCell>
-                  <TableCell>Monthly Rent</TableCell>
-                  <TableCell>Start Date</TableCell>
-                  <TableCell>End Date</TableCell>
                   <TableCell>Image</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Actions</TableCell>
@@ -452,17 +421,25 @@ const RentalAgreementList = () => {
                   <TableRow key={agreement._id}>
                     <TableCell>{agreement.agreementNumber}</TableCell>
                     <TableCell>{agreement.propertyName}</TableCell>
-                    <TableCell>{agreement.landlordName}</TableCell>
-                    <TableCell>{formatPKR(agreement.monthlyRent)}</TableCell>
-                    <TableCell>{format(new Date(agreement.startDate), 'dd/MM/yyyy')}</TableCell>
-                    <TableCell>{format(new Date(agreement.endDate), 'dd/MM/yyyy')}</TableCell>
                     <TableCell>
                       {agreement.agreementImage ? (
-                        <Avatar
-                          src={getImageUrl(agreement.agreementImage)}
-                          sx={{ width: 40, height: 40 }}
-                          variant="rounded"
-                        />
+                        agreement.agreementImage.toLowerCase().endsWith('.pdf') ? (
+                          <Tooltip title="Click to view PDF">
+                            <Avatar 
+                              sx={{ width: 40, height: 40, bgcolor: 'error.main', cursor: 'pointer' }} 
+                              variant="rounded"
+                              onClick={() => window.open(getImageUrl(agreement.agreementImage), '_blank')}
+                            >
+                              <PdfIcon />
+                            </Avatar>
+                          </Tooltip>
+                        ) : (
+                          <Avatar
+                            src={getImageUrl(agreement.agreementImage)}
+                            sx={{ width: 40, height: 40 }}
+                            variant="rounded"
+                          />
+                        )
                       ) : (
                         <Avatar sx={{ width: 40, height: 40 }}>
                           <ImageIcon />
@@ -538,68 +515,6 @@ const RentalAgreementList = () => {
                   required
                 />
               </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Property Address"
-                  name="propertyAddress"
-                  value={formData.propertyAddress}
-                  onChange={handleInputChange}
-                  required
-                  multiline
-                  rows={2}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Landlord Name"
-                  name="landlordName"
-                  value={formData.landlordName}
-                  onChange={handleInputChange}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Landlord Contact"
-                  name="landlordContact"
-                  value={formData.landlordContact}
-                  onChange={handleInputChange}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Landlord ID Card"
-                  name="landlordIdCard"
-                  value={formData.landlordIdCard}
-                  onChange={handleInputChange}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Monthly Rent"
-                  name="monthlyRent"
-                  type="number"
-                  value={formData.monthlyRent}
-                  onChange={handleInputChange}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Security Deposit"
-                  name="securityDeposit"
-                  type="number"
-                  value={formData.securityDeposit}
-                  onChange={handleInputChange}
-                />
-              </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
@@ -615,48 +530,13 @@ const RentalAgreementList = () => {
                   <MenuItem value="Terminated">Terminated</MenuItem>
                 </TextField>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Start Date"
-                  name="startDate"
-                  type="date"
-                  value={formData.startDate}
-                  onChange={handleInputChange}
-                  required
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="End Date"
-                  name="endDate"
-                  type="date"
-                  value={formData.endDate}
-                  onChange={handleInputChange}
-                  required
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Terms & Conditions"
-                  name="terms"
-                  value={formData.terms}
-                  onChange={handleInputChange}
-                  multiline
-                  rows={4}
-                />
-              </Grid>
               <Grid item xs={12}>
                 <Typography variant="h6" gutterBottom>
-                  Agreement Image
+                  Agreement File (Image or PDF)
                 </Typography>
                 <Divider sx={{ mb: 2 }} />
                 
-                {!imagePreview ? (
+                {!imagePreview && !selectedImage ? (
                   <Card
                     sx={{
                       border: '2px dashed #ccc',
@@ -672,38 +552,67 @@ const RentalAgreementList = () => {
                     }}
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
-                    onClick={() => document.getElementById('image-upload').click()}
+                    onClick={() => document.getElementById('file-upload').click()}
                   >
                     <input
-                      id="image-upload"
+                      id="file-upload"
                       type="file"
-                      accept="image/*"
+                      accept="image/*,application/pdf"
                       onChange={handleImageChange}
                       style={{ display: 'none' }}
                     />
                     <Stack spacing={2} alignItems="center">
                       <PhotoCameraIcon sx={{ fontSize: 48, color: 'text.secondary' }} />
                       <Typography variant="h6" color="text.secondary">
-                        Upload Agreement Image
+                        Upload Agreement File
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Drag and drop an image here, or click to select
+                        Drag and drop a file here, or click to select
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Supported formats: JPG, PNG, GIF (Max 5MB)
+                        Supported formats: JPG, PNG, GIF (Max 5MB) or PDF (Max 10MB)
+                      </Typography>
+                      <Typography variant="caption" color="primary.main" fontWeight="bold">
+                        PDF files will be automatically compressed
                       </Typography>
                     </Stack>
                   </Card>
                 ) : (
                   <Card sx={{ maxWidth: 400, mx: 'auto' }}>
                     <Box position="relative">
-                      <CardMedia
-                        component="img"
-                        height="300"
-                        image={imagePreview}
-                        alt="Agreement preview"
-                        sx={{ borderRadius: 1 }}
-                      />
+                      {selectedImage?.type === 'application/pdf' ? (
+                        <Box
+                          sx={{
+                            height: 300,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: '#f5f5f5',
+                            borderRadius: 1,
+                            border: '1px solid #ddd'
+                          }}
+                        >
+                          <PdfIcon sx={{ fontSize: 64, color: 'error.main', mb: 2 }} />
+                          <Typography variant="h6" color="text.secondary">
+                            PDF File
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            {selectedImage?.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                            {(selectedImage?.size / 1024 / 1024).toFixed(2)} MB
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <CardMedia
+                          component="img"
+                          height="300"
+                          image={imagePreview}
+                          alt="Agreement preview"
+                          sx={{ borderRadius: 1 }}
+                        />
+                      )}
                       <IconButton
                         onClick={handleRemoveImage}
                         sx={{
@@ -726,15 +635,22 @@ const RentalAgreementList = () => {
                         <Button
                           variant="outlined"
                           startIcon={<UploadIcon />}
-                          onClick={() => document.getElementById('image-upload').click()}
+                          onClick={() => document.getElementById('file-upload').click()}
                           size="small"
                         >
-                          Change Image
+                          Change File
                         </Button>
                         <Typography variant="caption" color="text.secondary">
                           {selectedImage?.name}
                         </Typography>
                       </Stack>
+                      <input
+                        id="file-upload"
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={handleImageChange}
+                        style={{ display: 'none' }}
+                      />
                     </CardContent>
                   </Card>
                 )}

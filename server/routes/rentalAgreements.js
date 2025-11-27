@@ -6,8 +6,9 @@ const fs = require('fs');
 const RentalAgreement = require('../models/hr/RentalAgreement');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
+const { compressPDF } = require('../utils/pdfCompressor');
 
-// Configure multer for image uploads
+// Configure multer for image and PDF uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = path.join(__dirname, '../uploads/rental-agreements');
@@ -18,20 +19,25 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'agreement-' + uniqueSuffix + path.extname(file.originalname));
+    let ext = path.extname(file.originalname).toLowerCase();
+    if (!ext && file.mimetype === 'application/pdf') {
+      ext = '.pdf';
+    }
+    cb(null, 'agreement-' + uniqueSuffix + ext);
   }
 });
 
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 10 * 1024 * 1024 // 10MB limit (increased for PDFs)
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    // Allow images and PDFs
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'), false);
+      cb(new Error('Only image and PDF files are allowed'), false);
     }
   }
 });
@@ -68,38 +74,42 @@ router.get('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
 // Create new rental agreement
 router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'create'), upload.single('agreementImage'), async (req, res) => {
   try {
-    // Validate date range
-    if (req.body.startDate && req.body.endDate) {
-      const startDate = new Date(req.body.startDate);
-      const endDate = new Date(req.body.endDate);
-      
-      if (startDate >= endDate) {
-        return res.status(400).json({ 
-          message: 'End date must be after start date' 
-        });
-      }
-    }
-
-    // Validate numeric fields
-    if (req.body.monthlyRent && (isNaN(req.body.monthlyRent) || req.body.monthlyRent <= 0)) {
-      return res.status(400).json({ 
-        message: 'Monthly rent must be a positive number' 
-      });
-    }
-
-    if (req.body.securityDeposit && (isNaN(req.body.securityDeposit) || req.body.securityDeposit < 0)) {
-      return res.status(400).json({ 
-        message: 'Security deposit must be a positive number' 
-      });
-    }
-
     const agreementData = {
       ...req.body,
       createdBy: req.user.id
     };
 
-    // Add image path if uploaded
+    // Handle file upload (image or PDF)
     if (req.file) {
+      const originalPath = req.file.path;
+      const fileExt = path.extname(req.file.filename).toLowerCase();
+      const isPDF = fileExt === '.pdf' || req.file.mimetype === 'application/pdf';
+      
+      if (isPDF) {
+        try {
+          const compressedPath = path.join(
+            path.dirname(originalPath),
+            path.basename(originalPath, '.pdf') + '-compressed.pdf'
+          );
+          
+          await compressPDF(originalPath, compressedPath);
+          
+          if (fs.existsSync(compressedPath)) {
+            const compressedSize = fs.statSync(compressedPath).size;
+            const originalSize = fs.statSync(originalPath).size;
+            
+            if (compressedSize < originalSize && compressedSize > 0) {
+              fs.unlinkSync(originalPath);
+              fs.renameSync(compressedPath, originalPath);
+            } else {
+              fs.unlinkSync(compressedPath);
+            }
+          }
+        } catch (error) {
+          console.error('PDF compression error:', error.message);
+        }
+      }
+      
       agreementData.agreementImage = `/uploads/rental-agreements/${req.file.filename}`;
     }
 
@@ -115,6 +125,11 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
       const filePath = path.join(__dirname, '../uploads/rental-agreements', req.file.filename);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
+      }
+      // Also check for compressed version
+      const compressedPath = filePath.replace('.pdf', '-compressed.pdf');
+      if (fs.existsSync(compressedPath)) {
+        fs.unlinkSync(compressedPath);
       }
     }
     res.status(400).json({ message: error.message });
@@ -132,15 +147,45 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
 
     const updateData = { ...req.body };
 
-    // Handle image upload
+    // Handle file upload (image or PDF)
     if (req.file) {
-      // Delete old image if exists
+      // Delete old file if exists
       if (agreement.agreementImage) {
-        const oldImagePath = path.join(__dirname, '..', agreement.agreementImage);
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
+        const oldFilePath = path.join(__dirname, '..', agreement.agreementImage);
+        if (fs.existsSync(oldFilePath)) {
+          fs.unlinkSync(oldFilePath);
         }
       }
+      
+      const originalPath = req.file.path;
+      const fileExt = path.extname(req.file.filename).toLowerCase();
+      const isPDF = fileExt === '.pdf' || req.file.mimetype === 'application/pdf';
+      
+      if (isPDF) {
+        try {
+          const compressedPath = path.join(
+            path.dirname(originalPath),
+            path.basename(originalPath, '.pdf') + '-compressed.pdf'
+          );
+          
+          await compressPDF(originalPath, compressedPath);
+          
+          if (fs.existsSync(compressedPath)) {
+            const compressedSize = fs.statSync(compressedPath).size;
+            const originalSize = fs.statSync(originalPath).size;
+            
+            if (compressedSize < originalSize && compressedSize > 0) {
+              fs.unlinkSync(originalPath);
+              fs.renameSync(compressedPath, originalPath);
+            } else {
+              fs.unlinkSync(compressedPath);
+            }
+          }
+        } catch (error) {
+          console.error('PDF compression error:', error.message);
+        }
+      }
+      
       updateData.agreementImage = `/uploads/rental-agreements/${req.file.filename}`;
     }
 
@@ -158,6 +203,11 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
+      // Also check for compressed version
+      const compressedPath = filePath.replace('.pdf', '-compressed.pdf');
+      if (fs.existsSync(compressedPath)) {
+        fs.unlinkSync(compressedPath);
+      }
     }
     res.status(400).json({ message: error.message });
   }
@@ -172,11 +222,11 @@ router.delete('/:id', authMiddleware, permissions.checkSubRolePermission('admin'
       return res.status(404).json({ message: 'Rental agreement not found' });
     }
 
-    // Delete associated image file
+    // Delete associated file
     if (agreement.agreementImage) {
-      const imagePath = path.join(__dirname, '..', agreement.agreementImage);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
+      const filePath = path.join(__dirname, '..', agreement.agreementImage);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
       }
     }
 

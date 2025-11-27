@@ -130,7 +130,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         electricityCharges = await Electricity.find({
           $or: queryConditions
         })
-          .select('address plotNo owner meterNo amount arrears status curReading toDate')
+          .select('address plotNo owner meterNo amount arrears status curReading toDate totalBill payments paymentStatus')
           .sort({ toDate: -1 })
           .lean();
         console.log(`✅ Found ${electricityCharges.length} Electricity charges`);
@@ -189,8 +189,32 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           const propertyKey = property.address || property.plotNumber || property.ownerName;
           const relatedCharges = chargesMap.get(propertyKey) || [];
           
-          const propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+          // Use totalBill if available, otherwise use amount
+          const propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.totalBill || charge.amount || 0), 0);
           const propertyArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+          
+          // Get all payments from related charges
+          const allPayments = relatedCharges.flatMap(charge => (charge.payments || []).map(payment => ({
+            ...payment,
+            chargeId: charge._id,
+            chargeInvoiceNumber: charge.invoiceNumber
+          })));
+          
+          // Calculate payment status based on total payments vs total electricity amount
+          const totalElectricityAmount = propertyAmount + propertyArrears;
+          const totalPaid = allPayments.reduce((sum, payment) => sum + (payment.totalAmount || payment.amount || 0), 0);
+          
+          let paymentStatus = 'unpaid';
+          if (totalPaid >= totalElectricityAmount && totalElectricityAmount > 0) {
+            paymentStatus = 'paid';
+          } else if (totalPaid > 0) {
+            paymentStatus = 'partial_paid';
+          }
+          
+          // Update all payments with the calculated status
+          allPayments.forEach(payment => {
+            payment.status = paymentStatus;
+          });
           
           totalAmount += propertyAmount;
           totalArrears += propertyArrears;
@@ -227,7 +251,9 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             electricityAmount: propertyAmount || 0,
             electricityArrears: propertyArrears || 0,
             hasElectricity: relatedCharges.length > 0,
-            electricityLastReading: lastReading
+            electricityLastReading: lastReading,
+            payments: allPayments || [],
+            paymentStatus: paymentStatus
           };
         } catch (propError) {
           console.error('❌ Error processing property:', property._id, propError);
@@ -286,6 +312,219 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     }
     
     res.status(500).json(errorResponse);
+  }
+});
+
+// Add payment to Electricity Bill by property ID (finds most recent bill)
+router.post('/property/:propertyId/payments', authMiddleware, async (req, res) => {
+  try {
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+
+    // Find property
+    const property = await TajProperty.findById(req.params.propertyId);
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    // Find most recent Electricity bill for this property
+    const propertyKey = property.address || property.plotNumber || property.ownerName;
+    const bill = await Electricity.findOne({
+      $or: [
+        { address: propertyKey },
+        { plotNo: property.plotNumber },
+        { owner: property.ownerName }
+      ]
+    }).sort({ toDate: -1, createdAt: -1 });
+
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'No Electricity bill found for this property' });
+    }
+
+    const paymentAmount = Number(amount) || 0;
+    const arrearsAmount = Number(arrears) || 0;
+    const paymentTotal = paymentAmount + arrearsAmount;
+
+    bill.payments.push({
+      amount: paymentAmount,
+      arrears: arrearsAmount,
+      totalAmount: paymentTotal,
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+      periodTo: periodTo ? new Date(periodTo) : undefined,
+      invoiceNumber: invoiceNumber || '',
+      paymentMethod: paymentMethod || 'Bank Transfer',
+      reference: reference || '',
+      notes: notes || '',
+      recordedBy: req.user.id
+    });
+
+    // Recalculate payment status after adding payment
+    const billTotal = (bill.totalBill || bill.amount || 0) + (bill.arrears || 0);
+    const totalPaid = bill.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    if (totalPaid >= billTotal && billTotal > 0) {
+      bill.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      bill.paymentStatus = 'partial_paid';
+    } else {
+      bill.paymentStatus = 'unpaid';
+    }
+
+    await bill.save();
+    res.json({ success: true, data: bill });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Add payment to Electricity Bill by bill ID
+router.post('/:id/payments', authMiddleware, async (req, res) => {
+  try {
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+
+    const bill = await Electricity.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Electricity Bill not found' });
+    }
+
+    const paymentAmount = Number(amount) || 0;
+    const arrearsAmount = Number(arrears) || 0;
+    const paymentTotal = paymentAmount + arrearsAmount;
+
+    bill.payments.push({
+      amount: paymentAmount,
+      arrears: arrearsAmount,
+      totalAmount: paymentTotal,
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+      periodTo: periodTo ? new Date(periodTo) : undefined,
+      invoiceNumber: invoiceNumber || '',
+      paymentMethod: paymentMethod || 'Bank Transfer',
+      reference: reference || '',
+      notes: notes || '',
+      recordedBy: req.user.id
+    });
+
+    // Recalculate payment status after adding payment
+    const billTotal = (bill.totalBill || bill.amount || 0) + (bill.arrears || 0);
+    const totalPaid = bill.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    if (totalPaid >= billTotal && billTotal > 0) {
+      bill.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      bill.paymentStatus = 'partial_paid';
+    } else {
+      bill.paymentStatus = 'unpaid';
+    }
+
+    await bill.save();
+    res.json({ success: true, data: bill });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Delete all payments from Electricity Bill by property ID
+router.delete('/property/:propertyId/payments', authMiddleware, async (req, res) => {
+  try {
+    // Find property
+    const property = await TajProperty.findById(req.params.propertyId);
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    // Find all Electricity bills for this property
+    const propertyKey = property.address || property.plotNumber || property.ownerName;
+    const bills = await Electricity.find({
+      $or: [
+        { address: propertyKey },
+        { plotNo: property.plotNumber },
+        { owner: property.ownerName }
+      ]
+    });
+
+    if (bills.length === 0) {
+      return res.status(404).json({ success: false, message: 'No Electricity bills found for this property' });
+    }
+
+    // Remove all payments from all bills
+    for (const bill of bills) {
+      bill.payments = [];
+      bill.paymentStatus = 'unpaid';
+      await bill.save();
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Removed all payments from ${bills.length} Electricity bill(s)`,
+      data: { billsUpdated: bills.length }
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Delete all payments from Electricity Bill by bill ID
+router.delete('/:id/payments', authMiddleware, async (req, res) => {
+  try {
+    const bill = await Electricity.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Electricity Bill not found' });
+    }
+
+    bill.payments = [];
+    bill.paymentStatus = 'unpaid';
+    await bill.save();
+
+    res.json({ 
+      success: true, 
+      message: 'All payments removed from Electricity bill',
+      data: bill
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Delete a specific payment from Electricity Bill
+router.delete('/:billId/payments/:paymentId', authMiddleware, async (req, res) => {
+  try {
+    const bill = await Electricity.findById(req.params.billId);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Electricity Bill not found' });
+    }
+
+    const paymentIndex = bill.payments.findIndex(
+      p => p._id.toString() === req.params.paymentId
+    );
+
+    if (paymentIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    bill.payments.splice(paymentIndex, 1);
+
+    // Recalculate payment status after removing payment
+    const billTotal = (bill.totalBill || bill.amount || 0) + (bill.arrears || 0);
+    const totalPaid = bill.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    if (totalPaid >= billTotal && billTotal > 0) {
+      bill.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      bill.paymentStatus = 'partial_paid';
+    } else {
+      bill.paymentStatus = 'unpaid';
+    }
+
+    await bill.save();
+
+    res.json({ 
+      success: true, 
+      message: 'Payment removed successfully',
+      data: bill
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
   }
 });
 

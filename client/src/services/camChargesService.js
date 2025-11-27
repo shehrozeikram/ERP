@@ -20,12 +20,24 @@ export const deleteCAMCharge = (id) =>
 export const bulkCreateCAMCharges = (data) =>
   api.post(`${base}/bulk-create`, data);
 
+export const addPaymentToCAMCharge = (chargeId, paymentData) =>
+  api.post(`${base}/${chargeId}/payments`, paymentData);
+
+export const addPaymentToPropertyCAM = (propertyId, paymentData) =>
+  api.post(`${base}/property/${propertyId}/payments`, paymentData);
+
+export const deletePaymentFromCAMCharge = (chargeId, paymentId) =>
+  api.delete(`${base}/${chargeId}/payments/${paymentId}`);
+
 export default {
   fetchCAMCharges,
   fetchCAMChargeById,
   createCAMCharge,
   updateCAMCharge,
   deleteCAMCharge,
-  bulkCreateCAMCharges
+  bulkCreateCAMCharges,
+  addPaymentToCAMCharge,
+  addPaymentToPropertyCAM,
+  deletePaymentFromCAMCharge
 };
 

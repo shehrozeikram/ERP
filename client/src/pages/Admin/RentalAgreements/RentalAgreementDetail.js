@@ -24,7 +24,8 @@ import {
   Edit as EditIcon,
   Image as ImageIcon,
   Close as CloseIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  Download as DownloadIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -224,23 +225,11 @@ const RentalAgreementDetail = ({ onEdit }) => {
               <div class="field-label">Agreement Number:</div>
               <div class="field-value">${agreement?.agreementNumber || 'N/A'}</div>
             </div>
-            <div class="field-row">
-              <div class="field-label">Property Type:</div>
-              <div class="field-value">${agreement?.propertyType || 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Monthly Rent:</div>
-              <div class="field-value">${agreement?.monthlyRent ? formatPKR(agreement.monthlyRent) : 'N/A'}</div>
-            </div>
           </div>
 
           <!-- Property Details -->
           <div class="section">
             <div class="section-title">🏢 Property Details</div>
-            <div class="field-row">
-              <div class="field-label">Property Address:</div>
-              <div class="field-value">${agreement?.propertyAddress || 'N/A'}</div>
-            </div>
             <div class="field-row">
               <div class="field-label">Property Size:</div>
               <div class="field-value">${agreement?.propertySize || 'N/A'} ${agreement?.sizeUnit || ''}</div>
@@ -288,18 +277,6 @@ const RentalAgreementDetail = ({ onEdit }) => {
           <div class="section">
             <div class="section-title">📝 Agreement Terms</div>
             <div class="field-row">
-              <div class="field-label">Start Date:</div>
-              <div class="field-value">${agreement?.startDate ? format(new Date(agreement.startDate), 'dd/MM/yyyy') : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">End Date:</div>
-              <div class="field-value">${agreement?.endDate ? format(new Date(agreement.endDate), 'dd/MM/yyyy') : 'N/A'}</div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Security Deposit:</div>
-              <div class="field-value">${agreement?.securityDeposit ? formatPKR(agreement.securityDeposit) : 'N/A'}</div>
-            </div>
-            <div class="field-row">
               <div class="field-label">Advance Payment:</div>
               <div class="field-value">${agreement?.advancePayment ? formatPKR(agreement.advancePayment) : 'N/A'}</div>
             </div>
@@ -313,16 +290,27 @@ const RentalAgreementDetail = ({ onEdit }) => {
             </div>
           </div>
 
-          <!-- Agreement Image -->
+          <!-- Agreement File -->
           ${agreement?.agreementImage ? `
           <div class="section">
-            <div class="section-title">📷 Agreement Image</div>
+            <div class="section-title">📷 Agreement File</div>
+            <div class="field-row">
+              <div class="field-label">File Type:</div>
+              <div class="field-value">${agreement.agreementImage.toLowerCase().endsWith('.pdf') ? 'PDF Document' : 'Image'}</div>
+            </div>
+            ${!agreement.agreementImage.toLowerCase().endsWith('.pdf') ? `
             <div class="field-row">
               <div class="field-label">Image:</div>
               <div class="field-value">
                 <img src="${getImageUrl(agreement.agreementImage)}" alt="Agreement Image" class="agreement-image" />
               </div>
             </div>
+            ` : `
+            <div class="field-row">
+              <div class="field-label">PDF File:</div>
+              <div class="field-value">${agreement.agreementImage}</div>
+            </div>
+            `}
           </div>
           ` : ''}
 
@@ -515,171 +503,96 @@ const RentalAgreementDetail = ({ onEdit }) => {
                     {agreement.propertyName}
                   </Typography>
                 </Grid>
-                
-                <Grid item xs={12}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Property Address
-                  </Typography>
-                  <Typography variant="body1" sx={{ mb: 2 }}>
-                    {agreement.propertyAddress}
-                  </Typography>
-                </Grid>
               </Grid>
             </CardContent>
           </Card>
-
-          <Card sx={{ mt: 2 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Landlord Information
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Landlord Name
-                  </Typography>
-                  <Typography variant="body1" sx={{ mb: 2 }}>
-                    {agreement.landlordName}
-                  </Typography>
-                </Grid>
-                
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Contact
-                  </Typography>
-                  <Typography variant="body1" sx={{ mb: 2 }}>
-                    {agreement.landlordContact}
-                  </Typography>
-                </Grid>
-                
-                {agreement.landlordIdCard && (
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" color="text.secondary">
-                      ID Card
-                    </Typography>
-                    <Typography variant="body1" sx={{ mb: 2 }}>
-                      {agreement.landlordIdCard}
-                    </Typography>
-                  </Grid>
-                )}
-              </Grid>
-            </CardContent>
-          </Card>
-
-          <Card sx={{ mt: 2 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Financial Details
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Monthly Rent
-                  </Typography>
-                  <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
-                    {formatPKR(agreement.monthlyRent)}
-                  </Typography>
-                </Grid>
-                
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Security Deposit
-                  </Typography>
-                  <Typography variant="h6" color="secondary" sx={{ mb: 2 }}>
-                    {formatPKR(agreement.securityDeposit || 0)}
-                  </Typography>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-
-          <Card sx={{ mt: 2 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Agreement Period
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Start Date
-                  </Typography>
-                  <Typography variant="body1" sx={{ mb: 2 }}>
-                    {format(new Date(agreement.startDate), 'dd/MM/yyyy')}
-                  </Typography>
-                </Grid>
-                
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    End Date
-                  </Typography>
-                  <Typography variant="body1" sx={{ mb: 2 }}>
-                    {format(new Date(agreement.endDate), 'dd/MM/yyyy')}
-                  </Typography>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-
-          {agreement.terms && (
-            <Card sx={{ mt: 2 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Terms & Conditions
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {agreement.terms}
-                </Typography>
-              </CardContent>
-            </Card>
-          )}
         </Grid>
 
         <Grid item xs={12} md={4}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Agreement Image
+                Agreement File
               </Typography>
               <Divider sx={{ mb: 2 }} />
               
               {agreement.agreementImage ? (
                 <Box>
-                  <Box
-                    component="img"
-                    src={getImageUrl(agreement.agreementImage)}
-                    alt="Rental Agreement"
-                    sx={{
-                      width: '100%',
-                      height: 200,
-                      objectFit: 'cover',
-                      borderRadius: 1,
-                      mb: 2,
-                      border: '1px solid',
-                      borderColor: 'divider'
-                    }}
-                    onError={(e) => handleImageError(e)}
-                  />
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    startIcon={<ImageIcon />}
-                    onClick={() => setImageModalOpen(true)}
-                  >
-                    View Full Image
-                  </Button>
+                  {agreement.agreementImage.toLowerCase().endsWith('.pdf') ? (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: 200,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#f5f5f5',
+                        borderRadius: 1,
+                        mb: 2,
+                        border: '1px solid',
+                        borderColor: 'divider'
+                      }}
+                    >
+                      <ImageIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        PDF Document
+                      </Typography>
+                      <Stack direction="row" spacing={2}>
+                        <Button
+                          variant="outlined"
+                          component="a"
+                          href={getImageUrl(agreement.agreementImage)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          startIcon={<ImageIcon />}
+                        >
+                          View PDF
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          component="a"
+                          href={getImageUrl(agreement.agreementImage)}
+                          download={agreement.agreementImage.split('/').pop()}
+                          startIcon={<DownloadIcon />}
+                        >
+                          Download PDF
+                        </Button>
+                      </Stack>
+                    </Box>
+                  ) : (
+                    <>
+                      <Box
+                        component="img"
+                        src={getImageUrl(agreement.agreementImage)}
+                        alt="Rental Agreement"
+                        sx={{
+                          width: '100%',
+                          height: 200,
+                          objectFit: 'cover',
+                          borderRadius: 1,
+                          mb: 2,
+                          border: '1px solid',
+                          borderColor: 'divider'
+                        }}
+                        onError={(e) => handleImageError(e)}
+                      />
+                      <Button
+                        fullWidth
+                        variant="outlined"
+                        startIcon={<ImageIcon />}
+                        onClick={() => setImageModalOpen(true)}
+                      >
+                        View Full Image
+                      </Button>
+                    </>
+                  )}
                 </Box>
               ) : (
                 <Box textAlign="center" py={4}>
                   <ImageIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
                   <Typography variant="body2" color="text.secondary">
-                    No image uploaded
+                    No file uploaded
                   </Typography>
                 </Box>
               )}
@@ -747,19 +660,37 @@ const RentalAgreementDetail = ({ onEdit }) => {
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: 0, backgroundColor: 'rgba(0,0,0,0.8)' }}>
-          <Box
-            component="img"
-            src={getImageUrl(agreement?.agreementImage)}
-            alt="Rental Agreement"
-            sx={{
-              width: '100%',
-              height: 'auto',
-              maxHeight: '80vh',
-              objectFit: 'contain',
-              display: 'block'
-            }}
-            onError={(e) => handleImageError(e)}
-          />
+          {agreement?.agreementImage?.toLowerCase().endsWith('.pdf') ? (
+            <Box sx={{ p: 2, textAlign: 'center' }}>
+              <Typography variant="h6" color="white" gutterBottom>
+                PDF Document
+              </Typography>
+              <Button
+                variant="contained"
+                component="a"
+                href={getImageUrl(agreement.agreementImage)}
+                target="_blank"
+                rel="noopener noreferrer"
+                sx={{ mt: 2 }}
+              >
+                Open PDF in New Tab
+              </Button>
+            </Box>
+          ) : (
+            <Box
+              component="img"
+              src={getImageUrl(agreement?.agreementImage)}
+              alt="Rental Agreement"
+              sx={{
+                width: '100%',
+                height: 'auto',
+                maxHeight: '80vh',
+                objectFit: 'contain',
+                display: 'block'
+              }}
+              onError={(e) => handleImageError(e)}
+            />
+          )}
         </DialogContent>
         <DialogActions sx={{ 
           backgroundColor: 'rgba(0,0,0,0.8)',

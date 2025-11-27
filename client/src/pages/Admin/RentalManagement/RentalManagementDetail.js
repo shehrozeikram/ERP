@@ -38,11 +38,14 @@ import {
   AttachFile as AttachFileIcon,
   Download as DownloadIcon,
   Visibility as VisibilityIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  Description as DescriptionIcon,
+  Image as ImageIcon
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
+import { getImageUrl } from '../../../utils/imageService';
 
 const RentalManagementDetail = ({ 
   open = false, 
@@ -358,6 +361,29 @@ const RentalManagementDetail = ({
             </div>
           </div>
 
+          <!-- Rental Agreement Details -->
+          ${record?.rentalAgreement ? `
+          <div class="section">
+            <div class="section-title">📄 Rental Agreement Details</div>
+            <div class="field-row">
+              <div class="field-label">Agreement Number:</div>
+              <div class="field-value">${record.rentalAgreement.agreementNumber || 'N/A'}</div>
+            </div>
+            <div class="field-row">
+              <div class="field-label">Property Name:</div>
+              <div class="field-value">${record.rentalAgreement.propertyName || 'N/A'}</div>
+            </div>
+            ${record.rentalAgreement.status ? `
+            <div class="field-row">
+              <div class="field-label">Status:</div>
+              <div class="field-value">
+                <span class="status-chip status-${record.rentalAgreement.status.toLowerCase()}">${record.rentalAgreement.status}</span>
+              </div>
+            </div>
+            ` : ''}
+          </div>
+          ` : ''}
+
           <!-- Payment Details -->
           <div class="section">
             <div class="section-title">💳 Payment Details</div>
@@ -646,6 +672,101 @@ const RentalManagementDetail = ({
                 </Grid>
                 </CardContent>
               </Card>
+
+              {/* Rental Agreement Section */}
+              {record.rentalAgreement && (
+                <Card sx={{ mb: 3 }}>
+                  <CardContent>
+                    <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                      <Avatar sx={{ bgcolor: 'purple.main' }}>
+                        <DescriptionIcon />
+                      </Avatar>
+                      <Typography variant="h6" fontWeight="bold">
+                        Rental Agreement Details
+                      </Typography>
+                    </Stack>
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={6}>
+                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                            <AssignmentIcon color="primary" fontSize="small" />
+                            <Typography variant="subtitle2" color="text.secondary">
+                              Agreement Number
+                            </Typography>
+                          </Stack>
+                          <Typography variant="body1" fontWeight="medium">
+                            {record.rentalAgreement.agreementNumber || 'N/A'}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                            <BusinessIcon color="primary" fontSize="small" />
+                            <Typography variant="subtitle2" color="text.secondary">
+                              Property Name
+                            </Typography>
+                          </Stack>
+                          <Typography variant="body1" fontWeight="medium">
+                            {record.rentalAgreement.propertyName || 'N/A'}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      {record.rentalAgreement.status && (
+                        <Grid item xs={12} md={6}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <CheckCircleIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Status
+                              </Typography>
+                            </Stack>
+                            <Chip
+                              label={record.rentalAgreement.status}
+                              color={
+                                record.rentalAgreement.status === 'Active' ? 'success' :
+                                record.rentalAgreement.status === 'Expired' ? 'warning' :
+                                record.rentalAgreement.status === 'Terminated' ? 'error' : 'default'
+                              }
+                              size="small"
+                            />
+                          </Box>
+                        </Grid>
+                      )}
+                      {record.rentalAgreement.agreementImage && (
+                        <Grid item xs={12}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                              <ImageIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Agreement Document
+                              </Typography>
+                            </Stack>
+                            <Stack direction="row" spacing={2}>
+                              <Button
+                                variant="outlined"
+                                startIcon={<VisibilityIcon />}
+                                onClick={() => window.open(getImageUrl(record.rentalAgreement.agreementImage), '_blank')}
+                              >
+                                View Document
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                startIcon={<DownloadIcon />}
+                                component="a"
+                                href={getImageUrl(record.rentalAgreement.agreementImage)}
+                                download={record.rentalAgreement.agreementImage.split('/').pop()}
+                              >
+                                Download Document
+                              </Button>
+                            </Stack>
+                          </Box>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Payment Details Section */}
               <Card sx={{ mb: 3 }}>

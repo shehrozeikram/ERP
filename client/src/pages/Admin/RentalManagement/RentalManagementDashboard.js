@@ -575,7 +575,7 @@ const RentalManagementDashboard = () => {
                     </MenuItem>
                     {rentalAgreements.map((agreement) => (
                       <MenuItem key={agreement._id} value={agreement._id}>
-                        {agreement.agreementNumber} - {agreement.tenantName} ({agreement.propertyAddress})
+                        {agreement.agreementNumber} - {agreement.propertyName}
                       </MenuItem>
                     ))}
                   </Select>

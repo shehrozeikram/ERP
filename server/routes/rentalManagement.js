@@ -9,7 +9,7 @@ const permissions = require('../middleware/permissions');
 router.get('/rental-agreements/list', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_management', 'read'), async (req, res) => {
   try {
     const agreements = await RentalAgreement.find()
-      .select('_id agreementNumber tenantName propertyAddress startDate endDate')
+      .select('_id agreementNumber propertyName')
       .sort({ createdAt: -1 });
     
     res.json(agreements);
@@ -24,7 +24,7 @@ router.get('/', authMiddleware, permissions.checkSubRolePermission('admin', 'ren
     const records = await RentalManagement.find()
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName')
-      .populate('rentalAgreement', 'agreementNumber tenantName propertyAddress startDate endDate')
+      .populate('rentalAgreement', 'agreementNumber propertyName')
       .sort({ createdAt: -1 });
     
     res.json(records);
@@ -39,7 +39,7 @@ router.get('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
     const record = await RentalManagement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName')
-      .populate('rentalAgreement', 'agreementNumber tenantName propertyAddress startDate endDate');
+      .populate('rentalAgreement', 'agreementNumber propertyName');
     
     if (!record) {
       return res.status(404).json({ message: 'Rental management record not found' });
