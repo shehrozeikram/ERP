@@ -1144,7 +1144,7 @@ const EmployeeForm = () => {
 
   const handleSaveNewDepartment = async () => {
     try {
-      if (!newDepartmentData.name || !newDepartmentData.code) {
+      if (!newDepartmentData.name) {
         setSnackbar({
           open: true,
           message: 'Please fill in all required fields',
@@ -3206,7 +3206,6 @@ const EmployeeForm = () => {
                   label="Department Code"
                   value={newDepartmentData.code}
                   onChange={(e) => handleNewDepartmentChange('code', e.target.value)}
-                  required
                 />
               </Grid>
               <Grid item xs={12}>

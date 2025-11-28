@@ -616,8 +616,8 @@ const CAMCharges = () => {
 
     if (monthChanged) {
       // Auto-populate amount with CAM Amount when month changes
-      setPaymentForm((prev) => ({
-        ...prev,
+    setPaymentForm((prev) => ({
+      ...prev,
         month: month,
         year: year,
         amount: baseCharge > 0 ? baseCharge : '',

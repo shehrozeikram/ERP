@@ -10,8 +10,9 @@ const departmentSchema = new mongoose.Schema({
   },
   code: {
     type: String,
-    required: [true, 'Department code is required'],
+    required: false,
     unique: true,
+    sparse: true, // Allow multiple null/undefined values
     trim: true,
     uppercase: true,
     maxlength: [10, 'Department code cannot exceed 10 characters']

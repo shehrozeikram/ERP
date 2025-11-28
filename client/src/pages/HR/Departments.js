@@ -50,7 +50,7 @@ const Departments = () => {
   // Validation schema
   const validationSchema = Yup.object({
     name: Yup.string().required('Department name is required'),
-    code: Yup.string().required('Department code is required'),
+    code: Yup.string(),
     description: Yup.string(),
     location: Yup.string(),
     budget: Yup.number().positive('Budget must be positive')

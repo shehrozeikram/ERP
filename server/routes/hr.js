@@ -1162,8 +1162,7 @@ router.get('/banks',
 // @access  Private (HR and Admin)
 router.post('/departments', [
   authorize('super_admin', 'admin', 'hr_manager'),
-  body('name').trim().notEmpty().withMessage('Department name is required'),
-  body('code').trim().notEmpty().withMessage('Department code is required')
+  body('name').trim().notEmpty().withMessage('Department name is required')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
