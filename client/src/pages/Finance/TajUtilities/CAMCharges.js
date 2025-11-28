@@ -38,12 +38,13 @@ import {
   Refresh as RefreshIcon,
   Close as CloseIcon,
   Visibility as ViewIcon,
-  GroupWork as GroupWorkIcon,
   Print as PrintIcon,
   Download as DownloadIcon,
   Payment as PaymentIcon,
+  ReceiptLong as ReceiptIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  ExpandLess as ExpandLessIcon,
+  AttachFile as AttachFileIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -53,11 +54,12 @@ import {
   createCAMCharge,
   updateCAMCharge,
   deleteCAMCharge,
-  bulkCreateCAMCharges,
   addPaymentToPropertyCAM,
-  deletePaymentFromCAMCharge
+  deletePaymentFromCAMCharge,
+  fetchLatestCAMChargeForProperty
 } from '../../../services/camChargesService';
 import api from '../../../services/api';
+import pakistanBanks from '../../../constants/pakistanBanks';
 
 // Number to words converter
 const numberToWords = (num) => {
@@ -156,6 +158,7 @@ const CAMCharges = () => {
   // Payment state
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
+  const [paymentContext, setPaymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
     arrears: 0,
@@ -164,17 +167,17 @@ const CAMCharges = () => {
     periodTo: dayjs().format('YYYY-MM-DD'),
     invoiceNumber: '',
     paymentMethod: 'Bank Transfer',
+    bankName: '',
     reference: '',
     notes: ''
   });
+  const [paymentAttachment, setPaymentAttachment] = useState(null);
   
-  // Bulk Create state
-  const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
-  const [bulkCreateLoading, setBulkCreateLoading] = useState(false);
-  const [bulkCreateForm, setBulkCreateForm] = useState({
-    month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
-    year: new Date().getFullYear()
-  });
+  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
+  const [voucherProperty, setVoucherProperty] = useState(null);
+  const [voucherCharge, setVoucherCharge] = useState(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherError, setVoucherError] = useState('');
 
   const loadCharges = async () => {
     try {
@@ -221,6 +224,348 @@ const CAMCharges = () => {
     return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
+  const getLatestPayment = (payments = []) => {
+    if (!payments.length) return null;
+    return [...payments].sort(
+      (a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0)
+    )[0];
+  };
+
+  const handleOpenVoucherDialog = async (property) => {
+    setVoucherProperty(property);
+    setVoucherCharge(null);
+    setVoucherError('');
+    setVoucherDialogOpen(true);
+
+    try {
+      setVoucherLoading(true);
+      const response = await fetchLatestCAMChargeForProperty(property._id);
+      setVoucherCharge(response.data?.data || null);
+      if (!response.data?.data) {
+        setVoucherError('No CAM bill found for this property.');
+      }
+    } catch (err) {
+      setVoucherError(err.response?.data?.message || 'Failed to load latest CAM bill');
+    } finally {
+      setVoucherLoading(false);
+    }
+  };
+
+  const handleCloseVoucherDialog = () => {
+    setVoucherDialogOpen(false);
+    setVoucherProperty(null);
+    setVoucherCharge(null);
+    setVoucherError('');
+  };
+
+  const generateCamVoucherPDF = () => {
+    if (!voucherProperty || !voucherCharge) return;
+
+    const property = voucherProperty;
+    const charge = voucherCharge;
+    const latestPayment = getLatestPayment(charge?.payments || []);
+
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const marginX = 6;
+    const topMargin = 10;
+    const contentWidth = panelWidth - 2 * marginX;
+
+    const formatDate = (value, pattern = 'DD-MMM-YY') =>
+      value ? dayjs(value).format(pattern) : '—';
+
+    const formatFullDate = (value) =>
+      value ? dayjs(value).format('MMMM D, YYYY') : '—';
+
+    const formatMoney = (value) =>
+      (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
+
+    const periodFromRaw = charge?.periodFrom || latestPayment?.periodFrom || null;
+    const periodToRaw = charge?.periodTo || latestPayment?.periodTo || null;
+
+    const periodFrom = formatDate(periodFromRaw);
+    const periodTo = formatDate(periodToRaw);
+    const invoiceNumber = charge?.invoiceNumber || latestPayment?.invoiceNumber || '—';
+    const invoicingDate = formatFullDate(charge?.createdAt || charge?.updatedAt);
+    const computedDueDate =
+      charge?.dueDate ||
+      (periodToRaw
+        ? dayjs(periodToRaw).add(30, 'day').toDate()
+        : charge?.createdAt
+        ? dayjs(charge.createdAt).add(30, 'day').toDate()
+        : null);
+    const dueDate = formatFullDate(computedDueDate);
+    const monthLabel = (periodToRaw
+      ? dayjs(periodToRaw)
+      : charge?.createdAt
+      ? dayjs(charge.createdAt)
+      : dayjs()
+    ).format('MMM-YY').toUpperCase();
+
+    const residentName = property.tenantName || property.ownerName || '—';
+    const propertyAddress =
+      property.address ||
+      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street, property.sector]
+        .filter(Boolean)
+        .join(', ') ||
+      '—';
+    const propertySize = property.areaValue
+      ? `${property.areaValue} ${property.areaUnit || ''}`.trim()
+      : '—';
+
+    const camAmount = Number(charge?.amount) || 0;
+    const arrears = Number(charge?.arrears) || 0;
+    const payableWithinDue = camAmount + arrears;
+    const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
+    const payableAfterDue = payableWithinDue + lateSurcharge;
+
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) {
+      pdf.setLineDash([1, 2], 0);
+    }
+    [panelWidth, panelWidth * 2].forEach((xPos) => {
+      pdf.line(xPos, topMargin - 5, xPos, pageHeight - 15);
+    });
+    if (pdf.setLineDash) {
+      pdf.setLineDash([], 0);
+    }
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 34) => {
+      const valueWidth = contentWidth - labelWidth;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.text(label, startX, startY);
+      pdf.setFont('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawRentDetails = (startX, startY) => {
+      const width = contentWidth;
+      let y = startY;
+      pdf.setFillColor(242, 242, 242);
+      pdf.rect(startX, y, width, 7, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(178, 34, 34);
+      pdf.text('RENT DETAILS', startX + width / 2, y + 4.5, { align: 'center' });
+      pdf.setTextColor(0, 0, 0);
+      y += 13;
+
+      const rows = [
+        ['CAM Charges', formatMoney(camAmount)],
+        ['Charges for the Month', formatMoney(camAmount)],
+        ['Arrears', arrears ? formatMoney(arrears) : '-'],
+        ['Payable Within Due Date', formatMoney(payableWithinDue)],
+        ['Payable After Due Date', formatMoney(payableAfterDue)]
+      ];
+
+      rows.forEach((row) => {
+        pdf.setDrawColor(210);
+        pdf.rect(startX, y - 5, width, 7);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7);
+        pdf.text(row[0], startX + 2, y - 1);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(row[1], startX + width - 2, y - 1, { align: 'right' });
+        y += 7;
+      });
+
+      return y + 2;
+    };
+
+    const footnotes = [
+      '1. The above-mentioned charges cover security, horticulture, road maintenance, garbage collection, society upkeep, and related services.',
+      '2. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0317). Bank Account No.: PK58ABPA0015030024702289.',
+      '3. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
+      '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
+    ];
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + marginX;
+      let cursorY = topMargin;
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'italic');
+      pdf.text(`(${copyLabel})`, startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(178, 34, 34);
+      pdf.text(
+        `Taj CAM Billing For The Month Of ${monthLabel}`,
+        startX + contentWidth / 2,
+        cursorY,
+        { align: 'center' }
+      );
+      pdf.setTextColor(0, 0, 0);
+      cursorY += 6;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.text('Statement of CAM Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      const inlineRows = [
+        ['Residents Name', residentName],
+        ['Address', propertyAddress],
+        ['Size', propertySize],
+        ['Period From', periodFrom],
+        ['Period To', periodTo],
+        ['Invoice No.', invoiceNumber],
+        ['Invoicing Date', invoicingDate],
+        ['Due Date', dueDate]
+      ];
+
+      inlineRows.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(6.5);
+      pdf.text('(In Rupees)', startX + contentWidth, cursorY, { align: 'right' });
+      cursorY += 4;
+
+      cursorY = drawRentDetails(startX, cursorY);
+
+      let footY = cursorY + 2;
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(5.2);
+      footnotes.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, contentWidth);
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, footY);
+          footY += 3.2;
+        });
+      });
+    };
+
+    const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
+    copies.forEach((copy, index) => drawPanel(copy, index));
+
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'cam-property')
+      .toString()
+      .replace(/[^a-z0-9-_ ]/gi, '')
+      .trim()
+      .replace(/\s+/g, '_');
+
+    pdf.save(`CAM_Voucher_${sanitizedName || property._id}.pdf`);
+  };
+
+  const handleDownloadVoucher = () => {
+    if (!voucherProperty || !voucherCharge) return;
+    generateCamVoucherPDF();
+  };
+
+  const renderVoucherPreview = () => {
+    if (voucherLoading) {
+      return (
+        <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+          <CircularProgress size={28} />
+        </Box>
+      );
+    }
+
+    if (voucherError) {
+      return <Alert severity="error">{voucherError}</Alert>;
+    }
+
+    if (!voucherProperty) {
+      return <Typography color="text.secondary">Select a property to preview its voucher.</Typography>;
+    }
+
+    if (!voucherCharge) {
+      return <Typography color="text.secondary">No CAM bill data available.</Typography>;
+    }
+
+    const latestPayment = getLatestPayment(voucherCharge.payments || []);
+    const formatDisplayDate = (value) => (value ? dayjs(value).format('DD MMM YYYY') : '—');
+    const previewPeriod =
+      latestPayment?.periodFrom || latestPayment?.periodTo
+        ? `${formatDisplayDate(latestPayment?.periodFrom)} - ${formatDisplayDate(latestPayment?.periodTo)}`
+        : '—';
+    const previewDueDate = voucherCharge?.dueDate
+      ? formatDisplayDate(voucherCharge.dueDate)
+      : previewPeriod !== '—'
+        ? formatDisplayDate(dayjs(latestPayment?.periodTo || new Date()).add(30, 'day'))
+        : formatDisplayDate(dayjs(voucherCharge.createdAt || new Date()).add(30, 'day'));
+
+    const payableWithin =
+      (Number(voucherCharge.amount) || 0) + (Number(voucherCharge.arrears) || 0);
+
+    return (
+      <Stack spacing={2}>
+        <Box>
+          <Typography variant="subtitle2" color="text.secondary">
+            Property
+          </Typography>
+          <Typography variant="h6">
+            {voucherProperty.propertyName || voucherProperty.propertyType || '—'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {voucherProperty.address || voucherProperty.street || 'No address recorded'}
+          </Typography>
+        </Box>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Invoice Number
+            </Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {voucherCharge.invoiceNumber || latestPayment?.invoiceNumber || '—'}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Billing Period
+            </Typography>
+            <Typography variant="body1">{previewPeriod}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              CAM Charges
+            </Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {formatCurrency(voucherCharge.amount || 0)}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Arrears
+            </Typography>
+            <Typography variant="body1">
+              {voucherCharge.arrears ? formatCurrency(voucherCharge.arrears || 0) : '—'}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Payable Within Due Date
+            </Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {formatCurrency(payableWithin)}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Due Date
+            </Typography>
+            <Typography variant="body1">{previewDueDate}</Typography>
+          </Grid>
+        </Grid>
+        <Alert severity="info">
+          Download to view the tri-fold CAM voucher (Bank, Office & Client copies).
+        </Alert>
+      </Stack>
+    );
+  };
+
   const getPaymentStatusConfig = (status) => {
     const normalized = (status || 'unpaid').toLowerCase();
     switch (normalized) {
@@ -236,28 +581,75 @@ const CAMCharges = () => {
 
   const handleOpenPaymentDialog = (property) => {
     setSelectedProperty(property);
+    const baseCharge = Number(property.camAmount || 0);
+    const baseArrears = Number(property.camArrears || 0);
     setPaymentForm({
-      amount: property.camAmount || 0,
-      arrears: property.camArrears || 0,
+      amount: baseCharge,
+      arrears: baseArrears,
       paymentDate: dayjs().format('YYYY-MM-DD'),
       periodFrom: dayjs().format('YYYY-MM-DD'),
       periodTo: dayjs().format('YYYY-MM-DD'),
       invoiceNumber: '',
       paymentMethod: 'Bank Transfer',
+      bankName: '',
       reference: '',
       notes: ''
     });
+    setPaymentContext({ baseCharge, baseArrears });
+    setPaymentAttachment(null);
     setPaymentDialog(true);
+  };
+
+  const handleCamAmountChange = (value) => {
+    const numericValue = Number(value) || 0;
+    const baseCharge = Number(paymentContext.baseCharge || 0);
+    const baseArrears = Number(paymentContext.baseArrears || 0);
+
+    if (!baseCharge && !baseArrears) {
+      setPaymentForm((prev) => ({ ...prev, amount: numericValue }));
+      return;
+    }
+
+    const calculatedArrears = baseArrears + (baseCharge - numericValue);
+    setPaymentForm((prev) => ({
+      ...prev,
+      amount: numericValue,
+      arrears: Math.max(Number(calculatedArrears.toFixed(2)), 0)
+    }));
+  };
+
+  const handleCamPaymentMethodChange = (value) => {
+    setPaymentForm((prev) => ({
+      ...prev,
+      paymentMethod: value,
+      bankName: value === 'Cash' ? '' : prev.bankName
+    }));
+  };
+
+  const handleCamAttachmentChange = (event) => {
+    const file = event.target.files?.[0];
+    setPaymentAttachment(file || null);
+  };
+
+  const handleClosePaymentDialog = () => {
+    setPaymentDialog(false);
+    setPaymentAttachment(null);
   };
 
   const handlePaymentSave = async () => {
     try {
       setError('');
       if (!selectedProperty) return;
-      
-      await addPaymentToPropertyCAM(selectedProperty._id, paymentForm);
+
+      const formData = new FormData();
+      Object.entries(paymentForm).forEach(([key, value]) => formData.append(key, value ?? ''));
+      if (paymentAttachment) {
+        formData.append('attachment', paymentAttachment);
+      }
+
+      await addPaymentToPropertyCAM(selectedProperty._id, formData);
       setSuccess('Payment recorded successfully');
-      setPaymentDialog(false);
+      handleClosePaymentDialog();
       loadProperties();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to record payment');
@@ -769,76 +1161,6 @@ const CAMCharges = () => {
     }
   };
 
-  const handleBulkCreate = async () => {
-    try {
-      setBulkCreateLoading(true);
-      setError('');
-      
-      const month = parseInt(bulkCreateForm.month);
-      const year = bulkCreateForm.year;
-      
-      // Check if charges already exist for this month
-      const monthYear = `${year}-${String(month).padStart(2, '0')}`;
-      const existingCharges = charges.filter(
-        c => c.invoiceNumber?.startsWith(`CAM-${monthYear}`)
-      );
-
-      let forceRegenerate = false;
-      
-      if (existingCharges.length > 0) {
-        const confirmMessage = `${existingCharges.length} CAM charges already exist for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}.\n\nDo you want to regenerate all charges (overwrite existing)?`;
-        
-        if (!window.confirm(confirmMessage)) {
-          setBulkCreateLoading(false);
-          return;
-        }
-        
-        forceRegenerate = true;
-      } else {
-        const totalProperties = properties.length || 0;
-        const confirmMessage = `Create CAM charges for all ${totalProperties} properties for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}?`;
-        if (!window.confirm(confirmMessage)) {
-          setBulkCreateLoading(false);
-          return;
-        }
-      }
-
-      const response = await bulkCreateCAMCharges({
-        month,
-        year,
-        forceRegenerate
-      });
-      
-      setBulkCreateDialogOpen(false);
-      setBulkCreateForm({
-        month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
-        year: new Date().getFullYear()
-      });
-      
-      // Refresh data
-      loadCharges();
-      loadProperties();
-      
-      const summary = response.data.data;
-      let message = `✅ Successfully created ${summary.created} CAM charges for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}!\n\n`;
-      message += `📊 Summary:\n`;
-      message += `• Total Properties: ${summary.totalProperties}\n`;
-      message += `• Created: ${summary.created}\n`;
-      if (summary.skipped > 0) {
-        message += `• Skipped: ${summary.skipped}\n`;
-      }
-      if (summary.errors > 0) {
-        message += `• Errors: ${summary.errors}\n`;
-      }
-      
-      setSuccess(message);
-      setTimeout(() => setSuccess(''), 10000);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create bulk CAM charges');
-    } finally {
-      setBulkCreateLoading(false);
-    }
-  };
 
   const filteredCharges = useMemo(() => {
     if (!search) return charges;
@@ -875,9 +1197,6 @@ const CAMCharges = () => {
               <RefreshIcon />
             </IconButton>
           </Tooltip>
-          <Button variant="outlined" startIcon={<GroupWorkIcon />} onClick={() => setBulkCreateDialogOpen(true)}>
-            Bulk Create
-          </Button>
         </Stack>
       </Stack>
 
@@ -1010,6 +1329,15 @@ const CAMCharges = () => {
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
+                            <Tooltip title="View CAM Voucher">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleOpenVoucherDialog(property)}
+                              >
+                                <ReceiptIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                             <Tooltip title="Add Payment">
                               <IconButton
                                 size="small"
@@ -1112,6 +1440,22 @@ const CAMCharges = () => {
           </TableContainer>
         </CardContent>
       </Card>
+
+      <Dialog open={voucherDialogOpen} onClose={handleCloseVoucherDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>CAM Voucher Preview</DialogTitle>
+        <DialogContent dividers>{renderVoucherPreview()}</DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseVoucherDialog}>Close</Button>
+          <Button
+            variant="contained"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadVoucher}
+            disabled={voucherLoading || !voucherCharge}
+          >
+            Download Voucher
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={dialogOpen} onClose={handleCloseDialog} fullWidth maxWidth="md">
         <DialogTitle>
@@ -1324,66 +1668,6 @@ const CAMCharges = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Bulk Create CAM Charges Dialog */}
-      <Dialog open={bulkCreateDialogOpen} onClose={() => setBulkCreateDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Bulk Create CAM Charges for All Properties</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Month</InputLabel>
-                <Select
-                  value={bulkCreateForm.month}
-                  onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, month: e.target.value })}
-                  label="Month"
-                >
-                  {months.map((month) => (
-                    <MenuItem key={month.value} value={month.value}>
-                      {month.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                type="number"
-                label="Year"
-                value={bulkCreateForm.year}
-                onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, year: parseInt(e.target.value) })}
-                inputProps={{ min: 2020, max: 2030 }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Box sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
-                <Typography variant="body2">
-                  Selected Period: <strong>{months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}</strong>
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12}>
-              <Alert severity="info">
-                This will create CAM charge records for <strong>ALL {properties.length || 0} properties</strong> for {months.find(m => m.value === bulkCreateForm.month)?.label} {bulkCreateForm.year}. 
-                Charges will be automatically calculated based on property size and charges slabs.
-              </Alert>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBulkCreateDialogOpen(false)} disabled={bulkCreateLoading}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleBulkCreate}
-            variant="contained"
-            disabled={bulkCreateLoading}
-            startIcon={bulkCreateLoading ? <CircularProgress size={20} /> : <GroupWorkIcon />}
-          >
-            {bulkCreateLoading ? `Creating... (${properties.length || 0} properties)` : `Create All Charges (${properties.length || 0} properties)`}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* View CAM Charge Details Dialog */}
       <Dialog open={viewDialogOpen} onClose={handleCloseViewDialog} maxWidth="md" fullWidth>
@@ -1571,11 +1855,11 @@ const CAMCharges = () => {
       </Dialog>
 
       {/* Payment Dialog */}
-      <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={paymentDialog} onClose={handleClosePaymentDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
           Record Payment
           <IconButton
-            onClick={() => setPaymentDialog(false)}
+            onClick={handleClosePaymentDialog}
             sx={{ position: 'absolute', right: 8, top: 8 }}
           >
             <CloseIcon />
@@ -1594,7 +1878,7 @@ const CAMCharges = () => {
                 type="number"
                 fullWidth
                 value={paymentForm.amount}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                onChange={(e) => handleCamAmountChange(e.target.value)}
                 required
               />
             </Grid>
@@ -1667,7 +1951,7 @@ const CAMCharges = () => {
                 <InputLabel>Payment Method</InputLabel>
                 <Select
                   value={paymentForm.paymentMethod}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  onChange={(e) => handleCamPaymentMethodChange(e.target.value)}
                   label="Payment Method"
                 >
                   <MenuItem value="Cash">Cash</MenuItem>
@@ -1676,6 +1960,45 @@ const CAMCharges = () => {
                   <MenuItem value="Online">Online</MenuItem>
                 </Select>
               </FormControl>
+            </Grid>
+            {paymentForm.paymentMethod !== 'Cash' && (
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Receiving Bank</InputLabel>
+                  <Select
+                    value={paymentForm.bankName}
+                    label="Receiving Bank"
+                    onChange={(e) => setPaymentForm((prev) => ({ ...prev, bankName: e.target.value }))}
+                  >
+                    {pakistanBanks.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <Button
+                variant="outlined"
+                component="label"
+                startIcon={<AttachFileIcon />}
+                sx={{ mr: 2 }}
+              >
+                {paymentAttachment ? 'Change Attachment' : 'Attach Receipt'}
+                <input type="file" hidden accept="image/*,.pdf" onChange={handleCamAttachmentChange} />
+              </Button>
+              {paymentAttachment && (
+                <>
+                  <Typography variant="caption" sx={{ mr: 2 }}>
+                    {paymentAttachment.name}
+                  </Typography>
+                  <Button size="small" onClick={() => setPaymentAttachment(null)}>
+                    Remove
+                  </Button>
+                </>
+              )}
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -1698,7 +2021,7 @@ const CAMCharges = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
+          <Button onClick={handleClosePaymentDialog}>Cancel</Button>
           <Button variant="contained" onClick={handlePaymentSave}>
             Record Payment
           </Button>

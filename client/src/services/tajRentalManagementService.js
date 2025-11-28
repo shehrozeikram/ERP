@@ -13,14 +13,20 @@ export const fetchPropertyById = (id) =>
   api.get(`${base}/properties/${id}`);
 
 // Payment endpoints
-export const addPayment = (propertyId, paymentData) =>
-  api.post(`${base}/properties/${propertyId}/payments`, paymentData);
+export const addPayment = (propertyId, paymentData) => {
+  const config =
+    paymentData instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined;
+  return api.post(`${base}/properties/${propertyId}/payments`, paymentData, config);
+};
 
 export const fetchInvoice = (propertyId, paymentId) =>
   api.get(`${base}/properties/${propertyId}/invoice/${paymentId}`);
 
 export const updatePaymentStatus = (propertyId, paymentId, status) =>
   api.patch(`${base}/properties/${propertyId}/payments/${paymentId}/status`, { status });
+
+export const fetchLatestRentInvoiceForProperty = (propertyId) =>
+  api.get(`${base}/properties/${propertyId}/latest-invoice`);
 
 // Agreements endpoint
 export const fetchAvailableAgreements = () =>
@@ -32,6 +38,7 @@ export default {
   fetchPropertyById,
   addPayment,
   fetchInvoice,
+  fetchLatestRentInvoiceForProperty,
   fetchAvailableAgreements,
   updatePaymentStatus
 };

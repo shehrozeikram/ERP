@@ -37,12 +37,13 @@ import {
   Refresh as RefreshIcon,
   Close as CloseIcon,
   Visibility as ViewIcon,
-  GroupWork as GroupWorkIcon,
   Print as PrintIcon,
   Download as DownloadIcon,
   Payment as PaymentIcon,
+  ReceiptLong as ReceiptIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  ExpandLess as ExpandLessIcon,
+  AttachFile as AttachFileIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -52,11 +53,12 @@ import {
   createElectricity,
   updateElectricity,
   deleteElectricity,
-  bulkCreateElectricityBills,
   addPaymentToPropertyElectricity,
-  deletePaymentFromElectricityBill
+  deletePaymentFromElectricityBill,
+  fetchLatestElectricityBillForProperty
 } from '../../../services/electricityService';
 import api from '../../../services/api';
+import pakistanBanks from '../../../constants/pakistanBanks';
 
 // Number to words converter
 const numberToWords = (num) => {
@@ -171,21 +173,17 @@ const Electricity = () => {
     periodTo: dayjs().format('YYYY-MM-DD'),
     invoiceNumber: '',
     paymentMethod: 'Bank Transfer',
+    bankName: '',
     reference: '',
     notes: ''
   });
+  const [paymentAttachment, setPaymentAttachment] = useState(null);
   
-  // Bulk Create state
-  const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
-  const [bulkCreateLoading, setBulkCreateLoading] = useState(false);
-  const [bulkCreateForm, setBulkCreateForm] = useState({
-    month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
-    year: new Date().getFullYear(),
-    fromDate: '',
-    toDate: '',
-    dueDate: ''
-  });
-  const [bulkCreateProperties, setBulkCreateProperties] = useState([]);
+  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
+  const [voucherProperty, setVoucherProperty] = useState(null);
+  const [voucherBill, setVoucherBill] = useState(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherError, setVoucherError] = useState('');
 
   const loadCharges = async () => {
     try {
@@ -232,6 +230,278 @@ const Electricity = () => {
     return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
+  const handleOpenVoucherDialog = async (property) => {
+    setVoucherProperty(property);
+    setVoucherBill(null);
+    setVoucherError('');
+    setVoucherDialogOpen(true);
+    try {
+      setVoucherLoading(true);
+      const response = await fetchLatestElectricityBillForProperty(property._id);
+      setVoucherBill(response.data?.data);
+    } catch (err) {
+      setVoucherError(err.response?.data?.message || 'Failed to load latest electricity bill');
+    } finally {
+      setVoucherLoading(false);
+    }
+  };
+
+  const handleCloseVoucherDialog = () => {
+    setVoucherDialogOpen(false);
+    setVoucherProperty(null);
+    setVoucherBill(null);
+    setVoucherError('');
+  };
+
+  const generateElectricityVoucherPDF = () => {
+    if (!voucherProperty || !voucherBill) return;
+
+    const property = voucherProperty;
+    const bill = voucherBill;
+
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const marginX = 6;
+    const topMargin = 10;
+
+    const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
+
+    const formatDate = (value, format = 'D-MMM-YY') =>
+      value ? dayjs(value).format(format) : '—';
+
+    const formatFullDate = (value) =>
+      value ? dayjs(value).format('MMMM D, YYYY') : '—';
+
+    const formatMonthLabel = () => {
+      if (bill.month) return bill.month.toUpperCase();
+      if (bill.toDate) return dayjs(bill.toDate).format('MMMM-YY').toUpperCase();
+      return dayjs().format('MMMM-YY').toUpperCase();
+    };
+
+    const formatAmount = (value) => {
+      const num = Number(value) || 0;
+      const formatted = Math.abs(num).toLocaleString('en-PK', { minimumFractionDigits: 0 });
+      return num < 0 ? `(${formatted})` : formatted;
+    };
+
+    const formatRate = (value) => (Number(value) || 0).toFixed(2);
+
+    const meterNo = bill.meterNo || property.electricityWaterMeterNo || '—';
+    const clientName = property.ownerName || property.tenantName || '—';
+    const address = bill.address || property.address || '—';
+    const invoiceNumber = bill.invoiceNumber || '—';
+    const periodFrom = formatDate(bill.fromDate);
+    const periodTo = formatDate(bill.toDate);
+    const readingDate = formatFullDate(bill.toDate);
+    const dueDate = formatFullDate(bill.dueDate);
+    const unitsConsumed = bill.unitsConsumed || 0;
+    const unitsCharged = bill.unitsConsumedForDays || unitsConsumed;
+
+    const totalBill = bill.totalBill || bill.amount || 0;
+    const arrears = bill.arrears || 0;
+    const amountReceived = bill.receivedAmount || 0;
+    const submittedInFreePeriod = totalBill + arrears;
+    const payableWithinDueDate = totalBill + arrears - amountReceived;
+    const payableAfterDueDate = bill.withSurcharge || payableWithinDueDate;
+    const latePaymentSurcharge = Math.max(payableAfterDueDate - payableWithinDueDate, 0);
+
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) {
+      pdf.setLineDash([1, 2], 0);
+    }
+    pdf.line(panelWidth, topMargin - 5, panelWidth, pageHeight - 15);
+    pdf.line(panelWidth * 2, topMargin - 5, panelWidth * 2, pageHeight - 15);
+    if (pdf.setLineDash) {
+      pdf.setLineDash([], 0);
+    }
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 30) => {
+      const valueWidth = panelWidth - marginX * 2 - labelWidth;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.text(label, startX, startY);
+      pdf.setFont('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        const lineY = startY + idx * 4.5;
+        pdf.text(line, startX + labelWidth, lineY);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawMeterTable = (startX, startY) => {
+      const headers = ['Meter No.', 'Previous', 'Present', 'Unit Consumed', 'Units Charged', 'IESCO SLAB'];
+      const values = [
+        meterNo,
+        formatAmount(bill.prvReading),
+        formatAmount(bill.curReading),
+        formatAmount(unitsConsumed),
+        formatAmount(unitsCharged),
+        bill.iescoSlabs || '—'
+      ];
+      const cellWidth = (panelWidth - marginX * 2) / headers.length;
+      const headerHeight = 5;
+      const valueHeight = 6;
+      headers.forEach((header, idx) => {
+        const cellX = startX + idx * cellWidth;
+        pdf.rect(cellX, startY, cellWidth, headerHeight);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(5);
+        pdf.text(header, cellX + cellWidth / 2, startY + headerHeight - 1.2, { align: 'center' });
+      });
+      values.forEach((value, idx) => {
+        const cellX = startX + idx * cellWidth;
+        pdf.rect(cellX, startY + headerHeight, cellWidth, valueHeight);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(5.5);
+        pdf.text(String(value || '—'), cellX + cellWidth / 2, startY + headerHeight + valueHeight - 1.2, { align: 'center' });
+      });
+      return startY + headerHeight + valueHeight;
+    };
+
+    const drawComputationTable = (startX, startY, billMonthLabel) => {
+      const rows = [
+        {
+          label: 'Share of IESCO Supply Cost Rate',
+          value: `${formatRate(bill.iescoUnitPrice)}   ${formatAmount(bill.electricityCost)}`
+        },
+        { label: 'FC Surcharge', value: formatAmount(bill.fcSurcharge) },
+        { label: 'Meter Rent', value: formatAmount(bill.meterRent) },
+        { label: 'NJ Surcharge', value: formatAmount(bill.njSurcharge) },
+        { label: 'Sales Tax', value: formatAmount(bill.gst) },
+        { label: 'Electricity Duty', value: formatAmount(bill.electricityDuty) },
+        { label: 'TV Fee', value: formatAmount(bill.tvFee) },
+        { label: 'Fixed Charges', value: formatAmount(bill.fixedCharges) },
+        { label: 'Charges for the Month', value: formatAmount(totalBill) },
+        {
+          label: `Amount Received in ${billMonthLabel.replace('-', ' ')}`,
+          value: formatAmount(amountReceived ? -amountReceived : 0)
+        },
+        { label: '*Amount Submitted in Free Period', value: formatAmount(submittedInFreePeriod) },
+        { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
+        { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge) },
+        { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate) }
+      ];
+
+      const rowHeight = 6;
+      const availableWidth = panelWidth - marginX * 2;
+      pdf.setFontSize(7);
+      rows.forEach((row, idx) => {
+        const y = startY + idx * rowHeight;
+        pdf.setFont('helvetica', idx >= rows.length - 2 ? 'bold' : 'normal');
+        pdf.text(row.label, startX, y + 4);
+        pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
+        pdf.line(startX, y + rowHeight, startX + availableWidth, y + rowHeight);
+      });
+
+      return startY + rows.length * rowHeight;
+    };
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + marginX;
+      let cursorY = topMargin;
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'italic');
+      pdf.text(`(${copyLabel})`, startX + (panelWidth - marginX * 2) / 2, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(178, 34, 34);
+      pdf.text(
+        `Taj Electricity Billing For The Month Of ${formatMonthLabel()}`,
+        startX + (panelWidth - marginX * 2) / 2,
+        cursorY,
+        { align: 'center' }
+      );
+      pdf.setTextColor(0, 0, 0);
+      cursorY += 6;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.text('Statement of Electricity Charges', startX + (panelWidth - marginX * 2) / 2, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      const inlineFields = [
+        ['Meter ID', meterNo],
+        ['Client', clientName],
+        ['Address', address],
+        ['Period From', periodFrom],
+        ['Period To', periodTo],
+        ['Invoice No.', invoiceNumber],
+        ['Reading Date', readingDate],
+        ['Due Date', dueDate]
+      ];
+      inlineFields.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 2;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.text('IESCO Meter Reading', startX, cursorY);
+      cursorY += 2;
+      cursorY = drawMeterTable(startX - 2, cursorY);
+
+      cursorY += 4;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.text('Bill Computation', startX, cursorY);
+      cursorY += 3;
+      cursorY = drawComputationTable(startX, cursorY, formatMonthLabel());
+
+      const panelFootnotes = [
+        '1. The above mentioned charges are calculated based on proportionate share of user in total cost of electricity of the Project and do not include any profit element of Taj Residencia.',
+        '2. Kindly make payment through cash, crossed cheque or bank drafts on our specified deposit slip at any Allied Bank Limited main Phase I Account No. Taj Residencia Limited Bank Limited, The Centaurus Mall Branch, Islamabad.',
+        '3. Please deposit your bills before due date to avoid Late Payment Surcharge.',
+        '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 68 442.'
+      ];
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(5.2);
+      let noteY = pageHeight - 24;
+      panelFootnotes.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, panelWidth - 2 * marginX);
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, noteY);
+          noteY += 3.2;
+        });
+      });
+    };
+
+    copies.forEach((copy, index) => drawPanel(copy, index));
+
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'electricity-property')
+      .toString()
+      .replace(/[^a-z0-9-_ ]/gi, '')
+      .trim()
+      .replace(/\s+/g, '_');
+
+    pdf.save(`Electricity_Voucher_${sanitizedName || property._id}.pdf`);
+  };
+
+  const handleDownloadVoucher = () => {
+    if (!voucherProperty || !voucherBill) {
+      setVoucherError('Voucher data is not ready yet. Please wait a moment.');
+      return;
+    }
+    generateElectricityVoucherPDF();
+  };
+
+  const voucherSummary = {
+    meter: voucherBill?.meterNo || voucherProperty?.electricityWaterMeterNo || '—',
+    invoice: voucherBill?.invoiceNumber || '—',
+    dueDate: voucherBill?.dueDate ? dayjs(voucherBill.dueDate).format('DD MMM YYYY') : '—',
+    readingDate: voucherBill?.toDate ? dayjs(voucherBill.toDate).format('DD MMM YYYY') : '—',
+    total: voucherBill ? formatCurrency(voucherBill.totalBill || voucherBill.amount || 0) : '—',
+    month:
+      voucherBill?.month ||
+      (voucherBill?.toDate ? dayjs(voucherBill.toDate).format('MMMM YYYY') : '—')
+  };
+
   const getPaymentStatusConfig = (status) => {
     const normalized = (status || 'unpaid').toLowerCase();
     switch (normalized) {
@@ -255,20 +525,48 @@ const Electricity = () => {
       periodTo: dayjs().format('YYYY-MM-DD'),
       invoiceNumber: '',
       paymentMethod: 'Bank Transfer',
+      bankName: '',
       reference: '',
       notes: ''
     });
+    setPaymentAttachment(null);
     setPaymentDialog(true);
+  };
+
+  const handleElectricityPaymentMethodChange = (value) => {
+    setPaymentForm((prev) => ({
+      ...prev,
+      paymentMethod: value,
+      bankName: value === 'Cash' ? '' : prev.bankName
+    }));
+  };
+
+  const handleElectricityAttachmentChange = (event) => {
+    const file = event.target.files?.[0];
+    setPaymentAttachment(file || null);
+  };
+
+  const handleClosePaymentDialog = () => {
+    setPaymentDialog(false);
+    setPaymentAttachment(null);
   };
 
   const handlePaymentSave = async () => {
     try {
       setError('');
       if (!selectedProperty) return;
-      
-      await addPaymentToPropertyElectricity(selectedProperty._id, paymentForm);
+
+      const formData = new FormData();
+      Object.entries(paymentForm).forEach(([key, value]) => {
+        formData.append(key, value ?? '');
+      });
+      if (paymentAttachment) {
+        formData.append('attachment', paymentAttachment);
+      }
+
+      await addPaymentToPropertyElectricity(selectedProperty._id, formData);
       setSuccess('Payment recorded successfully');
-      setPaymentDialog(false);
+      handleClosePaymentDialog();
       loadProperties();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to record payment');
@@ -883,101 +1181,6 @@ const Electricity = () => {
     }
   };
 
-  const handleOpenBulkCreate = async () => {
-    try {
-      setBulkCreateLoading(true);
-      // Fetch current overview to get properties
-      const response = await api.get('/taj-utilities/electricity/current-overview');
-      const overview = response.data.data;
-      setProperties(overview?.properties || []);
-      
-      // Initialize properties with empty current reading
-      const properties = (overview.properties || []).map(prop => ({
-        propertyId: prop._id,
-        propertyName: prop.propertyName || prop.address,
-        meterNo: prop.electricityWaterMeterNo || '',
-        address: prop.address,
-        owner: prop.ownerName,
-        currentReading: '',
-        previousReading: prop.waterElectricityLastReading || 0
-      }));
-      
-      setBulkCreateProperties(properties);
-      setBulkCreateDialogOpen(true);
-    } catch (err) {
-      setError('Failed to load properties for bulk create');
-    } finally {
-      setBulkCreateLoading(false);
-    }
-  };
-
-  const handleBulkCreate = async () => {
-    try {
-      setBulkCreateLoading(true);
-      setError('');
-      
-      const month = parseInt(bulkCreateForm.month);
-      const year = bulkCreateForm.year;
-      
-      // Validate all properties have current reading
-      const invalidProperties = bulkCreateProperties.filter(p => !p.currentReading || p.currentReading === '');
-      if (invalidProperties.length > 0) {
-        setError(`Please enter current reading for all properties. ${invalidProperties.length} properties missing readings.`);
-        setBulkCreateLoading(false);
-        return;
-      }
-
-      // Prepare properties data
-      const propertiesData = bulkCreateProperties.map(prop => ({
-        propertyId: prop.propertyId,
-        currentReading: parseFloat(prop.currentReading) || 0
-      }));
-
-      const payload = {
-        month,
-        year,
-        properties: propertiesData,
-        fromDate: bulkCreateForm.fromDate || undefined,
-        toDate: bulkCreateForm.toDate || undefined,
-        dueDate: bulkCreateForm.dueDate || undefined
-      };
-
-      const response = await bulkCreateElectricityBills(payload);
-      
-      setBulkCreateDialogOpen(false);
-      setBulkCreateForm({
-        month: (new Date().getMonth() + 1).toString().padStart(2, '0'),
-        year: new Date().getFullYear(),
-        fromDate: '',
-        toDate: '',
-        dueDate: ''
-      });
-      setBulkCreateProperties([]);
-      
-      // Refresh data
-      loadCharges();
-      loadProperties();
-      
-      const summary = response.data.data;
-      let message = `✅ Successfully created ${summary.created} electricity bills for ${months.find(m => m.value === bulkCreateForm.month)?.label} ${bulkCreateForm.year}!\n\n`;
-      message += `📊 Summary:\n`;
-      message += `• Total Properties: ${summary.totalProperties}\n`;
-      message += `• Created: ${summary.created}\n`;
-      if (summary.skipped > 0) {
-        message += `• Skipped: ${summary.skipped}\n`;
-      }
-      if (summary.errors > 0) {
-        message += `• Errors: ${summary.errors}\n`;
-      }
-      
-      setSuccess(message);
-      setTimeout(() => setSuccess(''), 10000);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create bulk electricity bills');
-    } finally {
-      setBulkCreateLoading(false);
-    }
-  };
 
   const filteredCharges = useMemo(() => {
     if (!search) return charges;
@@ -1021,9 +1224,6 @@ const Electricity = () => {
               <RefreshIcon />
             </IconButton>
           </Tooltip>
-          <Button variant="outlined" startIcon={<GroupWorkIcon />} onClick={handleOpenBulkCreate} disabled={bulkCreateLoading}>
-            Bulk Create
-          </Button>
         </Stack>
       </Stack>
 
@@ -1156,6 +1356,15 @@ const Electricity = () => {
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
+                            <Tooltip title="View Electricity Voucher">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleOpenVoucherDialog(property)}
+                              >
+                                <ReceiptIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                             <Tooltip title="Add Payment">
                               <IconButton
                                 size="small"
@@ -1258,6 +1467,83 @@ const Electricity = () => {
           </TableContainer>
         </CardContent>
       </Card>
+
+      <Dialog open={voucherDialogOpen} onClose={handleCloseVoucherDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Electricity Voucher Preview</DialogTitle>
+        <DialogContent dividers>
+          {voucherLoading && (
+            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+              <CircularProgress />
+            </Box>
+          )}
+          {!voucherLoading && voucherError && (
+            <Alert severity="error">{voucherError}</Alert>
+          )}
+          {!voucherLoading && !voucherError && voucherProperty && voucherBill && (
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Property
+                </Typography>
+                <Typography variant="h6">{voucherProperty.propertyName || voucherProperty.propertyType || '—'}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {voucherBill.address || voucherProperty.address || voucherProperty.street || 'No address recorded'}
+                </Typography>
+              </Box>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" color="text.secondary">Invoice #</Typography>
+                  <Typography variant="body1" fontWeight={600}>
+                    {voucherSummary.invoice}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" color="text.secondary">Billing Month</Typography>
+                  <Typography variant="body1">{voucherSummary.month}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" color="text.secondary">Meter Number</Typography>
+                  <Typography variant="body1" fontWeight={600}>
+                    {voucherSummary.meter}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" color="text.secondary">Due Date</Typography>
+                  <Typography variant="body1">
+                    {voucherSummary.dueDate}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" color="text.secondary">Reading Date</Typography>
+                  <Typography variant="body1">
+                    {voucherSummary.readingDate}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="caption" color="text.secondary">Total Bill</Typography>
+                  <Typography variant="body1" fontWeight={600}>
+                    {voucherSummary.total}
+                  </Typography>
+                </Grid>
+              </Grid>
+              <Alert severity="info">
+                Download to view the tri-fold voucher (Bank, Office & Client copies) exactly as it will print.
+              </Alert>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseVoucherDialog}>Close</Button>
+          <Button
+            variant="contained"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadVoucher}
+            disabled={voucherLoading || !voucherBill}
+          >
+            Download Voucher
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={dialogOpen} onClose={handleCloseDialog} fullWidth maxWidth="md">
         <DialogTitle>
@@ -1470,137 +1756,6 @@ const Electricity = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Bulk Create Electricity Bills Dialog */}
-      <Dialog open={bulkCreateDialogOpen} onClose={() => setBulkCreateDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>Bulk Create Electricity Bills for All Properties</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Month</InputLabel>
-                <Select
-                  value={bulkCreateForm.month}
-                  onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, month: e.target.value })}
-                  label="Month"
-                >
-                  {months.map((month) => (
-                    <MenuItem key={month.value} value={month.value}>
-                      {month.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                type="number"
-                label="Year"
-                value={bulkCreateForm.year}
-                onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, year: parseInt(e.target.value) })}
-                inputProps={{ min: 2020, max: 2030 }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                type="date"
-                label="From Date (Optional)"
-                value={bulkCreateForm.fromDate}
-                onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, fromDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                type="date"
-                label="To Date (Optional)"
-                value={bulkCreateForm.toDate}
-                onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, toDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                type="date"
-                label="Due Date (Optional)"
-                value={bulkCreateForm.dueDate}
-                onChange={(e) => setBulkCreateForm({ ...bulkCreateForm, dueDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Enter current meter reading for each property. Previous reading will be fetched from last bill automatically.
-                All charges will be calculated based on units consumed and electricity slabs.
-              </Alert>
-            </Grid>
-            <Grid item xs={12}>
-              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-                Properties ({bulkCreateProperties.length})
-              </Typography>
-              <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
-                <Table stickyHeader size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Property</TableCell>
-                      <TableCell>Meter No</TableCell>
-                      <TableCell>Previous Reading</TableCell>
-                      <TableCell>Current Reading *</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {bulkCreateProperties.map((prop, index) => (
-                      <TableRow key={prop.propertyId}>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={500}>
-                            {prop.propertyName}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {prop.address}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>{prop.meterNo || '—'}</TableCell>
-                        <TableCell>{prop.previousReading || 0}</TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            type="number"
-                            value={prop.currentReading}
-                            onChange={(e) => {
-                              const updated = [...bulkCreateProperties];
-                              updated[index].currentReading = e.target.value;
-                              setBulkCreateProperties(updated);
-                            }}
-                            placeholder="Enter reading"
-                            inputProps={{ min: 0, step: 0.01 }}
-                            fullWidth
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBulkCreateDialogOpen(false)} disabled={bulkCreateLoading}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleBulkCreate}
-            variant="contained"
-            disabled={bulkCreateLoading}
-            startIcon={bulkCreateLoading ? <CircularProgress size={20} /> : <GroupWorkIcon />}
-          >
-            {bulkCreateLoading ? `Creating... (${bulkCreateProperties.length} properties)` : `Create All Bills (${bulkCreateProperties.length} properties)`}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* View Electricity Bill Dialog */}
       <Dialog open={viewDialogOpen} onClose={handleCloseViewDialog} maxWidth="lg" fullWidth>
@@ -1912,11 +2067,11 @@ const Electricity = () => {
       </Dialog>
 
       {/* Payment Dialog */}
-      <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={paymentDialog} onClose={handleClosePaymentDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
           Record Payment
           <IconButton
-            onClick={() => setPaymentDialog(false)}
+            onClick={handleClosePaymentDialog}
             sx={{ position: 'absolute', right: 8, top: 8 }}
           >
             <CloseIcon />
@@ -2008,7 +2163,7 @@ const Electricity = () => {
                 <InputLabel>Payment Method</InputLabel>
                 <Select
                   value={paymentForm.paymentMethod}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  onChange={(e) => handleElectricityPaymentMethodChange(e.target.value)}
                   label="Payment Method"
                 >
                   <MenuItem value="Cash">Cash</MenuItem>
@@ -2017,6 +2172,45 @@ const Electricity = () => {
                   <MenuItem value="Online">Online</MenuItem>
                 </Select>
               </FormControl>
+            </Grid>
+            {paymentForm.paymentMethod !== 'Cash' && (
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Receiving Bank</InputLabel>
+                  <Select
+                    value={paymentForm.bankName}
+                    label="Receiving Bank"
+                    onChange={(e) => setPaymentForm((prev) => ({ ...prev, bankName: e.target.value }))}
+                  >
+                    {pakistanBanks.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            <Grid item xs={12}>
+              <Button
+                variant="outlined"
+                component="label"
+                startIcon={<AttachFileIcon />}
+                sx={{ mr: 2 }}
+              >
+                {paymentAttachment ? 'Change Attachment' : 'Attach Receipt'}
+                <input type="file" hidden accept="image/*,.pdf" onChange={handleElectricityAttachmentChange} />
+              </Button>
+              {paymentAttachment && (
+                <>
+                  <Typography variant="caption" sx={{ mr: 2 }}>
+                    {paymentAttachment.name}
+                  </Typography>
+                  <Button size="small" onClick={() => setPaymentAttachment(null)}>
+                    Remove
+                  </Button>
+                </>
+              )}
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -2039,7 +2233,7 @@ const Electricity = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
+          <Button onClick={handleClosePaymentDialog}>Cancel</Button>
           <Button variant="contained" onClick={handlePaymentSave}>
             Record Payment
           </Button>

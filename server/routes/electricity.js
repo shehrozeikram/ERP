@@ -4,7 +4,7 @@ const { body, validationResult } = require('express-validator');
 const Electricity = require('../models/tajResidencia/Electricity');
 const TajProperty = require('../models/tajResidencia/TajProperty');
 const { authMiddleware } = require('../middleware/auth');
-const { 
+const {
   getElectricitySlabForUnits, 
   calculateElectricityCharges, 
   getPreviousReading,
@@ -14,6 +14,40 @@ const {
 } = require('../utils/electricityBillHelper');
 const { numberToWords } = require('../utils/camChargesHelper');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
+if (!fs.existsSync(attachmentsDir)) {
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+}
+
+const paymentAttachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, attachmentsDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '');
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+  }
+});
+
+const paymentAttachmentUpload = multer({
+  storage: paymentAttachmentStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+const cleanupAttachment = (file) => {
+  if (file) {
+    const filePath = path.join(attachmentsDir, file.filename);
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        console.error('Failed to cleanup attachment:', err);
+      }
+    });
+  }
+};
 
 // Get all Electricity with search and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -315,10 +349,53 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
   }
 });
 
-// Add payment to Electricity Bill by property ID (finds most recent bill)
-router.post('/property/:propertyId/payments', authMiddleware, async (req, res) => {
+// @route   GET /api/electricity/property/:propertyId/latest-bill
+// @desc    Fetch the most recent electricity bill for a specific property
+// @access  Private
+router.get('/property/:propertyId/latest-bill', authMiddleware, async (req, res) => {
   try {
-    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+    const property = await TajProperty.findById(req.params.propertyId).lean();
+    if (!property) {
+      cleanupAttachment(req.file);
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    const conditions = [];
+    if (property.address) conditions.push({ address: property.address });
+    if (property.plotNumber) conditions.push({ plotNo: property.plotNumber });
+    if (property.ownerName) conditions.push({ owner: property.ownerName });
+    if (property.electricityWaterMeterNo) conditions.push({ meterNo: property.electricityWaterMeterNo });
+
+    if (!conditions.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Property does not have enough identifiers to locate an electricity bill'
+      });
+    }
+
+    const latestBill = await Electricity.findOne({ $or: conditions })
+      .sort({ toDate: -1, createdAt: -1 })
+      .lean();
+
+    if (!latestBill) {
+      return res.status(404).json({ success: false, message: 'No electricity bill found for this property' });
+    }
+
+    res.json({ success: true, data: latestBill });
+  } catch (error) {
+    console.error('❌ Error fetching latest bill for property:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch latest electricity bill',
+      error: error.message
+    });
+  }
+});
+
+// Add payment to Electricity Bill by property ID (finds most recent bill)
+router.post('/property/:propertyId/payments', authMiddleware, paymentAttachmentUpload.single('attachment'), async (req, res) => {
+  try {
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes } = req.body;
 
     // Find property
     const property = await TajProperty.findById(req.params.propertyId);
@@ -337,6 +414,7 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
     }).sort({ toDate: -1, createdAt: -1 });
 
     if (!bill) {
+      cleanupAttachment(req.file);
       return res.status(404).json({ success: false, message: 'No Electricity bill found for this property' });
     }
 
@@ -344,6 +422,8 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
     const arrearsAmount = Number(arrears) || 0;
     const paymentTotal = paymentAmount + arrearsAmount;
 
+    const attachmentUrl = req.file ? `/uploads/payment-attachments/${req.file.filename}` : '';
+
     bill.payments.push({
       amount: paymentAmount,
       arrears: arrearsAmount,
@@ -353,6 +433,8 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
       periodTo: periodTo ? new Date(periodTo) : undefined,
       invoiceNumber: invoiceNumber || '',
       paymentMethod: paymentMethod || 'Bank Transfer',
+      bankName: bankName || '',
+      attachmentUrl,
       reference: reference || '',
       notes: notes || '',
       recordedBy: req.user.id
@@ -373,17 +455,19 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
     await bill.save();
     res.json({ success: true, data: bill });
   } catch (error) {
+    cleanupAttachment(req.file);
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
 // Add payment to Electricity Bill by bill ID
-router.post('/:id/payments', authMiddleware, async (req, res) => {
+router.post('/:id/payments', authMiddleware, paymentAttachmentUpload.single('attachment'), async (req, res) => {
   try {
-    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes } = req.body;
 
     const bill = await Electricity.findById(req.params.id);
     if (!bill) {
+      cleanupAttachment(req.file);
       return res.status(404).json({ success: false, message: 'Electricity Bill not found' });
     }
 
@@ -391,6 +475,8 @@ router.post('/:id/payments', authMiddleware, async (req, res) => {
     const arrearsAmount = Number(arrears) || 0;
     const paymentTotal = paymentAmount + arrearsAmount;
 
+    const attachmentUrl = req.file ? `/uploads/payment-attachments/${req.file.filename}` : '';
+
     bill.payments.push({
       amount: paymentAmount,
       arrears: arrearsAmount,
@@ -400,6 +486,8 @@ router.post('/:id/payments', authMiddleware, async (req, res) => {
       periodTo: periodTo ? new Date(periodTo) : undefined,
       invoiceNumber: invoiceNumber || '',
       paymentMethod: paymentMethod || 'Bank Transfer',
+      bankName: bankName || '',
+      attachmentUrl,
       reference: reference || '',
       notes: notes || '',
       recordedBy: req.user.id
@@ -420,6 +508,7 @@ router.post('/:id/payments', authMiddleware, async (req, res) => {
     await bill.save();
     res.json({ success: true, data: bill });
   } catch (error) {
+    cleanupAttachment(req.file);
     res.status(400).json({ success: false, message: error.message });
   }
 });

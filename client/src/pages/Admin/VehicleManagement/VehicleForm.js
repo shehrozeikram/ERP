@@ -35,7 +35,6 @@ const VehicleForm = () => {
     fuelType: 'Petrol',
     capacity: 4,
     purchaseDate: '',
-    purchasePrice: 0,
     currentMileage: 0,
     notes: ''
   });
@@ -47,8 +46,25 @@ const VehicleForm = () => {
   useEffect(() => {
     if (isEdit) {
       fetchVehicle();
+    } else {
+      // Fetch next Vehicle ID when creating new vehicle
+      fetchNextVehicleId();
     }
   }, [id, isEdit]);
+
+  const fetchNextVehicleId = async () => {
+    try {
+      const response = await vehicleService.getNextVehicleId();
+      if (response.success && response.data?.nextVehicleId) {
+        setFormData(prev => ({
+          ...prev,
+          vehicleId: response.data.nextVehicleId
+        }));
+      }
+    } catch (err) {
+      console.error('Error fetching next Vehicle ID:', err);
+    }
+  };
 
   const fetchVehicle = async () => {
     try {
@@ -67,7 +83,6 @@ const VehicleForm = () => {
         fuelType: vehicle.fuelType || 'Petrol',
         capacity: vehicle.capacity || 4,
         purchaseDate: vehicle.purchaseDate ? new Date(vehicle.purchaseDate).toISOString().split('T')[0] : '',
-        purchasePrice: vehicle.purchasePrice || 0,
         currentMileage: vehicle.currentMileage || 0,
         notes: vehicle.notes || ''
       });
@@ -98,7 +113,6 @@ const VehicleForm = () => {
         ...formData,
         year: parseInt(formData.year),
         capacity: parseInt(formData.capacity),
-        purchasePrice: parseFloat(formData.purchasePrice),
         currentMileage: parseFloat(formData.currentMileage)
       };
 
@@ -193,7 +207,9 @@ const VehicleForm = () => {
                   value={formData.vehicleId}
                   onChange={handleChange}
                   required
+                  disabled={!isEdit}
                   placeholder="e.g., VH001"
+                  helperText={!isEdit ? "Auto-generated" : ""}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -283,7 +299,7 @@ const VehicleForm = () => {
                   inputProps={{ min: 1, max: 50 }}
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
                   label="Purchase Date"
@@ -295,19 +311,6 @@ const VehicleForm = () => {
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  label="Purchase Price"
-                  name="purchasePrice"
-                  type="number"
-                  value={formData.purchasePrice}
-                  onChange={handleChange}
-                  required
-                  inputProps={{ min: 0, step: 0.01 }}
-                />
-              </Grid>
-
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth

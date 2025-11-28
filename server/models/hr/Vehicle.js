@@ -62,7 +62,7 @@ const vehicleSchema = new mongoose.Schema({
   },
   purchasePrice: {
     type: Number,
-    required: true,
+    required: false,
     min: 0
   },
   currentMileage: {

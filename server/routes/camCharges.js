@@ -6,6 +6,40 @@ const TajProperty = require('../models/tajResidencia/TajProperty');
 const { authMiddleware } = require('../middleware/auth');
 const { getCAMChargeForProperty, numberToWords } = require('../utils/camChargesHelper');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
+if (!fs.existsSync(attachmentsDir)) {
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+}
+
+const paymentAttachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, attachmentsDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '');
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+  }
+});
+
+const paymentAttachmentUpload = multer({
+  storage: paymentAttachmentStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+const cleanupAttachment = (file) => {
+  if (file) {
+    const filePath = path.join(attachmentsDir, file.filename);
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        console.error('Failed to cleanup attachment:', err);
+      }
+    });
+  }
+};
 
 // Get all CAM Charges with search and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -277,14 +311,54 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
   }
 });
 
-// Add payment to CAM Charge by property ID (finds most recent charge)
-router.post('/property/:propertyId/payments', authMiddleware, async (req, res) => {
+// Get latest CAM charge for a specific property
+router.get('/property/:propertyId/latest-charge', authMiddleware, async (req, res) => {
   try {
-    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+    const property = await TajProperty.findById(req.params.propertyId).lean();
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    const conditions = [];
+    if (property.address) conditions.push({ address: property.address });
+    if (property.plotNumber) conditions.push({ plotNo: property.plotNumber });
+    if (property.ownerName) conditions.push({ owner: property.ownerName });
+
+    if (!conditions.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Property does not have enough identifiers to locate a CAM charge'
+      });
+    }
+
+    const latestCharge = await CAMCharge.findOne({ $or: conditions })
+      .sort({ createdAt: -1, updatedAt: -1 })
+      .lean();
+
+    if (!latestCharge) {
+      return res.status(404).json({ success: false, message: 'No CAM charge found for this property' });
+    }
+
+    res.json({ success: true, data: latestCharge });
+  } catch (error) {
+    console.error('❌ Error fetching latest CAM charge:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch latest CAM charge',
+      error: error.message
+    });
+  }
+});
+
+// Add payment to CAM Charge by property ID (finds most recent charge)
+router.post('/property/:propertyId/payments', authMiddleware, paymentAttachmentUpload.single('attachment'), async (req, res) => {
+  try {
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes } = req.body;
 
     // Find property
     const property = await TajProperty.findById(req.params.propertyId);
     if (!property) {
+      cleanupAttachment(req.file);
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
@@ -299,6 +373,7 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
     }).sort({ createdAt: -1 });
 
     if (!charge) {
+      cleanupAttachment(req.file);
       return res.status(404).json({ success: false, message: 'No CAM charge found for this property' });
     }
 
@@ -306,6 +381,8 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
     const arrearsAmount = Number(arrears) || 0;
     const paymentTotal = paymentAmount + arrearsAmount;
 
+    const attachmentUrl = req.file ? `/uploads/payment-attachments/${req.file.filename}` : '';
+
     charge.payments.push({
       amount: paymentAmount,
       arrears: arrearsAmount,
@@ -315,6 +392,8 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
       periodTo: periodTo ? new Date(periodTo) : undefined,
       invoiceNumber: invoiceNumber || '',
       paymentMethod: paymentMethod || 'Bank Transfer',
+      bankName: bankName || '',
+      attachmentUrl,
       reference: reference || '',
       notes: notes || '',
       recordedBy: req.user.id
@@ -335,17 +414,19 @@ router.post('/property/:propertyId/payments', authMiddleware, async (req, res) =
     await charge.save();
     res.json({ success: true, data: charge });
   } catch (error) {
+    cleanupAttachment(req.file);
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
 // Add payment to CAM Charge by charge ID
-router.post('/:id/payments', authMiddleware, async (req, res) => {
+router.post('/:id/payments', authMiddleware, paymentAttachmentUpload.single('attachment'), async (req, res) => {
   try {
-    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes } = req.body;
 
     const charge = await CAMCharge.findById(req.params.id);
     if (!charge) {
+      cleanupAttachment(req.file);
       return res.status(404).json({ success: false, message: 'CAM Charge not found' });
     }
 
@@ -353,6 +434,8 @@ router.post('/:id/payments', authMiddleware, async (req, res) => {
     const arrearsAmount = Number(arrears) || 0;
     const paymentTotal = paymentAmount + arrearsAmount;
 
+    const attachmentUrl = req.file ? `/uploads/payment-attachments/${req.file.filename}` : '';
+
     charge.payments.push({
       amount: paymentAmount,
       arrears: arrearsAmount,
@@ -362,6 +445,8 @@ router.post('/:id/payments', authMiddleware, async (req, res) => {
       periodTo: periodTo ? new Date(periodTo) : undefined,
       invoiceNumber: invoiceNumber || '',
       paymentMethod: paymentMethod || 'Bank Transfer',
+      bankName: bankName || '',
+      attachmentUrl,
       reference: reference || '',
       notes: notes || '',
       recordedBy: req.user.id
@@ -382,6 +467,7 @@ router.post('/:id/payments', authMiddleware, async (req, res) => {
     await charge.save();
     res.json({ success: true, data: charge });
   } catch (error) {
+    cleanupAttachment(req.file);
     res.status(400).json({ success: false, message: error.message });
   }
 });

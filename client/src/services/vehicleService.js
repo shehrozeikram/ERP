@@ -13,6 +13,12 @@ const vehicleService = {
     return response.data;
   },
 
+  // Get next Vehicle ID
+  getNextVehicleId: async () => {
+    const response = await api.get('/vehicles/next-id');
+    return response.data;
+  },
+
   // Get single vehicle
   getVehicle: async (id) => {
     const response = await api.get(`/vehicles/${id}`);

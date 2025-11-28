@@ -20,14 +20,23 @@ export const deleteCAMCharge = (id) =>
 export const bulkCreateCAMCharges = (data) =>
   api.post(`${base}/bulk-create`, data);
 
+const postPayment = (url, paymentData) => {
+  const config =
+    paymentData instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined;
+  return api.post(url, paymentData, config);
+};
+
 export const addPaymentToCAMCharge = (chargeId, paymentData) =>
-  api.post(`${base}/${chargeId}/payments`, paymentData);
+  postPayment(`${base}/${chargeId}/payments`, paymentData);
 
 export const addPaymentToPropertyCAM = (propertyId, paymentData) =>
-  api.post(`${base}/property/${propertyId}/payments`, paymentData);
+  postPayment(`${base}/property/${propertyId}/payments`, paymentData);
 
 export const deletePaymentFromCAMCharge = (chargeId, paymentId) =>
   api.delete(`${base}/${chargeId}/payments/${paymentId}`);
+
+export const fetchLatestCAMChargeForProperty = (propertyId) =>
+  api.get(`${base}/property/${propertyId}/latest-charge`);
 
 export default {
   fetchCAMCharges,
@@ -38,6 +47,7 @@ export default {
   bulkCreateCAMCharges,
   addPaymentToCAMCharge,
   addPaymentToPropertyCAM,
-  deletePaymentFromCAMCharge
+  deletePaymentFromCAMCharge,
+  fetchLatestCAMChargeForProperty
 };
 

@@ -21,12 +21,14 @@ import {
   Print as PrintIcon,
   Edit as EditIcon,
   Image as ImageIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  ReceiptLong as ReceiptIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchPropertyById, updatePropertyStatus } from '../../../services/tajPropertiesService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
+import jsPDF from 'jspdf';
 
 const propertyStatuses = ['Pending', 'Active', 'Inactive', 'Under Maintenance', 'Rented', 'Available', 'Reserved'];
 
@@ -94,6 +96,148 @@ const TajPropertyDetail = () => {
       currency: 'PKR',
       maximumFractionDigits: 0
     }).format(Number(value || 0));
+
+  const handleGenerateVoucher = () => {
+    if (!property) return;
+
+    const pdf = new jsPDF('portrait', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const horizontalMargin = 8;
+    const contentWidth = panelWidth - horizontalMargin * 0.9;
+    const foldTop = 6;
+    const foldBottom = pageHeight - 6;
+
+    const safeText = (value, fallback = 'N/A') =>
+      value === undefined || value === null || value === ''
+        ? fallback
+        : value;
+
+    const formatDate = (dateValue) =>
+      dateValue ? dayjs(dateValue).format('DD MMM YYYY') : 'N/A';
+
+    const panelSections = [
+      {
+        title: 'Property Overview',
+        items: [
+          ['Property Name', safeText(property.propertyName || property.project)],
+          ['Property Code', property.srNo ? `SR-${property.srNo}` : safeText(property._id)],
+          ['Type / Zone', `${safeText(property.propertyType)} • ${safeText(property.zoneType)}`],
+          ['Category', safeText(property.categoryType)],
+          ['Plot / RDA', `Plot ${safeText(property.plotNumber)} • RDA ${safeText(property.rdaNumber)}`],
+          ['Address', safeText(property.address || property.fullAddress)],
+          ['Area', `${safeText(property.areaValue || 0)} ${safeText(property.areaUnit)}`],
+          ['Status', safeText(property.status)]
+        ]
+      },
+      {
+        title: 'Owner & Occupant',
+        items: [
+          ['Owner Name', safeText(property.ownerName)],
+          ['Owner Contact', safeText(property.contactNumber)],
+          ['Family Status', safeText(property.familyStatus)],
+          ['Tenant Name', safeText(property.tenantName)],
+          ['Tenant Contact', safeText(property.tenantPhone)],
+          ['Tenant CNIC', safeText(property.tenantCNIC)],
+          ['Expected Rent', formatCurrency(property.expectedRent || 0)],
+          ['Security Deposit', formatCurrency(property.securityDeposit || 0)],
+          ['Agreement Period',
+            property.rentalAgreement
+              ? `${formatDate(property.rentalAgreement?.startDate)} → ${formatDate(property.rentalAgreement?.endDate)}`
+              : 'No rental agreement'
+          ]
+        ]
+      },
+      {
+        title: 'Utilities & Notes',
+        items: [
+          ['Electricity & Water', property.hasElectricityWater ? 'Available' : 'Not Available'],
+          ['Consumer', safeText(property.electricityWaterConsumer)],
+          ['Meter Number', safeText(property.electricityWaterMeterNo)],
+          ['Connection Type', safeText(property.connectionType)],
+          ['Occupation Status', safeText(property.occupiedUnderConstruction)],
+          ['Occupation Date', formatDate(property.dateOfOccupation)],
+          ['Meter Type', safeText(property.meterType)],
+          ['Description', safeText(property.description)],
+          ['Notes', safeText(property.notes)]
+        ]
+      }
+    ];
+
+    // Header
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(14);
+    pdf.text('TAJ UTILITIES — PROPERTY VOUCHER', pageWidth / 2, 12, { align: 'center' });
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(
+      `Generated ${dayjs().format('DD MMM YYYY HH:mm')} • Property ID: ${property._id}`,
+      pageWidth / 2,
+      18,
+      { align: 'center' }
+    );
+
+    // Fold guides
+    pdf.setDrawColor(180);
+    pdf.setLineWidth(0.2);
+    if (pdf.setLineDash) {
+      pdf.setLineDash([1, 2], 0);
+    }
+    [panelWidth, panelWidth * 2].forEach((xPos) => {
+      pdf.line(xPos, foldTop, xPos, foldBottom);
+    });
+    if (pdf.setLineDash) {
+      pdf.setLineDash([], 0);
+    }
+
+    const drawPanel = (panelIndex, panel) => {
+      const startX = panelIndex * panelWidth + horizontalMargin / 2;
+      let cursorY = 26;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.text(panel.title, startX + (panelWidth / 2) - (horizontalMargin / 2), cursorY, { align: 'center' });
+      cursorY += 4;
+
+      panel.items.forEach(([label, value]) => {
+        if (!value || value === 'N/A' || value === 'No rental agreement') {
+          // Still show the label with available fallback text
+        }
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(9);
+        cursorY += 5;
+        pdf.text(label, startX, cursorY);
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
+        const wrappedText = pdf.splitTextToSize(
+          typeof value === 'string' ? value : String(value),
+          contentWidth
+        );
+        wrappedText.forEach((line) => {
+          cursorY += 4;
+          pdf.text(line, startX, cursorY);
+        });
+
+        cursorY += 2;
+      });
+    };
+
+    panelSections.forEach((panel, index) => drawPanel(index, panel));
+
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'italic');
+    pdf.text(
+      'Fold along dotted lines • Attach voucher with physical property file and digital record',
+      pageWidth / 2,
+      pageHeight - 10,
+      { align: 'center' }
+    );
+
+    const sanitizedName = (property.propertyName || 'taj-property').replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
+    pdf.save(`Voucher_${sanitizedName || property._id}.pdf`);
+  };
 
   const handlePrint = () => {
     if (!property) return;
@@ -525,6 +669,14 @@ const TajPropertyDetail = () => {
           sx={{ ml: 'auto' }}
         >
           Edit
+        </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<ReceiptIcon />}
+          onClick={handleGenerateVoucher}
+        >
+          Download Voucher
         </Button>
         <Button
           variant="outlined"

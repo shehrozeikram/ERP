@@ -72,6 +72,41 @@ router.get('/available', permissions.checkSubRolePermission('admin', 'vehicle_ma
   }
 });
 
+// GET /api/vehicles/next-id - Get next available Vehicle ID
+router.get('/next-id', permissions.checkSubRolePermission('admin', 'vehicle_management', 'create'), async (req, res) => {
+  try {
+    // Find the highest numeric Vehicle ID
+    const vehicles = await Vehicle.find({})
+      .select('vehicleId')
+      .sort({ vehicleId: -1 })
+      .limit(1);
+
+    let nextId = 1;
+    
+    if (vehicles.length > 0 && vehicles[0].vehicleId) {
+      // Extract numeric part from Vehicle ID (e.g., "VH001" -> 1, "VH123" -> 123)
+      const match = vehicles[0].vehicleId.match(/\d+/);
+      if (match) {
+        nextId = parseInt(match[0]) + 1;
+      }
+    }
+
+    // Format as VH001, VH002, etc.
+    const formattedId = `VH${String(nextId).padStart(3, '0')}`;
+
+    res.json({
+      success: true,
+      data: { nextVehicleId: formattedId }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error generating next Vehicle ID',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/vehicles/:id - Get single vehicle
 router.get('/:id', permissions.checkSubRolePermission('admin', 'vehicle_management', 'read'), async (req, res) => {
   try {
@@ -102,10 +137,37 @@ router.get('/:id', permissions.checkSubRolePermission('admin', 'vehicle_manageme
 // POST /api/vehicles - Create new vehicle
 router.post('/', permissions.checkSubRolePermission('admin', 'vehicle_management', 'create'), async (req, res) => {
   try {
+    // Auto-generate Vehicle ID if not provided
+    let vehicleId = req.body.vehicleId;
+    if (!vehicleId) {
+      // Find the highest numeric Vehicle ID
+      const vehicles = await Vehicle.find({})
+        .select('vehicleId')
+        .sort({ vehicleId: -1 })
+        .limit(1);
+
+      let nextId = 1;
+      
+      if (vehicles.length > 0 && vehicles[0].vehicleId) {
+        // Extract numeric part from Vehicle ID (e.g., "VH001" -> 1, "VH123" -> 123)
+        const match = vehicles[0].vehicleId.match(/\d+/);
+        if (match) {
+          nextId = parseInt(match[0]) + 1;
+        }
+      }
+
+      // Format as VH001, VH002, etc.
+      vehicleId = `VH${String(nextId).padStart(3, '0')}`;
+    }
+
     const vehicleData = {
       ...req.body,
+      vehicleId,
       createdBy: req.user._id
     };
+
+    // Remove purchasePrice if it exists (field is being removed)
+    delete vehicleData.purchasePrice;
 
     const vehicle = new Vehicle(vehicleData);
     await vehicle.save();

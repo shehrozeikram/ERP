@@ -132,6 +132,14 @@ rentalAgreement: {
       enum: ['Cash', 'Bank Transfer', 'Cheque', 'Online'],
       default: 'Bank Transfer'
     },
+    bankName: {
+      type: String,
+      trim: true
+    },
+    attachmentUrl: {
+      type: String,
+      trim: true
+    },
     reference: {
       type: String,
       trim: true

@@ -28,6 +28,7 @@ import {
   InputLabel,
   Select,
   Collapse,
+  CircularProgress,
   Tooltip,
   Menu
 } from '@mui/material';
@@ -46,11 +47,13 @@ import {
   Person as PersonIcon,
   Business as BusinessIcon,
   Receipt as ReceiptIcon,
+  ReceiptLong as ReceiptLongIcon,
   LocationOn as LocationIcon,
   Phone as PhoneIcon,
   Email as EmailIcon,
   Badge as BadgeIcon,
-  FiberManualRecord as StatusIcon
+  FiberManualRecord as StatusIcon,
+  AttachFile as AttachFileIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -59,8 +62,10 @@ import {
   fetchProperties,
   addPayment,
   fetchInvoice,
-  updatePaymentStatus
+  updatePaymentStatus,
+  fetchLatestRentInvoiceForProperty
 } from '../../../services/tajRentalManagementService';
+import pakistanBanks from '../../../constants/pakistanBanks';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
 const paymentStatuses = ['Draft', 'Unpaid', 'Pending Approval', 'Approved', 'Rejected', 'Cancelled'];
@@ -106,6 +111,13 @@ const RentalManagement = () => {
   const unpaidPayments =
     selectedProperty?.payments?.filter((payment) => payment.status === 'Unpaid') || [];
   const [rentalSummary, setRentalSummary] = useState(defaultSummary);
+  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
+  const [voucherProperty, setVoucherProperty] = useState(null);
+  const [voucherInvoice, setVoucherInvoice] = useState(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherError, setVoucherError] = useState('');
+  const [rentPaymentContext, setRentPaymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
+  const [paymentAttachment, setPaymentAttachment] = useState(null);
 
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
@@ -115,6 +127,7 @@ const RentalManagement = () => {
     periodTo: dayjs().format('YYYY-MM-DD'),
     invoiceNumber: '',
     paymentMethod: 'Bank Transfer',
+    bankName: '',
     reference: '',
     notes: ''
   });
@@ -139,9 +152,15 @@ const RentalManagement = () => {
     try {
       setError('');
       if (!selectedProperty) return;
-      await addPayment(selectedProperty._id, paymentForm);
+      const formData = new FormData();
+      Object.entries(paymentForm).forEach(([key, value]) => formData.append(key, value ?? ''));
+      if (paymentAttachment) {
+        formData.append('attachment', paymentAttachment);
+      }
+
+      await addPayment(selectedProperty._id, formData);
       setSuccess('Payment recorded successfully');
-      setPaymentDialog(false);
+      handleClosePaymentDialog();
       resetPaymentForm();
       loadData();
     } catch (err) {
@@ -151,7 +170,22 @@ const RentalManagement = () => {
 
   const openPaymentDialog = (property) => {
     setSelectedProperty(property);
-    resetPaymentForm();
+    const baseCharge = Number(property.rentAmount ?? property.expectedRent ?? 0);
+    const baseArrears = Number(property.rentArrears ?? 0);
+    setPaymentForm({
+      amount: baseCharge,
+      arrears: baseArrears,
+      paymentDate: dayjs().format('YYYY-MM-DD'),
+      periodFrom: dayjs().format('YYYY-MM-DD'),
+      periodTo: dayjs().format('YYYY-MM-DD'),
+      invoiceNumber: '',
+      paymentMethod: 'Bank Transfer',
+      bankName: '',
+      reference: '',
+      notes: ''
+    });
+    setRentPaymentContext({ baseCharge, baseArrears });
+    setPaymentAttachment(null);
     setPaymentDialog(true);
   };
 
@@ -170,6 +204,34 @@ const RentalManagement = () => {
     setSelectedProperty(property);
     setSelectedPayment(payment);
     setPaymentDetailsDialog(true);
+  };
+
+  const handleOpenVoucherDialog = async (property) => {
+    setVoucherProperty(property);
+    setVoucherInvoice(null);
+    setVoucherError('');
+    setVoucherDialogOpen(true);
+    try {
+      setVoucherLoading(true);
+      const response = await fetchLatestRentInvoiceForProperty(property._id);
+      const invoiceData = response.data?.data || null;
+      if (!invoiceData) {
+        setVoucherError('No rent invoice found for this property.');
+      }
+      setVoucherInvoice(invoiceData);
+    } catch (err) {
+      setVoucherError(err.response?.data?.message || 'Failed to load latest rent invoice');
+    } finally {
+      setVoucherLoading(false);
+    }
+  };
+
+  const handleCloseVoucherDialog = () => {
+    setVoucherDialogOpen(false);
+    setVoucherProperty(null);
+    setVoucherInvoice(null);
+    setVoucherLoading(false);
+    setVoucherError('');
   };
 
   const handlePrintInvoice = () => {
@@ -433,6 +495,331 @@ const RentalManagement = () => {
     pdf.save(`Rent-Invoice-${invoiceData.invoiceNumber || 'INV'}.pdf`);
   };
 
+  const handleDownloadVoucher = () => {
+    if (!voucherProperty || !voucherInvoice) return;
+    generateRentVoucherPDF();
+  };
+
+  const generateRentVoucherPDF = () => {
+    if (!voucherProperty || !voucherInvoice) return;
+
+    const property = voucherProperty;
+    const invoice = voucherInvoice;
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const panelWidth = pageWidth / 3;
+    const marginX = 6;
+    const topMargin = 10;
+    const contentWidth = panelWidth - 2 * marginX;
+
+    const formatDate = (value, pattern = 'DD-MMM-YY') =>
+      value ? dayjs(value).format(pattern) : '—';
+    const formatFullDate = (value) =>
+      value ? dayjs(value).format('MMMM D, YYYY') : '—';
+    const formatMoney = (value) =>
+      (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
+
+    const periodFrom = formatDate(invoice.periodFrom);
+    const periodTo = formatDate(invoice.periodTo);
+    const rentRange = `Rent From ${periodFrom} To ${periodTo}`;
+    const invoiceNumber = invoice.invoiceNumber || '—';
+    const billMonth =
+      invoice.billMonth ||
+      (invoice.periodFrom ? dayjs(invoice.periodFrom).format('MMMM YYYY') : '—');
+    const invoiceDate = formatFullDate(invoice.invoicingDate || invoice.periodFrom);
+    const dueDate = formatFullDate(invoice.dueDate || invoice.periodTo);
+    const quantity = invoice.quantity || 1;
+    const rentAmount = Number(invoice.amount) || property.expectedRent || 0;
+    const rate = rentAmount;
+    const salesTaxPercent = invoice.salesTaxPercent ?? 0;
+    const salesTaxAmount = Number(invoice.salesTaxAmount) || 0;
+    const arrears = Number(invoice.arrears) || 0;
+    const totalPayable = Number(invoice.totalAmount) || rentAmount + arrears;
+    const lateSurcharge = Math.max(Math.round(totalPayable * 0.1), 0);
+    const payableAfterDue = totalPayable + lateSurcharge;
+
+    const footnotes = [
+      'Please deposit the charges through banking channels only (cheque, online transfer, or deposit slip). Cash payments are not accepted.',
+      'Please make your deposits through cash, crossed cheque or bank drafts on our specified deposit slip at any Allied Bank Limited branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0317). Bank Account No.: PK68ABPA001503007402129.',
+      'Payment must be made on or before the due date mentioned on the invoice to avoid penalties or discontinuation of service. After making the payment, please email or WhatsApp a copy of the deposit slip or online transfer proof to the Accounts Department for record verification at the TAJ Official WhatsApp No.: 0345 77 88 442.',
+      'Any returned or dishonoured cheques will attract service charges and may result in penalties or discontinuation of service.'
+    ];
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 32) => {
+      const valueWidth = contentWidth - labelWidth;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.text(label, startX, startY);
+      pdf.setFont('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawChargesTable = (startX, startY) => {
+      const headers = ['Quantity', 'Rate', 'Charges'];
+      const headerHeight = 6;
+      const rowHeight = 7;
+      const cellWidth = contentWidth / headers.length;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      headers.forEach((header, idx) => {
+        const cellX = startX + idx * cellWidth;
+        pdf.rect(cellX, startY, cellWidth, headerHeight);
+        pdf.text(header, cellX + cellWidth / 2, startY + headerHeight - 1.5, { align: 'center' });
+      });
+
+      const values = [String(quantity), formatMoney(rate), formatMoney(rentAmount)];
+      pdf.setFont('helvetica', 'normal');
+      values.forEach((value, idx) => {
+        const cellX = startX + idx * cellWidth;
+        pdf.rect(cellX, startY + headerHeight, cellWidth, rowHeight);
+        pdf.text(value, cellX + cellWidth / 2, startY + headerHeight + rowHeight - 2, { align: 'center' });
+      });
+
+      return startY + headerHeight + rowHeight + 2;
+    };
+
+    const drawSummaryRow = (label, value, startX, startY) => {
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.text(label, startX, startY);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(value, startX + contentWidth, startY, { align: 'right' });
+      return startY + 6;
+    };
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + marginX;
+      let cursorY = topMargin;
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'italic');
+      pdf.text(`(${copyLabel})`, startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(178, 34, 34);
+      pdf.text('TAJ Residencia', startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 5;
+      pdf.text('Rent Invoice', startX + contentWidth / 2, cursorY, { align: 'center' });
+      pdf.setTextColor(0, 0, 0);
+      cursorY += 4;
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+      pdf.text(dayjs().format('dddd, MMMM D, YYYY h:mm:ss A'), startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      const inlineFields = [
+        ['Client', invoice.tenantName || property.tenantName || property.ownerName || '—'],
+        ['Address', invoice.address || property.fullAddress || property.street || '—'],
+        ['Unit', property.propertyName || property.propertyCode || '—'],
+        ['Invoice Number', invoiceNumber],
+        ['Bill Month', billMonth],
+        ['Invoice Date', invoiceDate],
+        ['Due Date', dueDate],
+        ['Period From', periodFrom],
+        ['Period To', periodTo],
+        ['Rent Period', rentRange]
+      ];
+
+      inlineFields.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+
+      cursorY += 3;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.text('RENT DETAILS', startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      cursorY = drawChargesTable(startX, cursorY);
+      cursorY += 4;
+
+      cursorY = drawSummaryRow(
+        'Sales Tax % / Sales Tax',
+        `${salesTaxPercent}% / ${formatMoney(salesTaxAmount)}`,
+        startX,
+        cursorY
+      );
+      cursorY = drawSummaryRow(
+        'Charges For The Month Inc Sales Tax',
+        formatMoney(rentAmount + salesTaxAmount),
+        startX,
+        cursorY
+      );
+      cursorY = drawSummaryRow('Payment', formatMoney(0), startX, cursorY);
+      cursorY = drawSummaryRow('Arrears', arrears ? formatMoney(arrears) : '-', startX, cursorY);
+      cursorY = drawSummaryRow(
+        'Payable Within Due Date Inc Sales Tax',
+        formatMoney(totalPayable),
+        startX,
+        cursorY
+      );
+      cursorY = drawSummaryRow('Late Payment Surcharge', formatMoney(lateSurcharge), startX, cursorY);
+      cursorY = drawSummaryRow('Payable After Due Date', formatMoney(payableAfterDue), startX, cursorY);
+
+      cursorY += 2;
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(5.2);
+      footnotes.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, contentWidth);
+        wrapped.forEach((entry) => {
+          pdf.text(entry, startX, cursorY);
+          cursorY += 3.2;
+        });
+      });
+    };
+
+    const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
+    copies.forEach((copy, index) => drawPanel(copy, index));
+
+    const sanitizedName = (property.propertyName || property.plotNumber || property._id || 'rent-property')
+      .toString()
+      .replace(/[^a-z0-9-_ ]/gi, '')
+      .trim()
+      .replace(/\s+/g, '_');
+
+    pdf.save(`Rental_Voucher_${sanitizedName}.pdf`);
+  };
+
+  const renderVoucherPreview = () => {
+    if (voucherLoading) {
+      return (
+        <Stack alignItems="center" spacing={1} py={3}>
+          <CircularProgress size={20} />
+          <Typography variant="body2" color="text.secondary">
+            Fetching latest rent invoice...
+          </Typography>
+        </Stack>
+      );
+    }
+
+    if (voucherError) {
+      return <Alert severity="error">{voucherError}</Alert>;
+    }
+
+    if (!voucherProperty) {
+      return <Typography color="text.secondary">Select a property to preview its voucher.</Typography>;
+    }
+
+    if (!voucherInvoice) {
+      return (
+        <Alert severity="info">
+          No rent invoice found for this property yet. Record a rent payment to generate the voucher.
+        </Alert>
+      );
+    }
+
+    const formatPreviewDate = (value, pattern = 'DD-MMM-YYYY') =>
+      value ? dayjs(value).format(pattern) : '—';
+
+    const billMonth =
+      voucherInvoice.billMonth ||
+      (voucherInvoice.periodFrom ? dayjs(voucherInvoice.periodFrom).format('MMMM YYYY') : '—');
+    const rentAmount = Number(voucherInvoice.amount) || voucherProperty.expectedRent || 0;
+    const arrears = Number(voucherInvoice.arrears) || 0;
+    const totalPayable = Number(voucherInvoice.totalAmount) || rentAmount + arrears;
+
+    return (
+      <Stack spacing={2}>
+        {voucherInvoice.autoGenerated && (
+          <Alert severity="warning">
+            No recorded rent payments were found for this property. The voucher displays the expected rent values so you
+            can still download and attach it.
+          </Alert>
+        )}
+
+        <Box>
+          <Typography variant="subtitle2" color="text.secondary">
+            Property
+          </Typography>
+          <Typography variant="h6">{voucherProperty.propertyName || voucherProperty.propertyCode}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {voucherProperty.fullAddress || voucherProperty.address || 'No address recorded'}
+          </Typography>
+        </Box>
+
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Invoice #
+            </Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {voucherInvoice.invoiceNumber || '—'}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Bill Month
+            </Typography>
+            <Typography variant="body1" fontWeight={600}>
+              {billMonth}
+            </Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Invoice Date
+            </Typography>
+            <Typography variant="body1">{formatPreviewDate(voucherInvoice.invoicingDate || voucherInvoice.periodFrom)}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Due Date
+            </Typography>
+            <Typography variant="body1">{formatPreviewDate(voucherInvoice.dueDate || voucherInvoice.periodTo)}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Period From
+            </Typography>
+            <Typography variant="body1">{formatPreviewDate(voucherInvoice.periodFrom)}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <Typography variant="caption" color="text.secondary">
+              Period To
+            </Typography>
+            <Typography variant="body1">{formatPreviewDate(voucherInvoice.periodTo)}</Typography>
+          </Grid>
+        </Grid>
+
+        <Divider />
+
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={4}>
+            <Typography variant="caption" color="text.secondary">
+              Monthly Rent
+            </Typography>
+            <Typography variant="h6">{formatCurrency(rentAmount)}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={4}>
+            <Typography variant="caption" color="text.secondary">
+              Arrears
+            </Typography>
+            <Typography variant="h6">{arrears ? formatCurrency(arrears) : '-'}</Typography>
+          </Grid>
+          <Grid item xs={12} sm={4}>
+            <Typography variant="caption" color="text.secondary">
+              Total Payable
+            </Typography>
+            <Typography variant="h6" color="primary">
+              {formatCurrency(totalPayable)}
+            </Typography>
+          </Grid>
+        </Grid>
+
+        <Alert severity="info">
+          Download to get the tri-fold rent voucher mirroring the shared Rent Invoice design.
+        </Alert>
+      </Stack>
+    );
+  };
+
   const resetPaymentForm = () => {
     setPaymentForm({
       amount: 0,
@@ -442,9 +829,12 @@ const RentalManagement = () => {
       periodTo: dayjs().format('YYYY-MM-DD'),
       invoiceNumber: '',
       paymentMethod: 'Bank Transfer',
+      bankName: '',
       reference: '',
       notes: ''
     });
+    setRentPaymentContext({ baseCharge: 0, baseArrears: 0 });
+    setPaymentAttachment(null);
   };
 
   const toggleRowExpansion = (propertyId) => {
@@ -458,25 +848,64 @@ const RentalManagement = () => {
   };
 
   const totalPayments = (payments) => {
-    return payments?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+    return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
+  };
+
+  const handleRentAmountChange = (value) => {
+    const numericValue = Number(value) || 0;
+    const baseCharge = Number(rentPaymentContext.baseCharge || 0);
+    const baseArrears = Number(rentPaymentContext.baseArrears || 0);
+
+    if (!baseCharge && !baseArrears) {
+      setPaymentForm((prev) => ({ ...prev, amount: numericValue }));
+      return;
+    }
+
+    const calculatedArrears = baseArrears + (baseCharge - numericValue);
+    setPaymentForm((prev) => ({
+      ...prev,
+      amount: numericValue,
+      arrears: Math.max(Number(calculatedArrears.toFixed(2)), 0)
+    }));
+  };
+
+  const handleRentPaymentMethodChange = (value) => {
+    setPaymentForm((prev) => ({
+      ...prev,
+      paymentMethod: value,
+      bankName: value === 'Cash' ? '' : prev.bankName
+    }));
+  };
+
+  const handleRentAttachmentChange = (event) => {
+    const file = event.target.files?.[0];
+    setPaymentAttachment(file || null);
+  };
+
+  const handleClosePaymentDialog = () => {
+    setPaymentDialog(false);
+    setPaymentAttachment(null);
   };
 
   const getPaymentStatusConfig = (status) => {
-    const normalized = status || 'Approved';
+    const normalized = (status || '').toString().toLowerCase();
     switch (normalized) {
-      case 'Draft':
+      case 'paid':
+      case 'approved':
+        return { color: 'success', label: 'Paid', iconColor: 'success.main' };
+      case 'partial_paid':
+      case 'pending approval':
+        return { color: 'warning', label: 'Partial Paid', iconColor: 'warning.main' };
+      case 'unpaid':
+        return { color: 'error', label: 'Unpaid', iconColor: 'error.main' };
+      case 'draft':
         return { color: 'default', label: 'Draft', iconColor: 'text.secondary' };
-      case 'Unpaid':
-        return { color: 'info', label: 'Unpaid', iconColor: 'info.main' };
-      case 'Pending Approval':
-        return { color: 'warning', label: 'Pending Approval', iconColor: 'warning.main' };
-      case 'Rejected':
-        return { color: 'error', label: 'Rejected', iconColor: 'error.main' };
-      case 'Cancelled':
+      case 'cancelled':
         return { color: 'default', label: 'Cancelled', iconColor: 'text.secondary' };
-      case 'Approved':
+      case 'rejected':
+        return { color: 'error', label: 'Rejected', iconColor: 'error.main' };
       default:
-        return { color: 'success', label: 'Approved', iconColor: 'success.main' };
+        return { color: 'default', label: status || 'N/A', iconColor: 'text.secondary' };
     }
   };
 
@@ -581,8 +1010,10 @@ const RentalManagement = () => {
                   <TableCell>Address</TableCell>
                   <TableCell>Agreement</TableCell>
                   <TableCell>Tenant</TableCell>
+                  <TableCell>Rent Summary</TableCell>
+                  <TableCell>Payment Status</TableCell>
                   <TableCell>Total Payments</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell>Property Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -640,7 +1071,42 @@ const RentalManagement = () => {
                       </TableCell>
                       <TableCell>
                         <Typography fontWeight={600}>
-                          {formatCurrency(totalPayments(property.payments))}
+                          {formatCurrency(property.rentAmount ?? property.expectedRent ?? 0)}
+                        </Typography>
+                        {property.rentArrears > 0 ? (
+                          <Typography variant="caption" color="error.main" display="block">
+                            Arrears: {formatCurrency(property.rentArrears)}
+                          </Typography>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">
+                            No arrears
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const { color, label, iconColor } = getPaymentStatusConfig(property.paymentStatus || 'unpaid');
+                          return (
+                            <Chip
+                              label={label}
+                              color={color === 'default' ? undefined : color}
+                              variant={color === 'default' ? 'outlined' : 'filled'}
+                              size="small"
+                              icon={
+                                <StatusIcon
+                                  fontSize="small"
+                                  sx={{ color: iconColor }}
+                                />
+                              }
+                            />
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell>
+                        <Typography fontWeight={600}>
+                          {formatCurrency(
+                            property.totalPaidAmount ?? totalPayments(property.payments)
+                          )}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {property.payments?.length || 0} payment(s)
@@ -668,6 +1134,15 @@ const RentalManagement = () => {
                               <VisibilityIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          <Tooltip title="View Rental Voucher">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleOpenVoucherDialog(property)}
+                            >
+                              <ReceiptLongIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title="Add Payment">
                             <IconButton
                               size="small"
@@ -681,7 +1156,7 @@ const RentalManagement = () => {
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={9} sx={{ py: 0, border: 0 }}>
+                      <TableCell colSpan={11} sx={{ py: 0, border: 0 }}>
                         <Collapse in={expandedRows.has(property._id)} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 2, px: 3 }}>
                             <Typography variant="subtitle2" gutterBottom>
@@ -737,15 +1212,6 @@ const RentalManagement = () => {
                                       <TableCell>{payment.paymentMethod}</TableCell>
                                       <TableCell align="right">
                                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                          <Tooltip title="Change Status">
-                                            <IconButton
-                                              size="small"
-                                              color="primary"
-                                              onClick={(event) => handleOpenStatusMenu(event, property, payment)}
-                                            >
-                                              <StatusIcon fontSize="small" />
-                                            </IconButton>
-                                          </Tooltip>
                                           <Tooltip title="View Details">
                                             <IconButton
                                               size="small"
@@ -786,13 +1252,29 @@ const RentalManagement = () => {
         </CardContent>
       </Card>
 
+      <Dialog open={voucherDialogOpen} onClose={handleCloseVoucherDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Rental Voucher Preview</DialogTitle>
+        <DialogContent dividers>{renderVoucherPreview()}</DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseVoucherDialog}>Close</Button>
+          <Button
+            variant="contained"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadVoucher}
+            disabled={voucherLoading || !voucherInvoice}
+          >
+            Download Voucher
+          </Button>
+        </DialogActions>
+      </Dialog>
+
 
       {/* Payment Dialog */}
-      <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={paymentDialog} onClose={handleClosePaymentDialog} maxWidth="sm" fullWidth>
         <DialogTitle>
           Record Payment
           <IconButton
-            onClick={() => setPaymentDialog(false)}
+            onClick={handleClosePaymentDialog}
             sx={{ position: 'absolute', right: 8, top: 8 }}
           >
             <CloseIcon />
@@ -856,7 +1338,7 @@ const RentalManagement = () => {
                 type="number"
                 fullWidth
                 value={paymentForm.amount}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                onChange={(e) => handleRentAmountChange(e.target.value)}
                 required
               />
             </Grid>
@@ -932,7 +1414,7 @@ const RentalManagement = () => {
                 <InputLabel>Payment Method</InputLabel>
                 <Select
                   value={paymentForm.paymentMethod}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  onChange={(e) => handleRentPaymentMethodChange(e.target.value)}
                   label="Payment Method"
                 >
                   {paymentMethods.map(method => (
@@ -941,6 +1423,24 @@ const RentalManagement = () => {
                 </Select>
               </FormControl>
             </Grid>
+            {paymentForm.paymentMethod !== 'Cash' && (
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Receiving Bank</InputLabel>
+                  <Select
+                    value={paymentForm.bankName}
+                    label="Receiving Bank"
+                    onChange={(e) => setPaymentForm(prev => ({ ...prev, bankName: e.target.value }))}
+                  >
+                    {pakistanBanks.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
             <Grid item xs={12}>
               <TextField
                 label="Reference/Transaction ID"
@@ -948,6 +1448,27 @@ const RentalManagement = () => {
                 value={paymentForm.reference}
                 onChange={(e) => setPaymentForm(prev => ({ ...prev, reference: e.target.value }))}
               />
+            </Grid>
+            <Grid item xs={12}>
+              <Button
+                variant="outlined"
+                component="label"
+                startIcon={<AttachFileIcon />}
+                sx={{ mr: 2 }}
+              >
+                {paymentAttachment ? 'Change Attachment' : 'Attach Receipt'}
+                <input type="file" hidden accept="image/*,.pdf" onChange={handleRentAttachmentChange} />
+              </Button>
+              {paymentAttachment && (
+                <>
+                  <Typography variant="caption" sx={{ mr: 2 }}>
+                    {paymentAttachment.name}
+                  </Typography>
+                  <Button size="small" onClick={() => setPaymentAttachment(null)}>
+                    Remove
+                  </Button>
+                </>
+              )}
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -962,7 +1483,7 @@ const RentalManagement = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
+          <Button onClick={handleClosePaymentDialog}>Cancel</Button>
           <Button variant="contained" onClick={handlePaymentSave}>
             Record Payment
           </Button>

@@ -1,8 +1,43 @@
 const express = require('express');
 const router = express.Router();
+const dayjs = require('dayjs');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const TajProperty = require('../models/tajResidencia/TajProperty');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const { authMiddleware } = require('../middleware/auth');
+
+const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
+if (!fs.existsSync(attachmentsDir)) {
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+}
+
+const paymentAttachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, attachmentsDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '');
+    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+  }
+});
+
+const paymentAttachmentUpload = multer({
+  storage: paymentAttachmentStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+const cleanupAttachment = (file) => {
+  if (file) {
+    const filePath = path.join(attachmentsDir, file.filename);
+    fs.unlink(filePath, (err) => {
+      if (err) {
+        console.error('Failed to cleanup attachment:', err);
+      }
+    });
+  }
+};
 
 const mapGeneralRentalProperty = (property) => ({
   id: property._id,
@@ -81,6 +116,8 @@ const mapRentalPropertyResponse = (property) => {
     periodTo: payment.periodTo,
     invoiceNumber: payment.invoiceNumber,
     paymentMethod: payment.paymentMethod,
+    bankName: payment.bankName || '',
+    attachmentUrl: payment.attachmentUrl || '',
     reference: payment.reference,
     notes: payment.notes,
     status: payment.status || 'Draft',
@@ -88,13 +125,50 @@ const mapRentalPropertyResponse = (property) => {
     recordedAt: payment.recordedAt
   }));
 
+  const baseRent =
+    property.rentalAgreement?.monthlyRent ||
+    property.rentalAgreement?.increasedRent ||
+    property.expectedRent ||
+    0;
+  const totalPaidAmount = payments.reduce(
+    (sum, payment) => sum + (payment.totalAmount || payment.amount || 0),
+    0
+  );
+  const recordedArrears = payments.reduce((sum, payment) => sum + (payment.arrears || 0), 0);
+  const manualPendingArrears = [property.pendingRent, property.pendingAmount, property.pendingArrears].find(
+    (value) => value !== undefined && value !== null
+  );
+  const rentArrears =
+    manualPendingArrears !== undefined
+      ? Number(manualPendingArrears) || 0
+      : recordedArrears;
+  const totalDue = baseRent + rentArrears;
+
   const paymentTotals = payments.reduce((acc, payment) => {
-    acc.total += payment.totalAmount || 0;
+    const amount = payment.totalAmount || payment.amount || 0;
+    acc.total += amount;
     if ((payment.status || '').toLowerCase() === 'unpaid') {
-      acc.unpaid += payment.totalAmount || 0;
+      acc.unpaid += amount;
     }
     return acc;
   }, { total: 0, unpaid: 0 });
+
+  paymentTotals.paid = totalPaidAmount;
+  paymentTotals.due = totalDue;
+
+  let paymentStatus = 'unpaid';
+  if (totalDue <= 0 && totalPaidAmount <= 0) {
+    paymentStatus = 'unpaid';
+  } else if (totalPaidAmount >= totalDue && totalDue > 0) {
+    paymentStatus = 'paid';
+  } else if (totalPaidAmount > 0) {
+    paymentStatus = 'partial_paid';
+  }
+
+  const paymentsWithStatus = payments.map((payment) => ({
+    ...payment,
+    status: paymentStatus
+  }));
 
   return {
     _id: property._id,
@@ -130,8 +204,12 @@ const mapRentalPropertyResponse = (property) => {
       startDate: property.rentalAgreement.startDate,
       endDate: property.rentalAgreement.endDate
     } : null,
-    payments,
-    paymentTotals
+    payments: paymentsWithStatus,
+    paymentTotals,
+    rentAmount: baseRent,
+    rentArrears,
+    totalPaidAmount,
+    paymentStatus
   };
 };
 
@@ -205,6 +283,7 @@ router.get('/properties/:id', authMiddleware, async (req, res) => {
       .lean();
     
     if (!property) {
+      cleanupAttachment(req.file);
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
     
@@ -217,9 +296,9 @@ router.get('/properties/:id', authMiddleware, async (req, res) => {
 // ========== PAYMENT ROUTES ==========
 
 // Add payment to property
-router.post('/properties/:id/payments', authMiddleware, async (req, res) => {
+router.post('/properties/:id/payments', authMiddleware, paymentAttachmentUpload.single('attachment'), async (req, res) => {
   try {
-    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, reference, notes } = req.body;
+    const { amount, arrears, paymentDate, periodFrom, periodTo, invoiceNumber, paymentMethod, bankName, reference, notes } = req.body;
 
     const property = await TajProperty.findOne({
       _id: req.params.id,
@@ -233,6 +312,8 @@ router.post('/properties/:id/payments', authMiddleware, async (req, res) => {
     const arrearsAmount = Number(arrears) || 0;
     const totalAmount = paymentAmount + arrearsAmount;
 
+    const attachmentUrl = req.file ? `/uploads/payment-attachments/${req.file.filename}` : '';
+
     property.rentalPayments.push({
       amount: paymentAmount,
       arrears: arrearsAmount,
@@ -242,6 +323,8 @@ router.post('/properties/:id/payments', authMiddleware, async (req, res) => {
       periodTo: periodTo ? new Date(periodTo) : undefined,
       invoiceNumber: invoiceNumber || '',
       paymentMethod: paymentMethod || 'Bank Transfer',
+      bankName: bankName || '',
+      attachmentUrl,
       reference: reference || '',
       notes: notes || '',
       status: 'Draft',
@@ -254,11 +337,11 @@ router.post('/properties/:id/payments', authMiddleware, async (req, res) => {
     const totalPaid = property.rentalPayments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
     
     // Calculate overall payment status for the property
-    let overallStatus = 'unpaid';
+    let overallStatus = 'Unpaid';
     if (totalPaid >= monthlyRent && monthlyRent > 0) {
-      overallStatus = 'paid';
+      overallStatus = 'Approved';
     } else if (totalPaid > 0) {
-      overallStatus = 'partial_paid';
+      overallStatus = 'Pending Approval';
     }
     
     // Update payment status for each payment - all payments share the same status
@@ -272,6 +355,7 @@ router.post('/properties/:id/payments', authMiddleware, async (req, res) => {
     await property.populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard');
     res.json({ success: true, data: mapRentalPropertyResponse(property.toObject()) });
   } catch (error) {
+    cleanupAttachment(req.file);
     res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -313,7 +397,46 @@ router.patch('/properties/:propertyId/payments/:paymentId/status', authMiddlewar
 // Generate invoice number
 const generateInvoiceNumber = (propertyType, year, month, index) => {
   const prefix = propertyType === 'Play Ground' ? 'PG' : 'TAJ';
-  return `${prefix}-${year}-${month}-${index}`;
+  const paddedIndex = String(index).padStart(3, '0');
+  const paddedMonth = String(month).padStart(2, '0');
+  return `${prefix}-${year}-${paddedMonth}-${paddedIndex}`;
+};
+
+const buildInvoicePayload = (property, payment) => {
+  const basePeriodFrom = payment.periodFrom || payment.paymentDate;
+  const basePeriodTo = payment.periodTo || payment.paymentDate;
+  const fallbackIndex = property.rentalPayments?.indexOf(payment) ?? -1;
+
+  return {
+    propertyType: property.propertyType || 'House',
+    tenantName: property.tenantName || property.ownerName || 'N/A',
+    address: property.fullAddress || `${property.street || ''} ${property.sector || ''}`.trim(),
+    periodFrom: basePeriodFrom,
+    periodTo: basePeriodTo,
+    billMonth: basePeriodFrom ? dayjs(basePeriodFrom).format('MMMM YYYY') : null,
+    invoiceNumber:
+      payment.invoiceNumber ||
+      generateInvoiceNumber(
+        property.propertyType,
+        new Date(payment.paymentDate).getFullYear(),
+        new Date(payment.paymentDate).getMonth() + 1,
+        fallbackIndex >= 0 ? fallbackIndex + 1 : 1
+      ),
+    invoicingDate: payment.paymentDate,
+    dueDate: payment.periodTo || payment.paymentDate,
+    charges: payment.charges || [
+      {
+        description: 'RENT CHARGES',
+        amount: payment.amount
+      }
+    ],
+    amount: payment.amount,
+    arrears: payment.arrears || 0,
+    totalAmount: payment.totalAmount || payment.amount + (payment.arrears || 0),
+    autoGenerated: Boolean(payment.autoGenerated),
+    sourcePaymentId: payment._id || null,
+    property
+  };
 };
 
 // Get invoice data for property payment
@@ -333,35 +456,64 @@ router.get('/properties/:id/invoice/:paymentId', authMiddleware, async (req, res
       return res.status(404).json({ success: false, message: 'Payment not found' });
     }
 
-    const invoiceData = {
-      propertyType: property.propertyType || 'House',
-      tenantName: property.tenantName || 'N/A',
-      address: property.fullAddress || `${property.street || ''} ${property.sector || ''}`.trim(),
-      periodFrom: payment.periodFrom || payment.paymentDate,
-      periodTo: payment.periodTo || payment.paymentDate,
-      invoiceNumber: payment.invoiceNumber || generateInvoiceNumber(
-        property.propertyType,
-        new Date(payment.paymentDate).getFullYear(),
-        new Date(payment.paymentDate).getMonth() + 1,
-        property.rentalPayments.indexOf(payment) + 1
-      ),
-      invoicingDate: payment.paymentDate,
-      dueDate: payment.periodTo || payment.paymentDate,
-      charges: [
-        {
-          description: 'UTILIZATION CHARGES',
-          amount: payment.amount
-        }
-      ],
-      amount: payment.amount,
-      arrears: payment.arrears || 0,
-      totalAmount: payment.totalAmount || (payment.amount + (payment.arrears || 0)),
-      property: property
-    };
+    const invoiceData = buildInvoicePayload(property, payment);
 
     res.json({ success: true, data: invoiceData });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get('/properties/:id/latest-invoice', authMiddleware, async (req, res) => {
+  try {
+    const property = await TajProperty.findOne({
+      _id: req.params.id,
+      categoryType: 'Personal Rent'
+    }).populate('rentalAgreement');
+
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    const payments = property.rentalPayments || [];
+
+    let latestPayment;
+    if (payments.length) {
+      latestPayment = [...payments].sort(
+        (a, b) =>
+          new Date(b.paymentDate || b.periodTo || b.createdAt || 0) -
+          new Date(a.paymentDate || a.periodTo || a.createdAt || 0)
+      )[0];
+    } else {
+      const now = dayjs();
+      const expectedRent =
+        property.rentalAgreement?.monthlyRent ||
+        property.rentalAgreement?.increasedRent ||
+        property.expectedRent ||
+        0;
+
+      const estimatedArrears =
+        property.pendingRent ||
+        property.pendingAmount ||
+        property.pendingArrears ||
+        0;
+
+      latestPayment = {
+        amount: expectedRent,
+        arrears: estimatedArrears,
+        totalAmount: expectedRent + estimatedArrears,
+        paymentDate: now.toDate(),
+        periodFrom: now.startOf('month').toDate(),
+        periodTo: now.endOf('month').toDate(),
+        invoiceNumber: generateInvoiceNumber(property.propertyType, now.year(), now.month() + 1, 1),
+        autoGenerated: true
+      };
+    }
+
+    const invoiceData = buildInvoicePayload(property, latestPayment);
+    res.json({ success: true, data: invoiceData });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch latest rent invoice', error: error.message });
   }
 });
 
