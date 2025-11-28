@@ -12,6 +12,7 @@ const Project = require('../models/hr/Project');
 const Section = require('../models/hr/Section');
 const Designation = require('../models/hr/Designation');
 const Location = require('../models/hr/Location');
+const Qualification = require('../models/hr/Qualification');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -2112,18 +2113,12 @@ router.post('/designations', [
 router.get('/locations', 
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const { type, search } = req.query;
-    const query = { status: 'Active' };
-    
-    if (type) query.type = type;
-    if (search) query.name = { $regex: search, $options: 'i' };
-
-    const locations = await Location.find(query).sort({ name: 1 });
-
-    res.json({
-      success: true,
-      data: locations
+    const { listEntities } = require('../utils/routeHandlers');
+    const result = await listEntities(Location, req, {
+      searchFields: ['name'],
+      allowFilters: ['type']
     });
+    res.status(result.status).json({ success: true, data: result.data });
   })
 );
 
@@ -2146,63 +2141,93 @@ router.post('/locations', [
     }
 
     try {
-      // Check if location with same name already exists
-      const existingLocation = await Location.findOne({ name: req.body.name.trim() });
-      if (existingLocation) {
-        return res.status(400).json({
-          success: false,
-          message: 'A location with this name already exists'
-        });
-      }
+      const { createSimpleEntity, handleRouteError } = require('../utils/routeHandlers');
+      const result = await createSimpleEntity(Location, req, {
+        transformData: (data) => ({
+          name: data.name.trim(),
+          type: data.type || 'Office',
+          ...(data.address?.trim() && { address: data.address.trim() }),
+          ...(data.city?.trim() && { city: data.city.trim() }),
+          ...(data.province?.trim() && { province: data.province.trim() }),
+          ...(data.country?.trim() && { country: data.country.trim() })
+        }),
+        populateFields: ['createdBy']
+      });
 
-      // Build location data
-      const locationData = {
-        name: req.body.name.trim(),
-        type: req.body.type || 'Office',
-        status: 'Active',
-        createdBy: req.user.id,
-        ...(req.body.address?.trim() && { address: req.body.address.trim() }),
-        ...(req.body.city?.trim() && { city: req.body.city.trim() }),
-        ...(req.body.province?.trim() && { province: req.body.province.trim() }),
-        ...(req.body.country?.trim() && { country: req.body.country.trim() })
-      };
-
-      const location = new Location(locationData);
-      await location.save();
-      await location.populate('createdBy', 'firstName lastName');
-
-      return res.status(201).json({
+      res.status(result.status).json({
         success: true,
-        message: 'Location created successfully',
-        data: location
+        message: result.message,
+        data: result.data
       });
     } catch (error) {
       console.error('Error creating location:', error);
-      
-      // Handle duplicate key errors
-      if (error.code === 11000) {
-        const field = Object.keys(error.keyPattern || {})[0];
-        const fieldName = field === 'locationId' ? 'location ID' : field || 'field';
-        return res.status(400).json({
-          success: false,
-          message: `A location with this ${fieldName} already exists`
-        });
-      }
-      
-      // Handle validation errors
-      if (error.name === 'ValidationError') {
-        const validationErrors = Object.values(error.errors).map(err => err.message);
-        return res.status(400).json({
-          success: false,
-          message: 'Validation failed',
-          errors: validationErrors
-        });
-      }
-      
-      // Handle other errors
-      return res.status(500).json({
+      const { handleRouteError } = require('../utils/routeHandlers');
+      const errorResponse = handleRouteError(error, 'Error creating location');
+      res.status(errorResponse.status).json({
         success: false,
-        message: error.message || 'Error creating location'
+        message: errorResponse.message,
+        ...(errorResponse.errors && { errors: errorResponse.errors })
+      });
+    }
+  })
+);
+
+// ==================== QUALIFICATION ROUTES ====================
+
+// @route   GET /api/hr/qualifications
+// @desc    Get all qualifications
+// @access  Private (HR and Admin)
+router.get('/qualifications', 
+  authorize('super_admin', 'admin', 'hr_manager'), 
+  asyncHandler(async (req, res) => {
+    const { listEntities } = require('../utils/routeHandlers');
+    const result = await listEntities(Qualification, req, {
+      searchFields: ['name']
+    });
+    res.status(result.status).json({ success: true, data: result.data });
+  })
+);
+
+// @route   POST /api/hr/qualifications
+// @desc    Create new qualification
+// @access  Private (HR and Admin)
+router.post('/qualifications', [
+  authorize('super_admin', 'admin', 'hr_manager'),
+  body('name').trim().notEmpty().withMessage('Qualification name is required')
+],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    try {
+      const { createSimpleEntity, handleRouteError } = require('../utils/routeHandlers');
+      const result = await createSimpleEntity(Qualification, req, {
+        transformData: (data) => ({
+          name: data.name.trim(),
+          ...(data.description?.trim() && { description: data.description.trim() })
+        }),
+        populateFields: ['createdBy']
+      });
+
+      res.status(result.status).json({
+        success: true,
+        message: result.message,
+        data: result.data
+      });
+    } catch (error) {
+      console.error('Error creating qualification:', error);
+      const { handleRouteError } = require('../utils/routeHandlers');
+      const errorResponse = handleRouteError(error, 'Error creating qualification');
+      res.status(errorResponse.status).json({
+        success: false,
+        message: errorResponse.message,
+        ...(errorResponse.errors && { errors: errorResponse.errors })
       });
     }
   })

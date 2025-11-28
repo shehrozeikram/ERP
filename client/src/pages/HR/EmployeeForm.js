@@ -64,6 +64,7 @@ const EmployeeForm = () => {
   const [sections, setSections] = useState([]);
   const [designations, setDesignations] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [qualifications, setQualifications] = useState([]);
   const [countries, setCountries] = useState([]);
   const [provinces, setProvinces] = useState([]);
   const [cities, setCities] = useState([]);
@@ -81,6 +82,7 @@ const EmployeeForm = () => {
   const [showAddSectionDialog, setShowAddSectionDialog] = useState(false);
   const [showAddDesignationDialog, setShowAddDesignationDialog] = useState(false);
   const [showAddLocationDialog, setShowAddLocationDialog] = useState(false);
+  const [showAddQualificationDialog, setShowAddQualificationDialog] = useState(false);
 
 
   // New data states for placement dialogs
@@ -121,6 +123,11 @@ const EmployeeForm = () => {
   const [newLocationData, setNewLocationData] = useState({
     name: '',
     type: 'Office'
+  });
+
+  const [newQualificationData, setNewQualificationData] = useState({
+    name: '',
+    description: ''
   });
 
 
@@ -331,6 +338,17 @@ const EmployeeForm = () => {
       }
     } catch (error) {
       console.error('Error fetching locations:', error);
+    }
+  };
+
+  // Fetch qualifications
+  const fetchQualifications = async () => {
+    try {
+      const response = await api.get('/hr/qualifications');
+      const fetchedQualifications = response.data.data || [];
+      setQualifications(fetchedQualifications);
+    } catch (error) {
+      console.error('Error fetching qualifications:', error);
     }
   };
 
@@ -693,6 +711,7 @@ const EmployeeForm = () => {
     fetchSections();
     fetchDesignations();
     fetchLocations();
+    fetchQualifications();
     fetchCountries();
     fetchProvinces();
     fetchCities();
@@ -985,6 +1004,13 @@ const EmployeeForm = () => {
 
   const handleNewLocationChange = (field, value) => {
     setNewLocationData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleNewQualificationChange = (field, value) => {
+    setNewQualificationData(prev => ({
       ...prev,
       [field]: value
     }));
@@ -1289,6 +1315,52 @@ const EmployeeForm = () => {
                           (error.response?.data?.errors?.[0]?.msg) ||
                           'Error adding location';
       console.error('Location creation error details:', error.response?.data);
+      setSnackbar({
+        open: true,
+        message: errorMessage,
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleSaveNewQualification = async () => {
+    try {
+      if (!newQualificationData.name) {
+        setSnackbar({
+          open: true,
+          message: 'Qualification name is required',
+          severity: 'error'
+        });
+        return;
+      }
+
+      const qualificationPayload = {
+        name: newQualificationData.name,
+        ...(newQualificationData.description && { description: newQualificationData.description })
+      };
+
+      const response = await api.post('/hr/qualifications', qualificationPayload);
+      
+      setSnackbar({
+        open: true,
+        message: 'Qualification added successfully',
+        severity: 'success'
+      });
+
+      setShowAddQualificationDialog(false);
+      setNewQualificationData({ name: '', description: '' });
+      
+      // Refresh qualifications
+      await fetchQualifications();
+      
+      // Set the newly created qualification as selected
+      formik.setFieldValue('qualification', response.data.data.name);
+      
+    } catch (error) {
+      console.error('Error adding qualification:', error);
+      const errorMessage = error.response?.data?.message || 
+                          (error.response?.data?.errors?.[0]?.msg) ||
+                          'Error adding qualification';
       setSnackbar({
         open: true,
         message: errorMessage,
@@ -1621,25 +1693,27 @@ const EmployeeForm = () => {
                 <Select
                   name="qualification"
                   value={formik.values.qualification}
-                  onChange={formik.handleChange}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setShowAddQualificationDialog(true);
+                    } else {
+                      formik.handleChange(e);
+                    }
+                  }}
                   error={formik.touched.qualification && Boolean(formik.errors.qualification)}
                   label="Qualification"
                 >
-                  <MenuItem value="LLB">LLB</MenuItem>
-                  <MenuItem value="MBA">MBA</MenuItem>
-                  <MenuItem value="BBA">BBA</MenuItem>
-                  <MenuItem value="BSc">BSc</MenuItem>
-                  <MenuItem value="MSc">MSc</MenuItem>
-                  <MenuItem value="PhD">PhD</MenuItem>
-                  <MenuItem value="CA">CA</MenuItem>
-                  <MenuItem value="ACCA">ACCA</MenuItem>
-                  <MenuItem value="CMA">CMA</MenuItem>
-                  <MenuItem value="CFA">CFA</MenuItem>
-                  <MenuItem value="Diploma">Diploma</MenuItem>
-                  <MenuItem value="Certificate">Certificate</MenuItem>
-                  <MenuItem value="High School">High School</MenuItem>
-                  <MenuItem value="Intermediate">Intermediate</MenuItem>
-                  <MenuItem value="Other">Other</MenuItem>
+                  {qualifications.map((qual) => (
+                    <MenuItem key={qual._id} value={qual.name}>
+                      {qual.name}
+                    </MenuItem>
+                  ))}
+                  <MenuItem value="add_new">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New Qualification
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -3280,7 +3354,41 @@ const EmployeeForm = () => {
         </DialogActions>
       </Dialog>
 
-
+      {/* Add New Qualification Dialog */}
+      <Dialog open={showAddQualificationDialog} onClose={() => setShowAddQualificationDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Qualification</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Qualification Name"
+                  value={newQualificationData.name}
+                  onChange={(e) => handleNewQualificationChange('name', e.target.value)}
+                  required
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Description (Optional)"
+                  value={newQualificationData.description}
+                  onChange={(e) => handleNewQualificationChange('description', e.target.value)}
+                  multiline
+                  rows={3}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAddQualificationDialog(false)}>Cancel</Button>
+          <Button onClick={handleSaveNewQualification} variant="contained">
+            Add Qualification
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar
