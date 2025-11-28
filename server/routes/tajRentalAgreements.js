@@ -35,7 +35,7 @@ const upload = multer({
 });
 
 const withPermission = (action) =>
-  [permissions.checkSubRolePermission('admin', 'taj_rental_agreements', action)];
+  [permissions.checkSubRolePermission('finance', 'taj_rental_agreements', action)];
 
 const validateAgreementPayload = (body) => {
   const errors = [];
