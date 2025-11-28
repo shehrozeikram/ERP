@@ -6,6 +6,7 @@ const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -226,13 +227,36 @@ if (NODE_ENV === 'development') {
 
 // Static files with CORS headers
 app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for all requests
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Type');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.header('Cross-Origin-Embedder-Policy', 'unsafe-none');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
   next();
 }, express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, filePath) => {
-    if (filePath.toLowerCase().endsWith('.pdf')) {
+    // Set proper content type for images
+    const ext = path.extname(filePath).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+      const mimeTypes = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.svg': 'image/svg+xml'
+      };
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    } else if (filePath.toLowerCase().endsWith('.pdf')) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'inline; filename="' + path.basename(filePath) + '"');
     }
@@ -251,6 +275,74 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: NODE_ENV
   });
+});
+
+// Public route for profile images (must be before authenticated routes)
+app.get('/api/hr/image/:filename(*)', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    
+    // Security: Validate filename to prevent directory traversal attacks
+    // Only allow alphanumeric, dots, dashes, and underscores in filename
+    if (!/^[a-zA-Z0-9._-]+$/.test(filename)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid filename'
+      });
+    }
+    
+    // Ensure we only serve files from profile-images directory
+    const imagePath = path.join(__dirname, 'uploads', 'profile-images', filename);
+    
+    // Additional security: Verify the resolved path is actually in the profile-images directory
+    const profileImagesDir = path.join(__dirname, 'uploads', 'profile-images');
+    const resolvedPath = path.resolve(imagePath);
+    const resolvedDir = path.resolve(profileImagesDir);
+    
+    if (!resolvedPath.startsWith(resolvedDir)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+    
+    // Check if file exists
+    if (!fs.existsSync(imagePath)) {
+      // Log missing file for debugging (only in development)
+      if (NODE_ENV === 'development') {
+        console.log(`⚠️  Image not found: ${filename} at ${imagePath}`);
+      }
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Set proper headers
+    const ext = path.extname(imagePath).toLowerCase();
+    const mimeTypes = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml'
+    };
+    
+    res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    
+    // Send the file
+    res.sendFile(imagePath);
+  } catch (error) {
+    console.error('Error serving image:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error serving image'
+    });
+  }
 });
 
 // API Routes

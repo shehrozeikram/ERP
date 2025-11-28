@@ -42,6 +42,7 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
 import { PageLoading } from '../../components/LoadingSpinner';
 import api from '../../services/api';
+import { getImageUrl, handleImageError } from '../../utils/imageService';
 
 const EmployeeList = () => {
   const { employees, departments, projects, loading: dataLoading, fetchEmployees } = useData();
@@ -579,7 +580,16 @@ const EmployeeList = () => {
                   <TableRow key={employee._id}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Avatar sx={{ mr: 2 }}>
+                        <Avatar 
+                          src={employee.profileImage ? getImageUrl(employee.profileImage) : undefined}
+                          sx={{ mr: 2, width: 40, height: 40 }}
+                          imgProps={{
+                            onError: (e) => {
+                              // If image fails to load, hide the img element and show initials
+                              e.target.style.display = 'none';
+                            }
+                          }}
+                        >
                           {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
                         </Avatar>
                         <Box>

@@ -14,17 +14,27 @@ export const getImageUrl = (imagePath) => {
   // If it's already a full URL, return as is
   if (imagePath.startsWith('http')) return imagePath;
   
-  // Construct full URL based on environment
-  let baseUrl;
-  if (process.env.NODE_ENV === 'production') {
-    baseUrl = window.location.origin;
-  } else {
-    // In development, use the backend server directly for uploads
-    // The proxy doesn't handle /uploads paths, so we need to use the backend URL
-    baseUrl = process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:5001';
+  // Extract filename from path (e.g., '/uploads/profile-images/filename.jpg' -> 'filename.jpg')
+  const extractFilename = (path) => {
+    if (!path) return null;
+    const parts = path.split('/');
+    return parts[parts.length - 1];
+  };
+
+  // Extract filename from path for profile images
+  const filename = extractFilename(imagePath);
+  
+  // Use API endpoint to serve profile images in both dev and production
+  // This ensures consistency and works through nginx proxy in production
+  if (filename && imagePath.includes('/uploads/profile-images/')) {
+    // Use API endpoint to serve image (works in both dev and production)
+    // In production, this goes through nginx proxy (/api/ -> Node.js)
+    const apiUrl = process.env.REACT_APP_API_URL || '/api';
+    return `${apiUrl}/hr/image/${filename}`;
   }
   
-  return `${baseUrl}${imagePath}`;
+  // For other image paths, use relative URL
+  return imagePath;
 };
 
 /**

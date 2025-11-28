@@ -90,6 +90,7 @@ router.post('/upload-image',
   })
 );
 
+
 // @route   GET /api/hr/employees/next-id
 // @desc    Get next available employee ID
 // @access  Private (HR and Admin)
@@ -192,7 +193,7 @@ router.get('/employees',
       // Get all employees without pagination for dropdowns and forms
       // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
-        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate probationPeriodMonths endOfProbationDate confirmationDate placementDepartment placementProject placementDesignation email phone isActive employmentStatus createdAt')
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate probationPeriodMonths endOfProbationDate confirmationDate placementDepartment placementProject placementDesignation email phone isActive employmentStatus createdAt profileImage')
         .populate('bankName', 'name type')
         .populate('placementProject', 'name company')
         .populate('placementDepartment', 'name code')
@@ -508,6 +509,15 @@ router.post('/employees', [
         delete employeeData[field];
       }
     });
+
+    // Ensure profileImage is preserved (keep it even if empty string for potential clearing)
+    // Only delete if explicitly null or undefined
+    if (employeeData.profileImage === null || employeeData.profileImage === undefined) {
+      delete employeeData.profileImage;
+    } else if (employeeData.profileImage === '') {
+      // Keep empty string as it might be intentionally cleared
+      employeeData.profileImage = '';
+    }
 
     const employee = new Employee(employeeData);
     await employee.save();
@@ -917,6 +927,15 @@ router.put('/employees/:id', [
         delete employeeData[field];
       }
     });
+    
+    // Ensure profileImage is preserved (keep it even if empty string for potential clearing)
+    // Only delete if explicitly null or undefined
+    if (employeeData.profileImage === null || employeeData.profileImage === undefined) {
+      delete employeeData.profileImage;
+    } else if (employeeData.profileImage === '') {
+      // Keep empty string as it might be intentionally cleared
+      employeeData.profileImage = '';
+    }
     
     // Handle date fields
     if (req.body.dateOfBirth) {

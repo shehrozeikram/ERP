@@ -46,6 +46,7 @@ import * as Yup from 'yup';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { useData } from '../../contexts/DataContext';
+import { getImageUrl, handleImageError } from '../../utils/imageService';
 
 const steps = ['Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
 
@@ -150,11 +151,7 @@ const EmployeeForm = () => {
     bankName: Yup.string().required('Bank name is required'),
     bankAccountNumber: Yup.string().required('Bank account number is required'),
     foreignBankAccount: Yup.string(),
-    spouseName: Yup.string().when('maritalStatus', {
-      is: 'Married',
-      then: (schema) => schema.required('Spouse name is required when married'),
-      otherwise: (schema) => schema.optional()
-    }),
+    spouseName: Yup.string().optional(),
     appointmentDate: Yup.date().required('Appointment date is required'),
     probationPeriodMonths: Yup.number()
       .required('Probation period is required')
@@ -371,9 +368,32 @@ const EmployeeForm = () => {
   // Handle image upload
   const handleImageUpload = async (file) => {
     try {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setSnackbar({
+          open: true,
+          message: 'Please select a valid image file',
+          severity: 'error'
+        });
+        return;
+      }
+
+      // Validate file size (5MB limit)
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      if (file.size > maxSize) {
+        setSnackbar({
+          open: true,
+          message: 'Image size must be less than 5MB',
+          severity: 'error'
+        });
+        return;
+      }
+
       const formData = new FormData();
       formData.append('profileImage', file);
 
+      console.log('📤 Uploading image:', file.name, 'Size:', file.size);
+      
       const response = await api.post('/hr/upload-image', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -381,21 +401,37 @@ const EmployeeForm = () => {
       });
 
       if (response.data.success) {
-        formik.setFieldValue('profileImage', response.data.data.imagePath);
-        setImagePreview(URL.createObjectURL(file));
+        const imagePath = response.data.data.imagePath;
+        console.log('✅ Image uploaded successfully. Path:', imagePath);
+        
+        // Set the profileImage field in formik
+        formik.setFieldValue('profileImage', imagePath);
+        console.log('✅ ProfileImage field set to:', imagePath);
+        
+        // Use the server URL for preview
+        const serverImageUrl = getImageUrl(imagePath);
+        console.log('✅ Image preview URL:', serverImageUrl);
+        setImagePreview(serverImageUrl);
+        
         setSnackbar({
           open: true,
           message: 'Image uploaded successfully!',
           severity: 'success'
         });
+      } else {
+        throw new Error(response.data.message || 'Image upload failed');
       }
     } catch (error) {
-      console.error('Error uploading image:', error);
+      console.error('❌ Error uploading image:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Error uploading image';
       setSnackbar({
         open: true,
-        message: 'Error uploading image',
+        message: errorMessage,
         severity: 'error'
       });
+      // Clear preview on error
+      setImagePreview(null);
+      setImageFile(null);
     }
   };
 
@@ -404,7 +440,9 @@ const EmployeeForm = () => {
     const file = event.target.files[0];
     if (file) {
       setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
+      // Show immediate preview with blob URL while uploading
+      const blobUrl = URL.createObjectURL(file);
+      setImagePreview(blobUrl);
       handleImageUpload(file);
     }
   };
@@ -419,7 +457,9 @@ const EmployeeForm = () => {
       const file = event.target.files[0];
       if (file) {
         setImageFile(file);
-        setImagePreview(URL.createObjectURL(file));
+        // Show immediate preview with blob URL while uploading
+        const blobUrl = URL.createObjectURL(file);
+        setImagePreview(blobUrl);
         handleImageUpload(file);
       }
     };
@@ -553,11 +593,22 @@ const EmployeeForm = () => {
         endOfProbationDate: employeeData.endOfProbationDate ? new Date(employeeData.endOfProbationDate).toISOString().split('T')[0] : '',
         confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : '',
         isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
-        employmentStatus: employeeData.employmentStatus || 'Draft'
+        employmentStatus: employeeData.employmentStatus || 'Draft',
+        profileImage: employeeData.profileImage || ''
       };
       
       console.log('🔍 Form Data prepared:', formData);
       formik.setValues(formData);
+      
+      // Set image preview if profileImage exists
+      if (employeeData.profileImage) {
+        const imageUrl = getImageUrl(employeeData.profileImage);
+        console.log('📷 Setting image preview for existing employee:', imageUrl);
+        setImagePreview(imageUrl);
+      } else {
+        // Clear preview if no image exists
+        setImagePreview(null);
+      }
       
       // Fetch dependent data if needed
       if (formData.address.country) {
@@ -652,6 +703,15 @@ const EmployeeForm = () => {
       formik.setFieldValue('employeeId', nextEmployeeId);
     }
   }, [nextEmployeeId, id]);
+
+  // Cleanup blob URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (imagePreview && imagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+  }, [imagePreview]);
 
   const formik = useFormik({
     initialValues: {
@@ -797,6 +857,14 @@ const EmployeeForm = () => {
           console.log('🎯 Salary.gross is empty, removing salary object');
           delete cleanedValues.salary;
         }
+        
+        // Ensure profileImage is preserved (don't delete it even if empty string)
+        // Only delete if it's null or undefined, keep empty string as it might be intentionally cleared
+        if (cleanedValues.profileImage === null || cleanedValues.profileImage === undefined) {
+          delete cleanedValues.profileImage;
+        }
+        console.log('📷 ProfileImage value to send:', cleanedValues.profileImage);
+        console.log('📷 ProfileImage exists in cleanedValues:', 'profileImage' in cleanedValues);
         
         console.log('🧹 Final cleaned values to send:', cleanedValues);
         
@@ -1412,9 +1480,17 @@ const EmployeeForm = () => {
             <Grid item xs={12} md={6}>
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                 <Avatar
-                  src={imagePreview || formik.values.profileImage}
+                  src={imagePreview || getImageUrl(formik.values.profileImage) || undefined}
                   sx={{ width: 120, height: 120, border: '2px solid #e0e0e0' }}
-                />
+                  imgProps={{
+                    onError: (e) => {
+                      // If image fails to load, hide the img element and show initials
+                      e.target.style.display = 'none';
+                    }
+                  }}
+                >
+                  {formik.values.firstName?.charAt(0)}{formik.values.lastName?.charAt(0)}
+                </Avatar>
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Button
                     variant="outlined"
