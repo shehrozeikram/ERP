@@ -49,10 +49,11 @@ import {
 } from '../../../services/tajPropertiesService';
 import { fetchAvailableAgreements } from '../../../services/tajRentalManagementService';
 
-const propertyTypes = ['Villa', 'House', 'Building', 'Apartment', 'Shop', 'Office', 'Warehouse', 'Plot', 'Play Ground', 'Other'];
-const areaUnits = ['Sq Ft', 'Sq Yards', 'Marla', 'Kanal', 'Acres'];
-const zoneTypes = ['Residential', 'Commercial', 'Agricultural'];
-const categoryTypes = ['Personal', 'Private', 'Personal Rent'];
+// Default dropdown options - will be managed in state
+const defaultPropertyTypes = ['Villa', 'House', 'Building', 'Apartment', 'Shop', 'Office', 'Warehouse', 'Plot', 'Play Ground', 'Other'];
+const defaultAreaUnits = ['Sq Ft', 'Sq Yards', 'Marla', 'Kanal', 'Acres'];
+const defaultZoneTypes = ['Residential', 'Commercial', 'Agricultural'];
+const defaultCategoryTypes = ['Personal', 'Private', 'Personal Rent'];
 
 const defaultForm = {
   srNo: '',
@@ -96,8 +97,8 @@ const defaultForm = {
   meterType: ''
 };
 
-const connectionTypes = ['Single Phase', 'Two Phase', 'Three Phase'];
-const occupiedUnderConstructionOptions = ['Office', 'Occupied', 'Under-Construction'];
+const defaultConnectionTypes = ['Single Phase', 'Two Phase', 'Three Phase'];
+const defaultOccupiedUnderConstructionOptions = ['Office', 'Occupied', 'Under-Construction'];
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -105,6 +106,19 @@ const formatCurrency = (value) =>
     currency: 'PKR',
     maximumFractionDigits: 0
   }).format(Number(value || 0));
+
+const getFieldLabel = (fieldType) => {
+  const labels = {
+    propertyType: 'Property Type',
+    zoneType: 'Zone Type',
+    categoryType: 'Category Type',
+    areaUnit: 'Area Unit',
+    connectionType: 'Connection Type',
+    occupiedUnderConstruction: 'Occupied / Under-construction',
+    sector: 'Sector'
+  };
+  return labels[fieldType] || 'Option';
+};
 
 const TajProperties = () => {
   const navigate = useNavigate();
@@ -118,6 +132,22 @@ const TajProperties = () => {
   const [search, setSearch] = useState('');
   const [agreements, setAgreements] = useState([]);
   const [agreementsLoading, setAgreementsLoading] = useState(false);
+  
+  // Dropdown options state
+  const [propertyTypes, setPropertyTypes] = useState(defaultPropertyTypes);
+  const [zoneTypes, setZoneTypes] = useState(defaultZoneTypes);
+  const [categoryTypes, setCategoryTypes] = useState(defaultCategoryTypes);
+  const [areaUnits, setAreaUnits] = useState(defaultAreaUnits);
+  const [connectionTypes, setConnectionTypes] = useState(defaultConnectionTypes);
+  const [occupiedUnderConstructionOptions, setOccupiedUnderConstructionOptions] = useState(defaultOccupiedUnderConstructionOptions);
+  const [sectors, setSectors] = useState([]);
+  
+  // Add New Dialog State
+  const [addNewDialog, setAddNewDialog] = useState({
+    open: false,
+    type: '', // 'propertyType', 'zoneType', 'categoryType', 'areaUnit', 'connectionType', 'occupiedUnderConstruction', 'sector'
+    value: ''
+  });
 
   const loadProperties = async () => {
     try {
@@ -216,6 +246,13 @@ const TajProperties = () => {
 
   const handleInputChange = (event) => {
     const { name, value, type, checked } = event.target;
+    
+    // Handle "Add New" for dropdowns
+    if (value === 'add_new') {
+      setAddNewDialog({ open: true, type: name, value: '' });
+      return;
+    }
+    
     if (name === 'categoryType') {
       setFormData((prev) => ({
         ...prev,
@@ -228,6 +265,70 @@ const TajProperties = () => {
       ...prev, 
       [name]: type === 'checkbox' ? checked : value 
     }));
+  };
+  
+  const handleCloseAddNewDialog = () => {
+    setAddNewDialog({ open: false, type: '', value: '' });
+  };
+  
+  const handleSaveNewOption = () => {
+    const { type, value } = addNewDialog;
+    if (!value.trim()) return;
+    
+    const trimmedValue = value.trim();
+    
+    switch (type) {
+      case 'propertyType':
+        if (!propertyTypes.includes(trimmedValue)) {
+          setPropertyTypes([...propertyTypes, trimmedValue]);
+        }
+        setFormData((prev) => ({ ...prev, propertyType: trimmedValue }));
+        break;
+      case 'zoneType':
+        if (!zoneTypes.includes(trimmedValue)) {
+          setZoneTypes([...zoneTypes, trimmedValue]);
+        }
+        setFormData((prev) => ({ ...prev, zoneType: trimmedValue }));
+        break;
+      case 'categoryType':
+        if (!categoryTypes.includes(trimmedValue)) {
+          setCategoryTypes([...categoryTypes, trimmedValue]);
+        }
+        setFormData((prev) => ({
+          ...prev,
+          categoryType: trimmedValue,
+          rentalAgreement: trimmedValue === 'Personal Rent' ? prev.rentalAgreement : ''
+        }));
+        break;
+      case 'areaUnit':
+        if (!areaUnits.includes(trimmedValue)) {
+          setAreaUnits([...areaUnits, trimmedValue]);
+        }
+        setFormData((prev) => ({ ...prev, areaUnit: trimmedValue }));
+        break;
+      case 'connectionType':
+        if (!connectionTypes.includes(trimmedValue)) {
+          setConnectionTypes([...connectionTypes, trimmedValue]);
+        }
+        setFormData((prev) => ({ ...prev, connectionType: trimmedValue }));
+        break;
+      case 'occupiedUnderConstruction':
+        if (!occupiedUnderConstructionOptions.includes(trimmedValue)) {
+          setOccupiedUnderConstructionOptions([...occupiedUnderConstructionOptions, trimmedValue]);
+        }
+        setFormData((prev) => ({ ...prev, occupiedUnderConstruction: trimmedValue }));
+        break;
+      case 'sector':
+        if (!sectors.includes(trimmedValue)) {
+          setSectors([...sectors, trimmedValue]);
+        }
+        setFormData((prev) => ({ ...prev, sector: trimmedValue }));
+        break;
+      default:
+        break;
+    }
+    
+    handleCloseAddNewDialog();
   };
 
   const handleRentalAgreementChange = (event) => {
@@ -501,6 +602,21 @@ const TajProperties = () => {
                       {type}
                     </MenuItem>
                   ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -527,6 +643,21 @@ const TajProperties = () => {
                       {zone}
                     </MenuItem>
                   ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -544,6 +675,21 @@ const TajProperties = () => {
                       {category}
                     </MenuItem>
                   ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -594,7 +740,7 @@ const TajProperties = () => {
                     name="hasElectricityWater"
                   />
                 }
-                label="Electricity & Water"
+                label="Electricity"
               />
             </Grid>
 
@@ -639,6 +785,21 @@ const TajProperties = () => {
                               {type}
                             </MenuItem>
                           ))}
+                          <MenuItem 
+                            value="add_new" 
+                            sx={{ 
+                              borderTop: '1px solid #e0e0e0',
+                              backgroundColor: '#f5f5f5',
+                              '&:hover': {
+                                backgroundColor: '#e3f2fd'
+                              }
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <AddIcon fontSize="small" />
+                              Add New
+                            </Box>
+                          </MenuItem>
                         </Select>
                       </FormControl>
                     </Grid>
@@ -656,6 +817,21 @@ const TajProperties = () => {
                               {option}
                             </MenuItem>
                           ))}
+                          <MenuItem 
+                            value="add_new" 
+                            sx={{ 
+                              borderTop: '1px solid #e0e0e0',
+                              backgroundColor: '#f5f5f5',
+                              '&:hover': {
+                                backgroundColor: '#e3f2fd'
+                              }
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <AddIcon fontSize="small" />
+                              Add New
+                            </Box>
+                          </MenuItem>
                         </Select>
                       </FormControl>
                     </Grid>
@@ -821,13 +997,36 @@ const TajProperties = () => {
               />
             </Grid>
             <Grid item xs={12} md={4}>
-              <TextField
-                label="Sector"
-                name="sector"
-                value={formData.sector}
-                onChange={handleInputChange}
-                fullWidth
-              />
+              <FormControl fullWidth>
+                <InputLabel>Sector</InputLabel>
+                <Select
+                  label="Sector"
+                  name="sector"
+                  value={formData.sector}
+                  onChange={handleInputChange}
+                >
+                  {sectors.map((sector) => (
+                    <MenuItem key={sector} value={sector}>
+                      {sector}
+                    </MenuItem>
+                  ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: sectors.length > 0 ? '1px solid #e0e0e0' : 'none',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New
+                    </Box>
+                  </MenuItem>
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} md={4}>
               <TextField
@@ -893,6 +1092,21 @@ const TajProperties = () => {
                       {unitOption}
                     </MenuItem>
                   ))}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: '1px solid #e0e0e0',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -956,6 +1170,43 @@ const TajProperties = () => {
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveProperty}>
             {editingProperty ? 'Save Changes' : 'Create Property'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add New Option Dialog */}
+      <Dialog 
+        open={addNewDialog.open} 
+        onClose={handleCloseAddNewDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Add New {getFieldLabel(addNewDialog.type)}
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Name"
+            value={addNewDialog.value}
+            onChange={(e) => setAddNewDialog({ ...addNewDialog, value: e.target.value })}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSaveNewOption();
+              }
+            }}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAddNewDialog}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSaveNewOption}
+            disabled={!addNewDialog.value.trim()}
+          >
+            Add
           </Button>
         </DialogActions>
       </Dialog>
