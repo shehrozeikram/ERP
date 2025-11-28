@@ -10,15 +10,7 @@ router.use(authMiddleware);
 // Get all locations with optional filters
 router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
   try {
-    const { 
-      search, 
-      type, 
-      status, 
-      page = 1, 
-      limit = 10 
-    } = req.query;
-
-    // Build query
+    const { search, type, status, page = 1, limit = 10 } = req.query;
     const query = {};
     
     if (search) {
@@ -27,21 +19,18 @@ router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 
         { address: { $regex: search, $options: 'i' } }
       ];
     }
-    
     if (type) query.type = type;
     if (status) query.status = status;
 
-    // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Execute query
-    const locations = await Location.find(query)
-      .populate('createdBy', 'firstName lastName')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await Location.countDocuments(query);
+    const [locations, total] = await Promise.all([
+      Location.find(query)
+        .populate('createdBy', 'firstName lastName')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Location.countDocuments(query)
+    ]);
 
     res.json({
       success: true,
@@ -70,6 +59,9 @@ router.get('/:id', permissions.checkSubRolePermission('admin', 'staff_management
 
     res.json({ success: true, data: location });
   } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'Invalid location ID' });
+    }
     console.error('Error fetching location:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch location' });
   }
@@ -78,20 +70,45 @@ router.get('/:id', permissions.checkSubRolePermission('admin', 'staff_management
 // Create new location
 router.post('/', permissions.checkSubRolePermission('admin', 'staff_management', 'create'), async (req, res) => {
   try {
+    // Check for duplicate name
+    const existingLocation = await Location.findOne({ name: req.body.name?.trim() });
+    if (existingLocation) {
+      return res.status(400).json({
+        success: false,
+        message: 'A location with this name already exists'
+      });
+    }
+
     const locationData = {
       ...req.body,
-      createdBy: req.user.id
+      createdBy: req.user.id,
+      status: req.body.status || 'Active'
     };
 
     const location = new Location(locationData);
     await location.save();
-
-    // Populate creator for response
     await location.populate('createdBy', 'firstName lastName');
 
     res.status(201).json({ success: true, data: location });
   } catch (error) {
     console.error('Error creating location:', error);
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      return res.status(400).json({
+        success: false,
+        message: `A location with this ${field} already exists`
+      });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
     res.status(500).json({ success: false, message: 'Failed to create location' });
   }
 });
@@ -112,6 +129,19 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'staff_management
     res.json({ success: true, data: location });
   } catch (error) {
     console.error('Error updating location:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'Invalid location ID' });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
     res.status(500).json({ success: false, message: 'Failed to update location' });
   }
 });
@@ -128,6 +158,9 @@ router.delete('/:id', permissions.checkSubRolePermission('admin', 'staff_managem
     res.json({ success: true, message: 'Location deleted successfully' });
   } catch (error) {
     console.error('Error deleting location:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'Invalid location ID' });
+    }
     res.status(500).json({ success: false, message: 'Failed to delete location' });
   }
 });
@@ -136,15 +169,19 @@ router.delete('/:id', permissions.checkSubRolePermission('admin', 'staff_managem
 router.put('/:id/status', permissions.checkSubRolePermission('admin', 'staff_management', 'update'), async (req, res) => {
   try {
     const { status } = req.body;
+    const validStatuses = ['Active', 'Inactive', 'Under Maintenance'];
     
-    if (!['Active', 'Inactive', 'Under Maintenance'].includes(status)) {
-      return res.status(400).json({ success: false, message: 'Invalid status' });
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+      });
     }
 
     const location = await Location.findByIdAndUpdate(
       req.params.id,
       { status },
-      { new: true }
+      { new: true, runValidators: true }
     ).populate('createdBy', 'firstName lastName');
 
     if (!location) {
@@ -154,6 +191,9 @@ router.put('/:id/status', permissions.checkSubRolePermission('admin', 'staff_man
     res.json({ success: true, data: location });
   } catch (error) {
     console.error('Error updating location status:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'Invalid location ID' });
+    }
     res.status(500).json({ success: false, message: 'Failed to update location status' });
   }
 });

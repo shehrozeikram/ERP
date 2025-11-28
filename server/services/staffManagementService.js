@@ -367,7 +367,7 @@ class StaffManagementService {
       for (const target of staffType.assignmentTargets) {
         switch (target.type) {
           case 'location':
-            options[target.type] = await Location.find({ status: 'Active' }).select('_id name code type address');
+            options[target.type] = await Location.find({ status: 'Active' }).select('_id name locationId type address');
             break;
           case 'department':
             options[target.type] = await Department.find({ status: 'Active' }).select('_id name code');

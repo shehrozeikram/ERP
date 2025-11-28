@@ -7,10 +7,6 @@ const locationSchema = new mongoose.Schema({
     unique: true,
     default: () => `LOC${Date.now().toString().slice(-6)}`
   },
-  code: {
-    type: String,
-    trim: true
-  },
   name: {
     type: String,
     required: true,

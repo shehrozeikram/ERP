@@ -459,12 +459,7 @@ router.post('/employees', [
   body('qualification').notEmpty().withMessage('Qualification is required'),
   body('bankName').notEmpty().withMessage('Bank name is required'),
   body('bankAccountNumber').notEmpty().withMessage('Bank account number is required'),
-  body('spouseName').custom((value, { req }) => {
-    if (req.body.maritalStatus === 'Married' && !value) {
-      throw new Error('Spouse name is required when marital status is Married');
-    }
-    return true;
-  }),
+  body('spouseName').optional().trim(),
   body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').isNumeric().withMessage('Probation period must be a number'),
   body('hireDate').notEmpty().withMessage('Hire date is required'),
@@ -843,12 +838,7 @@ router.put('/employees/:id', [
   body('qualification').optional().notEmpty().withMessage('Qualification is required'),
   body('bankName').optional().notEmpty().withMessage('Bank name is required'),
   body('bankAccountNumber').optional().notEmpty().withMessage('Bank account number is required'),
-  body('spouseName').optional().custom((value, { req }) => {
-    if (req.body.maritalStatus === 'Married' && !value) {
-      throw new Error('Spouse name is required when marital status is Married');
-    }
-    return true;
-  }),
+  body('spouseName').optional().trim(),
   body('appointmentDate').optional().notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').optional().isNumeric().withMessage('Probation period must be a number'),
   body('hireDate').optional().notEmpty().withMessage('Hire date is required'),
@@ -2085,19 +2075,12 @@ router.get('/locations',
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { type, search } = req.query;
+    const query = { status: 'Active' };
     
-    const query = { isActive: true };
-    
-    if (type) {
-      query.type = type;
-    }
-    
-    if (search) {
-      query.name = { $regex: search, $options: 'i' };
-    }
+    if (type) query.type = type;
+    if (search) query.name = { $regex: search, $options: 'i' };
 
-    const locations = await Location.find(query)
-      .sort({ name: 1 });
+    const locations = await Location.find(query).sort({ name: 1 });
 
     res.json({
       success: true,
@@ -2124,14 +2107,66 @@ router.post('/locations', [
       });
     }
 
-    const location = new Location(req.body);
-    await location.save();
+    try {
+      // Check if location with same name already exists
+      const existingLocation = await Location.findOne({ name: req.body.name.trim() });
+      if (existingLocation) {
+        return res.status(400).json({
+          success: false,
+          message: 'A location with this name already exists'
+        });
+      }
 
-    res.status(201).json({
-      success: true,
-      message: 'Location created successfully',
-      data: location
-    });
+      // Build location data
+      const locationData = {
+        name: req.body.name.trim(),
+        type: req.body.type || 'Office',
+        status: 'Active',
+        createdBy: req.user.id,
+        ...(req.body.address?.trim() && { address: req.body.address.trim() }),
+        ...(req.body.city?.trim() && { city: req.body.city.trim() }),
+        ...(req.body.province?.trim() && { province: req.body.province.trim() }),
+        ...(req.body.country?.trim() && { country: req.body.country.trim() })
+      };
+
+      const location = new Location(locationData);
+      await location.save();
+      await location.populate('createdBy', 'firstName lastName');
+
+      return res.status(201).json({
+        success: true,
+        message: 'Location created successfully',
+        data: location
+      });
+    } catch (error) {
+      console.error('Error creating location:', error);
+      
+      // Handle duplicate key errors
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern || {})[0];
+        const fieldName = field === 'locationId' ? 'location ID' : field || 'field';
+        return res.status(400).json({
+          success: false,
+          message: `A location with this ${fieldName} already exists`
+        });
+      }
+      
+      // Handle validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = Object.values(error.errors).map(err => err.message);
+        return res.status(400).json({
+          success: false,
+          message: 'Validation failed',
+          errors: validationErrors
+        });
+      }
+      
+      // Handle other errors
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Error creating location'
+      });
+    }
   })
 );
 

@@ -120,8 +120,7 @@ const EmployeeForm = () => {
 
   const [newLocationData, setNewLocationData] = useState({
     name: '',
-    type: 'Office',
-    description: ''
+    type: 'Office'
   });
 
 
@@ -318,8 +317,18 @@ const EmployeeForm = () => {
   // Fetch locations
   const fetchLocations = async () => {
     try {
-      const response = await api.get('/locations');
-      setLocations(response.data.data || []);
+      const response = await api.get('/hr/locations');
+      const fetchedLocations = response.data.data || [];
+      setLocations(fetchedLocations);
+      
+      // Check if current placementLocation value exists in the fetched locations
+      // If not, clear it to prevent MUI Select warning
+      if (formik.values.placementLocation && 
+          formik.values.placementLocation !== 'add_new' &&
+          !fetchedLocations.some(loc => loc._id === formik.values.placementLocation)) {
+        console.log('Clearing invalid placementLocation:', formik.values.placementLocation);
+        formik.setFieldValue('placementLocation', '');
+      }
     } catch (error) {
       console.error('Error fetching locations:', error);
     }
@@ -1247,7 +1256,13 @@ const EmployeeForm = () => {
         return;
       }
 
-      const response = await api.post('/hr/locations', newLocationData);
+      // Don't send code or description fields
+      const locationPayload = {
+        name: newLocationData.name,
+        type: newLocationData.type
+      };
+
+      const response = await api.post('/hr/locations', locationPayload);
       
       setSnackbar({
         open: true,
@@ -1256,7 +1271,7 @@ const EmployeeForm = () => {
       });
 
       setShowAddLocationDialog(false);
-      setNewLocationData({ name: '', type: 'Office', description: '' });
+      setNewLocationData({ name: '', type: 'Office' });
       
       // Refresh locations
       await fetchLocations();
@@ -1266,9 +1281,13 @@ const EmployeeForm = () => {
       
     } catch (error) {
       console.error('Error adding location:', error);
+      const errorMessage = error.response?.data?.message || 
+                          (error.response?.data?.errors?.[0]?.msg) ||
+                          'Error adding location';
+      console.error('Location creation error details:', error.response?.data);
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Error adding location',
+        message: errorMessage,
         severity: 'error'
       });
     }
@@ -3254,16 +3273,6 @@ const EmployeeForm = () => {
                     <MenuItem value="Other">Other</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Description"
-                  value={newLocationData.description}
-                  onChange={(e) => handleNewLocationChange('description', e.target.value)}
-                  multiline
-                  rows={3}
-                />
               </Grid>
             </Grid>
           </Box>
