@@ -1259,8 +1259,8 @@ const EmployeeForm = () => {
       setShowAddDesignationDialog(false);
       setNewDesignationData({ title: '', level: 'Entry', description: '' });
       
-      // Refresh designations
-      await fetchDesignationsBySection(formik.values.placementSection);
+      // Refresh all designations (not filtered by section)
+      await fetchDesignations();
       
       // Set the newly created designation as selected
       formik.setFieldValue('placementDesignation', response.data.data._id);
@@ -2382,9 +2382,8 @@ const EmployeeForm = () => {
                       formik.setFieldValue('placementDesignation', '');
                     }
                     
-                    if (e.target.value) {
-                      fetchDesignationsBySection(e.target.value);
-                    }
+                    // Always load all designations - don't filter by section
+                    fetchDesignations();
                   }}
                   error={formik.touched.placementSection && Boolean(formik.errors.placementSection)}
                   label="Section"
