@@ -542,6 +542,11 @@ const EmployeeForm = () => {
           state: employeeData.address?.state?._id || employeeData.address?.state || '',
           country: employeeData.address?.country?._id || employeeData.address?.country || ''
         },
+        emergencyContact: {
+          name: employeeData.emergencyContact?.name || '',
+          relationship: employeeData.emergencyContact?.relationship || '',
+          phone: employeeData.emergencyContact?.phone || ''
+        },
         dateOfBirth: employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth).toISOString().split('T')[0] : '',
         hireDate: employeeData.hireDate ? new Date(employeeData.hireDate).toISOString().split('T')[0] : '',
         appointmentDate: employeeData.appointmentDate ? new Date(employeeData.appointmentDate).toISOString().split('T')[0] : '',
@@ -2528,7 +2533,7 @@ const EmployeeForm = () => {
                 fullWidth
                 name="emergencyContact.name"
                 label="Emergency Contact Name"
-                value={formik.values.emergencyContact.name}
+                value={formik.values.emergencyContact?.name || ''}
                 onChange={formik.handleChange}
               />
             </Grid>
@@ -2537,7 +2542,7 @@ const EmployeeForm = () => {
                 fullWidth
                 name="emergencyContact.relationship"
                 label="Relationship"
-                value={formik.values.emergencyContact.relationship}
+                value={formik.values.emergencyContact?.relationship || ''}
                 onChange={formik.handleChange}
               />
             </Grid>
@@ -2546,7 +2551,7 @@ const EmployeeForm = () => {
                 fullWidth
                 name="emergencyContact.phone"
                 label="Emergency Contact Phone"
-                value={formik.values.emergencyContact.phone}
+                value={formik.values.emergencyContact?.phone || ''}
                 onChange={formik.handleChange}
               />
             </Grid>
