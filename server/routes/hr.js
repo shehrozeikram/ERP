@@ -1869,7 +1869,7 @@ router.post('/projects', [
       }
 
       // Build project data with defaults
-      const projectData = {
+    const projectData = {
         name: req.body.name.trim(),
         status: 'Active',
         createdBy: req.user.id,
@@ -1878,20 +1878,20 @@ router.post('/projects', [
         ...(req.body.client?.trim() && { client: req.body.client.trim() }),
         ...(req.body.startDate && { startDate: new Date(req.body.startDate) }),
         ...(req.body.budget && { budget: parseFloat(req.body.budget) })
-      };
+    };
 
-      const project = new Project(projectData);
-      await project.save();
-      
-      const populatedProject = await Project.findById(project._id)
+    const project = new Project(projectData);
+    await project.save();
+
+    const populatedProject = await Project.findById(project._id)
         .populate('projectManager', 'firstName lastName employeeId')
         .populate('createdBy', 'firstName lastName');
 
       return res.status(201).json({
-        success: true,
-        message: 'Project created successfully',
-        data: populatedProject
-      });
+      success: true,
+      message: 'Project created successfully',
+      data: populatedProject
+    });
     } catch (error) {
       console.error('Error creating project:', error);
       
@@ -2198,8 +2198,8 @@ router.post('/qualifications', [
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
+        return res.status(400).json({
+          success: false,
         message: 'Validation failed',
         errors: errors.array()
       });
@@ -2219,7 +2219,7 @@ router.post('/qualifications', [
         success: true,
         message: result.message,
         data: result.data
-      });
+        });
     } catch (error) {
       console.error('Error creating qualification:', error);
       const { handleRouteError } = require('../utils/routeHandlers');

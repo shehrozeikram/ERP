@@ -25,6 +25,9 @@ export const fetchInvoice = (propertyId, paymentId) =>
 export const updatePaymentStatus = (propertyId, paymentId, status) =>
   api.patch(`${base}/properties/${propertyId}/payments/${paymentId}/status`, { status });
 
+export const deletePayment = (propertyId, paymentId) =>
+  api.delete(`${base}/properties/${propertyId}/payments/${paymentId}`);
+
 export const fetchLatestRentInvoiceForProperty = (propertyId) =>
   api.get(`${base}/properties/${propertyId}/latest-invoice`);
 
@@ -40,6 +43,7 @@ export default {
   fetchInvoice,
   fetchLatestRentInvoiceForProperty,
   fetchAvailableAgreements,
-  updatePaymentStatus
+  updatePaymentStatus,
+  deletePayment
 };
 

@@ -394,6 +394,66 @@ router.patch('/properties/:propertyId/payments/:paymentId/status', authMiddlewar
   }
 });
 
+// Delete a specific payment from property
+router.delete('/properties/:propertyId/payments/:paymentId', authMiddleware, async (req, res) => {
+  try {
+    const property = await TajProperty.findOne({
+      _id: req.params.propertyId,
+      categoryType: 'Personal Rent'
+    });
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    const payment = property.rentalPayments.id(req.params.paymentId);
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    // Delete attachment if exists
+    if (payment.attachmentUrl) {
+      const attachmentPath = path.join(__dirname, '..', payment.attachmentUrl);
+      if (fs.existsSync(attachmentPath)) {
+        fs.unlink(attachmentPath, (err) => {
+          if (err) console.error('Failed to delete attachment:', err);
+        });
+      }
+    }
+
+    // Remove payment from array
+    property.rentalPayments.pull(req.params.paymentId);
+    property.markModified('rentalPayments');
+
+    // Recalculate payment status based on remaining payments
+    const monthlyRent = property.rentalAgreement?.monthlyRent || property.expectedRent || 0;
+    const totalPaid = property.rentalPayments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    
+    let overallStatus = 'Unpaid';
+    if (totalPaid >= monthlyRent && monthlyRent > 0) {
+      overallStatus = 'Approved';
+    } else if (totalPaid > 0) {
+      overallStatus = 'Pending Approval';
+    }
+
+    // Update payment status for all remaining payments
+    property.rentalPayments.forEach((p) => {
+      p.status = overallStatus;
+      p.statusUpdatedAt = new Date();
+    });
+
+    await property.save();
+    await property.populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard');
+    
+    res.json({ 
+      success: true, 
+      message: 'Payment deleted successfully',
+      data: mapRentalPropertyResponse(property.toObject())
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Generate invoice number
 const generateInvoiceNumber = (propertyType, year, month, index) => {
   const prefix = propertyType === 'Play Ground' ? 'PG' : 'TAJ';

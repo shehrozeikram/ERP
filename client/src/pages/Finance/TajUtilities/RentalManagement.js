@@ -53,7 +53,8 @@ import {
   Email as EmailIcon,
   Badge as BadgeIcon,
   FiberManualRecord as StatusIcon,
-  AttachFile as AttachFileIcon
+  AttachFile as AttachFileIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -63,12 +64,28 @@ import {
   addPayment,
   fetchInvoice,
   updatePaymentStatus,
-  fetchLatestRentInvoiceForProperty
+  fetchLatestRentInvoiceForProperty,
+  deletePayment
 } from '../../../services/tajRentalManagementService';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
 const paymentStatuses = ['Draft', 'Unpaid', 'Pending Approval', 'Approved', 'Rejected', 'Cancelled'];
+
+const months = [
+  { value: '01', label: 'January' },
+  { value: '02', label: 'February' },
+  { value: '03', label: 'March' },
+  { value: '04', label: 'April' },
+  { value: '05', label: 'May' },
+  { value: '06', label: 'June' },
+  { value: '07', label: 'July' },
+  { value: '08', label: 'August' },
+  { value: '09', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' }
+];
 
 const defaultSummary = {
   totalProperties: 0,
@@ -123,8 +140,8 @@ const RentalManagement = () => {
     amount: 0,
     arrears: 0,
     paymentDate: dayjs().format('YYYY-MM-DD'),
-    periodFrom: dayjs().format('YYYY-MM-DD'),
-    periodTo: dayjs().format('YYYY-MM-DD'),
+    month: dayjs().format('MM'),
+    year: dayjs().format('YYYY'),
     invoiceNumber: '',
     paymentMethod: 'Bank Transfer',
     bankName: '',
@@ -152,8 +169,26 @@ const RentalManagement = () => {
     try {
       setError('');
       if (!selectedProperty) return;
+
+      // Convert month/year to periodFrom/periodTo
+      const selectedMonth = paymentForm.month || dayjs().format('MM');
+      const selectedYear = paymentForm.year || dayjs().format('YYYY');
+      const periodFrom = dayjs(`${selectedYear}-${selectedMonth}-01`).startOf('month').format('YYYY-MM-DD');
+      const periodTo = dayjs(`${selectedYear}-${selectedMonth}-01`).endOf('month').format('YYYY-MM-DD');
+
       const formData = new FormData();
-      Object.entries(paymentForm).forEach(([key, value]) => formData.append(key, value ?? ''));
+      Object.entries(paymentForm).forEach(([key, value]) => {
+        // Skip month and year fields, we'll add periodFrom/periodTo instead
+        if (key === 'month' || key === 'year') {
+          return;
+        }
+        formData.append(key, value ?? '');
+      });
+      
+      // Add periodFrom and periodTo from month/year
+      formData.append('periodFrom', periodFrom);
+      formData.append('periodTo', periodTo);
+      
       if (paymentAttachment) {
         formData.append('attachment', paymentAttachment);
       }
@@ -172,12 +207,13 @@ const RentalManagement = () => {
     setSelectedProperty(property);
     const baseCharge = Number(property.rentAmount ?? property.expectedRent ?? 0);
     const baseArrears = Number(property.rentArrears ?? 0);
+    const currentDate = dayjs();
     setPaymentForm({
-      amount: baseCharge,
-      arrears: baseArrears,
-      paymentDate: dayjs().format('YYYY-MM-DD'),
-      periodFrom: dayjs().format('YYYY-MM-DD'),
-      periodTo: dayjs().format('YYYY-MM-DD'),
+      amount: baseCharge > 0 ? baseCharge : '',
+      arrears: 0,
+      paymentDate: currentDate.format('YYYY-MM-DD'),
+      month: currentDate.format('MM'),
+      year: currentDate.format('YYYY'),
       invoiceNumber: '',
       paymentMethod: 'Bank Transfer',
       bankName: '',
@@ -204,6 +240,21 @@ const RentalManagement = () => {
     setSelectedProperty(property);
     setSelectedPayment(payment);
     setPaymentDetailsDialog(true);
+  };
+
+  const handleDeletePayment = async (property, payment) => {
+    if (!window.confirm('Are you sure you want to delete this payment record?')) {
+      return;
+    }
+
+    try {
+      setError('');
+      await deletePayment(property._id, payment._id);
+      setSuccess('Payment deleted successfully');
+      loadData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete payment');
+    }
   };
 
   const handleOpenVoucherDialog = async (property) => {
@@ -821,12 +872,13 @@ const RentalManagement = () => {
   };
 
   const resetPaymentForm = () => {
+    const currentDate = dayjs();
     setPaymentForm({
       amount: 0,
       arrears: 0,
-      paymentDate: dayjs().format('YYYY-MM-DD'),
-      periodFrom: dayjs().format('YYYY-MM-DD'),
-      periodTo: dayjs().format('YYYY-MM-DD'),
+      paymentDate: currentDate.format('YYYY-MM-DD'),
+      month: currentDate.format('MM'),
+      year: currentDate.format('YYYY'),
       invoiceNumber: '',
       paymentMethod: 'Bank Transfer',
       bankName: '',
@@ -835,6 +887,19 @@ const RentalManagement = () => {
     });
     setRentPaymentContext({ baseCharge: 0, baseArrears: 0 });
     setPaymentAttachment(null);
+  };
+
+  const handleMonthYearChange = (month, year) => {
+    const baseCharge = Number(rentPaymentContext.baseCharge || 0);
+    
+    // Auto-populate amount with rent amount when month changes
+    setPaymentForm((prev) => ({
+      ...prev,
+      month: month,
+      year: year,
+      amount: baseCharge > 0 ? baseCharge : (prev.amount || ''),
+      arrears: 0 // Reset arrears when month changes
+    }));
   };
 
   const toggleRowExpansion = (propertyId) => {
@@ -1229,6 +1294,15 @@ const RentalManagement = () => {
                                               <PrintIcon fontSize="small" />
                                             </IconButton>
                                           </Tooltip>
+                                          <Tooltip title="Delete Payment">
+                                            <IconButton
+                                              size="small"
+                                              color="error"
+                                              onClick={() => handleDeletePayment(property, payment)}
+                                            >
+                                              <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                          </Tooltip>
                                         </Stack>
                                       </TableCell>
                                     </TableRow>
@@ -1382,24 +1456,44 @@ const RentalManagement = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                label="Period From"
-                type="date"
-                fullWidth
-                value={paymentForm.periodFrom}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, periodFrom: e.target.value }))}
-                InputLabelProps={{ shrink: true }}
-              />
+              <FormControl fullWidth>
+                <InputLabel>Month</InputLabel>
+                <Select
+                  value={paymentForm.month}
+                  label="Month"
+                  onChange={(e) => handleMonthYearChange(e.target.value, paymentForm.year)}
+                >
+                  {months.map((month) => (
+                    <MenuItem key={month.value} value={month.value}>
+                      {month.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                label="Period To"
-                type="date"
-                fullWidth
-                value={paymentForm.periodTo}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, periodTo: e.target.value }))}
-                InputLabelProps={{ shrink: true }}
-              />
+              <FormControl fullWidth>
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={paymentForm.year}
+                  label="Year"
+                  onChange={(e) => handleMonthYearChange(paymentForm.month, e.target.value)}
+                >
+                  {(() => {
+                    const currentYear = dayjs().year();
+                    const years = [];
+                    // Generate years from 2020 to 10 years in the future
+                    for (let year = 2020; year <= currentYear + 10; year++) {
+                      years.push(year);
+                    }
+                    return years.map((year) => (
+                      <MenuItem key={year} value={year.toString()}>
+                        {year}
+                      </MenuItem>
+                    ));
+                  })()}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField

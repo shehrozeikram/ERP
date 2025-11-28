@@ -99,17 +99,17 @@ router.post('/', [
     };
 
     const project = new Project(projectData);
-    await project.save();
-    
-    const populatedProject = await Project.findById(project._id)
+  await project.save();
+
+  const populatedProject = await Project.findById(project._id)
       .populate('projectManager', 'firstName lastName employeeId')
       .populate('createdBy', 'firstName lastName');
 
     return res.status(201).json({
-      success: true,
-      message: 'Project created successfully',
-      data: populatedProject
-    });
+    success: true,
+    message: 'Project created successfully',
+    data: populatedProject
+  });
   } catch (error) {
     console.error('Error creating project:', error);
     

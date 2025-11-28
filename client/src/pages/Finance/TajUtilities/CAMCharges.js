@@ -159,12 +159,13 @@ const CAMCharges = () => {
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [paymentContext, setPaymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
+  const [selectedPaymentMonth, setSelectedPaymentMonth] = useState(null);
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
     arrears: 0,
     paymentDate: dayjs().format('YYYY-MM-DD'),
-    periodFrom: dayjs().format('YYYY-MM-DD'),
-    periodTo: dayjs().format('YYYY-MM-DD'),
+    month: dayjs().format('MM'),
+    year: dayjs().format('YYYY'),
     invoiceNumber: '',
     paymentMethod: 'Bank Transfer',
     bankName: '',
@@ -583,12 +584,15 @@ const CAMCharges = () => {
     setSelectedProperty(property);
     const baseCharge = Number(property.camAmount || 0);
     const baseArrears = Number(property.camArrears || 0);
+    const currentDate = dayjs();
+    const currentMonthKey = currentDate.format('YYYY-MM');
+    
     setPaymentForm({
-      amount: baseCharge,
-      arrears: baseArrears,
-      paymentDate: dayjs().format('YYYY-MM-DD'),
-      periodFrom: dayjs().format('YYYY-MM-DD'),
-      periodTo: dayjs().format('YYYY-MM-DD'),
+      amount: baseCharge > 0 ? baseCharge : '',
+      arrears: 0,
+      paymentDate: currentDate.format('YYYY-MM-DD'),
+      month: currentDate.format('MM'),
+      year: currentDate.format('YYYY'),
       invoiceNumber: '',
       paymentMethod: 'Bank Transfer',
       bankName: '',
@@ -596,26 +600,45 @@ const CAMCharges = () => {
       notes: ''
     });
     setPaymentContext({ baseCharge, baseArrears });
+    setSelectedPaymentMonth(currentMonthKey);
     setPaymentAttachment(null);
     setPaymentDialog(true);
   };
 
-  const handleCamAmountChange = (value) => {
-    const numericValue = Number(value) || 0;
+  const handlePaymentDateChange = (dateValue) => {
+    setPaymentForm((prev) => ({ ...prev, paymentDate: dateValue }));
+  };
+
+  const handleMonthYearChange = (month, year) => {
     const baseCharge = Number(paymentContext.baseCharge || 0);
-    const baseArrears = Number(paymentContext.baseArrears || 0);
+    const selectedMonthKey = `${year}-${month}`;
+    const monthChanged = selectedMonthKey !== selectedPaymentMonth;
 
-    if (!baseCharge && !baseArrears) {
-      setPaymentForm((prev) => ({ ...prev, amount: numericValue }));
-      return;
+    if (monthChanged) {
+      // Auto-populate amount with CAM Amount when month changes
+      setPaymentForm((prev) => ({
+        ...prev,
+        month: month,
+        year: year,
+        amount: baseCharge > 0 ? baseCharge : '',
+        arrears: 0 // Reset arrears when month changes
+      }));
+      setSelectedPaymentMonth(selectedMonthKey);
+    } else {
+      setPaymentForm((prev) => ({
+        ...prev,
+        month: month,
+        year: year
+      }));
     }
+  };
 
-    const calculatedArrears = baseArrears + (baseCharge - numericValue);
-    setPaymentForm((prev) => ({
-      ...prev,
-      amount: numericValue,
-      arrears: Math.max(Number(calculatedArrears.toFixed(2)), 0)
-    }));
+  const handleCamAmountChange = (value) => {
+    // Allow empty string to clear the field, otherwise convert to number
+    const amountValue = value === '' || value === null || value === undefined 
+      ? '' 
+      : (Number(value) || 0);
+    setPaymentForm((prev) => ({ ...prev, amount: amountValue }));
   };
 
   const handleCamPaymentMethodChange = (value) => {
@@ -641,8 +664,30 @@ const CAMCharges = () => {
       setError('');
       if (!selectedProperty) return;
 
+      // Convert month/year to periodFrom/periodTo
+      const selectedMonth = paymentForm.month || dayjs().format('MM');
+      const selectedYear = paymentForm.year || dayjs().format('YYYY');
+      const periodFrom = dayjs(`${selectedYear}-${selectedMonth}-01`).startOf('month').format('YYYY-MM-DD');
+      const periodTo = dayjs(`${selectedYear}-${selectedMonth}-01`).endOf('month').format('YYYY-MM-DD');
+
       const formData = new FormData();
-      Object.entries(paymentForm).forEach(([key, value]) => formData.append(key, value ?? ''));
+      Object.entries(paymentForm).forEach(([key, value]) => {
+        // Skip month and year fields, we'll add periodFrom/periodTo instead
+        if (key === 'month' || key === 'year') {
+          return;
+        }
+        // Convert empty string to 0 for amount and arrears fields
+        if ((key === 'amount' || key === 'arrears') && (value === '' || value === null || value === undefined)) {
+          formData.append(key, 0);
+        } else {
+          formData.append(key, value ?? '');
+        }
+      });
+      
+      // Add periodFrom and periodTo from month/year
+      formData.append('periodFrom', periodFrom);
+      formData.append('periodTo', periodTo);
+      
       if (paymentAttachment) {
         formData.append('attachment', paymentAttachment);
       }
@@ -1225,25 +1270,32 @@ const CAMCharges = () => {
                   <TableCell>Status</TableCell>
                   <TableCell>Payment Status</TableCell>
                   <TableCell align="right">CAM Amount</TableCell>
-                  <TableCell align="right">Total Payments</TableCell>
+                  <TableCell align="right">Arrears</TableCell>
+                  <TableCell align="right">Total Received Payments</TableCell>
+                  <TableCell align="right">Remaining Payment</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {currentOverviewLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={12} align="center" sx={{ py: 3 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : properties.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={12} align="center" sx={{ py: 3 }}>
                       <Typography color="text.secondary">No properties found</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  properties.map((property) => (
+                  properties.map((property) => {
+                    const propertyTotalReceived = totalPayments(property.payments || []);
+                    const totalDue =
+                      (Number(property.camAmount || 0) + Number(property.camArrears || 0));
+                    const remainingPayment = Math.max(totalDue - propertyTotalReceived, 0);
+                    return (
                     <React.Fragment key={property._id}>
                       <TableRow hover>
                         <TableCell>
@@ -1304,18 +1356,23 @@ const CAMCharges = () => {
                           <Typography fontWeight={600}>
                             {formatCurrency(property.camAmount || 0)}
                           </Typography>
-                          {property.camArrears > 0 && (
-                            <Typography variant="caption" color="error.main" display="block">
-                              Arrears: {formatCurrency(property.camArrears || 0)}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight={600} color={property.camArrears > 0 ? 'error.main' : 'text.primary'}>
+                            {formatCurrency(property.camArrears || 0)}
                             </Typography>
-                          )}
                         </TableCell>
                         <TableCell align="right">
                           <Typography fontWeight={600}>
-                            {formatCurrency(totalPayments(property.payments || []))}
+                            {formatCurrency(propertyTotalReceived)}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {(property.payments || []).length} payment(s)
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight={600}>
+                            {formatCurrency(remainingPayment)}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
@@ -1351,7 +1408,7 @@ const CAMCharges = () => {
                         </TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell colSpan={10} sx={{ py: 0, border: 0 }}>
+                      <TableCell colSpan={12} sx={{ py: 0, border: 0 }}>
                           <Collapse in={expandedRows.has(property._id)} timeout="auto" unmountOnExit>
                             <Box sx={{ py: 2, px: 3 }}>
                               <Typography variant="subtitle2" gutterBottom>
@@ -1433,7 +1490,8 @@ const CAMCharges = () => {
                         </TableCell>
                       </TableRow>
                     </React.Fragment>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -1877,7 +1935,7 @@ const CAMCharges = () => {
                 label="Amount (PKR)"
                 type="number"
                 fullWidth
-                value={paymentForm.amount}
+                value={paymentForm.amount || ''}
                 onChange={(e) => handleCamAmountChange(e.target.value)}
                 required
               />
@@ -1913,30 +1971,50 @@ const CAMCharges = () => {
                 type="date"
                 fullWidth
                 value={paymentForm.paymentDate}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentDate: e.target.value }))}
+                onChange={(e) => handlePaymentDateChange(e.target.value)}
                 InputLabelProps={{ shrink: true }}
                 required
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                label="Period From"
-                type="date"
-                fullWidth
-                value={paymentForm.periodFrom}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, periodFrom: e.target.value }))}
-                InputLabelProps={{ shrink: true }}
-              />
+              <FormControl fullWidth>
+                <InputLabel>Month</InputLabel>
+                <Select
+                  value={paymentForm.month}
+                  label="Month"
+                  onChange={(e) => handleMonthYearChange(e.target.value, paymentForm.year)}
+                >
+                  {months.map((month) => (
+                    <MenuItem key={month.value} value={month.value}>
+                      {month.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                label="Period To"
-                type="date"
-                fullWidth
-                value={paymentForm.periodTo}
-                onChange={(e) => setPaymentForm(prev => ({ ...prev, periodTo: e.target.value }))}
-                InputLabelProps={{ shrink: true }}
-              />
+              <FormControl fullWidth>
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={paymentForm.year}
+                  label="Year"
+                  onChange={(e) => handleMonthYearChange(paymentForm.month, e.target.value)}
+                >
+                  {(() => {
+                    const currentYear = dayjs().year();
+                    const years = [];
+                    // Generate years from 2020 to 10 years in the future
+                    for (let year = 2020; year <= currentYear + 10; year++) {
+                      years.push(year);
+                    }
+                    return years.map((year) => (
+                      <MenuItem key={year} value={year.toString()}>
+                        {year}
+                      </MenuItem>
+                    ));
+                  })()}
+                </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField

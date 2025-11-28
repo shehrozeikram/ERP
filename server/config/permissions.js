@@ -79,7 +79,12 @@ const SUBMODULES = {
     'accounts_receivable',
     'accounts_payable',
     'banking',
-    'financial_reports'
+    'financial_reports',
+    'taj_utilities_charges',
+    'taj_cam_charges',
+    'taj_electricity_bills',
+    'taj_rental_agreements',
+    'taj_rental_management'
   ],
   [MODULES.PROCUREMENT]: [
     'purchase_orders',

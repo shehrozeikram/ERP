@@ -25,9 +25,9 @@ router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [locations, total] = await Promise.all([
       Location.find(query)
-        .populate('createdBy', 'firstName lastName')
-        .sort({ createdAt: -1 })
-        .skip(skip)
+      .populate('createdBy', 'firstName lastName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
         .limit(parseInt(limit)),
       Location.countDocuments(query)
     ]);
