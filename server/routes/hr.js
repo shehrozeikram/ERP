@@ -1823,17 +1823,11 @@ router.delete('/companies/:id',
 router.get('/projects', 
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const { company, search } = req.query;
+    const { company, search, status } = req.query;
+    const query = { status: status || 'Active' };
     
-    const query = { isActive: true };
-    
-    if (company) {
-      query.company = company;
-    }
-    
-    if (search) {
-      query.name = { $regex: search, $options: 'i' };
-    }
+    if (company) query.company = company;
+    if (search) query.name = { $regex: search, $options: 'i' };
 
     const projects = await Project.find(query)
       .populate('projectManager', 'firstName lastName employeeId')
@@ -1851,9 +1845,7 @@ router.get('/projects',
 // @access  Private (HR and Admin)
 router.post('/projects', [
   authorize('super_admin', 'admin', 'hr_manager'),
-  body('name').trim().notEmpty().withMessage('Project name is required'),
-  body('code').trim().notEmpty().withMessage('Project code is required'),
-  body('client').notEmpty().withMessage('Client is required')
+  body('name').trim().notEmpty().withMessage('Project name is required')
 ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -1865,23 +1857,69 @@ router.post('/projects', [
       });
     }
 
-    // Add default startDate if not provided
-    const projectData = {
-      ...req.body,
-      startDate: req.body.startDate || new Date()
-    };
+    try {
+      // Check if project with same name already exists
+      const existingProject = await Project.findOne({ name: req.body.name.trim() });
+      if (existingProject) {
+        return res.status(400).json({
+          success: false,
+          message: 'A project with this name already exists'
+        });
+      }
 
-    const project = new Project(projectData);
-    await project.save();
+      // Build project data with defaults
+      const projectData = {
+        name: req.body.name.trim(),
+        status: 'Active',
+        createdBy: req.user.id,
+        projectManager: req.user.id, // Default to current user
+        ...(req.body.description?.trim() && { description: req.body.description.trim() }),
+        ...(req.body.client?.trim() && { client: req.body.client.trim() }),
+        ...(req.body.startDate && { startDate: new Date(req.body.startDate) }),
+        ...(req.body.budget && { budget: parseFloat(req.body.budget) })
+      };
 
-    const populatedProject = await Project.findById(project._id)
-      .populate('projectManager', 'firstName lastName employeeId');
+      const project = new Project(projectData);
+      await project.save();
+      
+      const populatedProject = await Project.findById(project._id)
+        .populate('projectManager', 'firstName lastName employeeId')
+        .populate('createdBy', 'firstName lastName');
 
-    res.status(201).json({
-      success: true,
-      message: 'Project created successfully',
-      data: populatedProject
-    });
+      return res.status(201).json({
+        success: true,
+        message: 'Project created successfully',
+        data: populatedProject
+      });
+    } catch (error) {
+      console.error('Error creating project:', error);
+      
+      // Handle duplicate key errors
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern || {})[0];
+        const fieldName = field === 'projectId' ? 'project ID' : field || 'field';
+        return res.status(400).json({
+          success: false,
+          message: `A project with this ${fieldName} already exists`
+        });
+      }
+      
+      // Handle validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = Object.values(error.errors).map(err => err.message);
+        return res.status(400).json({
+          success: false,
+          message: 'Validation failed',
+          errors: validationErrors
+        });
+      }
+      
+      // Handle other errors
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Error creating project'
+      });
+    }
   })
 );
 

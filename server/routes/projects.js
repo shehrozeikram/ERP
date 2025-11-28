@@ -14,20 +14,10 @@ router.get('/',
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
     const { company, status, search } = req.query;
+    const query = { status: status || 'Active' };
     
-    const query = { isActive: true };
-    
-    if (company) {
-      query.company = company;
-    }
-    
-    if (status) {
-      query.status = status;
-    }
-    
-    if (search) {
-      query.name = { $regex: search, $options: 'i' };
-    }
+    if (company) query.company = company;
+    if (search) query.name = { $regex: search, $options: 'i' };
 
     const projects = await Project.find(query)
       .populate('projectManager', 'firstName lastName employeeId')
@@ -75,10 +65,7 @@ router.get('/:id',
 // @access  Private (HR and Admin)
 router.post('/', [
   authorize('super_admin', 'admin', 'hr_manager'),
-  body('name').trim().notEmpty().withMessage('Project name is required'),
-  body('code').trim().notEmpty().withMessage('Project code is required'),
-  body('startDate').notEmpty().withMessage('Start date is required'),
-  body('status').optional().isIn(['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled']).withMessage('Valid status is required')
+  body('name').trim().notEmpty().withMessage('Project name is required')
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -89,17 +76,65 @@ router.post('/', [
     });
   }
 
-  const project = new Project(req.body);
-  await project.save();
+  try {
+    // Check if project with same name already exists
+    const existingProject = await Project.findOne({ name: req.body.name.trim() });
+    if (existingProject) {
+      return res.status(400).json({
+        success: false,
+        message: 'A project with this name already exists'
+      });
+    }
 
-  const populatedProject = await Project.findById(project._id)
-    .populate('projectManager', 'firstName lastName employeeId');
+    // Build project data with defaults
+    const projectData = {
+      name: req.body.name.trim(),
+      status: 'Active',
+      createdBy: req.user.id,
+      projectManager: req.user.id,
+      ...(req.body.description?.trim() && { description: req.body.description.trim() }),
+      ...(req.body.client?.trim() && { client: req.body.client.trim() }),
+      ...(req.body.startDate && { startDate: new Date(req.body.startDate) }),
+      ...(req.body.budget && { budget: parseFloat(req.body.budget) })
+    };
 
-  res.status(201).json({
-    success: true,
-    message: 'Project created successfully',
-    data: populatedProject
-  });
+    const project = new Project(projectData);
+    await project.save();
+    
+    const populatedProject = await Project.findById(project._id)
+      .populate('projectManager', 'firstName lastName employeeId')
+      .populate('createdBy', 'firstName lastName');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Project created successfully',
+      data: populatedProject
+    });
+  } catch (error) {
+    console.error('Error creating project:', error);
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      const fieldName = field === 'projectId' ? 'project ID' : field || 'field';
+      return res.status(400).json({
+        success: false,
+        message: `A project with this ${fieldName} already exists`
+      });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error creating project'
+    });
+  }
 }));
 
 // @route   PUT /api/projects/:id
@@ -108,8 +143,6 @@ router.post('/', [
 router.put('/:id', [
   authorize('super_admin', 'admin', 'hr_manager'),
   body('name').optional().trim().notEmpty().withMessage('Project name is required'),
-  body('code').optional().trim().notEmpty().withMessage('Project code is required'),
-  body('client').optional().trim().notEmpty().withMessage('Client is required'),
   body('status').optional().isIn(['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled']).withMessage('Valid status is required')
 ], asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -163,7 +196,7 @@ router.delete('/:id',
 
     const project = await Project.findByIdAndUpdate(
       req.params.id,
-      { isActive: false },
+      { status: 'Cancelled' },
       { new: true }
     );
 

@@ -1071,17 +1071,18 @@ const EmployeeForm = () => {
 
   const handleSaveNewProject = async () => {
     try {
-      if (!newProjectData.name || !newProjectData.code) {
+      if (!newProjectData.name) {
         setSnackbar({
           open: true,
-          message: 'Please fill in all required fields',
+          message: 'Project name is required',
           severity: 'error'
         });
         return;
       }
 
       const projectData = {
-        ...newProjectData,
+        name: newProjectData.name,
+        ...(newProjectData.description && { description: newProjectData.description }),
         sector: formik.values.placementSector
       };
 
@@ -1094,7 +1095,7 @@ const EmployeeForm = () => {
       });
 
       setShowAddProjectDialog(false);
-      setNewProjectData({ name: '', code: '', description: '' });
+      setNewProjectData({ name: '', description: '' });
       
       // Refresh projects
       await fetchProjects();
@@ -1104,9 +1105,12 @@ const EmployeeForm = () => {
       
     } catch (error) {
       console.error('Error adding project:', error);
+      const errorMessage = error.response?.data?.message || 
+                          (error.response?.data?.errors?.[0]?.msg) ||
+                          'Error adding project';
       setSnackbar({
         open: true,
-        message: error.response?.data?.message || 'Error adding project',
+        message: errorMessage,
         severity: 'error'
       });
     }
@@ -3077,7 +3081,7 @@ const EmployeeForm = () => {
         <DialogContent>
           <Box sx={{ pt: 2 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Project Name"
@@ -3086,19 +3090,10 @@ const EmployeeForm = () => {
                   required
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Project Code"
-                  value={newProjectData.code}
-                  onChange={(e) => handleNewProjectChange('code', e.target.value)}
-                  required
-                />
-              </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
-                  label="Description"
+                  label="Description (Optional)"
                   value={newProjectData.description}
                   onChange={(e) => handleNewProjectChange('description', e.target.value)}
                   multiline

@@ -1,12 +1,12 @@
 /**
- * Script to remove old 'code' field unique index from locations collection
- * This fixes the "code already exists" error when creating locations
+ * Script to remove old 'code' field unique index from projects collection
+ * This fixes duplicate key errors when creating projects
  */
 
 const mongoose = require('mongoose');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 
-async function fixLocationCodeIndex() {
+async function fixProjectCodeIndex() {
   try {
     // Connect to MongoDB
     console.log('🌐 Connecting to MongoDB...');
@@ -17,37 +17,43 @@ async function fixLocationCodeIndex() {
     console.log('✅ MongoDB connected successfully');
     
     const db = mongoose.connection.db;
-    const collection = db.collection('locations');
+    const collection = db.collection('projects');
     
     // Get all indexes
     const indexes = await collection.indexes();
-    console.log('Current indexes on locations collection:');
+    console.log('\nCurrent indexes on projects collection:');
     indexes.forEach(index => {
       console.log('  -', JSON.stringify(index));
     });
     
-    // Check if 'code' index exists
+    // Check if 'code' index exists and needs to be dropped
     const codeIndex = indexes.find(idx => idx.key && idx.key.code);
     
-    if (codeIndex) {
-      console.log('\nFound old code index:', codeIndex);
+    if (codeIndex && codeIndex.unique) {
+      console.log('\nFound unique code index:', codeIndex);
       console.log('Attempting to drop code index...');
       
       try {
         await collection.dropIndex('code_1');
-        console.log('✓ Successfully dropped code index');
+        console.log('✓ Successfully dropped code_1 index');
       } catch (dropError) {
-        if (dropError.code === 27) {
+        if (dropError.code === 27 || dropError.codeName === 'IndexNotFound') {
           console.log('✗ Index not found (may have been dropped already)');
         } else {
           // Try dropping with the full index name
           const indexName = Object.keys(codeIndex.key).map(k => `${k}_${codeIndex.key[k]}`).join('_');
-          await collection.dropIndex(indexName);
-          console.log(`✓ Successfully dropped code index: ${indexName}`);
+          try {
+            await collection.dropIndex(indexName);
+            console.log(`✓ Successfully dropped code index: ${indexName}`);
+          } catch (err) {
+            console.log('✗ Could not drop index:', err.message);
+          }
         }
       }
+    } else if (codeIndex && !codeIndex.unique) {
+      console.log('\n✓ Found non-unique code index (keeping it)');
     } else {
-      console.log('\n✓ No code index found - collection is clean');
+      console.log('\n✓ No unique code index found - collection is clean');
     }
     
     // List indexes after cleanup
@@ -59,7 +65,7 @@ async function fixLocationCodeIndex() {
     
     console.log('\n✓ Done!');
   } catch (error) {
-    console.error('Error fixing location code index:', error);
+    console.error('Error fixing project code index:', error);
     process.exit(1);
   } finally {
     await mongoose.connection.close();
@@ -69,5 +75,5 @@ async function fixLocationCodeIndex() {
 }
 
 // Run the script
-fixLocationCodeIndex();
+fixProjectCodeIndex();
 

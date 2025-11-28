@@ -6,23 +6,30 @@ const projectSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  code: {
+  projectId: {
     type: String,
     required: true,
     unique: true,
+    default: () => `PROJ${Date.now().toString().slice(-6)}`
+  },
+  code: {
+    type: String,
+    unique: true,
+    sparse: true,
     trim: true
   },
   description: {
     type: String,
-    required: true
+    trim: true
   },
   client: {
     type: String,
-    required: true
+    trim: true,
+    default: 'Internal'
   },
   startDate: {
     type: Date,
-    required: true
+    default: Date.now
   },
   endDate: {
     type: Date
@@ -30,7 +37,7 @@ const projectSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled'],
-    default: 'Planning'
+    default: 'Active'
   },
   priority: {
     type: String,
@@ -39,7 +46,7 @@ const projectSchema = new mongoose.Schema({
   },
   budget: {
     type: Number,
-    required: true
+    default: 0
   },
   actualCost: {
     type: Number,
@@ -47,8 +54,7 @@ const projectSchema = new mongoose.Schema({
   },
   projectManager: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
   teamMembers: [{
     employee: {
@@ -112,8 +118,7 @@ const projectSchema = new mongoose.Schema({
   notes: String,
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -124,7 +129,7 @@ const projectSchema = new mongoose.Schema({
 });
 
 // Index for better query performance
-projectSchema.index({ code: 1 });
+projectSchema.index({ projectId: 1 });
 projectSchema.index({ status: 1 });
 projectSchema.index({ startDate: 1 });
 projectSchema.index({ projectManager: 1 });
