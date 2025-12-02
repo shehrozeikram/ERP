@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, CircularProgress, Typography, Button } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -49,6 +49,7 @@ import RentalManagementDetailFinance from './pages/Finance/TajUtilities/RentalMa
 import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
 import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
+import Receipts from './pages/Finance/TajUtilities/Receipts';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -311,32 +312,61 @@ const PublicRoute = ({ children }) => {
   return children;
 };
 
-function App() {
-  const { user, loading } = useAuth();
+// Shared loading screen component
+const LoadingScreen = ({ message = 'Loading SGC ERP System...' }) => (
+  <Box
+    display="flex"
+    justifyContent="center"
+    alignItems="center"
+    minHeight="100vh"
+    sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+  >
+    <Box sx={{ textAlign: 'center', color: 'white' }}>
+      <CircularProgress size={60} sx={{ color: 'white', mb: 2 }} />
+      <Typography variant="h6">{message}</Typography>
+    </Box>
+  </Box>
+);
 
-  // Show loading while checking authentication
-  if (loading) {
-    return (
-      <Box
-        display="flex"
-        justifyContent="center"
-        alignItems="center"
-        minHeight="100vh"
-        sx={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        }}
-      >
-        <Box
-          sx={{
-            textAlign: 'center',
-            color: 'white',
-          }}
+// Network error screen component
+const NetworkErrorScreen = ({ error, onRetry }) => (
+  <Box
+    display="flex"
+    justifyContent="center"
+    alignItems="center"
+    minHeight="100vh"
+    sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+  >
+    <Box sx={{ textAlign: 'center', color: 'white', maxWidth: 500, p: 4 }}>
+      <Typography variant="h5" gutterBottom>Connection Issue</Typography>
+      <Typography variant="body1" sx={{ mb: 3, opacity: 0.9 }}>{error}</Typography>
+      <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+        <Button
+          variant="contained"
+          onClick={onRetry}
+          sx={{ bgcolor: 'white', color: 'primary.main', '&:hover': { bgcolor: 'rgba(255,255,255,0.9)' } }}
         >
-          <CircularProgress size={60} sx={{ color: 'white', mb: 2 }} />
-          <Typography variant="h6">Loading SGC ERP System...</Typography>
-        </Box>
+          Retry Connection
+        </Button>
+        <Button
+          variant="outlined"
+          onClick={() => window.location.reload()}
+          sx={{ borderColor: 'white', color: 'white', '&:hover': { borderColor: 'rgba(255,255,255,0.9)', bgcolor: 'rgba(255,255,255,0.1)' } }}
+        >
+          Refresh Page
+        </Button>
       </Box>
-    );
+    </Box>
+  </Box>
+);
+
+function App() {
+  const { user, loading, token, error, retryAuth } = useAuth();
+
+  if (loading) return <LoadingScreen />;
+  
+  if (!user && token && error?.includes('Connection issue')) {
+    return <NetworkErrorScreen error={error} onRetry={retryAuth} />;
   }
 
   // If user is not authenticated, show login page and public routes
@@ -875,6 +905,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
                   <ChargesSlabs />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/receipts"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <Receipts />
                 </ProtectedRoute>
               }
             />

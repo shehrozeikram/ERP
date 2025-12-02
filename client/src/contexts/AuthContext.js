@@ -3,40 +3,41 @@ import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
 import toast from 'react-hot-toast';
 
-// Utility function to get the appropriate redirect path based on user role
-const getRedirectPath = (userRole) => {
-  switch (userRole) {
-    case 'super_admin':
-      return '/dashboard';
-    case 'admin':
-      return '/admin/staff-management';
-    case 'hr_manager':
-      return '/hr';
-    case 'finance_manager':
-      return '/finance';
-    case 'procurement_manager':
-      return '/procurement';
-    case 'sales_manager':
-      return '/sales';
-    case 'crm_manager':
-      return '/crm';
-    case 'employee':
-      return '/profile'; // Employees have limited access, redirect to profile
-    default:
-      return '/profile'; // Default fallback
-  }
+// Constants
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1000, 2000, 3000];
+const ROLE_REDIRECTS = {
+  super_admin: '/dashboard',
+  admin: '/admin/staff-management',
+  hr_manager: '/hr',
+  finance_manager: '/finance',
+  procurement_manager: '/procurement',
+  sales_manager: '/sales',
+  crm_manager: '/crm',
+  employee: '/profile'
 };
 
-const AuthContext = createContext();
-
-// Get initial token once to avoid repeated localStorage access
+// Utility functions
+const getRedirectPath = (userRole) => ROLE_REDIRECTS[userRole] || '/profile';
 const getInitialToken = () => {
   try {
     return localStorage.getItem('token');
-  } catch (error) {
+  } catch {
     return null;
   }
 };
+
+// Error detection utilities
+const isAuthError = (error) => error.response?.status === 401 || error.response?.status === 403;
+const isNetworkError = (error) => 
+  !error.response || 
+  ['ECONNABORTED', 'NETWORK_ERROR', 'ERR_NETWORK'].includes(error.code) ||
+  error.message?.includes('timeout') ||
+  error.message?.includes('Network Error');
+
+const getErrorMessage = (error, defaultMsg) => error.response?.data?.message || defaultMsg;
+
+const AuthContext = createContext();
 
 const initialState = {
   user: null,
@@ -87,6 +88,13 @@ const authReducer = (state, action) => {
         ...state,
         loading: action.payload
       };
+    case 'NETWORK_ERROR':
+      // Preserve token and user state on network errors - don't clear them
+      return {
+        ...state,
+        loading: false,
+        error: action.payload || 'Network error. Please check your connection.'
+      };
     default:
       return state;
   }
@@ -96,137 +104,116 @@ export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
   const navigate = useNavigate();
 
-  // Check if user is authenticated on app load
+  // Shared auth verification logic
+  const verifyAuth = useCallback(async (token, onSuccess, onError) => {
+    try {
+      const response = await authService.getProfile();
+      const userData = response?.data?.data?.user;
+      
+      if (userData) {
+        onSuccess(userData, token);
+      } else {
+        throw new Error('Invalid user data received');
+      }
+    } catch (error) {
+      onError(error);
+    }
+  }, []);
+
+  // Check if user is authenticated on app load with retry mechanism
   useEffect(() => {
+    let isMounted = true;
+    let retryCount = 0;
+
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
       
-      if (token) {
-        try {
-          dispatch({ type: 'SET_LOADING', payload: true });
-          
-          // Log in development for debugging
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('🔐 Checking authentication with token...');
+      if (!token) {
+        if (isMounted) dispatch({ type: 'SET_LOADING', payload: false });
+        return;
+      }
+
+      if (isMounted) dispatch({ type: 'SET_LOADING', payload: true });
+      
+      try {
+        await verifyAuth(
+          token,
+          (userData, token) => {
+            if (isMounted) {
+              dispatch({
+                type: 'LOGIN_SUCCESS',
+                payload: { user: userData, token }
+              });
+            }
+          },
+          (error) => {
+            if (!isMounted) return;
+
+            if (isAuthError(error)) {
+              localStorage.removeItem('token');
+              dispatch({ type: 'LOGIN_FAILURE', payload: 'Session expired' });
+            } else if (isNetworkError(error) && retryCount < MAX_RETRIES) {
+              const delay = RETRY_DELAYS[retryCount] || 3000;
+              retryCount++;
+              setTimeout(() => isMounted && checkAuth(), delay);
+            } else {
+              dispatch({ 
+                type: 'NETWORK_ERROR', 
+                payload: 'Connection issue. Please check your network and try again.' 
+              });
+            }
           }
-          
-          const response = await authService.getProfile();
-          
-          // The server returns: { success: true, data: { user: ... } }
-          // So the structure is: response.data.data.user
-          const userData = response?.data?.data?.user;
-          
-          if (userData) {
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('✅ Authentication successful');
-            }
-          dispatch({
-            type: 'LOGIN_SUCCESS',
-            payload: {
-                user: userData,
-              token
-            }
-          });
-          } else {
-            // Log the full response for debugging (only in dev)
-            if (process.env.NODE_ENV !== 'production') {
-              console.error('❌ Invalid response structure');
-              console.error('   Full response:', response);
-              console.error('   Response data:', response?.data);
-              console.error('   Expected path: response.data.data.user');
-            }
-            throw new Error('Invalid user data received');
-          }
-        } catch (error) {
-          // Handle different error types
-          const isAuthError = error.response?.status === 401 || error.response?.status === 403;
-          const isNetworkError = !error.response || error.code === 'ECONNABORTED' || error.code === 'NETWORK_ERROR';
-          
-          if (isAuthError) {
-            // Token is invalid or expired - clear it
-            if (process.env.NODE_ENV !== 'production') {
-              console.error('❌ Auth check failed: Invalid or expired token');
-            }
+        );
+      } catch (error) {
+        if (isMounted && !isAuthError(error) && !isNetworkError(error)) {
           localStorage.removeItem('token');
-          dispatch({ type: 'LOGIN_FAILURE', payload: 'Session expired' });
-          } else if (isNetworkError) {
-            // Network error or timeout - keep token for retry
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn('⚠️ Auth check failed due to network error, keeping token for retry');
-              console.warn('   Error details:', error.message || error.code);
-            }
-            dispatch({ type: 'SET_LOADING', payload: false });
-          } else {
-            // Other errors - treat as auth failure
-            if (process.env.NODE_ENV !== 'production') {
-              console.error('❌ Unexpected auth check error:', error);
-              console.error('   Status:', error.response?.status);
-              console.error('   Message:', error.message);
-            }
-            localStorage.removeItem('token');
-            dispatch({ type: 'LOGIN_FAILURE', payload: 'Authentication check failed' });
-          }
+          dispatch({ type: 'LOGIN_FAILURE', payload: 'Authentication check failed' });
         }
-      } else {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('ℹ️ No token found, user not authenticated');
-        }
-        dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
 
     checkAuth();
-  }, []);
+    return () => { isMounted = false; };
+  }, [verifyAuth]);
 
-  const login = useCallback(async (credentials) => {
+  // Shared auth flow for login/register
+  const handleAuthFlow = useCallback(async (authFn, successMsg, errorMsg) => {
     try {
       dispatch({ type: 'LOGIN_START' });
-      const response = await authService.login(credentials);
-      
+      const response = await authFn();
       const { user, token } = response.data.data;
       
       localStorage.setItem('token', token);
+      dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
       
-      dispatch({
-        type: 'LOGIN_SUCCESS',
-        payload: { user, token }
-      });
-
-      toast.success('Login successful!');
+      toast.success(successMsg);
       navigate(getRedirectPath(user.role));
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
+      const message = getErrorMessage(error, errorMsg);
       dispatch({ type: 'LOGIN_FAILURE', payload: message });
       toast.error(message);
       return { success: false, error: message };
     }
   }, [navigate]);
 
-  const register = useCallback(async (userData) => {
-    try {
-      dispatch({ type: 'LOGIN_START' });
-      const response = await authService.register(userData);
-      
-      const { user, token } = response.data.data;
-      
-      localStorage.setItem('token', token);
-      
-      dispatch({
-        type: 'LOGIN_SUCCESS',
-        payload: { user, token }
-      });
+  const login = useCallback(
+    (credentials) => handleAuthFlow(
+      () => authService.login(credentials),
+      'Login successful!',
+      'Login failed'
+    ),
+    [handleAuthFlow]
+  );
 
-      toast.success('Registration successful!');
-      navigate(getRedirectPath(user.role));
-      return { success: true };
-    } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed';
-      dispatch({ type: 'LOGIN_FAILURE', payload: message });
-      toast.error(message);
-      return { success: false, error: message };
-    }
-  }, [navigate]);
+  const register = useCallback(
+    (userData) => handleAuthFlow(
+      () => authService.register(userData),
+      'Registration successful!',
+      'Registration failed'
+    ),
+    [handleAuthFlow]
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -243,33 +230,77 @@ export const AuthProvider = ({ children }) => {
     }
   }, [navigate]);
 
-  const updateProfile = useCallback(async (profileData) => {
+  // Shared error handler for profile operations
+  const handleProfileOperation = useCallback(async (operation, successMsg, errorMsg) => {
     try {
-      const response = await authService.updateProfile(profileData);
-      dispatch({
-        type: 'UPDATE_USER',
-        payload: response.data.data.user
-      });
-      toast.success('Profile updated successfully');
+      const response = await operation();
+      if (response?.data?.data?.user) {
+        dispatch({ type: 'UPDATE_USER', payload: response.data.data.user });
+      }
+      toast.success(successMsg);
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Profile update failed';
+      const message = getErrorMessage(error, errorMsg);
       toast.error(message);
       return { success: false, error: message };
     }
   }, []);
 
-  const changePassword = useCallback(async (passwordData) => {
-    try {
-      await authService.changePassword(passwordData);
-      toast.success('Password changed successfully');
-      return { success: true };
-    } catch (error) {
-      const message = error.response?.data?.message || 'Password change failed';
-      toast.error(message);
-      return { success: false, error: message };
+  const updateProfile = useCallback(
+    (profileData) => handleProfileOperation(
+      () => authService.updateProfile(profileData),
+      'Profile updated successfully',
+      'Profile update failed'
+    ),
+    [handleProfileOperation]
+  );
+
+  const changePassword = useCallback(
+    (passwordData) => handleProfileOperation(
+      () => authService.changePassword(passwordData),
+      'Password changed successfully',
+      'Password change failed'
+    ),
+    [handleProfileOperation]
+  );
+
+  // Manual retry function for network errors
+  const retryAuth = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      dispatch({ type: 'SET_LOADING', payload: false });
+      return { success: false, error: 'No token found' };
     }
-  }, []);
+
+    dispatch({ type: 'SET_LOADING', payload: true });
+    
+    return new Promise((resolve) => {
+      verifyAuth(
+        token,
+        (userData, token) => {
+          dispatch({ type: 'LOGIN_SUCCESS', payload: { user: userData, token } });
+          resolve({ success: true });
+        },
+        (error) => {
+          if (isAuthError(error)) {
+            localStorage.removeItem('token');
+            dispatch({ type: 'LOGIN_FAILURE', payload: 'Session expired' });
+            resolve({ success: false, error: 'Session expired' });
+          } else if (isNetworkError(error)) {
+            dispatch({ 
+              type: 'NETWORK_ERROR', 
+              payload: 'Connection issue. Please check your network and try again.' 
+            });
+            resolve({ success: false, error: 'Network error' });
+          } else {
+            localStorage.removeItem('token');
+            dispatch({ type: 'LOGIN_FAILURE', payload: 'Authentication check failed' });
+            resolve({ success: false, error: 'Authentication failed' });
+          }
+        }
+      );
+    });
+  }, [verifyAuth]);
 
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
@@ -282,8 +313,9 @@ export const AuthProvider = ({ children }) => {
     logout,
     updateProfile,
     changePassword,
+    retryAuth,
     isAuthenticated: !!state.user && !!state.token
-  }), [state.user, state.token, state.loading, state.error, login, register, logout, updateProfile, changePassword]);
+  }), [state.user, state.token, state.loading, state.error, login, register, logout, updateProfile, changePassword, retryAuth]);
 
   return (
     <AuthContext.Provider value={value}>

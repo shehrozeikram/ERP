@@ -1,63 +1,61 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+// Helper functions
+const sendError = (res, status, message) => res.status(status).json({ success: false, message });
+const isDbError = (error) => 
+  error.name === 'MongoTimeoutError' || 
+  error.name === 'MongoNetworkError' || 
+  error.message?.includes('timeout') || 
+  error.message?.includes('connection');
+
+const verifyToken = (token) => {
+  try {
+    return { decoded: jwt.verify(token, process.env.JWT_SECRET), error: null };
+  } catch (error) {
+    return { decoded: null, error };
+  }
+};
+
+const fetchUser = async (userId) => {
+  try {
+    return { user: await User.findById(userId).select('-password').maxTimeMS(5000), error: null };
+  } catch (error) {
+    return { user: null, error };
+  }
+};
+
 const authMiddleware = async (req, res, next) => {
   try {
-    // Get token from header
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
-    }
+    if (!token) return sendError(res, 401, 'Access denied. No token provided.');
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Get user from database
-    const user = await User.findById(decoded.userId).select('-password');
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token. User not found.'
-      });
+    // Verify JWT token
+    const { decoded, error: jwtError } = verifyToken(token);
+    if (jwtError) {
+      if (jwtError.name === 'JsonWebTokenError') return sendError(res, 401, 'Invalid token.');
+      if (jwtError.name === 'TokenExpiredError') return sendError(res, 401, 'Token expired. Please login again.');
+      throw jwtError;
     }
-
-    // Check if user is active
-    if (!user.isActive) {
-      return res.status(401).json({
-        success: false,
-        message: 'Account is deactivated. Please contact administrator.'
-      });
+    
+    // Fetch user from database
+    const { user, error: dbError } = await fetchUser(decoded.userId);
+    if (dbError) {
+      if (isDbError(dbError)) {
+        console.error('⚠️ Database error in auth middleware:', dbError.message);
+        return sendError(res, 503, 'Service temporarily unavailable. Please try again in a moment.');
+      }
+      throw dbError;
     }
+    
+    if (!user) return sendError(res, 401, 'Invalid token. User not found.');
+    if (!user.isActive) return sendError(res, 401, 'Account is deactivated. Please contact administrator.');
 
-    // Add user to request object
     req.user = user;
     next();
-
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token.'
-      });
-    }
-    
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token expired. Please login again.'
-      });
-    }
-
     console.error('Auth middleware error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error in authentication.'
-    });
+    return sendError(res, 500, 'Server error in authentication.');
   }
 };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -23,7 +23,6 @@ import {
   Typography,
   Alert,
   Stack,
-  Divider,
   FormControl,
   InputLabel,
   Select,
@@ -41,17 +40,11 @@ import {
   ExpandLess as ExpandLessIcon,
   Download as DownloadIcon,
   Visibility as VisibilityIcon,
-  CalendarToday as CalendarIcon,
   AttachMoney as MoneyIcon,
   Description as DescriptionIcon,
   Person as PersonIcon,
-  Business as BusinessIcon,
   Receipt as ReceiptIcon,
   ReceiptLong as ReceiptLongIcon,
-  LocationOn as LocationIcon,
-  Phone as PhoneIcon,
-  Email as EmailIcon,
-  Badge as BadgeIcon,
   FiberManualRecord as StatusIcon,
   AttachFile as AttachFileIcon,
   Delete as DeleteIcon
@@ -64,9 +57,9 @@ import {
   addPayment,
   fetchInvoice,
   updatePaymentStatus,
-  fetchLatestRentInvoiceForProperty,
   deletePayment
 } from '../../../services/tajRentalManagementService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice } from '../../../services/propertyInvoiceService';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
@@ -110,29 +103,51 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 0
   }).format(Number(value || 0));
 
+// Generate invoice number with type prefix (same logic as backend)
+const generateInvoiceNumber = (propertySrNo, year, month, type = 'REN') => {
+  const paddedMonth = String(month).padStart(2, '0');
+  const paddedIndex = String(propertySrNo || 1).padStart(4, '0');
+  
+  // Determine prefix based on type
+  let prefix = 'INV';
+  if (type === 'CAM' || type === 'CMC') {
+    prefix = 'INV-CMC';
+  } else if (type === 'ELECTRICITY' || type === 'ELC') {
+    prefix = 'INV-ELC';
+  } else if (type === 'RENT' || type === 'REN') {
+    prefix = 'INV-REN';
+  } else if (type === 'MIXED' || type === 'MIX') {
+    prefix = 'INV-MIX';
+  }
+  
+  return `${prefix}-${year}-${paddedMonth}-${paddedIndex}`;
+};
+
 const RentalManagement = () => {
   const navigate = useNavigate();
   const [properties, setProperties] = useState([]);
   const [paymentDialog, setPaymentDialog] = useState(false);
-  const [invoiceDialog, setInvoiceDialog] = useState(false);
+  const [paymentInvoiceDialog, setPaymentInvoiceDialog] = useState(false);
   const [paymentDetailsDialog, setPaymentDetailsDialog] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [expandedRows, setExpandedRows] = useState(new Set());
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [invoiceData, setInvoiceData] = useState(null);
+  const [paymentInvoiceData, setPaymentInvoiceData] = useState(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState(null);
   const [statusMenuContext, setStatusMenuContext] = useState(null);
   const unpaidPayments =
     selectedProperty?.payments?.filter((payment) => payment.status === 'Unpaid') || [];
-  const [rentalSummary, setRentalSummary] = useState(defaultSummary);
-  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
-  const [voucherProperty, setVoucherProperty] = useState(null);
-  const [voucherInvoice, setVoucherInvoice] = useState(null);
-  const [voucherLoading, setVoucherLoading] = useState(false);
-  const [voucherError, setVoucherError] = useState('');
+  const [rentalSummary] = useState(defaultSummary);
+  const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
+  const [invoiceProperty, setInvoiceProperty] = useState(null);
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState('');
+  const [propertyInvoices, setPropertyInvoices] = useState({});
+  const [loadingInvoices, setLoadingInvoices] = useState({});
   const [rentPaymentContext, setRentPaymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
   const [paymentAttachment, setPaymentAttachment] = useState(null);
 
@@ -228,9 +243,9 @@ const RentalManagement = () => {
   const handleViewInvoice = async (property, payment) => {
     try {
       const res = await fetchInvoice(property._id, payment._id);
-      setInvoiceData(res.data?.data);
+      setPaymentInvoiceData(res.data?.data);
       setSelectedProperty(property);
-      setInvoiceDialog(true);
+      setPaymentInvoiceDialog(true);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load invoice');
     }
@@ -257,32 +272,249 @@ const RentalManagement = () => {
     }
   };
 
-  const handleOpenVoucherDialog = async (property) => {
-    setVoucherProperty(property);
-    setVoucherInvoice(null);
-    setVoucherError('');
-    setVoucherDialogOpen(true);
+  const handleCreateInvoice = async (property) => {
+    setInvoiceProperty(property);
+    setInvoiceError('');
+    setInvoiceDialogOpen(true);
+    
     try {
-      setVoucherLoading(true);
-      const response = await fetchLatestRentInvoiceForProperty(property._id);
-      const invoiceData = response.data?.data || null;
-      if (!invoiceData) {
-        setVoucherError('No rent invoice found for this property.');
+      setInvoiceLoading(true);
+      // Don't send charges array - let backend fetch from agreement
+      const response = await createInvoice(property._id, {
+        includeCAM: false,
+        includeElectricity: false,
+        includeRent: true
+      });
+      
+      const invoice = response.data?.data;
+      
+      if (invoice) {
+        // Ensure charges array exists and has the correct structure
+        if (!invoice.charges || !Array.isArray(invoice.charges) || invoice.charges.length === 0) {
+          invoice.charges = [{
+            type: 'RENT',
+            description: 'Rental Charges',
+            amount: 0,
+            arrears: 0,
+            total: 0
+          }];
+        }
+        
+        // Generate invoice number if not provided
+        if (!invoice.invoiceNumber) {
+          const now = dayjs();
+          const invoiceNumber = generateInvoiceNumber(
+            property.srNo,
+            now.year(),
+            now.month() + 1,
+            'RENT'
+          );
+          invoice.invoiceNumber = invoiceNumber;
+        }
+        
+        // Ensure dates are Date objects
+        if (invoice.periodFrom && typeof invoice.periodFrom === 'string') {
+          invoice.periodFrom = new Date(invoice.periodFrom);
+        }
+        if (invoice.periodTo && typeof invoice.periodTo === 'string') {
+          invoice.periodTo = new Date(invoice.periodTo);
+        }
+        if (invoice.dueDate && typeof invoice.dueDate === 'string') {
+          invoice.dueDate = new Date(invoice.dueDate);
+        }
+        
+        setInvoiceData(invoice);
+      } else {
+        // Initialize with default values if no invoice returned
+        const now = dayjs();
+        const periodFrom = now.startOf('month').toDate();
+        const periodTo = now.endOf('month').toDate();
+        const invoiceNumber = generateInvoiceNumber(
+          property.srNo,
+          now.year(),
+          now.month() + 1,
+          'RENT'
+        );
+        
+        setInvoiceData({
+          invoiceNumber,
+          dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+          periodFrom,
+          periodTo,
+          chargeTypes: ['RENT'],
+          charges: [{
+            type: 'RENT',
+            description: 'Rental Charges',
+            amount: 0,
+            arrears: 0,
+            total: 0
+          }],
+          subtotal: 0,
+          totalArrears: 0,
+          grandTotal: 0
+        });
+        setInvoiceError('No rental payment found. You can manually enter the amount.');
       }
-      setVoucherInvoice(invoiceData);
     } catch (err) {
-      setVoucherError(err.response?.data?.message || 'Failed to load latest rent invoice');
+      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
+      // Still initialize with defaults on error
+      const now = dayjs();
+      const periodFrom = now.startOf('month').toDate();
+      const periodTo = now.endOf('month').toDate();
+      const invoiceNumber = generateInvoiceNumber(
+        property.srNo,
+        now.year(),
+        now.month() + 1,
+        'RENT'
+      );
+      
+      setInvoiceData({
+        invoiceNumber,
+        dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+        periodFrom,
+        periodTo,
+        chargeTypes: ['RENT'],
+        charges: [{
+          type: 'RENT',
+          description: 'Rental Charges',
+          amount: 0,
+          arrears: 0,
+          total: 0
+        }],
+        subtotal: 0,
+        totalArrears: 0,
+        grandTotal: 0
+      });
     } finally {
-      setVoucherLoading(false);
+      setInvoiceLoading(false);
     }
   };
 
-  const handleCloseVoucherDialog = () => {
-    setVoucherDialogOpen(false);
-    setVoucherProperty(null);
-    setVoucherInvoice(null);
-    setVoucherLoading(false);
-    setVoucherError('');
+  const handleInvoiceFieldChange = (field, value) => {
+    if (!invoiceData) return;
+    
+    if (field.startsWith('charge.')) {
+      const [, chargeIndex, chargeField] = field.split('.');
+      const updatedCharges = [...invoiceData.charges];
+      const chargeValue = chargeField === 'amount' || chargeField === 'arrears' ? Number(value) || 0 : value;
+      
+      updatedCharges[chargeIndex] = {
+        ...updatedCharges[chargeIndex],
+        [chargeField]: chargeValue
+      };
+      
+      // Recalculate total for this specific charge
+      const charge = updatedCharges[chargeIndex];
+      charge.total = (charge.amount || 0) + (charge.arrears || 0);
+      
+      // Recalculate totals - only include RENT charges
+      const rentCharges = updatedCharges.filter(c => c.type === 'RENT');
+      const subtotal = rentCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      const totalArrears = rentCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+      const grandTotal = subtotal + totalArrears;
+      
+      setInvoiceData({
+        ...invoiceData,
+        charges: updatedCharges,
+        subtotal,
+        totalArrears,
+        grandTotal
+      });
+    } else {
+      const updatedData = {
+        ...invoiceData,
+        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate'
+          ? (value ? new Date(value) : null)
+          : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
+          ? Number(value) || 0
+          : value
+      };
+      
+      // Regenerate invoice number if period changes (for new invoices only)
+      if ((field === 'periodFrom' || field === 'periodTo') && !invoiceData._id && invoiceProperty) {
+        const periodDate = field === 'periodFrom' ? new Date(value) : (updatedData.periodTo || new Date(value));
+        const periodDayjs = dayjs(periodDate);
+        const newInvoiceNumber = generateInvoiceNumber(
+          invoiceProperty.srNo,
+          periodDayjs.year(),
+          periodDayjs.month() + 1,
+          'RENT'
+        );
+        updatedData.invoiceNumber = newInvoiceNumber;
+      }
+      
+      setInvoiceData(updatedData);
+    }
+  };
+
+  const handleSaveInvoice = async () => {
+    if (!invoiceData || !invoiceProperty) {
+      setInvoiceError('Invoice data is incomplete');
+      return;
+    }
+
+    try {
+      setInvoiceLoading(true);
+      setInvoiceError('');
+      
+      // Always create new invoice (like CAM Charges)
+      const response = await createInvoice(invoiceProperty._id, {
+        includeCAM: false,
+        includeElectricity: false,
+        includeRent: true,
+        periodFrom: invoiceData.periodFrom,
+        periodTo: invoiceData.periodTo,
+        dueDate: invoiceData.dueDate,
+        charges: invoiceData.charges || []
+      });
+
+      const savedInvoice = response.data?.data || invoiceData;
+      setInvoiceData(savedInvoice);
+      setSuccess('Invoice created successfully');
+      
+      // Refresh invoices for this property
+      if (invoiceProperty?._id) {
+        const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
+        setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
+      }
+      
+      // Close dialog after a short delay
+      setTimeout(() => {
+        handleCloseInvoiceDialog();
+      }, 1500);
+    } catch (err) {
+      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleDeleteInvoice = async (property, invoice) => {
+    if (!window.confirm(`Are you sure you want to delete invoice ${invoice.invoiceNumber || invoice._id}?`)) {
+      return;
+    }
+
+    try {
+      setError('');
+      await deleteInvoice(invoice._id);
+      setSuccess('Invoice deleted successfully');
+      
+      // Refresh invoices for this property
+      if (property?._id) {
+        const invoiceResponse = await fetchInvoicesForProperty(property._id);
+        setPropertyInvoices(prev => ({ ...prev, [property._id]: invoiceResponse.data?.data || [] }));
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete invoice');
+    }
+  };
+
+  const handleCloseInvoiceDialog = () => {
+    setInvoiceDialogOpen(false);
+    setInvoiceProperty(null);
+    setInvoiceData(null);
+    setInvoiceLoading(false);
+    setInvoiceError('');
   };
 
   const handlePrintInvoice = () => {
@@ -290,23 +522,22 @@ const RentalManagement = () => {
   };
 
   const handleDownloadPDF = () => {
-    if (!invoiceData || !selectedProperty) return;
+    if (!paymentInvoiceData || !selectedProperty) return;
 
     const pdf = new jsPDF('portrait', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 15;
     const leftMargin = margin;
     const rightMargin = pageWidth - margin;
 
     const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
     const currentDate = new Date();
-    const invoiceDate = dayjs(invoiceData.invoicingDate || invoiceData.periodFrom);
-    const dueDate = dayjs(invoiceData.dueDate || invoiceData.periodTo);
-    const periodFrom = dayjs(invoiceData.periodFrom);
-    const periodTo = dayjs(invoiceData.periodTo);
+    const invoiceDate = dayjs(paymentInvoiceData.invoicingDate || paymentInvoiceData.periodFrom);
+    const dueDate = dayjs(paymentInvoiceData.dueDate || paymentInvoiceData.periodTo);
+    const periodFrom = dayjs(paymentInvoiceData.periodFrom);
+    const periodTo = dayjs(paymentInvoiceData.periodTo);
     const billMonth = invoiceDate.format('MMMM YYYY');
-    const currentAmount = selectedPayment?.amount || invoiceData.totalAmount || 0;
+    const currentAmount = selectedPayment?.amount || paymentInvoiceData.totalAmount || 0;
     const arrearsAmount = selectedPayment?.arrears || 0;
     const totalAmount = selectedPayment?.totalAmount || (currentAmount + arrearsAmount);
     const formattedCurrentAmount = currentAmount.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -349,13 +580,13 @@ const RentalManagement = () => {
       pdf.setFont('helvetica', 'bold');
       pdf.text('Client Name:', leftMargin, yPos);
       pdf.setFont('helvetica', 'normal');
-      pdf.text(invoiceData.tenantName || selectedProperty.tenantName || 'N/A', leftMargin + 30, yPos);
+      pdf.text(paymentInvoiceData.tenantName || selectedProperty.tenantName || 'N/A', leftMargin + 30, yPos);
       
       yPos += 6;
       pdf.setFont('helvetica', 'bold');
       pdf.text('Client Location/Address:', leftMargin, yPos);
       pdf.setFont('helvetica', 'normal');
-      const addressLines = pdf.splitTextToSize(invoiceData.address || selectedProperty.fullAddress || 'N/A', 80);
+      const addressLines = pdf.splitTextToSize(paymentInvoiceData.address || selectedProperty.fullAddress || 'N/A', 80);
       pdf.text(addressLines[0], leftMargin + 45, yPos);
       if (addressLines.length > 1) {
         yPos += 5;
@@ -379,13 +610,12 @@ const RentalManagement = () => {
         selectedProperty.block && `Block: ${selectedProperty.block}`,
         selectedProperty.street && `Street: ${selectedProperty.street}`,
         selectedProperty.sector && `Sector: ${selectedProperty.sector}`
-      ].filter(Boolean).join(', ') || invoiceData.address || 'N/A';
+      ].filter(Boolean).join(', ') || paymentInvoiceData.address || 'N/A';
       pdf.text(unitAddress, leftMargin + 30, yPos);
 
       yPos += 12;
 
       // Invoice Details Table
-      const tableStartY = yPos;
       const col1X = leftMargin;
       const col2X = leftMargin + 50;
       const col3X = leftMargin + 100;
@@ -404,7 +634,7 @@ const RentalManagement = () => {
       yPos += 6;
       pdf.setFont('helvetica', 'normal');
       pdf.rect(col1X, yPos - 3, 180, 6);
-      pdf.text(invoiceData.invoiceNumber || 'N/A', col1X + 2, yPos);
+      pdf.text(paymentInvoiceData.invoiceNumber || 'N/A', col1X + 2, yPos);
       pdf.text(billMonth, col2X + 2, yPos);
       pdf.text(invoiceDate.format('DD-MMM-YYYY'), col3X + 2, yPos);
       pdf.text(dueDate.format('DD-MMM-YYYY'), col4X + 2, yPos);
@@ -543,21 +773,23 @@ const RentalManagement = () => {
       });
     });
 
-    pdf.save(`Rent-Invoice-${invoiceData.invoiceNumber || 'INV'}.pdf`);
+    pdf.save(`Rent-Invoice-${paymentInvoiceData.invoiceNumber || 'INV'}.pdf`);
   };
 
-  const handleDownloadVoucher = () => {
-    if (!voucherProperty || !voucherInvoice) return;
-    generateRentVoucherPDF();
-  };
+  const generateRentInvoicePDF = () => {
+    if (!invoiceProperty || !invoiceData) return;
 
-  const generateRentVoucherPDF = () => {
-    if (!voucherProperty || !voucherInvoice) return;
+    const property = invoiceProperty;
+    const invoice = invoiceData;
+    
+    // Get rent charge from invoice
+    const rentCharge = invoice.charges?.find(c => c.type === 'RENT');
+    const rentAmount = rentCharge?.amount || 0;
+    const arrears = rentCharge?.arrears || 0;
 
-    const property = voucherProperty;
-    const invoice = voucherInvoice;
     const pdf = new jsPDF('landscape', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
     const panelWidth = pageWidth / 3;
     const marginX = 6;
     const topMargin = 10;
@@ -565,38 +797,54 @@ const RentalManagement = () => {
 
     const formatDate = (value, pattern = 'DD-MMM-YY') =>
       value ? dayjs(value).format(pattern) : '—';
+
     const formatFullDate = (value) =>
       value ? dayjs(value).format('MMMM D, YYYY') : '—';
+
     const formatMoney = (value) =>
       (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
 
-    const periodFrom = formatDate(invoice.periodFrom);
-    const periodTo = formatDate(invoice.periodTo);
-    const rentRange = `Rent From ${periodFrom} To ${periodTo}`;
-    const invoiceNumber = invoice.invoiceNumber || '—';
-    const billMonth =
-      invoice.billMonth ||
-      (invoice.periodFrom ? dayjs(invoice.periodFrom).format('MMMM YYYY') : '—');
-    const invoiceDate = formatFullDate(invoice.invoicingDate || invoice.periodFrom);
-    const dueDate = formatFullDate(invoice.dueDate || invoice.periodTo);
-    const quantity = invoice.quantity || 1;
-    const rentAmount = Number(invoice.amount) || property.expectedRent || 0;
-    const rate = rentAmount;
-    const salesTaxPercent = invoice.salesTaxPercent ?? 0;
-    const salesTaxAmount = Number(invoice.salesTaxAmount) || 0;
-    const arrears = Number(invoice.arrears) || 0;
-    const totalPayable = Number(invoice.totalAmount) || rentAmount + arrears;
-    const lateSurcharge = Math.max(Math.round(totalPayable * 0.1), 0);
-    const payableAfterDue = totalPayable + lateSurcharge;
+    const periodFromRaw = invoice?.periodFrom || null;
+    const periodToRaw = invoice?.periodTo || null;
+    const periodFrom = formatDate(periodFromRaw);
+    const periodTo = formatDate(periodToRaw);
+    const invoiceNumber = invoice?.invoiceNumber || '—';
+    const invoicingDate = formatFullDate(invoice?.invoiceDate || invoice?.createdAt);
+    const computedDueDate = invoice?.dueDate || (periodToRaw ? dayjs(periodToRaw).add(30, 'day').toDate() : null);
+    const dueDate = formatFullDate(computedDueDate);
+    const monthLabel = (periodToRaw
+      ? dayjs(periodToRaw)
+      : invoice?.invoiceDate
+      ? dayjs(invoice.invoiceDate)
+      : dayjs()
+    ).format('MMM-YY').toUpperCase();
 
-    const footnotes = [
-      'Please deposit the charges through banking channels only (cheque, online transfer, or deposit slip). Cash payments are not accepted.',
-      'Please make your deposits through cash, crossed cheque or bank drafts on our specified deposit slip at any Allied Bank Limited branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0317). Bank Account No.: PK68ABPA001503007402129.',
-      'Payment must be made on or before the due date mentioned on the invoice to avoid penalties or discontinuation of service. After making the payment, please email or WhatsApp a copy of the deposit slip or online transfer proof to the Accounts Department for record verification at the TAJ Official WhatsApp No.: 0345 77 88 442.',
-      'Any returned or dishonoured cheques will attract service charges and may result in penalties or discontinuation of service.'
-    ];
+    const tenantName = property.tenantName || property.ownerName || '—';
+    const propertyAddress =
+      property.fullAddress ||
+      property.address ||
+      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street, property.sector]
+        .filter(Boolean)
+        .join(', ') ||
+      '—';
 
-    const drawInlineField = (label, value, startX, startY, labelWidth = 32) => {
+    const payableWithinDue = invoice?.grandTotal || (rentAmount + arrears);
+    const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
+    const payableAfterDue = payableWithinDue + lateSurcharge;
+
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) {
+      pdf.setLineDash([1, 2], 0);
+    }
+    [panelWidth, panelWidth * 2].forEach((xPos) => {
+      pdf.line(xPos, topMargin - 5, xPos, pageHeight - 15);
+    });
+    if (pdf.setLineDash) {
+      pdf.setLineDash([], 0);
+    }
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 34) => {
       const valueWidth = contentWidth - labelWidth;
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(7);
@@ -609,39 +857,45 @@ const RentalManagement = () => {
       return startY + lines.length * 4.5 + 1.5;
     };
 
-    const drawChargesTable = (startX, startY) => {
-      const headers = ['Quantity', 'Rate', 'Charges'];
-      const headerHeight = 6;
-      const rowHeight = 7;
-      const cellWidth = contentWidth / headers.length;
+    const drawRentDetails = (startX, startY) => {
+      const width = contentWidth;
+      let y = startY;
+      pdf.setFillColor(242, 242, 242);
+      pdf.rect(startX, y, width, 7, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(178, 34, 34);
+      pdf.text('RENT DETAILS', startX + width / 2, y + 4.5, { align: 'center' });
+      pdf.setTextColor(0, 0, 0);
+      y += 13;
 
+      const rows = [
+        ['Monthly Rent', formatMoney(rentAmount)],
+        ['Charges for the Month', formatMoney(rentAmount)],
+        ['Arrears', arrears ? formatMoney(arrears) : '-'],
+        ['Payable Within Due Date', formatMoney(payableWithinDue)],
+        ['Payable After Due Date', formatMoney(payableAfterDue)]
+      ];
+
+      rows.forEach((row) => {
+        pdf.setDrawColor(210);
+        pdf.rect(startX, y - 5, width, 7);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(7);
-      headers.forEach((header, idx) => {
-        const cellX = startX + idx * cellWidth;
-        pdf.rect(cellX, startY, cellWidth, headerHeight);
-        pdf.text(header, cellX + cellWidth / 2, startY + headerHeight - 1.5, { align: 'center' });
+        pdf.text(row[0], startX + 2, y - 1);
+      pdf.setFont('helvetica', 'normal');
+        pdf.text(row[1], startX + width - 2, y - 1, { align: 'right' });
+        y += 7;
       });
 
-      const values = [String(quantity), formatMoney(rate), formatMoney(rentAmount)];
-      pdf.setFont('helvetica', 'normal');
-      values.forEach((value, idx) => {
-        const cellX = startX + idx * cellWidth;
-        pdf.rect(cellX, startY + headerHeight, cellWidth, rowHeight);
-        pdf.text(value, cellX + cellWidth / 2, startY + headerHeight + rowHeight - 2, { align: 'center' });
-      });
-
-      return startY + headerHeight + rowHeight + 2;
+      return y + 2;
     };
 
-    const drawSummaryRow = (label, value, startX, startY) => {
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7);
-      pdf.text(label, startX, startY);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(value, startX + contentWidth, startY, { align: 'right' });
-      return startY + 6;
-    };
+    const footnotes = [
+      '1. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0317). Bank Account No.: PK58ABPA0015030024702289.',
+      '2. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
+      '3. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
+    ];
 
     const drawPanel = (copyLabel, columnIndex) => {
       const startX = columnIndex * panelWidth + marginX;
@@ -655,74 +909,49 @@ const RentalManagement = () => {
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(11);
       pdf.setTextColor(178, 34, 34);
-      pdf.text('TAJ Residencia', startX + contentWidth / 2, cursorY, { align: 'center' });
-      cursorY += 5;
-      pdf.text('Rent Invoice', startX + contentWidth / 2, cursorY, { align: 'center' });
+      pdf.text(
+        `Taj Rent Invoice For The Month Of ${monthLabel}`,
+        startX + contentWidth / 2,
+        cursorY,
+        { align: 'center' }
+      );
       pdf.setTextColor(0, 0, 0);
-      cursorY += 4;
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(7);
-      pdf.text(dayjs().format('dddd, MMMM D, YYYY h:mm:ss A'), startX + contentWidth / 2, cursorY, { align: 'center' });
       cursorY += 6;
 
-      const inlineFields = [
-        ['Client', invoice.tenantName || property.tenantName || property.ownerName || '—'],
-        ['Address', invoice.address || property.fullAddress || property.street || '—'],
-        ['Unit', property.propertyName || property.propertyCode || '—'],
-        ['Invoice Number', invoiceNumber],
-        ['Bill Month', billMonth],
-        ['Invoice Date', invoiceDate],
-        ['Due Date', dueDate],
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.text('Statement of Rent Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      const inlineRows = [
+        ['Tenant Name', tenantName],
+        ['Address', propertyAddress],
         ['Period From', periodFrom],
         ['Period To', periodTo],
-        ['Rent Period', rentRange]
+        ['Invoice No.', invoiceNumber],
+        ['Invoicing Date', invoicingDate],
+        ['Due Date', dueDate]
       ];
 
-      inlineFields.forEach(([label, value]) => {
+      inlineRows.forEach(([label, value]) => {
         cursorY = drawInlineField(label, value, startX, cursorY);
       });
 
-      cursorY += 3;
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(8);
-      pdf.text('RENT DETAILS', startX + contentWidth / 2, cursorY, { align: 'center' });
-      cursorY += 5;
-
-      cursorY = drawChargesTable(startX, cursorY);
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(6.5);
+      pdf.text('(In Rupees)', startX + contentWidth, cursorY, { align: 'right' });
       cursorY += 4;
 
-      cursorY = drawSummaryRow(
-        'Sales Tax % / Sales Tax',
-        `${salesTaxPercent}% / ${formatMoney(salesTaxAmount)}`,
-        startX,
-        cursorY
-      );
-      cursorY = drawSummaryRow(
-        'Charges For The Month Inc Sales Tax',
-        formatMoney(rentAmount + salesTaxAmount),
-        startX,
-        cursorY
-      );
-      cursorY = drawSummaryRow('Payment', formatMoney(0), startX, cursorY);
-      cursorY = drawSummaryRow('Arrears', arrears ? formatMoney(arrears) : '-', startX, cursorY);
-      cursorY = drawSummaryRow(
-        'Payable Within Due Date Inc Sales Tax',
-        formatMoney(totalPayable),
-        startX,
-        cursorY
-      );
-      cursorY = drawSummaryRow('Late Payment Surcharge', formatMoney(lateSurcharge), startX, cursorY);
-      cursorY = drawSummaryRow('Payable After Due Date', formatMoney(payableAfterDue), startX, cursorY);
+      cursorY = drawRentDetails(startX, cursorY);
 
-      cursorY += 2;
+      let footY = cursorY + 2;
       pdf.setFont('helvetica', 'italic');
       pdf.setFontSize(5.2);
       footnotes.forEach((line) => {
         const wrapped = pdf.splitTextToSize(line, contentWidth);
-        wrapped.forEach((entry) => {
-          pdf.text(entry, startX, cursorY);
-          cursorY += 3.2;
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, footY);
+          footY += 3.2;
         });
       });
     };
@@ -730,142 +959,162 @@ const RentalManagement = () => {
     const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
     copies.forEach((copy, index) => drawPanel(copy, index));
 
-    const sanitizedName = (property.propertyName || property.plotNumber || property._id || 'rent-property')
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'rent-property')
       .toString()
       .replace(/[^a-z0-9-_ ]/gi, '')
       .trim()
       .replace(/\s+/g, '_');
 
-    pdf.save(`Rental_Voucher_${sanitizedName}.pdf`);
+    pdf.save(`Rent_Invoice_${sanitizedName || property._id}.pdf`);
   };
 
-  const renderVoucherPreview = () => {
-    if (voucherLoading) {
+  const handleDownloadInvoice = () => {
+    if (!invoiceProperty || !invoiceData) return;
+    generateRentInvoicePDF();
+  };
+
+  const renderInvoicePreview = () => {
+    if (invoiceLoading) {
       return (
         <Stack alignItems="center" spacing={1} py={3}>
           <CircularProgress size={20} />
           <Typography variant="body2" color="text.secondary">
-            Fetching latest rent invoice...
+            Creating invoice...
           </Typography>
         </Stack>
       );
     }
 
-    if (voucherError) {
-      return <Alert severity="error">{voucherError}</Alert>;
+    if (invoiceError) {
+      return <Alert severity="error">{invoiceError}</Alert>;
     }
 
-    if (!voucherProperty) {
-      return <Typography color="text.secondary">Select a property to preview its voucher.</Typography>;
+    if (!invoiceProperty) {
+      return <Typography color="text.secondary">Select a property to create invoice.</Typography>;
     }
 
-    if (!voucherInvoice) {
+    if (!invoiceData) {
       return (
         <Alert severity="info">
-          No rent invoice found for this property yet. Record a rent payment to generate the voucher.
+          Creating invoice...
         </Alert>
       );
     }
 
-    const formatPreviewDate = (value, pattern = 'DD-MMM-YYYY') =>
-      value ? dayjs(value).format(pattern) : '—';
-
-    const billMonth =
-      voucherInvoice.billMonth ||
-      (voucherInvoice.periodFrom ? dayjs(voucherInvoice.periodFrom).format('MMMM YYYY') : '—');
-    const rentAmount = Number(voucherInvoice.amount) || voucherProperty.expectedRent || 0;
-    const arrears = Number(voucherInvoice.arrears) || 0;
-    const totalPayable = Number(voucherInvoice.totalAmount) || rentAmount + arrears;
+    // Calculate total amount from charges + arrears
+    const rentCharges = invoiceData.charges?.filter(c => c.type === 'RENT') || [];
+    const chargesTotal = rentCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+    const arrearsTotal = rentCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+    const totalAmount = chargesTotal + arrearsTotal;
 
     return (
       <Stack spacing={2}>
-        {voucherInvoice.autoGenerated && (
-          <Alert severity="warning">
-            No recorded rent payments were found for this property. The voucher displays the expected rent values so you
-            can still download and attach it.
-          </Alert>
-        )}
-
         <Box>
           <Typography variant="subtitle2" color="text.secondary">
             Property
           </Typography>
-          <Typography variant="h6">{voucherProperty.propertyName || voucherProperty.propertyCode}</Typography>
+          <Typography variant="h6">{invoiceProperty.propertyName || invoiceProperty.propertyCode}</Typography>
           <Typography variant="body2" color="text.secondary">
-            {voucherProperty.fullAddress || voucherProperty.address || 'No address recorded'}
+            {invoiceProperty.fullAddress || invoiceProperty.address || 'No address recorded'}
           </Typography>
         </Box>
 
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Invoice #
-            </Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {voucherInvoice.invoiceNumber || '—'}
-            </Typography>
+            <TextField
+              label="Invoice Number"
+              value={invoiceData.invoiceNumber || ''}
+              onChange={(e) => handleInvoiceFieldChange('invoiceNumber', e.target.value)}
+              fullWidth
+              size="small"
+              helperText={invoiceData.invoiceNumber ? '' : 'Auto-generated if left empty'}
+            />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Bill Month
-            </Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {billMonth}
-            </Typography>
+            <TextField
+              label="Due Date"
+              type="date"
+              value={invoiceData.dueDate ? dayjs(invoiceData.dueDate).format('YYYY-MM-DD') : ''}
+              onChange={(e) => handleInvoiceFieldChange('dueDate', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Invoice Date
-            </Typography>
-            <Typography variant="body1">{formatPreviewDate(voucherInvoice.invoicingDate || voucherInvoice.periodFrom)}</Typography>
+            <TextField
+              label="Period From"
+              type="date"
+              value={invoiceData.periodFrom ? dayjs(invoiceData.periodFrom).format('YYYY-MM-DD') : ''}
+              onChange={(e) => handleInvoiceFieldChange('periodFrom', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Due Date
-            </Typography>
-            <Typography variant="body1">{formatPreviewDate(voucherInvoice.dueDate || voucherInvoice.periodTo)}</Typography>
+            <TextField
+              label="Period To"
+              type="date"
+              value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
+              onChange={(e) => handleInvoiceFieldChange('periodTo', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
           </Grid>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Period From
-            </Typography>
-            <Typography variant="body1">{formatPreviewDate(voucherInvoice.periodFrom)}</Typography>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Period To
-            </Typography>
-            <Typography variant="body1">{formatPreviewDate(voucherInvoice.periodTo)}</Typography>
-          </Grid>
+          {invoiceData.charges?.filter(charge => charge.type === 'RENT').map((charge, filteredIdx) => {
+            const originalIdx = invoiceData.charges.findIndex(c => c === charge);
+            return (
+              <React.Fragment key={originalIdx}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label={charge.description}
+                    type="number"
+                    value={charge.amount || 0}
+                    onChange={(e) => handleInvoiceFieldChange(`charge.${originalIdx}.amount`, e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputProps={{
+                      startAdornment: <Typography sx={{ mr: 1 }}>PKR</Typography>
+                    }}
+                  />
         </Grid>
-
-        <Divider />
-
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={4}>
-            <Typography variant="caption" color="text.secondary">
-              Monthly Rent
-            </Typography>
-            <Typography variant="h6">{formatCurrency(rentAmount)}</Typography>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label={`${charge.description} Arrears`}
+                    type="number"
+                    value={charge.arrears || 0}
+                    onChange={(e) => handleInvoiceFieldChange(`charge.${originalIdx}.arrears`, e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputProps={{
+                      startAdornment: <Typography sx={{ mr: 1 }}>PKR</Typography>
+                    }}
+                  />
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <Typography variant="caption" color="text.secondary">
-              Arrears
-            </Typography>
-            <Typography variant="h6">{arrears ? formatCurrency(arrears) : '-'}</Typography>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Typography variant="caption" color="text.secondary">
-              Total Payable
-            </Typography>
-            <Typography variant="h6" color="primary">
-              {formatCurrency(totalPayable)}
-            </Typography>
+              </React.Fragment>
+            );
+          })}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Total Amount"
+              value={formatCurrency(totalAmount)}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+              sx={{
+                '& .MuiInputBase-input': {
+                  fontWeight: 600,
+                  fontSize: '1.1rem'
+                }
+              }}
+            />
           </Grid>
         </Grid>
 
         <Alert severity="info">
-          Download to get the tri-fold rent voucher mirroring the shared Rent Invoice design.
+          Download to view the tri-fold invoice (Bank, Office & Client copies) exactly as it will print.
         </Alert>
       </Stack>
     );
@@ -902,12 +1151,27 @@ const RentalManagement = () => {
     }));
   };
 
-  const toggleRowExpansion = (propertyId) => {
+  const toggleRowExpansion = async (propertyId) => {
     const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(propertyId)) {
-      newExpanded.delete(propertyId);
-    } else {
+    const isExpanding = !newExpanded.has(propertyId);
+    
+    if (isExpanding) {
       newExpanded.add(propertyId);
+      // Fetch invoices when expanding
+      if (!propertyInvoices[propertyId]) {
+        try {
+          setLoadingInvoices(prev => ({ ...prev, [propertyId]: true }));
+          const response = await fetchInvoicesForProperty(propertyId);
+          setPropertyInvoices(prev => ({ ...prev, [propertyId]: response.data?.data || [] }));
+        } catch (err) {
+          console.error('Error fetching invoices:', err);
+          setPropertyInvoices(prev => ({ ...prev, [propertyId]: [] }));
+        } finally {
+          setLoadingInvoices(prev => ({ ...prev, [propertyId]: false }));
+        }
+      }
+    } else {
+      newExpanded.delete(propertyId);
     }
     setExpandedRows(newExpanded);
   };
@@ -972,11 +1236,6 @@ const RentalManagement = () => {
       default:
         return { color: 'default', label: status || 'N/A', iconColor: 'text.secondary' };
     }
-  };
-
-  const handleOpenStatusMenu = (event, property, payment) => {
-    setStatusMenuAnchor(event.currentTarget);
-    setStatusMenuContext({ propertyId: property._id, paymentId: payment._id });
   };
 
   const handleCloseStatusMenu = () => {
@@ -1075,9 +1334,8 @@ const RentalManagement = () => {
                   <TableCell>Address</TableCell>
                   <TableCell>Agreement</TableCell>
                   <TableCell>Tenant</TableCell>
-                  <TableCell>Rent Summary</TableCell>
+                  <TableCell>Rent</TableCell>
                   <TableCell>Payment Status</TableCell>
-                  <TableCell>Total Payments</TableCell>
                   <TableCell>Property Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -1168,16 +1426,6 @@ const RentalManagement = () => {
                         })()}
                       </TableCell>
                       <TableCell>
-                        <Typography fontWeight={600}>
-                          {formatCurrency(
-                            property.totalPaidAmount ?? totalPayments(property.payments)
-                          )}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {property.payments?.length || 0} payment(s)
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
                         <Chip
                           label={property.status}
                           size="small"
@@ -1199,11 +1447,11 @@ const RentalManagement = () => {
                               <VisibilityIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="View Rental Voucher">
+                          <Tooltip title="Create Invoice">
                             <IconButton
                               size="small"
                               color="primary"
-                              onClick={() => handleOpenVoucherDialog(property)}
+                              onClick={() => handleCreateInvoice(property)}
                             >
                               <ReceiptLongIcon fontSize="small" />
                             </IconButton>
@@ -1225,80 +1473,92 @@ const RentalManagement = () => {
                         <Collapse in={expandedRows.has(property._id)} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 2, px: 3 }}>
                             <Typography variant="subtitle2" gutterBottom>
-                              Payment History
+                              Invoice History
                             </Typography>
-                            {property.payments && property.payments.length > 0 ? (
+                            {loadingInvoices[property._id] ? (
+                              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                                <CircularProgress size={20} />
+                              </Box>
+                            ) : propertyInvoices[property._id] && propertyInvoices[property._id].length > 0 ? (
                               <Table size="small">
                                 <TableHead>
                                   <TableRow>
+                                    <TableCell>Invoice #</TableCell>
                                     <TableCell>Date</TableCell>
                                   <TableCell>Period</TableCell>
-                                    <TableCell>Invoice #</TableCell>
-                                    <TableCell>Amount</TableCell>
+                                    <TableCell>Due Date</TableCell>
+                                    <TableCell align="right">Amount</TableCell>
                                   <TableCell>Status</TableCell>
-                                    <TableCell>Method</TableCell>
                                     <TableCell align="right">Actions</TableCell>
                                   </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                  {property.payments.map((payment, idx) => (
-                                    <TableRow key={idx}>
+                                  {propertyInvoices[property._id]
+                                    .filter(inv => inv.chargeTypes?.includes('RENT'))
+                                    .map((invoice) => (
+                                    <TableRow key={invoice._id}>
+                                      <TableCell>{invoice.invoiceNumber || 'N/A'}</TableCell>
                                       <TableCell>
-                                        {dayjs(payment.paymentDate).format('MMM D, YYYY')}
+                                        {invoice.invoiceDate ? dayjs(invoice.invoiceDate).format('MMM D, YYYY') : 'N/A'}
                                       </TableCell>
                                       <TableCell>
-                                        {payment.periodFrom && payment.periodTo ? (
-                                          `${dayjs(payment.periodFrom).format('MMM D')} - ${dayjs(payment.periodTo).format('MMM D, YYYY')}`
+                                        {invoice.periodFrom && invoice.periodTo ? (
+                                          `${dayjs(invoice.periodFrom).format('MMM D')} - ${dayjs(invoice.periodTo).format('MMM D, YYYY')}`
                                         ) : (
                                           'N/A'
                                         )}
                                       </TableCell>
-                                      <TableCell>{payment.invoiceNumber || 'N/A'}</TableCell>
-                                      <TableCell>{formatCurrency(payment.amount)}</TableCell>
+                                      <TableCell>
+                                        {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
+                                      </TableCell>
+                                      <TableCell align="right">{formatCurrency(invoice.grandTotal || 0)}</TableCell>
                                       <TableCell>
                                         {(() => {
-                                          const { color, label, iconColor } = getPaymentStatusConfig(payment.status);
+                                          const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
                                           return (
                                             <Chip
                                               label={label}
-                                              color={color === 'default' ? undefined : color}
-                                              variant={color === 'default' ? 'outlined' : 'filled'}
+                                              color={color}
                                               size="small"
-                                              icon={
-                                                <StatusIcon
-                                                  fontSize="small"
-                                                  sx={{ color: iconColor }}
-                                                />
-                                              }
                                             />
                                           );
                                         })()}
                                       </TableCell>
-                                      <TableCell>{payment.paymentMethod}</TableCell>
                                       <TableCell align="right">
-                                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                                          <Tooltip title="View Details">
+                                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                          <Tooltip title="View Invoice">
                                             <IconButton
                                               size="small"
                                               color="primary"
-                                              onClick={() => handleViewPaymentDetails(property, payment)}
+                                              onClick={() => {
+                                                setInvoiceProperty(property);
+                                                setInvoiceData(invoice);
+                                                setInvoiceDialogOpen(true);
+                                              }}
                                             >
                                               <VisibilityIcon fontSize="small" />
                                             </IconButton>
                                           </Tooltip>
-                                          <Tooltip title="Print Invoice">
+                                          <Tooltip title="Download Invoice">
                                             <IconButton
                                               size="small"
-                                              onClick={() => handleViewInvoice(property, payment)}
+                                              color="primary"
+                                              onClick={() => {
+                                                setInvoiceProperty(property);
+                                                setInvoiceData(invoice);
+                                                setTimeout(() => {
+                                                  generateRentInvoicePDF();
+                                                }, 100);
+                                              }}
                                             >
-                                              <PrintIcon fontSize="small" />
+                                              <DownloadIcon fontSize="small" />
                                             </IconButton>
                                           </Tooltip>
-                                          <Tooltip title="Delete Payment">
+                                          <Tooltip title="Delete Invoice">
                                             <IconButton
                                               size="small"
                                               color="error"
-                                              onClick={() => handleDeletePayment(property, payment)}
+                                              onClick={() => handleDeleteInvoice(property, invoice)}
                                             >
                                               <DeleteIcon fontSize="small" />
                                             </IconButton>
@@ -1311,7 +1571,7 @@ const RentalManagement = () => {
                               </Table>
                             ) : (
                               <Typography variant="body2" color="text.secondary">
-                                No payments recorded yet
+                                No invoices found. Create an invoice using the "Create Invoice" button.
                               </Typography>
                             )}
                           </Box>
@@ -1326,18 +1586,25 @@ const RentalManagement = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={voucherDialogOpen} onClose={handleCloseVoucherDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Rental Voucher Preview</DialogTitle>
-        <DialogContent dividers>{renderVoucherPreview()}</DialogContent>
+      <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Invoice Preview</DialogTitle>
+        <DialogContent dividers>{renderInvoicePreview()}</DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseVoucherDialog}>Close</Button>
+          <Button onClick={handleCloseInvoiceDialog}>Close</Button>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadInvoice}
+            disabled={invoiceLoading || !invoiceData}
+          >
+            Download
+          </Button>
           <Button
             variant="contained"
-            startIcon={<DownloadIcon />}
-            onClick={handleDownloadVoucher}
-            disabled={voucherLoading || !voucherInvoice}
+            onClick={handleSaveInvoice}
+            disabled={invoiceLoading || !invoiceData}
           >
-            Download Voucher
+            {invoiceLoading ? 'Creating...' : 'Save Invoice'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2042,10 +2309,10 @@ const RentalManagement = () => {
       )}
 
       {/* Invoice Print Dialog */}
-      {invoiceData && (
-        <Dialog open={invoiceDialog} onClose={() => setInvoiceDialog(false)} maxWidth="lg" fullWidth>
+      {paymentInvoiceData && (
+        <Dialog open={paymentInvoiceDialog} onClose={() => setPaymentInvoiceDialog(false)} maxWidth="lg" fullWidth>
           <DialogTitle sx={{ '@media print': { display: 'none' } }}>
-            Invoice - {invoiceData.invoiceNumber}
+            Invoice - {paymentInvoiceData.invoiceNumber}
             <Stack direction="row" spacing={1} sx={{ position: 'absolute', right: 8, top: 8 }}>
               <Button startIcon={<DownloadIcon />} onClick={handleDownloadPDF} variant="outlined">
                 Download PDF
@@ -2053,7 +2320,7 @@ const RentalManagement = () => {
               <Button startIcon={<PrintIcon />} onClick={handlePrintInvoice} variant="outlined">
                 Print
               </Button>
-              <IconButton onClick={() => setInvoiceDialog(false)}>
+              <IconButton onClick={() => setPaymentInvoiceDialog(false)}>
                 <CloseIcon />
               </IconButton>
             </Stack>
@@ -2087,7 +2354,7 @@ const RentalManagement = () => {
                       ({copyLabel})
                     </Typography>
                     <Typography variant="h6" fontWeight={700} color="error" sx={{ mt: 1 }}>
-                      {invoiceData.propertyType.toUpperCase()} CHARGES
+                      {paymentInvoiceData.propertyType.toUpperCase()} CHARGES
                     </Typography>
                   </Box>
 
@@ -2101,7 +2368,7 @@ const RentalManagement = () => {
                               Property Type:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {invoiceData.propertyType}
+                              {paymentInvoiceData.propertyType}
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -2109,7 +2376,7 @@ const RentalManagement = () => {
                               Tenant Name:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {invoiceData.tenantName}
+                              {paymentInvoiceData.tenantName}
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -2117,7 +2384,7 @@ const RentalManagement = () => {
                               Address:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {invoiceData.address}
+                              {paymentInvoiceData.address}
                             </TableCell>
                           </TableRow>
                         </TableBody>
@@ -2131,7 +2398,7 @@ const RentalManagement = () => {
                               Period From:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {dayjs(invoiceData.periodFrom).format('D-MMM-YY')}
+                              {dayjs(paymentInvoiceData.periodFrom).format('D-MMM-YY')}
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -2139,7 +2406,7 @@ const RentalManagement = () => {
                               Period To:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {dayjs(invoiceData.periodTo).format('D-MMM-YY')}
+                              {dayjs(paymentInvoiceData.periodTo).format('D-MMM-YY')}
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -2147,7 +2414,7 @@ const RentalManagement = () => {
                               Invoice No.:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {invoiceData.invoiceNumber}
+                              {paymentInvoiceData.invoiceNumber}
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -2155,7 +2422,7 @@ const RentalManagement = () => {
                               Invoicing Date:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {dayjs(invoiceData.invoicingDate).format('MMMM D, YYYY')}
+                              {dayjs(paymentInvoiceData.invoicingDate).format('MMMM D, YYYY')}
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -2163,7 +2430,7 @@ const RentalManagement = () => {
                               Due Date:
                             </TableCell>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
-                              {dayjs(invoiceData.dueDate).format('MMMM D, YYYY')}
+                              {dayjs(paymentInvoiceData.dueDate).format('MMMM D, YYYY')}
                             </TableCell>
                           </TableRow>
                         </TableBody>
@@ -2181,7 +2448,7 @@ const RentalManagement = () => {
                     </Typography>
                     <Table size="small" sx={{ mb: 2 }}>
                       <TableBody>
-                        {invoiceData.charges.map((charge, idx) => (
+                        {paymentInvoiceData.charges.map((charge, idx) => (
                           <TableRow key={idx}>
                             <TableCell sx={{ border: 0, py: 0.5 }}>
                               {charge.description}
@@ -2196,7 +2463,7 @@ const RentalManagement = () => {
                             Total Due Amount
                           </TableCell>
                           <TableCell align="right" sx={{ borderTop: '1px solid #ddd', py: 1, fontWeight: 700 }}>
-                            {formatCurrency(invoiceData.totalAmount)}
+                            {formatCurrency(paymentInvoiceData.totalAmount)}
                           </TableCell>
                         </TableRow>
                       </TableBody>

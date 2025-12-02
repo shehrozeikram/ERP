@@ -151,6 +151,7 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
       '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
+      '/finance/taj-utilities-charges/receipts': 'taj_receipts',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module

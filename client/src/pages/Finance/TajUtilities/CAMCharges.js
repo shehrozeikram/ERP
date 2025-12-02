@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -32,8 +32,6 @@ import {
   Collapse
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
@@ -53,11 +51,10 @@ import {
   fetchCAMCharges,
   createCAMCharge,
   updateCAMCharge,
-  deleteCAMCharge,
   addPaymentToPropertyCAM,
-  deletePaymentFromCAMCharge,
-  fetchLatestCAMChargeForProperty
+  deletePaymentFromCAMCharge
 } from '../../../services/camChargesService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice } from '../../../services/propertyInvoiceService';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
@@ -139,7 +136,6 @@ const months = [
 
 const CAMCharges = () => {
   const navigate = useNavigate();
-  const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -174,18 +170,19 @@ const CAMCharges = () => {
   });
   const [paymentAttachment, setPaymentAttachment] = useState(null);
   
-  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
-  const [voucherProperty, setVoucherProperty] = useState(null);
-  const [voucherCharge, setVoucherCharge] = useState(null);
-  const [voucherLoading, setVoucherLoading] = useState(false);
-  const [voucherError, setVoucherError] = useState('');
+  const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
+  const [invoiceProperty, setInvoiceProperty] = useState(null);
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState('');
+  const [propertyInvoices, setPropertyInvoices] = useState({});
+  const [loadingInvoices, setLoadingInvoices] = useState({});
 
   const loadCharges = async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await fetchCAMCharges({ search });
-      setCharges(response.data?.data || []);
+      await fetchCAMCharges({ search });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load CAM Charges');
     } finally {
@@ -196,6 +193,7 @@ const CAMCharges = () => {
   useEffect(() => {
     loadCharges();
     loadProperties();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadProperties = async () => {
@@ -211,12 +209,27 @@ const CAMCharges = () => {
     }
   };
 
-  const toggleRowExpansion = (propertyId) => {
+  const toggleRowExpansion = async (propertyId) => {
     const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(propertyId)) {
-      newExpanded.delete(propertyId);
-    } else {
+    const isExpanding = !newExpanded.has(propertyId);
+    
+    if (isExpanding) {
       newExpanded.add(propertyId);
+      // Fetch invoices when expanding
+      if (!propertyInvoices[propertyId]) {
+        try {
+          setLoadingInvoices(prev => ({ ...prev, [propertyId]: true }));
+          const response = await fetchInvoicesForProperty(propertyId);
+          setPropertyInvoices(prev => ({ ...prev, [propertyId]: response.data?.data || [] }));
+        } catch (err) {
+          console.error('Error fetching invoices:', err);
+          setPropertyInvoices(prev => ({ ...prev, [propertyId]: [] }));
+        } finally {
+          setLoadingInvoices(prev => ({ ...prev, [propertyId]: false }));
+        }
+      }
+    } else {
+      newExpanded.delete(propertyId);
     }
     setExpandedRows(newExpanded);
   };
@@ -225,46 +238,146 @@ const CAMCharges = () => {
     return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
-  const getLatestPayment = (payments = []) => {
-    if (!payments.length) return null;
-    return [...payments].sort(
-      (a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0)
-    )[0];
-  };
 
-  const handleOpenVoucherDialog = async (property) => {
-    setVoucherProperty(property);
-    setVoucherCharge(null);
-    setVoucherError('');
-    setVoucherDialogOpen(true);
+  const handleCreateInvoice = async (property) => {
+    setInvoiceProperty(property);
+    setInvoiceData(null);
+    setInvoiceError('');
+    setInvoiceDialogOpen(true);
 
     try {
-      setVoucherLoading(true);
-      const response = await fetchLatestCAMChargeForProperty(property._id);
-      setVoucherCharge(response.data?.data || null);
+      setInvoiceLoading(true);
+      const response = await createInvoice(property._id, {
+        includeCAM: true,
+        includeElectricity: false,
+        includeRent: false
+      });
+      setInvoiceData(response.data?.data || null);
       if (!response.data?.data) {
-        setVoucherError('No CAM bill found for this property.');
+        setInvoiceError('Failed to create invoice.');
       }
     } catch (err) {
-      setVoucherError(err.response?.data?.message || 'Failed to load latest CAM bill');
+      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
     } finally {
-      setVoucherLoading(false);
+      setInvoiceLoading(false);
     }
   };
 
-  const handleCloseVoucherDialog = () => {
-    setVoucherDialogOpen(false);
-    setVoucherProperty(null);
-    setVoucherCharge(null);
-    setVoucherError('');
+  const handleInvoiceFieldChange = (field, value) => {
+    if (!invoiceData) return;
+    
+    if (field.startsWith('charge.')) {
+      const [, chargeIndex, chargeField] = field.split('.');
+      const updatedCharges = [...invoiceData.charges];
+      updatedCharges[chargeIndex] = {
+        ...updatedCharges[chargeIndex],
+        [chargeField]: chargeField === 'amount' || chargeField === 'arrears' ? Number(value) || 0 : value
+      };
+      
+      // Recalculate totals - only include CAM charges
+      const camCharges = updatedCharges.filter(c => c.type === 'CAM');
+      const subtotal = camCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      const totalArrears = camCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+      const grandTotal = subtotal + totalArrears;
+      
+      setInvoiceData({
+        ...invoiceData,
+        charges: updatedCharges,
+        subtotal,
+        totalArrears,
+        grandTotal
+      });
+    } else {
+      setInvoiceData({
+        ...invoiceData,
+        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate'
+          ? (value ? new Date(value) : null)
+          : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
+          ? Number(value) || 0
+          : value
+      });
+    }
   };
 
-  const generateCamVoucherPDF = () => {
-    if (!voucherProperty || !voucherCharge) return;
+  const handleSaveInvoice = async () => {
+    if (!invoiceData || !invoiceData._id) {
+      setInvoiceError('Invoice data is incomplete');
+      return;
+    }
 
-    const property = voucherProperty;
-    const charge = voucherCharge;
-    const latestPayment = getLatestPayment(charge?.payments || []);
+    try {
+      setInvoiceLoading(true);
+      setInvoiceError('');
+      
+      const response = await updateInvoice(invoiceData._id, {
+        invoiceNumber: invoiceData.invoiceNumber,
+        invoiceDate: invoiceData.invoiceDate,
+        dueDate: invoiceData.dueDate,
+        periodFrom: invoiceData.periodFrom,
+        periodTo: invoiceData.periodTo,
+        charges: invoiceData.charges,
+        subtotal: invoiceData.subtotal,
+        totalArrears: invoiceData.totalArrears,
+        grandTotal: invoiceData.grandTotal
+      });
+
+      setInvoiceData(response.data?.data || invoiceData);
+      setSuccess('Invoice saved successfully');
+      
+      // Refresh invoices for this property
+      if (invoiceProperty?._id) {
+        const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
+        setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
+      }
+      
+      // Close dialog after a short delay
+      setTimeout(() => {
+        handleCloseInvoiceDialog();
+      }, 1500);
+    } catch (err) {
+      setInvoiceError(err.response?.data?.message || 'Failed to save invoice');
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleCloseInvoiceDialog = () => {
+    setInvoiceDialogOpen(false);
+    setInvoiceProperty(null);
+    setInvoiceData(null);
+    setInvoiceError('');
+  };
+
+  const handleDeleteInvoice = async (property, invoice) => {
+    if (!window.confirm(`Are you sure you want to delete invoice ${invoice.invoiceNumber || invoice._id}?`)) {
+      return;
+    }
+
+    try {
+      setError('');
+      await deleteInvoice(invoice._id);
+      setSuccess('Invoice deleted successfully');
+      
+      // Refresh invoices for this property
+      if (property?._id) {
+        const invoiceResponse = await fetchInvoicesForProperty(property._id);
+        setPropertyInvoices(prev => ({ ...prev, [property._id]: invoiceResponse.data?.data || [] }));
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete invoice');
+    }
+  };
+
+  const generateInvoicePDF = () => {
+    if (!invoiceProperty || !invoiceData) return;
+
+    const property = invoiceProperty;
+    const invoice = invoiceData;
+    
+    // Get CAM charge from invoice
+    const camCharge = invoice.charges?.find(c => c.type === 'CAM');
+    const camAmount = camCharge?.amount || 0;
+    const arrears = camCharge?.arrears || 0;
 
     const pdf = new jsPDF('landscape', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -283,25 +396,19 @@ const CAMCharges = () => {
     const formatMoney = (value) =>
       (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
 
-    const periodFromRaw = charge?.periodFrom || latestPayment?.periodFrom || null;
-    const periodToRaw = charge?.periodTo || latestPayment?.periodTo || null;
+    const periodFromRaw = invoice?.periodFrom || null;
+    const periodToRaw = invoice?.periodTo || null;
 
     const periodFrom = formatDate(periodFromRaw);
     const periodTo = formatDate(periodToRaw);
-    const invoiceNumber = charge?.invoiceNumber || latestPayment?.invoiceNumber || '—';
-    const invoicingDate = formatFullDate(charge?.createdAt || charge?.updatedAt);
-    const computedDueDate =
-      charge?.dueDate ||
-      (periodToRaw
-        ? dayjs(periodToRaw).add(30, 'day').toDate()
-        : charge?.createdAt
-        ? dayjs(charge.createdAt).add(30, 'day').toDate()
-        : null);
+    const invoiceNumber = invoice?.invoiceNumber || '—';
+    const invoicingDate = formatFullDate(invoice?.invoiceDate || invoice?.createdAt);
+    const computedDueDate = invoice?.dueDate || (periodToRaw ? dayjs(periodToRaw).add(30, 'day').toDate() : null);
     const dueDate = formatFullDate(computedDueDate);
     const monthLabel = (periodToRaw
       ? dayjs(periodToRaw)
-      : charge?.createdAt
-      ? dayjs(charge.createdAt)
+      : invoice?.invoiceDate
+      ? dayjs(invoice.invoiceDate)
       : dayjs()
     ).format('MMM-YY').toUpperCase();
 
@@ -316,9 +423,7 @@ const CAMCharges = () => {
       ? `${property.areaValue} ${property.areaUnit || ''}`.trim()
       : '—';
 
-    const camAmount = Number(charge?.amount) || 0;
-    const arrears = Number(charge?.arrears) || 0;
-    const payableWithinDue = camAmount + arrears;
+    const payableWithinDue = invoice?.grandTotal || (camAmount + arrears);
     const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
     const payableAfterDue = payableWithinDue + lateSurcharge;
 
@@ -355,14 +460,14 @@ const CAMCharges = () => {
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(8);
       pdf.setTextColor(178, 34, 34);
-      pdf.text('RENT DETAILS', startX + width / 2, y + 4.5, { align: 'center' });
+      pdf.text('CAM CHARGES DETAILS', startX + width / 2, y + 4.5, { align: 'center' });
       pdf.setTextColor(0, 0, 0);
       y += 13;
 
       const rows = [
         ['CAM Charges', formatMoney(camAmount)],
         ['Charges for the Month', formatMoney(camAmount)],
-        ['Arrears', arrears ? formatMoney(arrears) : '-'],
+        ['Arrears', invoice.totalArrears ? formatMoney(invoice.totalArrears) : '-'],
         ['Payable Within Due Date', formatMoney(payableWithinDue)],
         ['Payable After Due Date', formatMoney(payableAfterDue)]
       ];
@@ -401,7 +506,7 @@ const CAMCharges = () => {
       pdf.setFontSize(11);
       pdf.setTextColor(178, 34, 34);
       pdf.text(
-        `Taj CAM Billing For The Month Of ${monthLabel}`,
+        `Taj CAM Charges Invoice For The Month Of ${monthLabel}`,
         startX + contentWidth / 2,
         cursorY,
         { align: 'center' }
@@ -457,16 +562,16 @@ const CAMCharges = () => {
       .trim()
       .replace(/\s+/g, '_');
 
-    pdf.save(`CAM_Voucher_${sanitizedName || property._id}.pdf`);
+    pdf.save(`CAM_Invoice_${sanitizedName || property._id}.pdf`);
   };
 
-  const handleDownloadVoucher = () => {
-    if (!voucherProperty || !voucherCharge) return;
-    generateCamVoucherPDF();
+  const handleDownloadInvoice = () => {
+    if (!invoiceProperty || !invoiceData) return;
+    generateInvoicePDF();
   };
 
-  const renderVoucherPreview = () => {
-    if (voucherLoading) {
+  const renderInvoicePreview = () => {
+    if (invoiceLoading) {
       return (
         <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
           <CircularProgress size={28} />
@@ -474,32 +579,25 @@ const CAMCharges = () => {
       );
     }
 
-    if (voucherError) {
-      return <Alert severity="error">{voucherError}</Alert>;
+    if (invoiceError) {
+      return <Alert severity="error">{invoiceError}</Alert>;
     }
 
-    if (!voucherProperty) {
-      return <Typography color="text.secondary">Select a property to preview its voucher.</Typography>;
+    if (!invoiceProperty) {
+      return <Typography color="text.secondary">Select a property to create invoice.</Typography>;
     }
 
-    if (!voucherCharge) {
-      return <Typography color="text.secondary">No CAM bill data available.</Typography>;
+    if (!invoiceData) {
+      return <Typography color="text.secondary">Creating invoice...</Typography>;
     }
 
-    const latestPayment = getLatestPayment(voucherCharge.payments || []);
     const formatDisplayDate = (value) => (value ? dayjs(value).format('DD MMM YYYY') : '—');
-    const previewPeriod =
-      latestPayment?.periodFrom || latestPayment?.periodTo
-        ? `${formatDisplayDate(latestPayment?.periodFrom)} - ${formatDisplayDate(latestPayment?.periodTo)}`
-        : '—';
-    const previewDueDate = voucherCharge?.dueDate
-      ? formatDisplayDate(voucherCharge.dueDate)
-      : previewPeriod !== '—'
-        ? formatDisplayDate(dayjs(latestPayment?.periodTo || new Date()).add(30, 'day'))
-        : formatDisplayDate(dayjs(voucherCharge.createdAt || new Date()).add(30, 'day'));
-
-    const payableWithin =
-      (Number(voucherCharge.amount) || 0) + (Number(voucherCharge.arrears) || 0);
+    
+    // Calculate total amount from charges + arrears
+    const camCharges = invoiceData.charges?.filter(c => c.type === 'CAM') || [];
+    const chargesTotal = camCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+    const arrearsTotal = camCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+    const totalAmount = chargesTotal + arrearsTotal;
 
     return (
       <Stack spacing={2}>
@@ -508,60 +606,106 @@ const CAMCharges = () => {
             Property
           </Typography>
           <Typography variant="h6">
-            {voucherProperty.propertyName || voucherProperty.propertyType || '—'}
+            {invoiceProperty.propertyName || invoiceProperty.propertyType || '—'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {voucherProperty.address || voucherProperty.street || 'No address recorded'}
+            {invoiceProperty.address || invoiceProperty.street || 'No address recorded'}
           </Typography>
         </Box>
         <Grid container spacing={2}>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Invoice Number
-            </Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {voucherCharge.invoiceNumber || latestPayment?.invoiceNumber || '—'}
-            </Typography>
+            <TextField
+              label="Invoice Number"
+              value={invoiceData.invoiceNumber || ''}
+              onChange={(e) => handleInvoiceFieldChange('invoiceNumber', e.target.value)}
+              fullWidth
+              size="small"
+            />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Billing Period
-            </Typography>
-            <Typography variant="body1">{previewPeriod}</Typography>
+            <TextField
+              label="Period From"
+              type="date"
+              value={invoiceData.periodFrom ? dayjs(invoiceData.periodFrom).format('YYYY-MM-DD') : ''}
+              onChange={(e) => handleInvoiceFieldChange('periodFrom', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              CAM Charges
-            </Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {formatCurrency(voucherCharge.amount || 0)}
-            </Typography>
+            <TextField
+              label="Period To"
+              type="date"
+              value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
+              onChange={(e) => handleInvoiceFieldChange('periodTo', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          {invoiceData.charges?.filter(charge => charge.type === 'CAM').map((charge, filteredIdx) => {
+            const originalIdx = invoiceData.charges.findIndex(c => c === charge);
+            return (
+              <React.Fragment key={originalIdx}>
+          <Grid item xs={12} sm={6}>
+                  <TextField
+                    label={charge.description}
+                    type="number"
+                    value={charge.amount || 0}
+                    onChange={(e) => handleInvoiceFieldChange(`charge.${originalIdx}.amount`, e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputProps={{
+                      startAdornment: <Typography sx={{ mr: 1 }}>PKR</Typography>
+                    }}
+                  />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Arrears
-            </Typography>
-            <Typography variant="body1">
-              {voucherCharge.arrears ? formatCurrency(voucherCharge.arrears || 0) : '—'}
-            </Typography>
+                  <TextField
+                    label={`${charge.description} Arrears`}
+                    type="number"
+                    value={charge.arrears || 0}
+                    onChange={(e) => handleInvoiceFieldChange(`charge.${originalIdx}.arrears`, e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputProps={{
+                      startAdornment: <Typography sx={{ mr: 1 }}>PKR</Typography>
+                    }}
+                  />
+          </Grid>
+              </React.Fragment>
+            );
+          })}
+          <Grid item xs={12} sm={6}>
+            <TextField
+              label="Total Amount"
+              value={formatCurrency(totalAmount)}
+              fullWidth
+              size="small"
+              InputProps={{ readOnly: true }}
+              sx={{
+                '& .MuiInputBase-input': {
+                  fontWeight: 600,
+                  fontSize: '1.1rem'
+                }
+              }}
+            />
           </Grid>
           <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Payable Within Due Date
-            </Typography>
-            <Typography variant="body1" fontWeight={600}>
-              {formatCurrency(payableWithin)}
-            </Typography>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">
-              Due Date
-            </Typography>
-            <Typography variant="body1">{previewDueDate}</Typography>
+            <TextField
+              label="Due Date"
+              type="date"
+              value={invoiceData.dueDate ? dayjs(invoiceData.dueDate).format('YYYY-MM-DD') : ''}
+              onChange={(e) => handleInvoiceFieldChange('dueDate', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
           </Grid>
         </Grid>
         <Alert severity="info">
-          Download to view the tri-fold CAM voucher (Bank, Office & Client copies).
+          Download to view the tri-fold invoice (Bank, Office & Client copies).
         </Alert>
       </Stack>
     );
@@ -725,37 +869,6 @@ const CAMCharges = () => {
     }
   };
 
-  const handleOpenDialog = (charge) => {
-    if (charge) {
-      setEditingCharge(charge);
-      setFormData({
-        invoiceNumber: charge.invoiceNumber || '',
-        plotNo: charge.plotNo || '',
-        rdaNo: charge.rdaNo || '',
-        street: charge.street || '',
-        sector: charge.sector || '',
-        category: charge.category || '',
-        address: charge.address || '',
-        project: charge.project || '',
-        owner: charge.owner || '',
-        contactNo: charge.contactNo || '',
-        status: charge.status || 'Active',
-        fileSubmission: charge.fileSubmission ? dayjs(charge.fileSubmission).format('YYYY-MM-DD') : '',
-        demarcationDate: charge.demarcationDate ? dayjs(charge.demarcationDate).format('YYYY-MM-DD') : '',
-        constructionDate: charge.constructionDate ? dayjs(charge.constructionDate).format('YYYY-MM-DD') : '',
-        familyStatus: charge.familyStatus || '',
-        arrears: charge.arrears || 0,
-        amount: charge.amount || 0,
-        amountInWords: charge.amountInWords || ''
-      });
-    } else {
-      setEditingCharge(null);
-      setFormData(defaultForm);
-    }
-    setDialogOpen(true);
-    setError('');
-    setSuccess('');
-  };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
@@ -763,10 +876,6 @@ const CAMCharges = () => {
     setFormData(defaultForm);
   };
 
-  const handleOpenViewDialog = (charge) => {
-    setViewingCharge(charge);
-    setViewDialogOpen(true);
-  };
 
   const handleCloseViewDialog = () => {
     setViewDialogOpen(false);
@@ -1195,29 +1304,6 @@ const CAMCharges = () => {
     }
   };
 
-  const handleDeleteCharge = async (id) => {
-    if (!window.confirm('Delete this CAM Charge record?')) return;
-    try {
-      await deleteCAMCharge(id);
-      setSuccess('CAM Charge deleted successfully');
-      loadCharges();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Unable to delete CAM Charge');
-    }
-  };
-
-
-  const filteredCharges = useMemo(() => {
-    if (!search) return charges;
-    const pattern = new RegExp(search, 'i');
-    return charges.filter(
-      (charge) =>
-        pattern.test(charge.invoiceNumber || '') ||
-        pattern.test(charge.plotNo || '') ||
-        pattern.test(charge.owner || '') ||
-        pattern.test(charge.project || '')
-    );
-  }, [charges, search]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -1271,30 +1357,24 @@ const CAMCharges = () => {
                   <TableCell>Payment Status</TableCell>
                   <TableCell align="right">CAM Amount</TableCell>
                   <TableCell align="right">Arrears</TableCell>
-                  <TableCell align="right">Total Received Payments</TableCell>
-                  <TableCell align="right">Remaining Payment</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {currentOverviewLoading ? (
                   <TableRow>
-                    <TableCell colSpan={12} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : properties.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={12} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
                       <Typography color="text.secondary">No properties found</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
                   properties.map((property) => {
-                    const propertyTotalReceived = totalPayments(property.payments || []);
-                    const totalDue =
-                      (Number(property.camAmount || 0) + Number(property.camArrears || 0));
-                    const remainingPayment = Math.max(totalDue - propertyTotalReceived, 0);
                     return (
                     <React.Fragment key={property._id}>
                       <TableRow hover>
@@ -1363,19 +1443,6 @@ const CAMCharges = () => {
                             </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Typography fontWeight={600}>
-                            {formatCurrency(propertyTotalReceived)}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {(property.payments || []).length} payment(s)
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography fontWeight={600}>
-                            {formatCurrency(remainingPayment)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
                             <Tooltip title="View Details">
                               <IconButton
@@ -1386,11 +1453,11 @@ const CAMCharges = () => {
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="View CAM Voucher">
+                            <Tooltip title="Create Invoice">
                               <IconButton
                                 size="small"
                                 color="primary"
-                                onClick={() => handleOpenVoucherDialog(property)}
+                                onClick={() => handleCreateInvoice(property)}
                               >
                                 <ReceiptIcon fontSize="small" />
                               </IconButton>
@@ -1408,43 +1475,52 @@ const CAMCharges = () => {
                         </TableCell>
                       </TableRow>
                       <TableRow>
-                      <TableCell colSpan={12} sx={{ py: 0, border: 0 }}>
+                      <TableCell colSpan={10} sx={{ py: 0, border: 0 }}>
                           <Collapse in={expandedRows.has(property._id)} timeout="auto" unmountOnExit>
                             <Box sx={{ py: 2, px: 3 }}>
                               <Typography variant="subtitle2" gutterBottom>
-                                Payment History
+                                Invoice History
                               </Typography>
-                              {property.payments && property.payments.length > 0 ? (
+                              {loadingInvoices[property._id] ? (
+                                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                                  <CircularProgress size={20} />
+                                </Box>
+                              ) : propertyInvoices[property._id] && propertyInvoices[property._id].length > 0 ? (
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
+                                      <TableCell>Invoice #</TableCell>
                                       <TableCell>Date</TableCell>
                                       <TableCell>Period</TableCell>
-                                      <TableCell>Invoice #</TableCell>
-                                      <TableCell>Amount</TableCell>
+                                      <TableCell>Due Date</TableCell>
+                                      <TableCell align="right">Amount</TableCell>
                                       <TableCell>Status</TableCell>
-                                      <TableCell>Method</TableCell>
                                       <TableCell align="right">Actions</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {property.payments.map((payment, idx) => (
-                                      <TableRow key={idx}>
+                                    {propertyInvoices[property._id]
+                                      .filter(inv => inv.chargeTypes?.includes('CAM'))
+                                      .map((invoice) => (
+                                      <TableRow key={invoice._id}>
+                                        <TableCell>{invoice.invoiceNumber || 'N/A'}</TableCell>
                                         <TableCell>
-                                          {dayjs(payment.paymentDate).format('MMM D, YYYY')}
+                                          {invoice.invoiceDate ? dayjs(invoice.invoiceDate).format('MMM D, YYYY') : 'N/A'}
                                         </TableCell>
                                         <TableCell>
-                                          {payment.periodFrom && payment.periodTo ? (
-                                            `${dayjs(payment.periodFrom).format('MMM D')} - ${dayjs(payment.periodTo).format('MMM D, YYYY')}`
+                                          {invoice.periodFrom && invoice.periodTo ? (
+                                            `${dayjs(invoice.periodFrom).format('MMM D')} - ${dayjs(invoice.periodTo).format('MMM D, YYYY')}`
                                           ) : (
                                             'N/A'
                                           )}
                                         </TableCell>
-                                        <TableCell>{payment.invoiceNumber || 'N/A'}</TableCell>
-                                        <TableCell>{formatCurrency(payment.totalAmount || payment.amount || 0)}</TableCell>
+                                        <TableCell>
+                                          {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
+                                        </TableCell>
+                                        <TableCell align="right">{formatCurrency(invoice.grandTotal || 0)}</TableCell>
                         <TableCell>
                           {(() => {
-                            const { color, label } = getPaymentStatusConfig(payment.status || 'unpaid');
+                                            const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
                             return (
                               <Chip
                                 label={label}
@@ -1454,22 +1530,41 @@ const CAMCharges = () => {
                             );
                           })()}
                         </TableCell>
-                                        <TableCell>{payment.paymentMethod || 'N/A'}</TableCell>
                                         <TableCell align="right">
                                           <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                            <Tooltip title="View Details">
+                                            <Tooltip title="View Invoice">
                                               <IconButton
                                                 size="small"
                                                 color="primary"
+                                                onClick={() => {
+                                                  setInvoiceProperty(property);
+                                                  setInvoiceData(invoice);
+                                                  setInvoiceDialogOpen(true);
+                                                }}
                                               >
                                                 <ViewIcon fontSize="small" />
                                               </IconButton>
                                             </Tooltip>
-                                            <Tooltip title="Delete Payment">
+                                            <Tooltip title="Download Invoice">
+                                              <IconButton
+                                                size="small"
+                                                color="primary"
+                                                onClick={() => {
+                                                  setInvoiceProperty(property);
+                                                  setInvoiceData(invoice);
+                                                  setTimeout(() => {
+                                                    generateInvoicePDF();
+                                                  }, 100);
+                                                }}
+                                              >
+                                                <DownloadIcon fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
+                                            <Tooltip title="Delete Invoice">
                                               <IconButton
                                                 size="small"
                                                 color="error"
-                                                onClick={() => handleDeletePayment(property, payment)}
+                                                onClick={() => handleDeleteInvoice(property, invoice)}
                                               >
                                                 <DeleteIcon fontSize="small" />
                                               </IconButton>
@@ -1482,7 +1577,7 @@ const CAMCharges = () => {
                                 </Table>
                               ) : (
                                 <Typography variant="body2" color="text.secondary">
-                                  No payments recorded yet
+                                  No invoices found. Create an invoice using the "Create Invoice" button.
                                 </Typography>
                               )}
                             </Box>
@@ -1499,18 +1594,25 @@ const CAMCharges = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={voucherDialogOpen} onClose={handleCloseVoucherDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>CAM Voucher Preview</DialogTitle>
-        <DialogContent dividers>{renderVoucherPreview()}</DialogContent>
+      <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Invoice Preview</DialogTitle>
+        <DialogContent dividers>{renderInvoicePreview()}</DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseVoucherDialog}>Close</Button>
+          <Button onClick={handleCloseInvoiceDialog}>Close</Button>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadInvoice}
+            disabled={invoiceLoading || !invoiceData}
+          >
+            Download
+          </Button>
           <Button
             variant="contained"
-            startIcon={<DownloadIcon />}
-            onClick={handleDownloadVoucher}
-            disabled={voucherLoading || !voucherCharge}
+            onClick={handleSaveInvoice}
+            disabled={invoiceLoading || !invoiceData || !invoiceData._id}
           >
-            Download Voucher
+            {invoiceLoading ? 'Saving...' : 'Save Invoice'}
           </Button>
         </DialogActions>
       </Dialog>

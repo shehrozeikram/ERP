@@ -38,7 +38,7 @@ export const deletePaymentFromCAMCharge = (chargeId, paymentId) =>
 export const fetchLatestCAMChargeForProperty = (propertyId) =>
   api.get(`${base}/property/${propertyId}/latest-charge`);
 
-export default {
+const camChargesService = {
   fetchCAMCharges,
   fetchCAMChargeById,
   createCAMCharge,
@@ -50,4 +50,6 @@ export default {
   deletePaymentFromCAMCharge,
   fetchLatestCAMChargeForProperty
 };
+
+export default camChargesService;
 

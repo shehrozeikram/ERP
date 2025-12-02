@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -149,7 +149,19 @@ const TajProperties = () => {
     value: ''
   });
 
-  const loadProperties = async () => {
+  const loadAgreements = useCallback(async () => {
+    try {
+      setAgreementsLoading(true);
+      const response = await fetchAvailableAgreements();
+      setAgreements(response.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load rental agreements:', err);
+    } finally {
+      setAgreementsLoading(false);
+    }
+  }, []);
+
+  const loadProperties = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -160,24 +172,12 @@ const TajProperties = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search]);
 
   useEffect(() => {
     loadProperties();
     loadAgreements();
-  }, []);
-
-  const loadAgreements = async () => {
-    try {
-      setAgreementsLoading(true);
-      const response = await fetchAvailableAgreements();
-      setAgreements(response.data?.data || []);
-    } catch (err) {
-      console.error('Failed to load rental agreements:', err);
-    } finally {
-      setAgreementsLoading(false);
-    }
-  };
+  }, [loadProperties, loadAgreements]);
 
   const handleOpenDialog = (property) => {
     if (property) {
@@ -339,13 +339,22 @@ const TajProperties = () => {
     }));
     const agreement = agreements.find((item) => item._id === agreementId);
     if (agreement) {
-      setFormData((prev) => ({
+      setFormData((prev) => {
+        // Only populate fields if they are empty (to allow manual overrides)
+        const isFieldEmpty = (value) => value === '' || value === null || value === undefined;
+        
+        return {
         ...prev,
         rentalAgreement: agreementId,
-        tenantName: prev.tenantName || agreement.tenantName || agreement.landlordName || '',
-        tenantPhone: prev.tenantPhone || agreement.tenantContact || agreement.landlordContact || '',
-        expectedRent: prev.expectedRent || agreement.monthlyRent || ''
-      }));
+          tenantName: isFieldEmpty(prev.tenantName) ? (agreement.tenantName || agreement.landlordName || '') : prev.tenantName,
+          tenantPhone: isFieldEmpty(prev.tenantPhone) ? (agreement.tenantContact || agreement.landlordContact || '') : prev.tenantPhone,
+          tenantCNIC: isFieldEmpty(prev.tenantCNIC) ? (agreement.tenantIdCard || '') : prev.tenantCNIC,
+          expectedRent: isFieldEmpty(prev.expectedRent) ? (agreement.monthlyRent || '') : prev.expectedRent,
+          securityDeposit: isFieldEmpty(prev.securityDeposit) 
+            ? (agreement.securityDeposit !== undefined && agreement.securityDeposit !== null ? agreement.securityDeposit : '')
+            : prev.securityDeposit
+        };
+      });
     }
   };
 

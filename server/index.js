@@ -100,6 +100,8 @@ const tajRentalManagementRoutes = require('./routes/tajRentalManagement');
 const camChargesRoutes = require('./routes/camCharges');
 const electricityRoutes = require('./routes/electricity');
 const tajPropertiesRoutes = require('./routes/tajProperties');
+const propertyInvoicesRoutes = require('./routes/propertyInvoices');
+const propertyReceiptsRoutes = require('./routes/propertyReceipts');
 const chargesSlabsRoutes = require('./routes/chargesSlabs');
 const waterUtilitySlabsRoutes = require('./routes/waterUtilitySlabs');
 const documentTrackingRoutes = require('./routes/documentTracking');
@@ -435,6 +437,8 @@ app.use('/api/taj-utilities/rental-management', authMiddleware, tajRentalManagem
 app.use('/api/taj-utilities/cam-charges', authMiddleware, camChargesRoutes);
 app.use('/api/taj-utilities/electricity', authMiddleware, electricityRoutes);
 app.use('/api/taj-utilities/properties', authMiddleware, tajPropertiesRoutes);
+app.use('/api/taj-utilities/invoices', authMiddleware, propertyInvoicesRoutes);
+app.use('/api/taj-utilities/receipts', authMiddleware, propertyReceiptsRoutes);
 app.use('/api/taj-utilities/charges-slabs', authMiddleware, chargesSlabsRoutes);
 app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, waterUtilitySlabsRoutes);
 app.use('/api/document-tracking', authMiddleware, documentTrackingRoutes);

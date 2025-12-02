@@ -6,8 +6,8 @@ const connectDB = async () => {
       useNewUrlParser: true,
       useUnifiedTopology: true,
       // Enhanced connection options for Atlas
-      maxPoolSize: 10,
-      minPoolSize: 1,
+      maxPoolSize: 20, // Increased from 10 to handle more concurrent connections
+      minPoolSize: 2, // Increased from 1 to maintain minimum connections
       maxIdleTimeMS: 30000,
       serverSelectionTimeoutMS: 30000, // Increased from 5000ms
       socketTimeoutMS: 60000, // Increased from 45000ms
@@ -23,6 +23,8 @@ const connectDB = async () => {
       heartbeatFrequencyMS: 10000,
       // Buffer settings
       bufferCommands: true,
+      // Connection pool monitoring
+      monitorCommands: false, // Disable in production for performance
     });
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);

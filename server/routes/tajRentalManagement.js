@@ -581,7 +581,7 @@ router.get('/properties/:id/latest-invoice', authMiddleware, async (req, res) =>
 router.get('/agreements/available', authMiddleware, async (req, res) => {
   try {
     const agreements = await TajRentalAgreement.find({ status: 'Active' })
-      .select('agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate status')
+      .select('agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate status')
       .sort({ createdAt: -1 });
     
     res.json({ success: true, data: agreements });

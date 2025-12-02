@@ -84,7 +84,8 @@ const SUBMODULES = {
     'taj_cam_charges',
     'taj_electricity_bills',
     'taj_rental_agreements',
-    'taj_rental_management'
+    'taj_rental_management',
+    'taj_receipts'
   ],
   [MODULES.PROCUREMENT]: [
     'purchase_orders',

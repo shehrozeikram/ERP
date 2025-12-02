@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Button,
@@ -31,9 +31,6 @@ import {
   Collapse
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
   Visibility as ViewIcon,
@@ -52,11 +49,9 @@ import {
   fetchElectricity,
   createElectricity,
   updateElectricity,
-  deleteElectricity,
-  addPaymentToPropertyElectricity,
-  deletePaymentFromElectricityBill,
-  fetchLatestElectricityBillForProperty
+  addPaymentToPropertyElectricity
 } from '../../../services/electricityService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, getElectricityCalculation } from '../../../services/propertyInvoiceService';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
@@ -98,6 +93,26 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 0
   }).format(Number(value || 0));
 
+// Generate invoice number with type prefix (same logic as backend)
+const generateInvoiceNumber = (propertySrNo, year, month, type = 'ELC') => {
+  const paddedMonth = String(month).padStart(2, '0');
+  const paddedIndex = String(propertySrNo || 1).padStart(4, '0');
+  
+  // Determine prefix based on type
+  let prefix = 'INV';
+  if (type === 'CAM' || type === 'CMC') {
+    prefix = 'INV-CMC';
+  } else if (type === 'ELECTRICITY' || type === 'ELC') {
+    prefix = 'INV-ELC';
+  } else if (type === 'RENT' || type === 'REN') {
+    prefix = 'INV-REN';
+  } else if (type === 'MIXED' || type === 'MIX') {
+    prefix = 'INV-MIX';
+  }
+  
+  return `${prefix}-${year}-${paddedMonth}-${paddedIndex}`;
+};
+
 const formatUnitPrice = (value) =>
   new Intl.NumberFormat('en-PK', {
     style: 'currency',
@@ -129,24 +144,9 @@ const defaultForm = {
 
 const statusOptions = ['Active', 'Pending', 'Completed', 'Cancelled'];
 
-const months = [
-  { value: '01', label: 'January' },
-  { value: '02', label: 'February' },
-  { value: '03', label: 'March' },
-  { value: '04', label: 'April' },
-  { value: '05', label: 'May' },
-  { value: '06', label: 'June' },
-  { value: '07', label: 'July' },
-  { value: '08', label: 'August' },
-  { value: '09', label: 'September' },
-  { value: '10', label: 'October' },
-  { value: '11', label: 'November' },
-  { value: '12', label: 'December' }
-];
 
 const Electricity = () => {
   const navigate = useNavigate();
-  const [charges, setCharges] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState(defaultForm);
@@ -179,18 +179,23 @@ const Electricity = () => {
   });
   const [paymentAttachment, setPaymentAttachment] = useState(null);
   
-  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
-  const [voucherProperty, setVoucherProperty] = useState(null);
-  const [voucherBill, setVoucherBill] = useState(null);
-  const [voucherLoading, setVoucherLoading] = useState(false);
-  const [voucherError, setVoucherError] = useState('');
+  const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
+  const [invoiceProperty, setInvoiceProperty] = useState(null);
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState('');
+  const [propertyInvoices, setPropertyInvoices] = useState({});
+  const [loadingInvoices, setLoadingInvoices] = useState({});
+  const [readingData, setReadingData] = useState({ previousReading: 0, previousArrears: 0, meterNo: '' });
+  const [currentReading, setCurrentReading] = useState('');
+  const [pendingReading, setPendingReading] = useState(null);
+  const [calculating, setCalculating] = useState(false);
 
   const loadCharges = async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await fetchElectricity({ search });
-      setCharges(response.data?.data || []);
+      await fetchElectricity({ search });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load Electricity Bills');
     } finally {
@@ -201,6 +206,7 @@ const Electricity = () => {
   useEffect(() => {
     loadCharges();
     loadProperties();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadProperties = async () => {
@@ -216,12 +222,27 @@ const Electricity = () => {
     }
   };
 
-  const toggleRowExpansion = (propertyId) => {
+  const toggleRowExpansion = async (propertyId) => {
     const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(propertyId)) {
-      newExpanded.delete(propertyId);
-    } else {
+    const isExpanding = !newExpanded.has(propertyId);
+    
+    if (isExpanding) {
       newExpanded.add(propertyId);
+      // Fetch invoices when expanding
+      if (!propertyInvoices[propertyId]) {
+        try {
+          setLoadingInvoices(prev => ({ ...prev, [propertyId]: true }));
+          const response = await fetchInvoicesForProperty(propertyId);
+          setPropertyInvoices(prev => ({ ...prev, [propertyId]: response.data?.data || [] }));
+        } catch (err) {
+          console.error('Error fetching invoices:', err);
+          setPropertyInvoices(prev => ({ ...prev, [propertyId]: [] }));
+        } finally {
+          setLoadingInvoices(prev => ({ ...prev, [propertyId]: false }));
+        }
+      }
+    } else {
+      newExpanded.delete(propertyId);
     }
     setExpandedRows(newExpanded);
   };
@@ -230,34 +251,392 @@ const Electricity = () => {
     return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
-  const handleOpenVoucherDialog = async (property) => {
-    setVoucherProperty(property);
-    setVoucherBill(null);
-    setVoucherError('');
-    setVoucherDialogOpen(true);
+  const handleCreateInvoice = async (property) => {
+    setInvoiceProperty(property);
+    setInvoiceError('');
+    setCurrentReading('');
+    setInvoiceDialogOpen(true);
+    
     try {
-      setVoucherLoading(true);
-      const response = await fetchLatestElectricityBillForProperty(property._id);
-      setVoucherBill(response.data?.data);
+      setInvoiceLoading(true);
+      // Fetch previous reading
+      const readingResponse = await getElectricityCalculation(property._id);
+      const prevReading = readingResponse.data?.data?.previousReading || 0;
+      const prevArrears = readingResponse.data?.data?.previousArrears || 0;
+      // Get meter number from response or property
+      const meterNo = readingResponse.data?.data?.meterNo || property.meterNumber || property.electricityWaterMeterNo || '';
+      
+      setReadingData({
+        previousReading: prevReading,
+        previousArrears: prevArrears,
+        meterNo
+      });
+      
+      // Initialize invoice data with default values
+      const now = dayjs();
+      const periodFrom = now.startOf('month').toDate();
+      const periodTo = now.endOf('month').toDate();
+      
+      // Generate invoice number for Electricity
+      const invoiceNumber = generateInvoiceNumber(
+        property.srNo,
+        now.year(),
+        now.month() + 1,
+        'ELECTRICITY'
+      );
+      
+      setInvoiceData({
+        invoiceNumber,
+        invoiceDate: new Date(),
+        dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+        periodFrom,
+        periodTo,
+        chargeTypes: ['ELECTRICITY'],
+        charges: [{
+          type: 'ELECTRICITY',
+          description: 'Electricity Bill',
+          amount: 0,
+          arrears: prevArrears,
+          total: prevArrears
+        }],
+        subtotal: 0,
+        totalArrears: prevArrears,
+        grandTotal: prevArrears,
+        calculationData: null
+      });
     } catch (err) {
-      setVoucherError(err.response?.data?.message || 'Failed to load latest electricity bill');
+      console.error('Error fetching reading data:', err);
+      // Get meter number from property as fallback
+      const meterNo = property.meterNumber || property.electricityWaterMeterNo || '';
+      setReadingData({ previousReading: 0, previousArrears: 0, meterNo });
+      // Still initialize with defaults
+      const now = dayjs();
+      // Generate invoice number for Electricity
+      const invoiceNumber = generateInvoiceNumber(
+        property.srNo,
+        now.year(),
+        now.month() + 1,
+        'ELECTRICITY'
+      );
+      
+      setInvoiceData({
+        invoiceNumber,
+        invoiceDate: new Date(),
+        dueDate: now.add(30, 'day').toDate(),
+        periodFrom: now.startOf('month').toDate(),
+        periodTo: now.endOf('month').toDate(),
+        chargeTypes: ['ELECTRICITY'],
+        charges: [{
+          type: 'ELECTRICITY',
+          description: 'Electricity Bill',
+          amount: 0,
+          arrears: 0,
+          total: 0
+        }],
+        subtotal: 0,
+        totalArrears: 0,
+        grandTotal: 0,
+        calculationData: null
+      });
     } finally {
-      setVoucherLoading(false);
+      setInvoiceLoading(false);
     }
   };
 
-  const handleCloseVoucherDialog = () => {
-    setVoucherDialogOpen(false);
-    setVoucherProperty(null);
-    setVoucherBill(null);
-    setVoucherError('');
+  // Handle current reading input change (immediate update)
+  const handleCurrentReadingChange = (value) => {
+    setCurrentReading(value);
+    
+    // Validate and set pending reading for debounced calculation
+    const trimmedValue = value?.trim() || '';
+    if (!trimmedValue) {
+      setPendingReading(null);
+      // Clear calculation data if input is cleared
+      if (invoiceData?.calculationData) {
+        setInvoiceData(prev => prev ? { ...prev, calculationData: null } : null);
+      }
+      return;
+    }
+    
+    const reading = parseFloat(trimmedValue);
+    
+    // Validate reading
+    if (isNaN(reading) || reading < 0) {
+      setPendingReading(null);
+      return;
+    }
+    
+    if (reading < readingData.previousReading) {
+      setPendingReading(null);
+      if (invoiceData?.calculationData) {
+        setInvoiceData(prev => prev ? { ...prev, calculationData: null } : null);
+      }
+      return;
+    }
+    
+    // Set pending reading for debounced calculation
+    setPendingReading(reading);
+  };
+
+  // Debounced calculation effect
+  useEffect(() => {
+    // Don't calculate if no pending reading or missing dependencies
+    if (pendingReading === null || !invoiceProperty?._id) {
+      return;
+    }
+
+    // Debounce timer
+    const timeoutId = setTimeout(async () => {
+      try {
+        setCalculating(true);
+        setInvoiceError('');
+        
+        const response = await getElectricityCalculation(invoiceProperty._id, pendingReading);
+        
+        if (!response.data?.success) {
+          throw new Error('Calculation failed');
+        }
+        
+        const calcData = response.data.data;
+        
+        // Update invoice data with calculated values using functional update
+        setInvoiceData(prev => {
+          if (!prev) return prev;
+          
+          const chargeIndex = prev.charges?.findIndex(c => c.type === 'ELECTRICITY') ?? -1;
+          const updatedCharges = prev.charges ? [...prev.charges] : [{
+            type: 'ELECTRICITY',
+            description: 'Electricity Bill',
+            amount: 0,
+            arrears: calcData.previousArrears || 0,
+            total: 0
+          }];
+          
+          // Round the bill amount to nearest integer (0.5 rounds up)
+          const roundedAmount = Math.round(calcData.charges.withSurcharge || 0);
+          const roundedGrandTotal = Math.round(calcData.grandTotal || 0);
+          
+          if (chargeIndex >= 0) {
+            updatedCharges[chargeIndex] = {
+              ...updatedCharges[chargeIndex],
+              amount: roundedAmount,
+              arrears: calcData.previousArrears || 0,
+              total: roundedGrandTotal
+            };
+          } else {
+            updatedCharges.push({
+              type: 'ELECTRICITY',
+              description: 'Electricity Bill',
+              amount: roundedAmount,
+              arrears: calcData.previousArrears || 0,
+              total: roundedGrandTotal
+            });
+          }
+          
+          return {
+            ...prev,
+            chargeTypes: ['ELECTRICITY'],
+            charges: updatedCharges,
+            subtotal: roundedAmount,
+            totalArrears: calcData.previousArrears || 0,
+            grandTotal: roundedGrandTotal,
+            calculationData: calcData
+          };
+        });
+      } catch (err) {
+        setInvoiceError(err.response?.data?.message || 'Failed to calculate charges');
+        setInvoiceData(prev => prev ? { ...prev, calculationData: null } : null);
+      } finally {
+        setCalculating(false);
+      }
+    }, 600); // 600ms debounce delay
+
+    // Cleanup function
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [pendingReading, invoiceProperty?._id]);
+
+  const handleInvoiceFieldChange = (field, value) => {
+    if (!invoiceData) return;
+    
+    if (field.startsWith('charge.')) {
+      const [, chargeIndex, chargeField] = field.split('.');
+      const updatedCharges = [...invoiceData.charges];
+      let fieldValue = value;
+      
+      // Apply rounding to amount field for electricity charges
+      if (chargeField === 'amount') {
+        const numValue = Number(value) || 0;
+        fieldValue = Math.round(numValue); // Round to nearest integer
+      } else if (chargeField === 'arrears') {
+        fieldValue = Number(value) || 0;
+      } else {
+        fieldValue = value;
+      }
+      
+      updatedCharges[chargeIndex] = {
+        ...updatedCharges[chargeIndex],
+        [chargeField]: fieldValue
+      };
+      
+      // Recalculate totals - only include ELECTRICITY charges
+      const electricityCharges = updatedCharges.filter(c => c.type === 'ELECTRICITY');
+      const subtotal = electricityCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      const totalArrears = electricityCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+      // Round grand total to nearest integer
+      const grandTotal = Math.round(subtotal + totalArrears);
+      
+      setInvoiceData({
+        ...invoiceData,
+        charges: updatedCharges,
+        subtotal,
+        totalArrears,
+        grandTotal
+      });
+    } else {
+      const updatedData = {
+        ...invoiceData,
+        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate'
+          ? (value ? new Date(value) : null)
+          : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
+          ? Number(value) || 0
+          : value
+      };
+      
+      // Regenerate invoice number if period changes (for new invoices only)
+      if ((field === 'periodFrom' || field === 'periodTo') && !invoiceData._id && invoiceProperty) {
+        const periodDate = field === 'periodFrom' ? new Date(value) : (updatedData.periodTo || new Date(value));
+        const periodDayjs = dayjs(periodDate);
+        const newInvoiceNumber = generateInvoiceNumber(
+          invoiceProperty.srNo,
+          periodDayjs.year(),
+          periodDayjs.month() + 1,
+          'ELECTRICITY'
+        );
+        updatedData.invoiceNumber = newInvoiceNumber;
+      }
+      
+      setInvoiceData(updatedData);
+    }
+  };
+
+  const handleSaveInvoice = async () => {
+    // If viewing existing invoice, update it
+    if (invoiceData?._id) {
+      if (!invoiceData) {
+        setInvoiceError('Invoice data is incomplete');
+        return;
+      }
+
+      try {
+        setInvoiceLoading(true);
+        setInvoiceError('');
+        
+        const response = await updateInvoice(invoiceData._id, {
+          invoiceNumber: invoiceData.invoiceNumber,
+          invoiceDate: invoiceData.invoiceDate,
+          dueDate: invoiceData.dueDate,
+          periodFrom: invoiceData.periodFrom,
+          periodTo: invoiceData.periodTo,
+          charges: invoiceData.charges,
+          subtotal: invoiceData.subtotal,
+          totalArrears: invoiceData.totalArrears,
+          grandTotal: invoiceData.grandTotal
+        });
+
+        setInvoiceData(response.data?.data || invoiceData);
+        setSuccess('Invoice updated successfully');
+        
+        if (invoiceProperty?._id) {
+          const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
+          setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
+        }
+        
+        setTimeout(() => {
+          handleCloseInvoiceDialog();
+        }, 1500);
+      } catch (err) {
+        setInvoiceError(err.response?.data?.message || 'Failed to update invoice');
+      } finally {
+        setInvoiceLoading(false);
+      }
+      return;
+    }
+
+    // Create new invoice
+    if (!invoiceProperty || !invoiceData) {
+      setInvoiceError('Invoice data is incomplete');
+      return;
+    }
+
+    // Validate current reading if provided
+    if (currentReading && parseFloat(currentReading) < readingData.previousReading) {
+      setInvoiceError('Current reading cannot be less than previous reading');
+      return;
+    }
+
+    try {
+      setInvoiceLoading(true);
+      setInvoiceError('');
+      
+      const response = await createInvoice(invoiceProperty._id, {
+        includeCAM: false,
+        includeElectricity: true,
+        includeRent: false,
+        currentReading: currentReading ? parseFloat(currentReading) : undefined,
+        periodFrom: invoiceData.periodFrom,
+        periodTo: invoiceData.periodTo,
+        dueDate: invoiceData.dueDate,
+        charges: invoiceData.charges || []
+      });
+
+      const savedInvoice = response.data?.data || invoiceData;
+      setInvoiceData(savedInvoice);
+      // Update meter number if available from response
+      const meterNo = savedInvoice?.electricityBill?.meterNo || 
+                      savedInvoice?.property?.meterNumber || 
+                      savedInvoice?.property?.electricityWaterMeterNo || 
+                      readingData.meterNo;
+      if (meterNo) {
+        setReadingData(prev => ({ ...prev, meterNo }));
+      }
+      setSuccess('Invoice created successfully');
+      
+      if (invoiceProperty?._id) {
+        const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
+        setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
+      }
+      
+      setTimeout(() => {
+        handleCloseInvoiceDialog();
+      }, 1500);
+    } catch (err) {
+      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleCloseInvoiceDialog = () => {
+    setInvoiceDialogOpen(false);
+    setInvoiceProperty(null);
+    setInvoiceData(null);
+    setInvoiceError('');
+    setCurrentReading('');
+    setPendingReading(null);
+    setReadingData({ previousReading: 0, previousArrears: 0, meterNo: '' });
   };
 
   const generateElectricityVoucherPDF = () => {
-    if (!voucherProperty || !voucherBill) return;
+    if (!invoiceProperty || !invoiceData) return;
 
-    const property = voucherProperty;
-    const bill = voucherBill;
+    const property = invoiceProperty;
+    const invoice = invoiceData;
+    
+    // Get electricity charge from invoice
+    const electricityCharge = invoice.charges?.find(c => c.type === 'ELECTRICITY');
+    const electricityBill = invoice.electricityBill || {};
 
     const pdf = new jsPDF('landscape', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -275,8 +654,8 @@ const Electricity = () => {
       value ? dayjs(value).format('MMMM D, YYYY') : '—';
 
     const formatMonthLabel = () => {
-      if (bill.month) return bill.month.toUpperCase();
-      if (bill.toDate) return dayjs(bill.toDate).format('MMMM-YY').toUpperCase();
+      if (electricityBill.month) return electricityBill.month.toUpperCase();
+      if (invoice.periodTo) return dayjs(invoice.periodTo).format('MMMM-YY').toUpperCase();
       return dayjs().format('MMMM-YY').toUpperCase();
     };
 
@@ -288,23 +667,23 @@ const Electricity = () => {
 
     const formatRate = (value) => (Number(value) || 0).toFixed(2);
 
-    const meterNo = bill.meterNo || property.electricityWaterMeterNo || '—';
+    const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
     const clientName = property.ownerName || property.tenantName || '—';
-    const address = bill.address || property.address || '—';
-    const invoiceNumber = bill.invoiceNumber || '—';
-    const periodFrom = formatDate(bill.fromDate);
-    const periodTo = formatDate(bill.toDate);
-    const readingDate = formatFullDate(bill.toDate);
-    const dueDate = formatFullDate(bill.dueDate);
-    const unitsConsumed = bill.unitsConsumed || 0;
-    const unitsCharged = bill.unitsConsumedForDays || unitsConsumed;
+    const address = electricityBill.address || property.address || '—';
+    const invoiceNumber = invoice.invoiceNumber || '—';
+    const periodFrom = formatDate(invoice.periodFrom || electricityBill.fromDate);
+    const periodTo = formatDate(invoice.periodTo || electricityBill.toDate);
+    const readingDate = formatFullDate(invoice.periodTo || electricityBill.toDate);
+    const dueDate = formatFullDate(invoice.dueDate || electricityBill.dueDate);
+    const unitsConsumed = electricityBill.unitsConsumed || 0;
+    const unitsCharged = electricityBill.unitsConsumedForDays || unitsConsumed;
 
-    const totalBill = bill.totalBill || bill.amount || 0;
-    const arrears = bill.arrears || 0;
-    const amountReceived = bill.receivedAmount || 0;
+    const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
+    const arrears = electricityCharge?.arrears || electricityBill.arrears || 0;
+    const amountReceived = electricityBill.receivedAmount || 0;
     const submittedInFreePeriod = totalBill + arrears;
     const payableWithinDueDate = totalBill + arrears - amountReceived;
-    const payableAfterDueDate = bill.withSurcharge || payableWithinDueDate;
+    const payableAfterDueDate = electricityBill.withSurcharge || payableWithinDueDate;
     const latePaymentSurcharge = Math.max(payableAfterDueDate - payableWithinDueDate, 0);
 
     pdf.setDrawColor(170);
@@ -336,11 +715,11 @@ const Electricity = () => {
       const headers = ['Meter No.', 'Previous', 'Present', 'Unit Consumed', 'Units Charged', 'IESCO SLAB'];
       const values = [
         meterNo,
-        formatAmount(bill.prvReading),
-        formatAmount(bill.curReading),
+        formatAmount(electricityBill.prvReading),
+        formatAmount(electricityBill.curReading),
         formatAmount(unitsConsumed),
         formatAmount(unitsCharged),
-        bill.iescoSlabs || '—'
+        electricityBill.iescoSlabs || '—'
       ];
       const cellWidth = (panelWidth - marginX * 2) / headers.length;
       const headerHeight = 5;
@@ -366,15 +745,15 @@ const Electricity = () => {
       const rows = [
         {
           label: 'Share of IESCO Supply Cost Rate',
-          value: `${formatRate(bill.iescoUnitPrice)}   ${formatAmount(bill.electricityCost)}`
+          value: `${formatRate(electricityBill.iescoUnitPrice || 0)}   ${formatAmount(electricityBill.electricityCost || 0)}`
         },
-        { label: 'FC Surcharge', value: formatAmount(bill.fcSurcharge) },
-        { label: 'Meter Rent', value: formatAmount(bill.meterRent) },
-        { label: 'NJ Surcharge', value: formatAmount(bill.njSurcharge) },
-        { label: 'Sales Tax', value: formatAmount(bill.gst) },
-        { label: 'Electricity Duty', value: formatAmount(bill.electricityDuty) },
-        { label: 'TV Fee', value: formatAmount(bill.tvFee) },
-        { label: 'Fixed Charges', value: formatAmount(bill.fixedCharges) },
+        { label: 'FC Surcharge', value: formatAmount(electricityBill.fcSurcharge || 0) },
+        { label: 'Meter Rent', value: formatAmount(electricityBill.meterRent || 0) },
+        { label: 'NJ Surcharge', value: formatAmount(electricityBill.njSurcharge || 0) },
+        { label: 'Sales Tax', value: formatAmount(electricityBill.gst || 0) },
+        { label: 'Electricity Duty', value: formatAmount(electricityBill.electricityDuty || 0) },
+        { label: 'TV Fee', value: formatAmount(electricityBill.tvFee || 0) },
+        { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0) },
         { label: 'Charges for the Month', value: formatAmount(totalBill) },
         {
           label: `Amount Received in ${billMonthLabel.replace('-', ' ')}`,
@@ -480,26 +859,15 @@ const Electricity = () => {
       .trim()
       .replace(/\s+/g, '_');
 
-    pdf.save(`Electricity_Voucher_${sanitizedName || property._id}.pdf`);
+    pdf.save(`Electricity_Invoice_${sanitizedName || property._id}.pdf`);
   };
 
-  const handleDownloadVoucher = () => {
-    if (!voucherProperty || !voucherBill) {
-      setVoucherError('Voucher data is not ready yet. Please wait a moment.');
+  const handleDownloadInvoice = () => {
+    if (!invoiceProperty || !invoiceData) {
+      setInvoiceError('Invoice data is not ready yet. Please wait a moment.');
       return;
     }
     generateElectricityVoucherPDF();
-  };
-
-  const voucherSummary = {
-    meter: voucherBill?.meterNo || voucherProperty?.electricityWaterMeterNo || '—',
-    invoice: voucherBill?.invoiceNumber || '—',
-    dueDate: voucherBill?.dueDate ? dayjs(voucherBill.dueDate).format('DD MMM YYYY') : '—',
-    readingDate: voucherBill?.toDate ? dayjs(voucherBill.toDate).format('DD MMM YYYY') : '—',
-    total: voucherBill ? formatCurrency(voucherBill.totalBill || voucherBill.amount || 0) : '—',
-    month:
-      voucherBill?.month ||
-      (voucherBill?.toDate ? dayjs(voucherBill.toDate).format('MMMM YYYY') : '—')
   };
 
   const getPaymentStatusConfig = (status) => {
@@ -571,35 +939,6 @@ const Electricity = () => {
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to record payment');
     }
-  };
-
-  const handleDeletePayment = async (property, payment) => {
-    if (!window.confirm('Are you sure you want to delete this payment?')) {
-      return;
-    }
-
-    try {
-      setError('');
-      // Find the bill ID from the payment
-      const billId = payment.chargeId;
-      const paymentId = payment._id;
-
-      if (!billId || !paymentId) {
-        setError('Payment information is incomplete');
-        return;
-      }
-
-      await deletePaymentFromElectricityBill(billId, paymentId);
-      setSuccess('Payment deleted successfully');
-      loadProperties();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete payment');
-    }
-  };
-
-  const handleOpenViewDialog = (charge) => {
-    setViewingCharge(charge);
-    setViewDialogOpen(true);
   };
 
   const handleCloseViewDialog = () => {
@@ -1170,37 +1509,6 @@ const Electricity = () => {
     }
   };
 
-  const handleDeleteCharge = async (id) => {
-    if (!window.confirm('Delete this Electricity Bill record?')) return;
-    try {
-      await deleteElectricity(id);
-      setSuccess('Electricity Bill deleted successfully');
-      loadCharges();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Unable to delete Electricity Bill');
-    }
-  };
-
-
-  const filteredCharges = useMemo(() => {
-    if (!search) return charges;
-    try {
-      // Escape special regex characters in search string
-      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const pattern = new RegExp(escapedSearch, 'i');
-      return charges.filter(
-        (charge) =>
-          pattern.test(charge.invoiceNumber || '') ||
-          pattern.test(charge.plotNo || '') ||
-          pattern.test(charge.owner || '') ||
-          pattern.test(charge.project || '')
-      );
-    } catch (error) {
-      console.error('Error filtering charges:', error);
-      return charges;
-    }
-  }, [charges, search]);
-
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} sx={{ mb: 3 }}>
@@ -1356,11 +1664,11 @@ const Electricity = () => {
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="View Electricity Voucher">
+                            <Tooltip title="Create Invoice">
                               <IconButton
                                 size="small"
                                 color="primary"
-                                onClick={() => handleOpenVoucherDialog(property)}
+                                onClick={() => handleCreateInvoice(property)}
                               >
                                 <ReceiptIcon fontSize="small" />
                               </IconButton>
@@ -1382,39 +1690,48 @@ const Electricity = () => {
                           <Collapse in={expandedRows.has(property._id)} timeout="auto" unmountOnExit>
                             <Box sx={{ py: 2, px: 3 }}>
                               <Typography variant="subtitle2" gutterBottom>
-                                Payment History
+                                Invoice History
                               </Typography>
-                              {property.payments && property.payments.length > 0 ? (
+                              {loadingInvoices[property._id] ? (
+                                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                                  <CircularProgress size={20} />
+                                </Box>
+                              ) : propertyInvoices[property._id] && propertyInvoices[property._id].length > 0 ? (
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
+                                      <TableCell>Invoice #</TableCell>
                                       <TableCell>Date</TableCell>
                                       <TableCell>Period</TableCell>
-                                      <TableCell>Invoice #</TableCell>
-                                      <TableCell>Amount</TableCell>
+                                      <TableCell>Due Date</TableCell>
+                                      <TableCell align="right">Amount</TableCell>
                                       <TableCell>Status</TableCell>
-                                      <TableCell>Method</TableCell>
                                       <TableCell align="right">Actions</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {property.payments.map((payment, idx) => (
-                                      <TableRow key={idx}>
+                                    {propertyInvoices[property._id]
+                                      .filter(inv => inv.chargeTypes?.includes('ELECTRICITY'))
+                                      .map((invoice) => (
+                                      <TableRow key={invoice._id}>
+                                        <TableCell>{invoice.invoiceNumber || 'N/A'}</TableCell>
                                         <TableCell>
-                                          {dayjs(payment.paymentDate).format('MMM D, YYYY')}
+                                          {invoice.invoiceDate ? dayjs(invoice.invoiceDate).format('MMM D, YYYY') : 'N/A'}
                                         </TableCell>
                                         <TableCell>
-                                          {payment.periodFrom && payment.periodTo ? (
-                                            `${dayjs(payment.periodFrom).format('MMM D')} - ${dayjs(payment.periodTo).format('MMM D, YYYY')}`
+                                          {invoice.periodFrom && invoice.periodTo ? (
+                                            `${dayjs(invoice.periodFrom).format('MMM D')} - ${dayjs(invoice.periodTo).format('MMM D, YYYY')}`
                                           ) : (
                                             'N/A'
                                           )}
                                         </TableCell>
-                                        <TableCell>{payment.invoiceNumber || 'N/A'}</TableCell>
-                                        <TableCell>{formatCurrency(payment.totalAmount || payment.amount || 0)}</TableCell>
+                                        <TableCell>
+                                          {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
+                                        </TableCell>
+                                        <TableCell align="right">{formatCurrency(invoice.grandTotal || 0)}</TableCell>
                                         <TableCell>
                                           {(() => {
-                                            const { color, label } = getPaymentStatusConfig(payment.status || 'unpaid');
+                                            const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
                                             return (
                                               <Chip
                                                 label={label}
@@ -1424,24 +1741,49 @@ const Electricity = () => {
                                             );
                                           })()}
                                         </TableCell>
-                                        <TableCell>{payment.paymentMethod || 'N/A'}</TableCell>
                                         <TableCell align="right">
                                           <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                            <Tooltip title="View Details">
+                                            <Tooltip title="View Invoice">
                                               <IconButton
                                                 size="small"
                                                 color="primary"
+                                                onClick={async () => {
+                                                  setInvoiceProperty(property);
+                                                  setInvoiceData(invoice);
+                                                  setInvoiceError('');
+                                                  setCurrentReading('');
+                                                  setInvoiceDialogOpen(true);
+                                                  // For viewing existing invoice, fetch reading data
+                                                  try {
+                                                    const readingResponse = await getElectricityCalculation(property._id);
+                                                    if (readingResponse.data?.success) {
+                                                      setReadingData({
+                                                        previousReading: readingResponse.data.data.previousReading || 0,
+                                                        previousArrears: readingResponse.data.data.previousArrears || 0,
+                                                        meterNo: readingResponse.data.data.meterNo || ''
+                                                      });
+                                                    }
+                                                  } catch (err) {
+                                                    console.error('Error fetching reading data:', err);
+                                                  }
+                                                }}
                                               >
                                                 <ViewIcon fontSize="small" />
                                               </IconButton>
                                             </Tooltip>
-                                            <Tooltip title="Delete Payment">
+                                            <Tooltip title="Download Invoice">
                                               <IconButton
                                                 size="small"
-                                                color="error"
-                                                onClick={() => handleDeletePayment(property, payment)}
+                                                color="primary"
+                                                onClick={() => {
+                                                  setInvoiceProperty(property);
+                                                  setInvoiceData(invoice);
+                                                  setTimeout(() => {
+                                                    generateElectricityVoucherPDF();
+                                                  }, 100);
+                                                }}
                                               >
-                                                <DeleteIcon fontSize="small" />
+                                                <DownloadIcon fontSize="small" />
                                               </IconButton>
                                             </Tooltip>
                                           </Stack>
@@ -1452,7 +1794,7 @@ const Electricity = () => {
                                 </Table>
                               ) : (
                                 <Typography variant="body2" color="text.secondary">
-                                  No payments recorded yet
+                                  No invoices found. Create an invoice using the "Create Invoice" button.
                                 </Typography>
                               )}
                             </Box>
@@ -1468,79 +1810,250 @@ const Electricity = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={voucherDialogOpen} onClose={handleCloseVoucherDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Electricity Voucher Preview</DialogTitle>
+      <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Invoice Preview</DialogTitle>
         <DialogContent dividers>
-          {voucherLoading && (
+          {invoiceLoading && (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
               <CircularProgress />
             </Box>
           )}
-          {!voucherLoading && voucherError && (
-            <Alert severity="error">{voucherError}</Alert>
+          {calculating && (
+            <Box sx={{ py: 2, display: 'flex', justifyContent: 'center' }}>
+              <CircularProgress size={24} />
+            </Box>
           )}
-          {!voucherLoading && !voucherError && voucherProperty && voucherBill && (
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Property
-                </Typography>
-                <Typography variant="h6">{voucherProperty.propertyName || voucherProperty.propertyType || '—'}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {voucherBill.address || voucherProperty.address || voucherProperty.street || 'No address recorded'}
-                </Typography>
-              </Box>
+          {!invoiceLoading && invoiceError && (
+            <Alert severity="error">{invoiceError}</Alert>
+          )}
+          {!invoiceLoading && !calculating && !invoiceError && invoiceProperty && invoiceData && (() => {
+              const totalAmount = (invoiceData.subtotal || 0) + (invoiceData.totalArrears || 0);
+              const calcData = invoiceData?.calculationData;
+              const electricityCharge = invoiceData.charges?.find(c => c.type === 'ELECTRICITY') || invoiceData.charges?.[0];
+              const unitsConsumed = calcData?.unitsConsumed || (currentReading ? Math.max(0, parseFloat(currentReading) - readingData.previousReading) : 0);
+              
+              return (
+              <Stack spacing={2}>
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Property
+                  </Typography>
+                  <Typography variant="h6">{invoiceProperty.propertyName || invoiceProperty.propertyType || '—'}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {invoiceProperty.address || invoiceProperty.street || 'No address recorded'}
+                  </Typography>
+                </Box>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
-                  <Typography variant="caption" color="text.secondary">Invoice #</Typography>
-                  <Typography variant="body1" fontWeight={600}>
-                    {voucherSummary.invoice}
-                  </Typography>
+                  <TextField
+                    label="Invoice Number"
+                    value={invoiceData.invoiceNumber || ''}
+                    fullWidth
+                    size="small"
+                    InputProps={{ readOnly: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Typography variant="caption" color="text.secondary">Billing Month</Typography>
-                  <Typography variant="body1">{voucherSummary.month}</Typography>
+                  <TextField
+                    label="Meter Number"
+                    value={
+                      readingData.meterNo || 
+                      invoiceData?.electricityBill?.meterNo || 
+                      invoiceProperty?.meterNumber || 
+                      invoiceProperty?.electricityWaterMeterNo || 
+                      ''
+                    }
+                    onChange={(e) => setReadingData(prev => ({ ...prev, meterNo: e.target.value }))}
+                    fullWidth
+                    size="small"
+                    helperText={
+                      (readingData.meterNo || invoiceData?.electricityBill?.meterNo || invoiceProperty?.meterNumber || invoiceProperty?.electricityWaterMeterNo) 
+                        ? '' 
+                        : 'No meter number found'
+                    }
+                  />
+                </Grid>
+                {!invoiceData._id && (
+                  <>
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        label="Previous Reading"
+                        type="number"
+                        value={readingData.previousReading || 0}
+                        onChange={(e) => {
+                          const prevReading = parseFloat(e.target.value) || 0;
+                          setReadingData(prev => ({ ...prev, previousReading: prevReading }));
+                          // Recalculate units consumed if current reading exists
+                          if (currentReading) {
+                            const newUnitsConsumed = Math.max(0, parseFloat(currentReading) - prevReading);
+                            // Trigger recalculation if needed
+                            if (newUnitsConsumed >= 0) {
+                              handleCurrentReadingChange(currentReading);
+                            }
+                          }
+                        }}
+                        fullWidth
+                        size="small"
+                        inputProps={{ min: 0, step: 1 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        label="Current Reading"
+                        type="number"
+                        value={currentReading}
+                        onChange={(e) => handleCurrentReadingChange(e.target.value)}
+                        fullWidth
+                        size="small"
+                        error={currentReading && parseFloat(currentReading) < readingData.previousReading}
+                        helperText={currentReading && parseFloat(currentReading) < readingData.previousReading 
+                          ? 'Current reading cannot be less than previous reading' 
+                          : unitsConsumed > 0 ? `Units Consumed: ${unitsConsumed}` : 'Enter current reading to auto-calculate'}
+                        inputProps={{ min: readingData.previousReading || 0, step: 1 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        label="Units Consumed"
+                        type="number"
+                        value={unitsConsumed}
+                        onChange={(e) => {
+                          const newUnits = parseFloat(e.target.value) || 0;
+                          if (newUnits >= 0 && readingData.previousReading !== undefined) {
+                            const newCurrentReading = readingData.previousReading + newUnits;
+                            setCurrentReading(String(newCurrentReading));
+                            handleCurrentReadingChange(String(newCurrentReading));
+                          }
+                        }}
+                        fullWidth
+                        size="small"
+                        inputProps={{ min: 0, step: 1 }}
+                        helperText="Auto-calculated from readings, or enter manually"
+                      />
+                    </Grid>
+                  </>
+                )}
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Period From"
+                    type="date"
+                    value={invoiceData.periodFrom ? dayjs(invoiceData.periodFrom).format('YYYY-MM-DD') : ''}
+                    onChange={(e) => {
+                      const newPeriodFrom = e.target.value;
+                      const currentPeriodTo = invoiceData.periodTo 
+                        ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD')
+                        : '';
+                      handleInvoiceFieldChange('periodFrom', newPeriodFrom);
+                      if (!currentPeriodTo) {
+                        handleInvoiceFieldChange('periodTo', dayjs(newPeriodFrom).endOf('month').format('YYYY-MM-DD'));
+                      }
+                    }}
+                    fullWidth
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Typography variant="caption" color="text.secondary">Meter Number</Typography>
-                  <Typography variant="body1" fontWeight={600}>
-                    {voucherSummary.meter}
-                  </Typography>
+                  <TextField
+                    label="Period To"
+                    type="date"
+                    value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
+                    onChange={(e) => handleInvoiceFieldChange('periodTo', e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+                {electricityCharge && (
+                  <>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label={electricityCharge.description || 'Electricity Bill'}
+                        type="number"
+                        value={electricityCharge.amount || 0}
+                        onChange={(e) => {
+                          const chargeIndex = invoiceData.charges.findIndex(c => c.type === 'ELECTRICITY');
+                          if (chargeIndex >= 0) {
+                            handleInvoiceFieldChange(`charge.${chargeIndex}.amount`, e.target.value);
+                          }
+                        }}
+                        fullWidth
+                        size="small"
+                        InputProps={{
+                          startAdornment: <Typography sx={{ mr: 1 }}>PKR</Typography>
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        label={`${electricityCharge.description || 'Electricity Bill'} Arrears`}
+                        type="number"
+                        value={electricityCharge.arrears || 0}
+                        onChange={(e) => {
+                          const chargeIndex = invoiceData.charges.findIndex(c => c.type === 'ELECTRICITY');
+                          if (chargeIndex >= 0) {
+                            handleInvoiceFieldChange(`charge.${chargeIndex}.arrears`, e.target.value);
+                          }
+                        }}
+                        fullWidth
+                        size="small"
+                        InputProps={{
+                          startAdornment: <Typography sx={{ mr: 1 }}>PKR</Typography>
+                        }}
+                      />
+                    </Grid>
+                  </>
+                )}
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Total Amount"
+                    value={formatCurrency(totalAmount)}
+                    fullWidth
+                    size="small"
+                    InputProps={{ readOnly: true }}
+                    sx={{
+                      '& .MuiInputBase-input': {
+                        fontWeight: 600,
+                        fontSize: '1.1rem'
+                      }
+                    }}
+                  />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <Typography variant="caption" color="text.secondary">Due Date</Typography>
-                  <Typography variant="body1">
-                    {voucherSummary.dueDate}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="caption" color="text.secondary">Reading Date</Typography>
-                  <Typography variant="body1">
-                    {voucherSummary.readingDate}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="caption" color="text.secondary">Total Bill</Typography>
-                  <Typography variant="body1" fontWeight={600}>
-                    {voucherSummary.total}
-                  </Typography>
+                  <TextField
+                    label="Due Date"
+                    type="date"
+                    value={invoiceData.dueDate ? dayjs(invoiceData.dueDate).format('YYYY-MM-DD') : ''}
+                    onChange={(e) => handleInvoiceFieldChange('dueDate', e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                  />
                 </Grid>
               </Grid>
               <Alert severity="info">
-                Download to view the tri-fold voucher (Bank, Office & Client copies) exactly as it will print.
+                Download to view the tri-fold invoice (Bank, Office & Client copies) exactly as it will print.
               </Alert>
             </Stack>
-          )}
+            );
+          })()}
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseVoucherDialog}>Close</Button>
+          <Button onClick={handleCloseInvoiceDialog}>Close</Button>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleDownloadInvoice}
+            disabled={invoiceLoading || !invoiceData}
+          >
+            Download
+          </Button>
           <Button
             variant="contained"
-            startIcon={<DownloadIcon />}
-            onClick={handleDownloadVoucher}
-            disabled={voucherLoading || !voucherBill}
+            onClick={handleSaveInvoice}
+            disabled={invoiceLoading || calculating || !invoiceData}
           >
-            Download Voucher
+            {invoiceLoading ? (invoiceData?._id ? 'Updating...' : 'Creating...') : (invoiceData?._id ? 'Update Invoice' : 'Create Invoice')}
           </Button>
         </DialogActions>
       </Dialog>

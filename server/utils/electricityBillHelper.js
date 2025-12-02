@@ -81,6 +81,9 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
   // Total bill
   const totalBill = subtotal + gst + electricityDuty + tvFee;
   
+  // Round final bill amount to nearest integer (0.5 rounds up)
+  const roundedTotalBill = Math.round(totalBill);
+  
   return {
     electricityCost: roundedElectricityCost,
     fcSurcharge: roundedFcSurcharge,
@@ -90,8 +93,8 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
     electricityDuty: electricityDuty,
     tvFee: tvFee,
     fixedCharges: fixRate,
-    totalBill: Math.round(totalBill * 100) / 100,
-    withSurcharge: Math.round(totalBill * 100) / 100 // Can be modified if additional surcharge needed
+    totalBill: roundedTotalBill,
+    withSurcharge: roundedTotalBill // Rounded to nearest integer
   };
 };
 

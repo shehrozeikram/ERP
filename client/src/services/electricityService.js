@@ -38,7 +38,7 @@ export const deletePaymentFromElectricityBill = (billId, paymentId) =>
 export const fetchLatestElectricityBillForProperty = (propertyId) =>
   api.get(`${base}/property/${propertyId}/latest-bill`);
 
-export default {
+const electricityService = {
   fetchElectricity,
   fetchElectricityById,
   createElectricity,
@@ -50,4 +50,6 @@ export default {
   deletePaymentFromElectricityBill,
   fetchLatestElectricityBillForProperty
 };
+
+export default electricityService;
 
