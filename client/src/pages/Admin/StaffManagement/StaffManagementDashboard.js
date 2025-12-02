@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -19,7 +19,13 @@ import {
   Alert,
   Skeleton,
   Avatar,
-  Stack
+  Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Snackbar
 } from '@mui/material';
 import {
   Security as SecurityIcon,
@@ -34,38 +40,19 @@ import {
   People as PeopleIcon,
   Assignment as AssignmentIcon,
   LocationOn as LocationIcon,
-  BusinessCenter as DepartmentIcon
+  BusinessCenter as DepartmentIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import staffAssignmentService from '../../../services/staffAssignmentService';
 
 // Simplified staff types with only essential data
 const staffTypes = [
-  { 
-    key: 'Driver', 
-    label: 'Drivers', 
-    icon: <DriverIcon />
-  },
-  { 
-    key: 'Office Boy', 
-    label: 'Office Boys', 
-    icon: <PersonIcon />
-  },
-  { 
-    key: 'Guard', 
-    label: 'Guards', 
-    icon: <SecurityIcon />
-  },
-  { 
-    key: 'Maintenance', 
-    label: 'Maintenance', 
-    icon: <BuildIcon />
-  },
-  { 
-    key: 'Admin Staff', 
-    label: 'Admin Staff', 
-    icon: <BusinessIcon />
-  }
+  { key: 'Driver', label: 'Drivers', icon: DriverIcon },
+  { key: 'Office Boy', label: 'Office Boys', icon: PersonIcon },
+  { key: 'Guard', label: 'Guards', icon: SecurityIcon },
+  { key: 'Maintenance', label: 'Maintenance', icon: BuildIcon },
+  { key: 'Admin Staff', label: 'Admin Staff', icon: BusinessIcon }
 ];
 
 const StaffManagementDashboard = () => {
@@ -75,6 +62,10 @@ const StaffManagementDashboard = () => {
   const [summary, setSummary] = useState([]);
   const [activeStaffType, setActiveStaffType] = useState('Driver');
   const [assignments, setAssignments] = useState([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [assignmentToDelete, setAssignmentToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -115,18 +106,79 @@ const StaffManagementDashboard = () => {
     fetchData();
   }, [fetchData]);
 
-  const handleStaffTypeChange = (staffTypeKey) => {
+  const handleStaffTypeChange = useCallback((staffTypeKey) => {
     setActiveStaffType(staffTypeKey);
     fetchAssignments(staffTypeKey);
-  };
+  }, [fetchAssignments]);
 
-  const getStaffCount = () => {
+  const staffCount = useMemo(() => {
     const totalActive = summary.reduce((total, item) => total + (item.active || 0), 0);
     const totalStaff = summary.reduce((total, item) => total + (item.total || 0), 0);
     return { active: totalActive, total: totalStaff };
-  };
+  }, [summary]);
 
-  const currentStaffType = staffTypes.find(st => st.key === activeStaffType);
+  const currentStaffType = useMemo(
+    () => staffTypes.find(st => st.key === activeStaffType),
+    [activeStaffType]
+  );
+
+  const handleDeleteClick = useCallback((assignment) => {
+    setAssignmentToDelete(assignment);
+    setDeleteDialogOpen(true);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!assignmentToDelete) return;
+
+    try {
+      setDeleting(true);
+      await staffAssignmentService.deleteStaffAssignment(assignmentToDelete._id);
+      
+      // Optimize: Update local state immediately for instant UI feedback
+      setAssignments(prev => prev.filter(a => a._id !== assignmentToDelete._id));
+      setSummary(prev => prev.map(item => {
+        if (item._id === assignmentToDelete.assignmentType) {
+          const wasActive = assignmentToDelete.status === 'Active';
+          return {
+            ...item,
+            total: Math.max(0, (item.total || 0) - 1),
+            active: Math.max(0, (item.active || 0) - (wasActive ? 1 : 0))
+          };
+        }
+        return item;
+      }));
+      
+      setSnackbar({
+        open: true,
+        message: 'Assignment deleted successfully',
+        severity: 'success'
+      });
+      
+      setDeleteDialogOpen(false);
+      setAssignmentToDelete(null);
+      
+      // Refresh in background for data accuracy
+      Promise.all([fetchAssignments(activeStaffType), fetchSummary()]).catch(console.error);
+    } catch (err) {
+      console.error('Error deleting assignment:', err);
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to delete assignment',
+        severity: 'error'
+      });
+    } finally {
+      setDeleting(false);
+    }
+  }, [assignmentToDelete, activeStaffType, fetchAssignments, fetchSummary]);
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteDialogOpen(false);
+    setAssignmentToDelete(null);
+  }, []);
+
+  const handleCloseSnackbar = useCallback(() => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  }, []);
 
   if (loading) {
     return (
@@ -207,7 +259,7 @@ const StaffManagementDashboard = () => {
     );
   }
 
-  const { active, total } = getStaffCount();
+  const { active, total } = staffCount;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -313,27 +365,29 @@ const StaffManagementDashboard = () => {
 
       {/* Staff Type Selector */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        {staffTypes.map((staffType) => (
-          <Grid item key={staffType.key}>
-            <Button
-              variant={activeStaffType === staffType.key ? 'contained' : 'outlined'}
-              startIcon={staffType.icon}
-              onClick={() => handleStaffTypeChange(staffType.key)}
-              sx={{
-                minWidth: 120,
-                textTransform: 'none',
-                backgroundColor: activeStaffType === staffType.key ? 
-                  'primary.main' : 'transparent',
-                '&:hover': {
-                  backgroundColor: activeStaffType === staffType.key ? 
-                    'primary.dark' : 'rgba(25, 118, 210, 0.1)'
-                }
-              }}
-            >
-              {staffType.label}
-            </Button>
-          </Grid>
-        ))}
+        {staffTypes.map((staffType) => {
+          const IconComponent = staffType.icon;
+          const isActive = activeStaffType === staffType.key;
+          return (
+            <Grid item key={staffType.key}>
+              <Button
+                variant={isActive ? 'contained' : 'outlined'}
+                startIcon={<IconComponent />}
+                onClick={() => handleStaffTypeChange(staffType.key)}
+                sx={{
+                  minWidth: 120,
+                  textTransform: 'none',
+                  backgroundColor: isActive ? 'primary.main' : 'transparent',
+                  '&:hover': {
+                    backgroundColor: isActive ? 'primary.dark' : 'rgba(25, 118, 210, 0.1)'
+                  }
+                }}
+              >
+                {staffType.label}
+              </Button>
+            </Grid>
+          );
+        })}
       </Grid>
 
       {/* Assignments Table */}
@@ -455,6 +509,15 @@ const StaffManagementDashboard = () => {
                               <EditIcon />
                             </IconButton>
                           </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDeleteClick(assignment)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -465,7 +528,10 @@ const StaffManagementDashboard = () => {
           ) : (
             <Box textAlign="center" py={6}>
               <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2 }}>
-                {currentStaffType?.icon}
+                {currentStaffType && (() => {
+                  const IconComponent = currentStaffType.icon;
+                  return IconComponent ? <IconComponent /> : null;
+                })()}
               </Avatar>
               <Typography variant="h6" color="text.secondary" gutterBottom>
                 No {currentStaffType?.label.toLowerCase()} assignments found
@@ -484,6 +550,58 @@ const StaffManagementDashboard = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">
+          Delete Assignment
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete the assignment for{' '}
+            <strong>
+              {assignmentToDelete?.staffId?.firstName} {assignmentToDelete?.staffId?.lastName}
+            </strong>?
+            <br />
+            <br />
+            This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={deleting}
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
