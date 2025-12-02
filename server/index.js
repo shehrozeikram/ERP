@@ -178,13 +178,39 @@ app.use(compression());
 
 // Rate limiting (disabled for development)
 if (NODE_ENV === 'production') {
-  const limiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again later.'
+  // Separate, more lenient rate limiter for file uploads (applied first)
+  const uploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 50, // 50 uploads per 15 minutes (more lenient for file operations)
+    message: 'Too many file upload requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false
   });
-  app.use('/api/', limiter);
+
+  // General rate limiter - increased limit for better UX
+  const generalLimiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 200, // Increased to 200 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Skip rate limiting for file upload endpoints (they have their own limiter)
+    skip: (req) => {
+      return req.path.includes('/upload-image') ||
+             req.path.includes('/upload-file') ||
+             req.method === 'OPTIONS';
+    }
+  });
+
+  // Apply upload limiter FIRST to specific upload endpoints
+  app.use('/api/hr/upload-image', uploadLimiter);
+  
+  // Then apply general limiter to all API routes (excluding uploads via skip function)
+  app.use('/api/', generalLimiter);
+  
   console.log('🔒 Rate limiting enabled for production');
+  console.log('📤 File upload rate limiting: 50 uploads per 15 minutes');
+  console.log('📊 General API rate limiting: 200 requests per 15 minutes');
 } else {
   console.log('🔓 Rate limiting disabled for development');
 }
