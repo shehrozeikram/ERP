@@ -30,7 +30,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit (increased for PDFs)
+    fileSize: 50 * 1024 * 1024 // 50MB limit (increased for large PDFs)
   },
   fileFilter: (req, file, cb) => {
     // Allow images and PDFs

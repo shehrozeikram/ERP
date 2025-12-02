@@ -22,6 +22,10 @@ import {
   Chip
 } from '@mui/material';
 import { Save, Cancel, AttachFile, Delete, CloudUpload } from '@mui/icons-material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { format } from 'date-fns';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import toast from 'react-hot-toast';
 
@@ -36,6 +40,7 @@ const PaymentSettlementForm = ({
   const [errors, setErrors] = useState({});
   const [currentSettlement, setCurrentSettlement] = useState(null);
   const [attachments, setAttachments] = useState([]);
+  const [dateValue, setDateValue] = useState(null);
   
   const [formData, setFormData] = useState({
     // Company Details
@@ -119,10 +124,51 @@ const PaymentSettlementForm = ({
         status: settlementData.status || 'Draft'
       });
       
+      // Convert date string to Date object for DatePicker
+      if (settlementData.date) {
+        try {
+          const dateObj = new Date(settlementData.date);
+          if (!isNaN(dateObj.getTime())) {
+            setDateValue(dateObj);
+          } else {
+            setDateValue(null);
+          }
+        } catch (error) {
+          setDateValue(null);
+        }
+      } else {
+        setDateValue(null);
+      }
+      
       // Set existing attachments
       if (settlementData.attachments && settlementData.attachments.length > 0) {
         setAttachments(settlementData.attachments);
       }
+    } else if (!isEdit) {
+      // Reset form and date when creating new record
+      setFormData({
+        parentCompanyName: '',
+        subsidiaryName: '',
+        site: '',
+        paymentType: '',
+        fromDepartment: '',
+        custodian: '',
+        date: '',
+        referenceNumber: '',
+        toWhomPaid: '',
+        forWhat: '',
+        amount: '',
+        grandTotal: '',
+        preparedBy: '',
+        preparedByDesignation: '',
+        verifiedBy: '',
+        verifiedByDesignation: '',
+        approvedBy: '',
+        approvedByDesignation: '',
+        status: 'Draft'
+      });
+      setDateValue(null);
+      setAttachments([]);
     }
   }, [settlement, currentSettlement, isEdit]);
 
@@ -138,6 +184,31 @@ const PaymentSettlementForm = ({
       setErrors(prev => ({
         ...prev,
         [name]: ''
+      }));
+    }
+  };
+
+  const handleDateChange = (newValue) => {
+    setDateValue(newValue);
+    // Format date as YYYY-MM-DD for form submission
+    if (newValue) {
+      const formattedDate = format(newValue, 'yyyy-MM-dd');
+      setFormData(prev => ({
+        ...prev,
+        date: formattedDate
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        date: ''
+      }));
+    }
+    
+    // Clear error when user selects a date
+    if (errors.date) {
+      setErrors(prev => ({
+        ...prev,
+        date: ''
       }));
     }
   };
@@ -221,6 +292,11 @@ const PaymentSettlementForm = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Prevent multiple submissions
+    if (loading) {
+      return;
+    }
     
     if (!validateForm()) {
       toast.error('Please fix the validation errors');
@@ -371,16 +447,21 @@ const PaymentSettlementForm = ({
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Date"
-                name="date"
-                value={formData.date}
-                onChange={handleInputChange}
-                error={!!errors.date}
-                helperText={errors.date}
-                placeholder="YYYY-MM-DD"
-              />
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="Date"
+                  value={dateValue}
+                  onChange={handleDateChange}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      error: !!errors.date,
+                      helperText: errors.date,
+                      required: true
+                    }
+                  }}
+                />
+              </LocalizationProvider>
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField
@@ -641,7 +722,7 @@ const PaymentSettlementForm = ({
               startIcon={loading ? <CircularProgress size={20} /> : <Save />}
               disabled={loading}
             >
-              {loading ? 'Saving...' : isEdit ? 'Update' : 'Create'}
+              {loading ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update' : 'Create')}
             </Button>
           </Box>
         </form>

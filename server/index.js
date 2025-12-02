@@ -244,9 +244,9 @@ app.use(cors({
 // Audit trail middleware (should be early in the middleware stack)
 app.use(logRequest);
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing middleware (increased for large file uploads)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Logging middleware
 if (NODE_ENV === 'development') {

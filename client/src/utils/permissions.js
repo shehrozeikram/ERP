@@ -4,6 +4,7 @@
 // Role Definitions (matching server config)
 export const ROLES = {
   SUPER_ADMIN: 'super_admin',
+  HIGHER_MANAGEMENT: 'higher_management',
   ADMIN: 'admin',
   HR_MANAGER: 'hr_manager',
   FINANCE_MANAGER: 'finance_manager',
@@ -39,6 +40,13 @@ export const PERMISSIONS = {
     canAccessAll: true,
     modules: Object.values(MODULE_KEYS),
     description: 'Full system access'
+  },
+  
+  // Higher Management has access to all departments
+  [ROLES.HIGHER_MANAGEMENT]: {
+    canAccessAll: true,
+    modules: Object.values(MODULE_KEYS),
+    description: 'Access to all departments and modules'
   },
   
   // Admin has access to admin module only

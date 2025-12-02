@@ -45,6 +45,7 @@ const RentalManagementDashboard = () => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const defaultFormData = {
@@ -161,6 +162,16 @@ const RentalManagementDashboard = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Prevent multiple submissions
+    if (submitting) {
+      return;
+    }
+    
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
+    
     try {
       if (editingRecord) {
         await api.put(`/rental-management/${editingRecord._id}`, formData);
@@ -176,6 +187,8 @@ const RentalManagementDashboard = () => {
     } catch (error) {
       console.error('Error saving record:', error);
       setError(error.response?.data?.message || 'Failed to save rental management record');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -670,9 +683,16 @@ const RentalManagementDashboard = () => {
             </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button type="submit" variant="contained">
-              {editingRecord ? 'Update' : 'Create'}
+            <Button onClick={handleCloseDialog} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              variant="contained" 
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={16} /> : null}
+            >
+              {submitting ? (editingRecord ? 'Updating...' : 'Creating...') : (editingRecord ? 'Update' : 'Create')}
             </Button>
           </DialogActions>
         </form>

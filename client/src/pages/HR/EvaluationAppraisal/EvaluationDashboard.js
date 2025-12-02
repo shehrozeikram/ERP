@@ -26,6 +26,22 @@ const EvaluationDashboard = () => {
   const [formTypeFilter, setFormTypeFilter] = useState('');
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [assignedApprovalLevels, setAssignedApprovalLevels] = useState([]);
+
+  // Fetch user's assigned approval levels
+  const fetchAssignedLevels = useCallback(async () => {
+    try {
+      const response = await evaluationDocumentsService.getAssignedApprovalLevels();
+      if (response.data?.success) {
+        const levels = response.data.data.assignedLevels || [];
+        setAssignedApprovalLevels(levels.map(l => l.level));
+      }
+    } catch (err) {
+      console.error('Error fetching assigned approval levels:', err);
+      // Don't show error, just set empty array (user might not have any assignments)
+      setAssignedApprovalLevels([]);
+    }
+  }, []);
 
   // Fetch grouped documents
   const fetchDocuments = useCallback(async () => {
@@ -48,8 +64,9 @@ const EvaluationDashboard = () => {
   }, [statusFilter, formTypeFilter]);
 
   useEffect(() => {
+    fetchAssignedLevels();
     fetchDocuments();
-  }, [fetchDocuments]);
+  }, [fetchAssignedLevels, fetchDocuments]);
 
   // Filter documents by search term
   const filteredData = useMemo(() => {
@@ -222,6 +239,7 @@ const EvaluationDashboard = () => {
             documents={group.documents}
             onViewDocument={handleViewDocument}
             onDocumentUpdate={handleDocumentUpdate}
+            assignedApprovalLevels={assignedApprovalLevels}
           />
         ))
       )}

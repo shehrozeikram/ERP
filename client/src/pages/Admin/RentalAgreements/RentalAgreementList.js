@@ -55,6 +55,7 @@ const RentalAgreementList = () => {
   const [agreements, setAgreements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAgreement, setEditingAgreement] = useState(null);
   const [formData, setFormData] = useState({
@@ -193,9 +194,15 @@ const RentalAgreementList = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Prevent multiple submissions
+    if (submitting) {
+      return;
+    }
+    
     // Clear previous errors
     setError('');
     setSuccess('');
+    setSubmitting(true);
     
     try {
       // Validate required fields
@@ -288,6 +295,8 @@ const RentalAgreementList = () => {
       } else {
         setError('Failed to save rental agreement. Please try again.');
       }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -335,7 +344,7 @@ const RentalAgreementList = () => {
       <Box sx={{ p: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
           <Skeleton variant="text" width="30%" height={40} />
-          <Skeleton variant="rectangular" width={160} height={36} borderRadius={1} />
+          <Skeleton variant="rectangular" width={160} height={36} sx={{ borderRadius: 1 }} />
         </Box>
 
         <Card>
@@ -658,9 +667,16 @@ const RentalAgreementList = () => {
             </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button type="submit" variant="contained">
-              {editingAgreement ? 'Update' : 'Create'}
+            <Button onClick={handleCloseDialog} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              variant="contained" 
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={16} /> : null}
+            >
+              {submitting ? (editingAgreement ? 'Updating...' : 'Creating...') : (editingAgreement ? 'Update' : 'Create')}
             </Button>
           </DialogActions>
         </form>

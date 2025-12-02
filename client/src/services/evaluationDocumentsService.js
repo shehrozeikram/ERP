@@ -53,6 +53,16 @@ export const evaluationDocumentsService = {
   // Reject evaluation document
   reject: (id, data = {}) => {
     return api.post(`/evaluation-documents/${id}/reject`, data);
+  },
+
+  // Bulk approve evaluation documents
+  bulkApprove: (data) => {
+    return api.post('/evaluation-documents/bulk-approve', data);
+  },
+
+  // Get user's assigned approval levels
+  getAssignedApprovalLevels: () => {
+    return api.get('/evaluation-documents/approval-levels/assigned');
   }
 };
 

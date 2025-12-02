@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const EvaluationDocument = require('../models/hr/EvaluationDocument');
 const Employee = require('../models/hr/Employee');
 const Department = require('../models/hr/Department');
+const ApprovalLevelConfiguration = require('../models/hr/ApprovalLevelConfiguration');
 const EmailService = require('../services/emailService');
 const TrackingService = require('../services/evaluationDocumentTrackingService');
 
@@ -288,6 +289,48 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Get documents grouped by department for dashboard
+// Get user's assigned approval levels
+router.get('/approval-levels/assigned', async (req, res) => {
+  try {
+    // Note: This endpoint should be called after authMiddleware is applied at route level
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
+      });
+    }
+
+    const levelConfigs = await ApprovalLevelConfiguration.find({
+      module: 'evaluation_appraisal',
+      assignedUser: req.user._id,
+      isActive: true
+    })
+    .populate('assignedUser', 'firstName lastName email role')
+    .sort({ level: 1 });
+
+    const assignedLevels = levelConfigs.map(config => ({
+      level: config.level,
+      title: config.title,
+      module: config.module
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        assignedLevels,
+        canApprove: assignedLevels.length > 0
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching assigned approval levels:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch assigned approval levels',
+      message: error.message
+    });
+  }
+});
+
 router.get('/dashboard/grouped', async (req, res) => {
   try {
     const { status, formType } = req.query;
@@ -296,18 +339,10 @@ router.get('/dashboard/grouped', async (req, res) => {
     if (status) query.status = status;
     if (formType) query.formType = formType;
     
-    const documents = await EvaluationDocument.find(query)
-      .populate('employee', 'firstName lastName employeeId email')
-      .populate('evaluator', 'firstName lastName employeeId email')
-      .populate('department', 'name')
-      .populate({
-        path: 'approvalLevels.approver',
-        select: 'firstName lastName employeeId email',
-        populate: {
-          path: 'placementDesignation',
-          select: 'title'
-        }
-      });
+    // Use the full populate configuration to ensure all fields are populated correctly
+    const documents = await withPopulates(
+      EvaluationDocument.find(query)
+    ).sort({ createdAt: -1 });
     
     // Group by department
     const grouped = {};
@@ -413,7 +448,8 @@ router.post('/send', async (req, res) => {
     if (!formType || !['blue_collar', 'white_collar'].includes(formType)) {
       return res.status(400).json({ error: 'Valid form type is required' });
     }
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // Always use production URL for evaluation document emails
+    const baseUrl = 'https://tovus.net';
     const results = [];
 
     // Get employees
@@ -515,210 +551,405 @@ router.post('/send', async (req, res) => {
   }
 });
 
+// Helper function to approve a single document (reusable for bulk approval)
+const approveDocument = async (documentId, comments, user) => {
+  const document = await EvaluationDocument.findById(documentId);
+  if (!document) {
+    throw new Error('Evaluation document not found');
+  }
+  
+  await hydrateDocument(document);
+  
+  // Check if document is submitted and can be approved
+  if (document.status !== 'submitted') {
+    throw new Error('Document must be submitted before approval');
+  }
+  
+  if (document.approvalStatus === 'approved') {
+    throw new Error('Document is already approved');
+  }
+  
+  if (document.approvalStatus === 'rejected') {
+    throw new Error('Document has been rejected');
+  }
+  
+  // Initialize approval levels if they don't exist
+  if (!document.approvalLevels || document.approvalLevels.length === 0) {
+    // Get approval level configuration from database
+    const levelConfigs = await ApprovalLevelConfiguration.getActiveForModule('evaluation_appraisal');
+    
+    if (!levelConfigs || levelConfigs.length === 0) {
+      throw new Error('Approval level configuration not found. Please configure approval levels first.');
+    }
+    
+    // Build approval levels from configuration
+    // Find Employee records for assigned users (approver field should reference Employee, not User)
+    const approvalLevels = await Promise.all(levelConfigs.map(async (config) => {
+      let approverEmployee = null;
+      if (config.assignedUser) {
+        // Find the Employee record that corresponds to this User
+        approverEmployee = await Employee.findOne({ user: config.assignedUser._id });
+      }
+      
+      return {
+        level: config.level,
+        title: config.title,
+        approverName: config.assignedUser ? `${config.assignedUser.firstName} ${config.assignedUser.lastName}` : 'Unknown',
+        approver: approverEmployee ? approverEmployee._id : null, // Employee reference
+        assignedUserId: config.assignedUser ? config.assignedUser._id : null, // User reference for validation
+        status: 'pending'
+      };
+    }));
+    
+    document.approvalLevels = approvalLevels;
+    document.approvalStatus = 'pending';
+    document.currentApprovalLevel = 1;
+    await document.save();
+  }
+  
+  const currentLevel = document.currentApprovalLevel || 1;
+  const levelIndex = currentLevel - 1;
+  
+  if (levelIndex < 0 || levelIndex >= document.approvalLevels.length) {
+    throw new Error('Invalid approval level');
+  }
+  
+  const currentLevelData = document.approvalLevels[levelIndex];
+  
+  if (currentLevelData.status === 'approved') {
+    throw new Error('Current approval level is already approved');
+  }
+  
+  if (currentLevelData.status === 'rejected') {
+    throw new Error('Current approval level has been rejected');
+  }
+  
+  if (currentLevelData.status !== 'pending') {
+    throw new Error('Current approval level is not in pending status');
+  }
+  
+  // Check if current user is assigned to this approval level
+  if (user) {
+    // Check assignedUserId first (User reference), then check configuration
+    const assignedUserId = currentLevelData.assignedUserId;
+    if (assignedUserId && assignedUserId.toString() !== user._id.toString()) {
+      throw new Error(`Only the assigned approver can approve at level ${currentLevel}`);
+    }
+    
+    // Also check against configuration as fallback (this is the source of truth)
+    const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', currentLevel, user._id);
+    if (!isAssigned) {
+      throw new Error(`You are not authorized to approve at level ${currentLevel}`);
+    }
+  }
+  
+  // Approve current level
+  document.approvalLevels[levelIndex].status = 'approved';
+  document.approvalLevels[levelIndex].approvedAt = new Date();
+  document.approvalLevels[levelIndex].comments = comments || '';
+  if (user) {
+    document.approvalLevels[levelIndex].approvedBy = user._id; // User reference
+    
+    // Also set approver to the Employee record (for display purposes)
+    // Find the Employee record that corresponds to this User
+    const approverEmployee = await Employee.findOne({ user: user._id });
+    if (approverEmployee) {
+      document.approvalLevels[levelIndex].approver = approverEmployee._id; // Employee reference
+    }
+  }
+  
+  // Check if all levels are approved
+  const allApproved = document.approvalLevels.every(level => level.status === 'approved');
+  
+  if (allApproved) {
+    document.approvalStatus = 'approved';
+    document.status = 'completed';
+    document.completedAt = new Date();
+  } else {
+    document.currentApprovalLevel = currentLevel + 1;
+    document.approvalStatus = 'in_progress';
+  }
+  
+  await document.save();
+  await hydrateDocument(document);
+  
+  const nextLevelData = allApproved
+    ? null
+    : document.approvalLevels[(document.currentApprovalLevel || 1) - 1];
+  
+  await TrackingService.logApproval({
+    document,
+    nextLevel: nextLevelData,
+    actorUser: user
+  });
+  
+  return await withPopulates(
+    EvaluationDocument.findById(document._id)
+  );
+};
+
 // Approve evaluation document at current level
 router.post('/:id/approve', async (req, res) => {
   try {
     const { comments } = req.body;
-    const document = await EvaluationDocument.findById(req.params.id);
-    await hydrateDocument(document);
-    await hydrateDocument(document);
-    
-    if (!document) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Evaluation document not found' 
-      });
-    }
-    
-    console.log('Approval request for document:', {
-      id: document._id,
-      status: document.status,
-      approvalStatus: document.approvalStatus,
-      currentApprovalLevel: document.currentApprovalLevel,
-      approvalLevelsCount: document.approvalLevels?.length || 0
-    });
-    
-    // Check if document is submitted and can be approved
-    // The document must be in 'submitted' status for approval to begin
-    if (document.status !== 'submitted') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Document must be submitted before approval',
-        currentStatus: document.status,
-        approvalStatus: document.approvalStatus,
-        requiredStatus: 'submitted',
-        hint: 'The document needs to be submitted by the evaluator before it can be approved'
-      });
-    }
-    
-    if (document.approvalStatus === 'approved') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Document is already approved' 
-      });
-    }
-    
-    if (document.approvalStatus === 'rejected') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Document has been rejected' 
-      });
-    }
-    
-    // Initialize approval levels if they don't exist (fallback for documents that were submitted without initialization)
-    if (!document.approvalLevels || document.approvalLevels.length === 0) {
-      console.log('Approval levels not found, initializing them...');
-      
-      const approvalLevels = [
-        {
-          level: 1,
-          title: 'Assistant Vice President / CHRO SGC',
-          approverName: 'Fahad Fareed',
-          status: 'pending'
-        },
-        {
-          level: 2,
-          title: 'Chairman Steering Committee',
-          approverName: 'Ahmad Tansim',
-          status: 'pending'
-        },
-        {
-          level: 3,
-          title: 'CEO SGC',
-          approverName: 'Sardar Umer Tanveer',
-          status: 'pending'
-        },
-        {
-          level: 4,
-          title: 'President SGC',
-          approverName: 'Sardar Tanveer Ilyas',
-          status: 'pending'
-        }
-      ];
-      
-      // Try to find and link approvers by name
-      for (let i = 0; i < approvalLevels.length; i++) {
-        const approver = await Employee.findOne({
-          $or: [
-            { 
-              firstName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ')[0], 'i') }, 
-              lastName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ').slice(1).join(' '), 'i') } 
-            },
-            { 
-              firstName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ')[0], 'i') } 
-            }
-          ]
-        });
-        
-        if (approver) {
-          approvalLevels[i].approver = approver._id;
-        }
-      }
-      
-      document.approvalLevels = approvalLevels;
-      document.approvalStatus = 'pending';
-      document.currentApprovalLevel = 1;
-      
-      // Save the document with initialized approval levels
-      await document.save();
-      console.log('Approval levels initialized successfully');
-    }
-    
-    const currentLevel = document.currentApprovalLevel || 1;
-    const levelIndex = currentLevel - 1;
-    
-    if (levelIndex < 0 || levelIndex >= document.approvalLevels.length) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Invalid approval level',
-        currentLevel,
-        totalLevels: document.approvalLevels.length
-      });
-    }
-    
-    const currentLevelData = document.approvalLevels[levelIndex];
-    
-    // Check if current level is already approved
-    if (currentLevelData.status === 'approved') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Current approval level is already approved',
-        level: currentLevel,
-        levelTitle: currentLevelData.title
-      });
-    }
-    
-    // Check if current level is rejected
-    if (currentLevelData.status === 'rejected') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Current approval level has been rejected',
-        level: currentLevel,
-        levelTitle: currentLevelData.title
-      });
-    }
-    
-    // Check if current level is pending (explicit check)
-    if (currentLevelData.status !== 'pending') {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Current approval level is not in pending status',
-        level: currentLevel,
-        levelTitle: currentLevelData.title,
-        currentStatus: currentLevelData.status,
-        requiredStatus: 'pending'
-      });
-    }
-    
-    // Approve current level
-    document.approvalLevels[levelIndex].status = 'approved';
-    document.approvalLevels[levelIndex].approvedAt = new Date();
-    document.approvalLevels[levelIndex].comments = comments || '';
-    if (req.user) {
-      document.approvalLevels[levelIndex].approvedBy = req.user._id;
-    }
-    
-    // Check if all levels are approved
-    const allApproved = document.approvalLevels.every(level => level.status === 'approved');
-    
-    if (allApproved) {
-      document.approvalStatus = 'approved';
-      document.status = 'completed';
-      document.completedAt = new Date();
-    } else {
-      // Move to next level
-      document.currentApprovalLevel = currentLevel + 1;
-      document.approvalStatus = 'in_progress';
-    }
-    
-    await document.save();
-    await hydrateDocument(document);
-
-    const nextLevelData = allApproved
-      ? null
-      : document.approvalLevels[(document.currentApprovalLevel || 1) - 1];
-
-    await TrackingService.logApproval({
-      document,
-      nextLevel: nextLevelData,
-      actorUser: req.user
-    });
-    
-    const populated = await withPopulates(
-      EvaluationDocument.findById(document._id)
-    );
+    const populated = await approveDocument(req.params.id, comments, req.user);
     
     res.json({
       success: true,
-      message: allApproved ? 'Document fully approved' : 'Approved at current level',
+      message: 'Document approved successfully',
       data: populated
     });
   } catch (error) {
     console.error('Error approving evaluation document:', error);
-    res.status(500).json({ 
+    const statusCode = error.message.includes('not found') ? 404 : 
+                      error.message.includes('already') || error.message.includes('rejected') || error.message.includes('submitted') ? 400 : 500;
+    res.status(statusCode).json({ 
       success: false,
-      error: 'Failed to approve evaluation document',
-      message: error.message 
+      error: error.message || 'Failed to approve evaluation document'
+    });
+  }
+});
+
+// Bulk approve evaluation documents by department
+router.post('/bulk-approve', async (req, res) => {
+  try {
+    const { documentIds, excludeDocumentIds = [], comments } = req.body;
+    
+    if (!documentIds || !Array.isArray(documentIds) || documentIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Document IDs are required'
+      });
+    }
+    
+    // Filter out excluded documents
+    const documentsToApprove = documentIds.filter(id => !excludeDocumentIds.includes(id.toString()));
+    
+    if (documentsToApprove.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No documents to approve after exclusions'
+      });
+    }
+    
+    // Validate that all documents are at the same approval level
+    // This ensures each approver only approves their own level
+    const documents = await EvaluationDocument.find({
+      _id: { $in: documentsToApprove }
+    }).select('currentApprovalLevel approvalStatus status');
+    
+    if (documents.length !== documentsToApprove.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'Some documents were not found'
+      });
+    }
+    
+    // Check that all documents are at the same current approval level
+    const approvalLevels = documents.map(doc => doc.currentApprovalLevel || 1);
+    const uniqueLevels = [...new Set(approvalLevels)];
+    
+    if (uniqueLevels.length > 1) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot bulk approve documents at different approval levels. Found levels: ${uniqueLevels.join(', ')}. Please approve documents at the same level together.`
+      });
+    }
+    
+    const targetLevel = uniqueLevels[0];
+    
+    // Verify all documents are in a state that can be approved
+    const invalidDocs = documents.filter(doc => 
+      doc.status !== 'submitted' || 
+      (doc.approvalStatus !== 'pending' && doc.approvalStatus !== 'in_progress') ||
+      doc.approvalStatus === 'approved' ||
+      doc.approvalStatus === 'rejected'
+    );
+    
+    if (invalidDocs.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `${invalidDocs.length} document(s) are not in a valid state for approval at level ${targetLevel}`
+      });
+    }
+    
+    // Check if current user is assigned to this approval level
+    if (req.user) {
+      const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', targetLevel, req.user._id);
+      if (!isAssigned) {
+        return res.status(403).json({
+          success: false,
+          error: `You are not authorized to approve documents at level ${targetLevel}`
+        });
+      }
+    }
+    
+    const results = {
+      successful: [],
+      failed: [],
+      total: documentsToApprove.length,
+      level: targetLevel
+    };
+    
+    // Process approvals in parallel with error handling
+    // Each approval will only approve the CURRENT level, not all levels
+    const approvalPromises = documentsToApprove.map(async (docId) => {
+      try {
+        const populated = await approveDocument(docId, comments, req.user);
+        results.successful.push({
+          documentId: docId,
+          employeeName: populated.employee ? `${populated.employee.firstName} ${populated.employee.lastName}` : 'Unknown',
+          status: 'approved',
+          level: targetLevel
+        });
+        return { success: true, documentId: docId, data: populated };
+      } catch (error) {
+        results.failed.push({
+          documentId: docId,
+          error: error.message,
+          level: targetLevel
+        });
+        return { success: false, documentId: docId, error: error.message };
+      }
+    });
+    
+    await Promise.all(approvalPromises);
+    
+    // Process excluded documents - advance them to the next level
+    const excludedResults = {
+      advanced: [],
+      failed: []
+    };
+    
+    if (excludeDocumentIds && excludeDocumentIds.length > 0) {
+      // Fetch excluded documents to validate and advance them
+      const excludedDocs = await EvaluationDocument.find({
+        _id: { $in: excludeDocumentIds }
+      });
+      
+      // Validate excluded documents are at the same level and in valid state
+      const validExcludedDocs = excludedDocs.filter(doc => 
+        doc.status === 'submitted' && 
+        (doc.approvalStatus === 'pending' || doc.approvalStatus === 'in_progress') &&
+        doc.approvalStatus !== 'approved' &&
+        doc.approvalStatus !== 'rejected' &&
+        (doc.currentApprovalLevel || 1) === targetLevel
+      );
+      
+      // Advance excluded documents to next level
+      const advancePromises = validExcludedDocs.map(async (doc) => {
+        try {
+          await hydrateDocument(doc);
+          
+          // Initialize approval levels if needed
+          if (!doc.approvalLevels || doc.approvalLevels.length === 0) {
+            const levelConfigs = await ApprovalLevelConfiguration.getActiveForModule('evaluation_appraisal');
+            if (levelConfigs && levelConfigs.length > 0) {
+              const approvalLevels = await Promise.all(levelConfigs.map(async (config) => {
+                let approverEmployee = null;
+                if (config.assignedUser) {
+                  approverEmployee = await Employee.findOne({ user: config.assignedUser._id });
+                }
+                return {
+                  level: config.level,
+                  title: config.title,
+                  approverName: config.assignedUser ? `${config.assignedUser.firstName} ${config.assignedUser.lastName}` : 'Unknown',
+                  approver: approverEmployee ? approverEmployee._id : null,
+                  assignedUserId: config.assignedUser ? config.assignedUser._id : null,
+                  status: 'pending'
+                };
+              }));
+              doc.approvalLevels = approvalLevels;
+              doc.approvalStatus = 'pending';
+              doc.currentApprovalLevel = 1;
+            }
+          }
+          
+          const currentLevel = doc.currentApprovalLevel || 1;
+          const levelIndex = currentLevel - 1;
+          
+          if (levelIndex >= 0 && levelIndex < doc.approvalLevels.length) {
+            // Auto-approve current level with comment indicating auto-advancement
+            doc.approvalLevels[levelIndex].status = 'approved';
+            doc.approvalLevels[levelIndex].approvedAt = new Date();
+            doc.approvalLevels[levelIndex].comments = `Auto-advanced from bulk approval (excluded from selection at Level ${targetLevel})`;
+            if (req.user) {
+              doc.approvalLevels[levelIndex].approvedBy = req.user._id;
+              const approverEmployee = await Employee.findOne({ user: req.user._id });
+              if (approverEmployee) {
+                doc.approvalLevels[levelIndex].approver = approverEmployee._id;
+              }
+            }
+            
+            // Check if all levels are approved
+            const allApproved = doc.approvalLevels.every(level => level.status === 'approved');
+            
+            if (allApproved) {
+              doc.approvalStatus = 'approved';
+              doc.status = 'completed';
+              doc.completedAt = new Date();
+            } else {
+              // Move to next level
+              doc.currentApprovalLevel = currentLevel + 1;
+              doc.approvalStatus = 'in_progress';
+            }
+            
+            await doc.save();
+            await hydrateDocument(doc);
+            
+            excludedResults.advanced.push({
+              documentId: doc._id,
+              employeeName: doc.employee ? `${doc.employee.firstName} ${doc.employee.lastName}` : 'Unknown',
+              fromLevel: targetLevel,
+              toLevel: doc.currentApprovalLevel || targetLevel + 1
+            });
+          }
+        } catch (error) {
+          console.error(`Error advancing excluded document ${doc._id}:`, error);
+          excludedResults.failed.push({
+            documentId: doc._id,
+            error: error.message
+          });
+        }
+      });
+      
+      await Promise.all(advancePromises);
+    }
+    
+    // Build message
+    let message = `Bulk approval completed for Level ${targetLevel}: ${results.successful.length} approved`;
+    if (results.failed.length > 0) {
+      message += `, ${results.failed.length} failed`;
+    }
+    if (excludedResults.advanced.length > 0) {
+      message += `. ${excludedResults.advanced.length} excluded document(s) advanced to next level`;
+    }
+    message += '.';
+    
+    res.json({
+      success: true,
+      message: message,
+      data: {
+        successful: results.successful,
+        failed: results.failed,
+        excluded: excludedResults.advanced,
+        excludedFailed: excludedResults.failed,
+        total: results.total,
+        successCount: results.successful.length,
+        failureCount: results.failed.length,
+        excludedCount: excludedResults.advanced.length,
+        approvedLevel: targetLevel,
+        note: excludedResults.advanced.length > 0 
+          ? 'Selected documents were approved. Excluded documents were automatically advanced to the next level for the next approver.'
+          : 'Selected documents were approved and will proceed to the next level for the next approver.'
+      }
+    });
+  } catch (error) {
+    console.error('Error in bulk approval:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process bulk approval',
+      message: error.message
     });
   }
 });

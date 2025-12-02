@@ -14,7 +14,13 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Alert
+  Alert,
+  Checkbox,
+  FormControlLabel,
+  List,
+  ListItem,
+  Divider,
+  LinearProgress
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -22,17 +28,22 @@ import {
   Person as PersonIcon,
   Visibility as VisibilityIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  DoneAll as DoneAllIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { evaluationDocumentsService } from '../../../../services/evaluationDocumentsService';
 
-const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocumentUpdate }) => {
+const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [] }) => {
   const [expanded, setExpanded] = useState(false);
   const [approvalDialog, setApprovalDialog] = useState({ open: false, doc: null, action: null });
+  const [bulkApprovalDialog, setBulkApprovalDialog] = useState({ open: false });
+  const [selectedDocuments, setSelectedDocuments] = useState(new Set());
   const [comments, setComments] = useState('');
   const [loading, setLoading] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [bulkError, setBulkError] = useState(null);
 
   const statusColors = useMemo(() => ({
       draft: 'default',
@@ -161,11 +172,121 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
   }, []);
 
   const canApprove = useCallback((doc) => {
-    return doc.status === 'submitted' && 
-           (doc.approvalStatus === 'pending' || doc.approvalStatus === 'in_progress') &&
-           doc.approvalStatus !== 'rejected' &&
-           doc.approvalStatus !== 'approved';
+    // Check basic status requirements
+    if (doc.status !== 'submitted' || 
+        doc.approvalStatus === 'rejected' ||
+        doc.approvalStatus === 'approved') {
+      return false;
+    }
+
+    if (doc.approvalStatus !== 'pending' && doc.approvalStatus !== 'in_progress') {
+      return false;
+    }
+
+    // Check if user is assigned to the current approval level
+    const currentLevel = doc.currentApprovalLevel || 1;
+    if (assignedApprovalLevels.length > 0 && !assignedApprovalLevels.includes(currentLevel)) {
+      return false; // User is not assigned to this level
+    }
+
+    return true;
+  }, [assignedApprovalLevels]);
+
+  // Get all documents that can be approved in this department
+  const approvableDocuments = useMemo(() => {
+    return documents.filter(doc => canApprove(doc));
+  }, [documents, canApprove]);
+
+  // Initialize selected documents when bulk dialog opens
+  const handleOpenBulkApproval = useCallback(() => {
+    const allApprovableIds = approvableDocuments.map(doc => doc._id);
+    setSelectedDocuments(new Set(allApprovableIds));
+    setBulkError(null);
+    setComments('');
+    setBulkApprovalDialog({ open: true });
+  }, [approvableDocuments]);
+
+  const handleCloseBulkApproval = useCallback(() => {
+    setBulkApprovalDialog({ open: false });
+    setSelectedDocuments(new Set());
+    setBulkError(null);
+    setComments('');
   }, []);
+
+  const handleToggleDocumentSelection = useCallback((docId) => {
+    setSelectedDocuments(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(docId)) {
+        newSet.delete(docId);
+      } else {
+        newSet.add(docId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    const allIds = approvableDocuments.map(doc => doc._id);
+    setSelectedDocuments(new Set(allIds));
+  }, [approvableDocuments]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedDocuments(new Set());
+  }, []);
+
+  const handleBulkApprove = useCallback(async () => {
+    if (selectedDocuments.size === 0) {
+      setBulkError('Please select at least one document to approve');
+      return;
+    }
+
+    try {
+      setBulkLoading(true);
+      setBulkError(null);
+
+      const documentIds = Array.from(selectedDocuments);
+      const excludeDocumentIds = approvableDocuments
+        .filter(doc => !selectedDocuments.has(doc._id))
+        .map(doc => doc._id);
+
+      const response = await evaluationDocumentsService.bulkApprove({
+        documentIds,
+        excludeDocumentIds,
+        comments
+      });
+
+      if (response.data && response.data.success) {
+        handleCloseBulkApproval();
+        
+        // Refresh documents - the parent component will fetch all documents
+        if (onDocumentUpdate) {
+          onDocumentUpdate();
+        }
+        
+        // Show success message
+        const { successCount, failureCount, excludedCount } = response.data.data;
+        let message = `Bulk approval completed: ${successCount} approved`;
+        if (excludedCount > 0) {
+          message += `, ${excludedCount} excluded document(s) advanced to next level`;
+        }
+        if (failureCount > 0) {
+          message += `, ${failureCount} failed`;
+        }
+        
+        // Show success notification (you might want to use a snackbar here)
+        if (failureCount > 0 || excludedCount > 0) {
+          setBulkError(message);
+        }
+      } else {
+        setBulkError(response.data?.error || 'Failed to approve documents');
+      }
+    } catch (err) {
+      console.error('Error in bulk approval:', err);
+      setBulkError(err.response?.data?.error || err.message || 'Failed to approve documents');
+    } finally {
+      setBulkLoading(false);
+    }
+  }, [selectedDocuments, approvableDocuments, comments, onDocumentUpdate, handleCloseBulkApproval]);
 
   return (
     <Card sx={{ mb: 2 }}>
@@ -197,15 +318,26 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
             )}
           </Box>
           <Box display="flex" alignItems="center" gap={1}>
-            {approvalInfo?.hasPending && (
+            {approvableDocuments.length > 0 && (
               <>
+                {approvableDocuments.length > 1 && (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="success"
+                    startIcon={<DoneAllIcon />}
+                    onClick={handleOpenBulkApproval}
+                  >
+                    Bulk Approve ({approvableDocuments.length})
+                  </Button>
+                )}
                 <Button
                   size="small"
                   variant="contained"
                   color="success"
                   startIcon={<CheckCircleIcon />}
                   onClick={() => {
-                    const pendingDoc = documents.find(doc => canApprove(doc));
+                    const pendingDoc = approvableDocuments[0];
                     if (pendingDoc) openApprovalDialog(pendingDoc, 'approve');
                   }}
                 >
@@ -217,13 +349,13 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
                   color="error"
                   startIcon={<CancelIcon />}
                   onClick={() => {
-                    const pendingDoc = documents.find(doc => canApprove(doc));
+                    const pendingDoc = approvableDocuments[0];
                     if (pendingDoc) openApprovalDialog(pendingDoc, 'reject');
                   }}
                 >
                   Reject
                 </Button>
-                {approvalInfo.currentLevelTitle && (
+                {approvalInfo?.currentLevelTitle && (
                   <Chip
                     label={`Level ${approvalInfo.currentLevel}: ${approvalInfo.currentLevelTitle}`}
                     size="small"
@@ -439,6 +571,96 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
             disabled={loading}
           >
             {loading ? 'Processing...' : approvalDialog.action === 'approve' ? 'Approve' : 'Reject'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk Approval Dialog */}
+      <Dialog open={bulkApprovalDialog.open} onClose={handleCloseBulkApproval} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Bulk Approve Department Documents
+        </DialogTitle>
+        <DialogContent>
+          {bulkError && <Alert severity="error" sx={{ mb: 2 }}>{bulkError}</Alert>}
+          {bulkLoading && <LinearProgress sx={{ mb: 2 }} />}
+          
+          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              Select employees to approve (or deselect to exclude):
+            </Typography>
+            <Box>
+              <Button size="small" onClick={handleSelectAll} sx={{ mr: 1 }}>
+                Select All
+              </Button>
+              <Button size="small" onClick={handleDeselectAll}>
+                Deselect All
+              </Button>
+            </Box>
+          </Box>
+
+          <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
+            {selectedDocuments.size} of {approvableDocuments.length} selected
+          </Typography>
+
+          <List sx={{ maxHeight: 400, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+            {approvableDocuments.map((doc, index) => (
+              <React.Fragment key={doc._id}>
+                <ListItem
+                  sx={{
+                    py: 1.5,
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                >
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={selectedDocuments.has(doc._id)}
+                        onChange={() => handleToggleDocumentSelection(doc._id)}
+                        disabled={bulkLoading}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body1" fontWeight="medium">
+                          {doc.employee?.firstName} {doc.employee?.lastName}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          ID: {doc.employee?.employeeId} • {doc.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
+                          {doc.currentApprovalLevel && ` • Level ${doc.currentApprovalLevel}`}
+                        </Typography>
+                      </Box>
+                    }
+                    sx={{ flex: 1 }}
+                  />
+                </ListItem>
+                {index < approvableDocuments.length - 1 && <Divider />}
+              </React.Fragment>
+            ))}
+          </List>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Comments (Optional - will apply to all selected documents)"
+            value={comments}
+            onChange={(e) => setComments(e.target.value)}
+            sx={{ mt: 2 }}
+            disabled={bulkLoading}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseBulkApproval} disabled={bulkLoading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleBulkApprove}
+            variant="contained"
+            color="success"
+            disabled={bulkLoading || selectedDocuments.size === 0}
+            startIcon={<DoneAllIcon />}
+          >
+            {bulkLoading ? 'Processing...' : `Approve ${selectedDocuments.size} Document(s)`}
           </Button>
         </DialogActions>
       </Dialog>

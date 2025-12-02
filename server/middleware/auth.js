@@ -90,8 +90,8 @@ const authorize = (...roles) => {
       });
     }
 
-    // Super Admin has access to everything
-    if (req.user.role === 'super_admin') {
+    // Super Admin and Higher Management have access to everything
+    if (req.user.role === 'super_admin' || req.user.role === 'higher_management') {
       return next();
     }
 

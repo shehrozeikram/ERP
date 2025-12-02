@@ -6,6 +6,7 @@
 // Role Definitions
 const ROLES = {
   SUPER_ADMIN: 'super_admin',
+  HIGHER_MANAGEMENT: 'higher_management',
   ADMIN: 'admin',
   HR_MANAGER: 'hr_manager',
   FINANCE_MANAGER: 'finance_manager',
@@ -149,6 +150,12 @@ const ROLE_MODULE_ACCESS = {
     canAccessAll: true,
     modules: Object.values(MODULES),
     description: 'Full system access'
+  },
+  
+  [ROLES.HIGHER_MANAGEMENT]: {
+    canAccessAll: true,
+    modules: Object.values(MODULES),
+    description: 'Access to all departments and modules'
   },
   
   [ROLES.ADMIN]: {
@@ -395,8 +402,8 @@ const PERMISSION_MAPPINGS = {
 
 // Helper Functions
 const hasPermission = (userRole, permission) => {
-  // Super admin has all permissions
-  if (userRole === ROLES.SUPER_ADMIN) {
+  // Super admin and higher management have all permissions
+  if (userRole === ROLES.SUPER_ADMIN || userRole === ROLES.HIGHER_MANAGEMENT) {
     return true;
   }
   
@@ -480,8 +487,8 @@ const getUserAllowedSubmodules = async (userId, module) => {
   const user = await User.findById(userId);
   if (!user) return [];
   
-  // Super admin has access to everything
-  if (user.role === ROLES.SUPER_ADMIN) {
+  // Super admin and higher management have access to everything
+  if (user.role === ROLES.SUPER_ADMIN || user.role === ROLES.HIGHER_MANAGEMENT) {
     return SUBMODULES[module] || [];
   }
   
@@ -519,8 +526,8 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
   const user = await User.findById(userId);
   if (!user) return false;
   
-  // Super admin has access to everything
-  if (user.role === ROLES.SUPER_ADMIN) return true;
+  // Super admin and higher management have access to everything
+  if (user.role === ROLES.SUPER_ADMIN || user.role === ROLES.HIGHER_MANAGEMENT) return true;
   
   // Get user's active sub-role assignments
   const userSubRoles = await UserSubRole.findActiveByUser(userId);
