@@ -33,6 +33,27 @@ export const getImageUrl = (imagePath) => {
     return `${apiUrl}/hr/image/${filename}`;
   }
   
+  // For rental agreements and other uploads
+  // In production: served through nginx proxy at /uploads/ -> Node.js
+  // In development: use full backend URL to bypass React Router
+  if (imagePath.startsWith('/uploads/')) {
+    // Check if we're in production (hosted on tovus.net)
+    const isProduction = window.location.hostname === 'tovus.net' || 
+                         window.location.hostname === 'www.tovus.net' ||
+                         process.env.NODE_ENV === 'production';
+    
+    if (isProduction) {
+      // In production, use full URL to ensure proper routing through nginx
+      return `${window.location.origin}${imagePath}`;
+    }
+    
+    // In development, use full backend URL to bypass React Router
+    // This ensures the request goes directly to the backend, not through React Router
+    const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+    const baseUrl = backendUrl.replace('/api', ''); // Remove /api if present
+    return `${baseUrl}${imagePath}`;
+  }
+  
   // For other image paths, use relative URL
   return imagePath;
 };
