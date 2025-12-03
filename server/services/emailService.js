@@ -1981,6 +1981,158 @@ This is an automated email from SGC ERP System.
 Please complete the evaluation at your earliest convenience.
     `;
   }
+
+  // Send bulk evaluation document email (one email with multiple employees)
+  async sendBulkEvaluationDocumentEmail(evaluator, documentsData, formType) {
+    try {
+      const htmlContent = this.generateBulkEvaluationEmailHTML(evaluator, documentsData, formType);
+      const textContent = this.generateBulkEvaluationEmailText(evaluator, documentsData, formType);
+      
+      const employeeCount = documentsData.length;
+      const subject = employeeCount === 1 
+        ? `📋 Evaluation Form Required - ${documentsData[0].employee.firstName} ${documentsData[0].employee.lastName}`
+        : `📋 ${employeeCount} Evaluation Forms Required`;
+      
+      const mailOptions = {
+        from: `"SGC ERP HR Team" <${this.getFromAddress()}>`,
+        to: evaluator.email,
+        subject: subject,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Bulk evaluation email sent to ${evaluator.email} for ${employeeCount} employee(s): ${result.messageId}`);
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: evaluator.email,
+        deliveryStatus: 'delivered',
+        employeeCount
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send bulk evaluation email to ${evaluator.email}:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        email: evaluator.email,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
+  // Generate HTML email template for bulk evaluation documents
+  generateBulkEvaluationEmailHTML(evaluator, documentsData, formType) {
+    const formTypeLabel = formType === 'blue_collar' ? 'Blue Collar' : 'White Collar';
+    const employeeCount = documentsData.length;
+    
+    // Generate employee list HTML
+    const employeeListHTML = documentsData.map((data, index) => {
+      const { employee, document, department, accessLink } = data;
+      return `
+        <div class="employee-item" style="background: white; padding: 20px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #667eea;">
+          <h3 style="margin-top: 0; color: #667eea;">Employee ${index + 1}: ${employee.firstName} ${employee.lastName}</h3>
+          <p><span class="label">Employee ID:</span> <span class="value">${employee.employeeId || 'N/A'}</span></p>
+          <p><span class="label">Department:</span> <span class="value">${department?.name || 'N/A'}</span></p>
+          <p><span class="label">Designation:</span> <span class="value">${employee.placementDesignation?.title || 'N/A'}</span></p>
+          <div style="text-align: center; margin-top: 15px;">
+            <a href="${accessLink}" class="button" style="display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">Complete Evaluation for ${employee.firstName} ${employee.lastName}</a>
+          </div>
+          <p style="margin-top: 10px; font-size: 12px; color: #666; word-break: break-all;">
+            Direct link: <a href="${accessLink}" style="color: #667eea;">${accessLink}</a>
+          </p>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Employee Evaluations Required</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .info-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+          .button { display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; font-weight: bold; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+          .label { font-weight: bold; color: #555; }
+          .value { color: #333; margin-bottom: 10px; }
+          .employee-item { background: white; padding: 20px; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #667eea; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📋 Employee Evaluation${employeeCount > 1 ? 's' : ''} Required</h1>
+            <p>You have ${employeeCount} evaluation${employeeCount > 1 ? 's' : ''} to complete</p>
+          </div>
+          
+          <div class="content">
+            <p>Dear ${evaluator.firstName} ${evaluator.lastName},</p>
+            
+            <p>You have been assigned to evaluate ${employeeCount} employee${employeeCount > 1 ? 's' : ''} using the <strong>${formTypeLabel}</strong> form type.</p>
+            
+            <div class="info-box">
+              <p><span class="label">Total Evaluations:</span> <span class="value">${employeeCount}</span></p>
+              <p><span class="label">Form Type:</span> <span class="value">${formTypeLabel}</span></p>
+            </div>
+            
+            <p style="font-weight: bold; margin-top: 25px;">Please complete each evaluation by clicking the respective button below:</p>
+            
+            ${employeeListHTML}
+            
+            <div class="footer">
+              <p><strong>Security Note:</strong> Each evaluation link is unique and secure. Links cannot be shared or accessed by unauthorized users.</p>
+              <p>This is an automated email from SGC ERP System.</p>
+              <p>Please complete all evaluations at your earliest convenience.</p>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate text email template for bulk evaluation documents
+  generateBulkEvaluationEmailText(evaluator, documentsData, formType) {
+    const formTypeLabel = formType === 'blue_collar' ? 'Blue Collar' : 'White Collar';
+    const employeeCount = documentsData.length;
+    
+    const employeeListText = documentsData.map((data, index) => {
+      const { employee, department, accessLink } = data;
+      return `
+Employee ${index + 1}:
+- Name: ${employee.firstName} ${employee.lastName}
+- Employee ID: ${employee.employeeId || 'N/A'}
+- Department: ${department?.name || 'N/A'}
+- Designation: ${employee.placementDesignation?.title || 'N/A'}
+- Evaluation Link: ${accessLink}
+`;
+    }).join('\n');
+
+    return `
+Employee Evaluation${employeeCount > 1 ? 's' : ''} Required
+
+Dear ${evaluator.firstName} ${evaluator.lastName},
+
+You have been assigned to evaluate ${employeeCount} employee${employeeCount > 1 ? 's' : ''} using the ${formTypeLabel} form type.
+
+${employeeListText}
+
+Please complete each evaluation by clicking the respective link above.
+
+Security Note: Each evaluation link is unique and secure. Links cannot be shared or accessed by unauthorized users.
+
+This is an automated email from SGC ERP System.
+Please complete all evaluations at your earliest convenience.
+    `;
+  }
 }
 
 module.exports = new EmailService(); 

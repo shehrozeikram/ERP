@@ -63,15 +63,43 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
     }
   }, [open]);
 
-  // Filter employees (exclude evaluators)
-  const availableEmployees = useMemo(() => {
+  // Get all managers from employees list (in addition to evaluators passed as prop)
+  const allManagers = useMemo(() => {
+    return employees.filter(emp => {
+      const designation = (
+        emp.placementDesignation?.title ||
+        emp.placementDesignation ||
+        emp.designation ||
+        ''
+      ).toLowerCase();
+      return designation.includes('manager');
+    });
+  }, [employees]);
+
+  // Combine evaluators with managers (avoid duplicates)
+  const combinedEvaluators = useMemo(() => {
     const evaluatorIds = new Set(evaluators.map(e => e._id));
-    return employees.filter(emp => !evaluatorIds.has(emp._id));
-  }, [employees, evaluators]);
+    const managers = allManagers.filter(m => !evaluatorIds.has(m._id));
+    return [...evaluators, ...managers];
+  }, [evaluators, allManagers]);
+
+  // Filter employees (exclude evaluators from prop AND selected evaluators to prevent self-evaluation)
+  const availableEmployees = useMemo(() => {
+    // Create a set of all evaluator IDs (from prop + selected)
+    const evaluatorIds = new Set(evaluators.map(e => e._id));
+    const selectedEvaluatorIds = new Set(selectedEvaluators.map(e => e._id));
+    
+    // Combine both sets
+    const allEvaluatorIds = new Set([...evaluatorIds, ...selectedEvaluatorIds]);
+    
+    return employees.filter(emp => !allEvaluatorIds.has(emp._id));
+  }, [employees, evaluators, selectedEvaluators]);
+
   const filteredEvaluators = useMemo(() => {
-    if (!evaluatorDepartmentFilter) return evaluators;
-    return evaluators.filter(e => (e.placementDepartment?._id || 'no-dept') === evaluatorDepartmentFilter);
-  }, [evaluators, evaluatorDepartmentFilter]);
+    const evaluatorsToFilter = combinedEvaluators;
+    if (!evaluatorDepartmentFilter) return evaluatorsToFilter;
+    return evaluatorsToFilter.filter(e => (e.placementDepartment?._id || 'no-dept') === evaluatorDepartmentFilter);
+  }, [combinedEvaluators, evaluatorDepartmentFilter]);
 
   const groupedEmployees = useMemo(() => {
     const map = new Map();
@@ -369,25 +397,40 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
                   label="Select Evaluators"
                   renderValue={(selected) => (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((evaluator) => (
-                        <Chip
-                          key={evaluator._id}
-                          label={`${evaluator.firstName} ${evaluator.lastName}`}
-                          size="small"
-                        />
-                      ))}
+                      {selected.map((evaluator) => {
+                        const designation = evaluator.placementDesignation?.title || 
+                                           evaluator.placementDesignation || 
+                                           evaluator.designation || 
+                                           '';
+                        const label = designation 
+                          ? `${evaluator.firstName} ${evaluator.lastName} (${designation})`
+                          : `${evaluator.firstName} ${evaluator.lastName}`;
+                        return (
+                          <Chip
+                            key={evaluator._id}
+                            label={label}
+                            size="small"
+                          />
+                        );
+                      })}
                     </Box>
                   )}
                 >
-                  {filteredEvaluators.map((evaluator) => (
-                    <MenuItem key={evaluator._id} value={evaluator}>
-                      <Checkbox checked={selectedEvaluators.some(e => e._id === evaluator._id)} />
-                      <ListItemText
-                        primary={`${evaluator.firstName} ${evaluator.lastName}`}
-                        secondary={`${evaluator.placementDepartment?.name || 'No Department'} | ${evaluator.email || 'No Email'}`}
-                      />
-                    </MenuItem>
-                  ))}
+                  {filteredEvaluators.map((evaluator) => {
+                    const designation = evaluator.placementDesignation?.title || 
+                                       evaluator.placementDesignation || 
+                                       evaluator.designation || 
+                                       'No Designation';
+                    return (
+                      <MenuItem key={evaluator._id} value={evaluator}>
+                        <Checkbox checked={selectedEvaluators.some(e => e._id === evaluator._id)} />
+                        <ListItemText
+                          primary={`${evaluator.firstName} ${evaluator.lastName}`}
+                          secondary={`${designation} | ${evaluator.placementDepartment?.name || 'No Department'} | ${evaluator.email || 'No Email'}`}
+                        />
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
             </>

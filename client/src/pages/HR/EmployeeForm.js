@@ -1679,11 +1679,20 @@ const EmployeeForm = () => {
                 fullWidth
                 name="employeeId"
                 label="Employee ID"
-                value={(id && id !== 'add') ? (formik.values.employeeId || 'Loading...') : (nextEmployeeId || 'Loading...')}
+                value={formik.values.employeeId || ''}
+                onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
+                error={formik.touched.employeeId && Boolean(formik.errors.employeeId)}
                 InputProps={{
-                  readOnly: true,
+                  readOnly: (id && id !== 'add'),
                 }}
-                helperText={(id && id !== 'add') ? "Employee ID (cannot be changed)" : "Employee ID will be auto-generated"}
+                helperText={
+                  (id && id !== 'add') 
+                    ? "Employee ID (cannot be changed)" 
+                    : formik.touched.employeeId && formik.errors.employeeId
+                      ? formik.errors.employeeId
+                      : "Enter Employee ID or leave blank for auto-generation"
+                }
               />
             </Grid>
 

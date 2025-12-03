@@ -133,6 +133,14 @@ router.get('/:id', async (req, res) => {
     if (token && document.accessToken !== token) {
       return res.status(403).json({ error: 'Invalid or expired access token' });
     }
+
+    // If form is already submitted, return error for public access (prevents duplicate access)
+    if (token && (document.status === 'submitted' || document.status === 'completed')) {
+      return res.status(400).json({ 
+        error: 'This evaluation form has already been submitted and cannot be accessed again.',
+        alreadySubmitted: true
+      });
+    }
     
     res.json(document);
   } catch (error) {
@@ -187,6 +195,14 @@ router.put('/:id', async (req, res) => {
     // If token is provided, verify it (for public access)
     if (token && existingDoc.accessToken !== token) {
       return res.status(403).json({ error: 'Invalid or expired access token' });
+    }
+
+    // Prevent duplicate submissions - if already submitted, reject the update
+    if (req.body.status === 'submitted' && (existingDoc.status === 'submitted' || existingDoc.status === 'completed')) {
+      return res.status(400).json({ 
+        error: 'This evaluation form has already been submitted and cannot be modified.',
+        alreadySubmitted: true
+      });
     }
 
     // Check if status is changing to 'submitted' and approval levels need to be initialized
@@ -464,11 +480,13 @@ router.post('/send', async (req, res) => {
       .populate('placementDesignation', 'title')
       .populate('user', 'firstName lastName email department position employeeId');
 
-    // Create documents and send emails
+    // Step 1: Create all documents first (grouped by evaluator)
+    const evaluatorDocumentsMap = new Map(); // evaluatorId -> array of {document, employee, accessLink}
+
     for (const employee of employees) {
       for (const evaluator of evaluators) {
         try {
-          // Generate access token
+          // Generate unique access token for each document (secure)
           const accessToken = crypto.randomBytes(32).toString('hex');
 
           // Create evaluation document
@@ -486,34 +504,42 @@ router.post('/send', async (req, res) => {
 
           await document.save();
 
-          // Generate access link
+          // Skip self-evaluation: if evaluator is evaluating themselves, don't include in email
+          if (employee._id.toString() === evaluator._id.toString()) {
+            // Still save the document but don't send email for self-evaluation
+            await EvaluationDocument.findByIdAndUpdate(document._id, {
+              status: 'sent',
+              sentAt: new Date(),
+              emailSent: false,
+              emailSentAt: null
+            });
+            
+            results.push({
+              employeeId: employee._id,
+              employeeName: `${employee.firstName} ${employee.lastName}`,
+              evaluatorId: evaluator._id,
+              evaluatorName: `${evaluator.firstName} ${evaluator.lastName}`,
+              evaluatorEmail: evaluator.email,
+              documentId: document._id,
+              emailSent: false,
+              emailError: 'Self-evaluation not sent via email'
+            });
+            continue; // Skip adding to email map
+          }
+
+          // Generate access link with unique token
           const accessLink = `${baseUrl}/hr/evaluation-appraisal/fill/${document._id}?token=${accessToken}`;
 
-          // Send email
-          const emailResult = await EmailService.sendEvaluationDocumentEmail(
-            evaluator,
-            employee,
-            { department: employee.placementDepartment },
-            formType,
-            accessLink
-          );
-
-          // Update document with email status
-          await EvaluationDocument.findByIdAndUpdate(document._id, {
-            status: 'sent',
-            sentAt: new Date(),
-            emailSent: emailResult.success,
-            emailSentAt: new Date()
-          });
-
-          if (emailResult.success) {
-            await TrackingService.logSend({
-              document,
-              evaluator,
-              employee,
-              actorUser: req.user
-            });
+          // Group by evaluator (only non-self evaluations)
+          if (!evaluatorDocumentsMap.has(evaluator._id.toString())) {
+            evaluatorDocumentsMap.set(evaluator._id.toString(), []);
           }
+          evaluatorDocumentsMap.get(evaluator._id.toString()).push({
+            document,
+            employee,
+            accessLink,
+            department: employee.placementDepartment
+          });
 
           results.push({
             employeeId: employee._id,
@@ -522,11 +548,11 @@ router.post('/send', async (req, res) => {
             evaluatorName: `${evaluator.firstName} ${evaluator.lastName}`,
             evaluatorEmail: evaluator.email,
             documentId: document._id,
-            emailSent: emailResult.success,
-            emailError: emailResult.error || null
+            emailSent: false, // Will be updated after email is sent
+            emailError: null
           });
         } catch (error) {
-          console.error(`Error processing employee ${employee._id} for evaluator ${evaluator._id}:`, error);
+          console.error(`Error creating document for employee ${employee._id} and evaluator ${evaluator._id}:`, error);
           results.push({
             employeeId: employee._id,
             employeeName: `${employee.firstName} ${employee.lastName}`,
@@ -537,6 +563,78 @@ router.post('/send', async (req, res) => {
             emailError: error.message
           });
         }
+      }
+    }
+
+    // Step 2: Send one email per evaluator with all their evaluation links
+    for (const [evaluatorId, documentsData] of evaluatorDocumentsMap.entries()) {
+      const evaluator = evaluators.find(e => e._id.toString() === evaluatorId);
+      if (!evaluator) continue;
+
+      // Skip if no documents to send (all were self-evaluations)
+      if (!documentsData || documentsData.length === 0) {
+        continue;
+      }
+
+      try {
+        // Send one email with all employees for this evaluator
+        const emailResult = await EmailService.sendBulkEvaluationDocumentEmail(
+          evaluator,
+          documentsData.map(d => ({
+            employee: d.employee,
+            document: d.document,
+            department: d.department,
+            accessLink: d.accessLink
+          })),
+          formType
+        );
+
+        // Update all documents for this evaluator with email status
+        const updatePromises = documentsData.map(d => {
+          return EvaluationDocument.findByIdAndUpdate(d.document._id, {
+            status: 'sent',
+            sentAt: new Date(),
+            emailSent: emailResult.success,
+            emailSentAt: new Date()
+          });
+        });
+        await Promise.all(updatePromises);
+
+        // Log tracking for all documents
+        if (emailResult.success) {
+          const trackingPromises = documentsData.map(d => {
+            return TrackingService.logSend({
+              document: d.document,
+              evaluator,
+              employee: d.employee,
+              actorUser: req.user
+            });
+          });
+          await Promise.all(trackingPromises);
+        }
+
+        // Update results
+        documentsData.forEach(d => {
+          const result = results.find(r => 
+            r.documentId && r.documentId.toString() === d.document._id.toString()
+          );
+          if (result) {
+            result.emailSent = emailResult.success;
+            result.emailError = emailResult.error || null;
+          }
+        });
+      } catch (error) {
+        console.error(`Error sending bulk email to evaluator ${evaluatorId}:`, error);
+        // Update results with error
+        documentsData.forEach(d => {
+          const result = results.find(r => 
+            r.documentId && r.documentId.toString() === d.document._id.toString()
+          );
+          if (result) {
+            result.emailSent = false;
+            result.emailError = error.message;
+          }
+        });
       }
     }
 

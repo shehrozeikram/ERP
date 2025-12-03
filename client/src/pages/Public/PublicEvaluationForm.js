@@ -9,11 +9,17 @@ import {
   Button,
   Container,
   Grid,
-  TextField
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  DialogContentText
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  Save as SaveIcon
+  Save as SaveIcon,
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { evaluationDocumentsService } from '../../services/evaluationDocumentsService';
 import { useFormik } from 'formik';
@@ -54,6 +60,7 @@ const PublicEvaluationForm = () => {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
 
   useEffect(() => {
@@ -68,14 +75,43 @@ const PublicEvaluationForm = () => {
           return;
         }
 
+        // Don't fetch if already submitted locally (prevents unnecessary API call)
+        if (document?.status === 'submitted' || document?.status === 'completed') {
+          const employeeName = document.employee?.firstName && document.employee?.lastName 
+            ? `${document.employee.firstName} ${document.employee.lastName}`
+            : 'this employee';
+          setError(`The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`);
+          setLoading(false);
+          return;
+        }
+
         const response = await evaluationDocumentsService.getById(id, token);
         const doc = response.data?.data || response.data;
+
+        // Check if form is already submitted - prevent duplicate access
+        // Each evaluation document is independent - only this specific employee's evaluation is blocked
+        if (doc.status === 'submitted' || doc.status === 'completed') {
+          const employeeName = doc.employee?.firstName && doc.employee?.lastName 
+            ? `${doc.employee.firstName} ${doc.employee.lastName}`
+            : 'this employee';
+          setError(`The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`);
+          setLoading(false);
+          return;
+        }
 
         setDocument(doc);
         setActiveTab(doc.formType === 'blue_collar' ? 0 : 1);
       } catch (err) {
         console.error('Error fetching document:', err);
-        setError(err.response?.data?.error || 'Failed to load evaluation form. Please check your link.');
+        // Check if error is due to already submitted
+        if (err.response?.data?.alreadySubmitted || err.response?.data?.error?.includes('already been submitted')) {
+          const employeeName = document?.employee?.firstName && document?.employee?.lastName 
+            ? `${document.employee.firstName} ${document.employee.lastName}`
+            : 'this employee';
+          setError(`The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`);
+        } else {
+          setError(err.response?.data?.error || 'Failed to load evaluation form. Please check your link.');
+        }
       } finally {
         setLoading(false);
       }
@@ -208,12 +244,29 @@ const PublicEvaluationForm = () => {
           submittedAt: new Date()
         };
 
-        await evaluationDocumentsService.update(id, updateData, token);
-        setSubmitSuccess(true);
+        const response = await evaluationDocumentsService.update(id, updateData, token);
         
-        setTimeout(() => {
-          window.location.href = '/';
-        }, 3000);
+        // Handle different response structures
+        const updatedDoc = response?.data?.data || response?.data || response;
+        
+        // Verify the update was successful
+        if (!updatedDoc || (updatedDoc.status !== 'submitted' && updateData.status === 'submitted')) {
+          console.error('Failed to update document status:', updatedDoc);
+          throw new Error('Failed to submit evaluation form. Status was not updated.');
+        }
+        
+        // Update local document state to reflect submitted status
+        setDocument(prevDoc => ({
+          ...prevDoc,
+          ...updatedDoc,
+          status: 'submitted',
+          submittedAt: updatedDoc.submittedAt || new Date().toISOString()
+        }));
+        
+        setSubmitSuccess(true);
+        setSuccessModalOpen(true);
+        
+        console.log('✅ Evaluation form submitted successfully. Modal should appear.');
       } catch (err) {
         console.error('Error submitting form:', err);
         setError(err.response?.data?.error || 'Failed to submit evaluation form. Please try again.');
@@ -305,12 +358,6 @@ const PublicEvaluationForm = () => {
             You are evaluating: <strong>{document.employee?.firstName} {document.employee?.lastName}</strong> 
             ({document.employee?.employeeId}) - {document.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
           </Alert>
-
-          {submitSuccess && (
-            <Alert severity="success" sx={{ mb: 3 }}>
-              Evaluation form submitted successfully! You will be redirected shortly.
-            </Alert>
-          )}
 
           {error && (
             <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
@@ -409,15 +456,60 @@ const PublicEvaluationForm = () => {
                 type="submit"
                 variant="contained"
                 startIcon={<SaveIcon />}
-                disabled={submitting}
+                disabled={submitting || document?.status === 'submitted' || document?.status === 'completed'}
                 size="large"
               >
-                {submitting ? 'Submitting...' : 'Submit Evaluation'}
+                {submitting ? 'Submitting...' : document?.status === 'submitted' || document?.status === 'completed' ? 'Already Submitted' : 'Submit Evaluation'}
               </Button>
             </Box>
           </form>
         </Paper>
       </Container>
+
+      {/* Success Modal */}
+      <Dialog
+        open={successModalOpen}
+        onClose={() => {}}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2
+          }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', pt: 4 }}>
+          <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
+          <Typography variant="h5" component="div" fontWeight="bold">
+            Thank You!
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', pb: 2 }}>
+          <DialogContentText sx={{ fontSize: '1.1rem', mb: 2 }}>
+            Your evaluation has been submitted successfully.
+          </DialogContentText>
+            <DialogContentText sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
+            The form has been received and will be processed. This link will no longer be accessible.
+            {document?.employee && (
+              <><br /><br />Employee: <strong>{document.employee.firstName} {document.employee.lastName}</strong></>
+            )}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={() => {
+              setSuccessModalOpen(false);
+              window.location.href = '/';
+            }}
+            sx={{ minWidth: 120 }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

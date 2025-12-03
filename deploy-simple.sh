@@ -35,14 +35,6 @@ else
   echo -e "${RED}⚠️ Environment file '$ENV_FILE' not found. Skipping env sync.${NC}"
 fi
 
-# Sync nginx configuration (with backup)
-if [ -f "nginx.conf" ]; then
-  echo -e "${YELLOW}📋 Uploading nginx configuration...${NC}"
-  scp nginx.conf $SERVER_USER@$SERVER_IP:$SERVER_PATH/nginx.conf.deploy
-else
-  echo -e "${RED}⚠️ nginx.conf not found. Skipping nginx config sync.${NC}"
-fi
-
 # Commit and push changes
 echo -e "${YELLOW}📤 Pushing to git...${NC}"
 git add .
@@ -61,7 +53,6 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     BACKUP_ENV="quick-backups/.env.$TIMESTAMP"
     
     # Backup critical files
-    BACKUP_NGINX="quick-backups/nginx.conf.$TIMESTAMP"
     if [ -f "server/config/database.js" ]; then
         cp -f server/config/database.js "$BACKUP_DB"
         echo "✅ Database config backed up"
@@ -69,10 +60,6 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     if [ -f ".env" ]; then
         cp -f .env "$BACKUP_ENV"
         echo "✅ Environment file backed up"
-    fi
-    if [ -f "/etc/nginx/sites-available/tovus.net" ]; then
-        cp -f /etc/nginx/sites-available/tovus.net "$BACKUP_NGINX"
-        echo "✅ Nginx config backed up"
     fi
     
     # Stop app
@@ -94,26 +81,6 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         echo "✅ Environment file restored from backup"
     fi
     
-    # Update nginx configuration if new one is available
-    if [ -f "nginx.conf.deploy" ]; then
-        echo "📋 Updating nginx configuration..."
-        # Test nginx config before applying
-        if nginx -t -c "$(pwd)/nginx.conf.deploy" 2>/dev/null; then
-            # If nginx.conf.deploy is valid, copy it to the actual nginx location
-            # Note: Adjust the path based on your server's nginx setup
-            if [ -f "/etc/nginx/sites-available/tovus.net" ]; then
-                cp -f nginx.conf.deploy /etc/nginx/sites-available/tovus.net
-                echo "✅ Nginx config updated"
-            else
-                echo "⚠️ Nginx config file not found at /etc/nginx/sites-available/tovus.net"
-                echo "   Please manually update nginx configuration"
-            fi
-        else
-            echo "❌ Nginx config validation failed. Keeping existing config."
-            rm -f nginx.conf.deploy
-        fi
-    fi
-    
     # Install only server dependencies (skip client build)
     echo "📦 Installing server dependencies..."
     npm install --production --no-optional
@@ -125,22 +92,9 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     echo "📁 Copying build files to web root..."
     cp -r /var/www/sgc-erp/client/build/* /var/www/html/
     
-    # Test and reload nginx
-    echo "🔄 Testing nginx configuration..."
-    if nginx -t; then
-        echo "✅ Nginx config test passed"
-        echo "🔄 Reloading nginx..."
-        systemctl reload nginx
-        echo "✅ Nginx reloaded"
-    else
-        echo "❌ Nginx config test failed!"
-        if [ -f "$BACKUP_NGINX" ]; then
-            echo "🔄 Restoring nginx config from backup..."
-            cp -f "$BACKUP_NGINX" /etc/nginx/sites-available/tovus.net
-            systemctl reload nginx
-            echo "✅ Nginx config restored"
-        fi
-    fi
+    # Reload nginx to serve new files
+    echo "🔄 Reloading nginx..."
+    systemctl reload nginx
     
     # Start app
     echo "🚀 Starting application..."
