@@ -140,10 +140,10 @@ export const AuthProvider = ({ children }) => {
           token,
           (userData, token) => {
             if (isMounted) {
-              dispatch({
-                type: 'LOGIN_SUCCESS',
+          dispatch({
+            type: 'LOGIN_SUCCESS',
                 payload: { user: userData, token }
-              });
+          });
             }
           },
           (error) => {
@@ -161,13 +161,13 @@ export const AuthProvider = ({ children }) => {
                 type: 'NETWORK_ERROR', 
                 payload: 'Connection issue. Please check your network and try again.' 
               });
-            }
+          }
           }
         );
-      } catch (error) {
+        } catch (error) {
         if (isMounted && !isAuthError(error) && !isNetworkError(error)) {
-          localStorage.removeItem('token');
-          dispatch({ type: 'LOGIN_FAILURE', payload: 'Authentication check failed' });
+            localStorage.removeItem('token');
+            dispatch({ type: 'LOGIN_FAILURE', payload: 'Authentication check failed' });
         }
       }
     };
@@ -185,7 +185,7 @@ export const AuthProvider = ({ children }) => {
       
       localStorage.setItem('token', token);
       dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
-      
+
       toast.success(successMsg);
       navigate(getRedirectPath(user.role));
       return { success: true };
@@ -296,7 +296,7 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('token');
             dispatch({ type: 'LOGIN_FAILURE', payload: 'Authentication check failed' });
             resolve({ success: false, error: 'Authentication failed' });
-          }
+    }
         }
       );
     });

@@ -75,26 +75,12 @@ const PublicEvaluationForm = () => {
           return;
         }
 
-        // Don't fetch if already submitted locally (prevents unnecessary API call)
-        if (document?.status === 'submitted' || document?.status === 'completed') {
-          const employeeName = document.employee?.firstName && document.employee?.lastName 
-            ? `${document.employee.firstName} ${document.employee.lastName}`
-            : 'this employee';
-          setError(`The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`);
-          setLoading(false);
-          return;
-        }
-
         const response = await evaluationDocumentsService.getById(id, token);
         const doc = response.data?.data || response.data;
 
         // Check if form is already submitted - prevent duplicate access
-        // Each evaluation document is independent - only this specific employee's evaluation is blocked
         if (doc.status === 'submitted' || doc.status === 'completed') {
-          const employeeName = doc.employee?.firstName && doc.employee?.lastName 
-            ? `${doc.employee.firstName} ${doc.employee.lastName}`
-            : 'this employee';
-          setError(`The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`);
+          setError('This evaluation form has already been submitted and cannot be accessed again.');
           setLoading(false);
           return;
         }
@@ -103,15 +89,7 @@ const PublicEvaluationForm = () => {
         setActiveTab(doc.formType === 'blue_collar' ? 0 : 1);
       } catch (err) {
         console.error('Error fetching document:', err);
-        // Check if error is due to already submitted
-        if (err.response?.data?.alreadySubmitted || err.response?.data?.error?.includes('already been submitted')) {
-          const employeeName = document?.employee?.firstName && document?.employee?.lastName 
-            ? `${document.employee.firstName} ${document.employee.lastName}`
-            : 'this employee';
-          setError(`The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`);
-        } else {
-          setError(err.response?.data?.error || 'Failed to load evaluation form. Please check your link.');
-        }
+        setError(err.response?.data?.error || 'Failed to load evaluation form. Please check your link.');
       } finally {
         setLoading(false);
       }
@@ -244,29 +222,9 @@ const PublicEvaluationForm = () => {
           submittedAt: new Date()
         };
 
-        const response = await evaluationDocumentsService.update(id, updateData, token);
-        
-        // Handle different response structures
-        const updatedDoc = response?.data?.data || response?.data || response;
-        
-        // Verify the update was successful
-        if (!updatedDoc || (updatedDoc.status !== 'submitted' && updateData.status === 'submitted')) {
-          console.error('Failed to update document status:', updatedDoc);
-          throw new Error('Failed to submit evaluation form. Status was not updated.');
-        }
-        
-        // Update local document state to reflect submitted status
-        setDocument(prevDoc => ({
-          ...prevDoc,
-          ...updatedDoc,
-          status: 'submitted',
-          submittedAt: updatedDoc.submittedAt || new Date().toISOString()
-        }));
-        
+        await evaluationDocumentsService.update(id, updateData, token);
         setSubmitSuccess(true);
         setSuccessModalOpen(true);
-        
-        console.log('✅ Evaluation form submitted successfully. Modal should appear.');
       } catch (err) {
         console.error('Error submitting form:', err);
         setError(err.response?.data?.error || 'Failed to submit evaluation form. Please try again.');
@@ -488,11 +446,8 @@ const PublicEvaluationForm = () => {
           <DialogContentText sx={{ fontSize: '1.1rem', mb: 2 }}>
             Your evaluation has been submitted successfully.
           </DialogContentText>
-            <DialogContentText sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
+          <DialogContentText sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
             The form has been received and will be processed. This link will no longer be accessible.
-            {document?.employee && (
-              <><br /><br />Employee: <strong>{document.employee.firstName} {document.employee.lastName}</strong></>
-            )}
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>

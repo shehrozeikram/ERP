@@ -314,15 +314,15 @@ const PublicRoute = ({ children }) => {
 
 // Shared loading screen component
 const LoadingScreen = ({ message = 'Loading SGC ERP System...' }) => (
-  <Box
-    display="flex"
-    justifyContent="center"
-    alignItems="center"
-    minHeight="100vh"
+      <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        minHeight="100vh"
     sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
-  >
+      >
     <Box sx={{ textAlign: 'center', color: 'white' }}>
-      <CircularProgress size={60} sx={{ color: 'white', mb: 2 }} />
+          <CircularProgress size={60} sx={{ color: 'white', mb: 2 }} />
       <Typography variant="h6">{message}</Typography>
     </Box>
   </Box>
@@ -356,9 +356,9 @@ const NetworkErrorScreen = ({ error, onRetry }) => (
           Refresh Page
         </Button>
       </Box>
-    </Box>
-  </Box>
-);
+        </Box>
+      </Box>
+    );
 
 function App() {
   const { user, loading, token, error, retryAuth } = useAuth();

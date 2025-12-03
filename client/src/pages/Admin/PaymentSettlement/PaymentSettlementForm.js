@@ -449,7 +449,7 @@ const PaymentSettlementForm = ({
             <Grid item xs={12} md={6}>
               <LocalizationProvider dateAdapter={AdapterDateFns}>
                 <DatePicker
-                  label="Date"
+                label="Date"
                   value={dateValue}
                   onChange={handleDateChange}
                   slotProps={{

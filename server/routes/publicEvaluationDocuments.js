@@ -27,13 +27,9 @@ router.get('/:id', async (req, res) => {
     }
 
     // If form is already submitted, return error for public access (prevents duplicate access)
-    // Each evaluation document is independent - only this specific document's link becomes invalid
     if (document.status === 'submitted' || document.status === 'completed') {
-      const employeeName = document.employee?.firstName && document.employee?.lastName
-        ? `${document.employee.firstName} ${document.employee.lastName}`
-        : 'this employee';
       return res.status(400).json({ 
-        error: `The evaluation form for ${employeeName} has already been submitted and cannot be accessed again. Other evaluation forms in your email are still accessible.`,
+        error: 'This evaluation form has already been submitted and cannot be accessed again.',
         alreadySubmitted: true
       });
     }
@@ -87,10 +83,8 @@ router.put('/:id', async (req, res) => {
     // Check if status is changing to 'submitted' and approval levels need to be initialized
     const isSubmitting = req.body.status === 'submitted' && existingDoc.status !== 'submitted';
 
-    // Build updateData - explicitly include status to ensure it's updated
     const updateData = {
       ...evaluationData,
-      ...(req.body.status && { status: req.body.status }), // Explicitly include status
       ...(req.body.status === 'submitted' && { submittedAt: new Date() }),
       ...(req.body.status === 'completed' && { completedAt: new Date() })
     };
@@ -152,15 +146,6 @@ router.put('/:id', async (req, res) => {
       .populate('employee', 'firstName lastName employeeId email')
       .populate('evaluator', 'firstName lastName employeeId email')
       .populate('department', 'name');
-    
-    if (!document) {
-      return res.status(404).json({ error: 'Evaluation document not found after update' });
-    }
-
-    // Log the update for debugging
-    if (req.body.status === 'submitted') {
-      console.log(`✅ Evaluation document ${req.params.id} submitted successfully. Status: ${document.status}`);
-    }
     
     res.json(document);
   } catch (error) {

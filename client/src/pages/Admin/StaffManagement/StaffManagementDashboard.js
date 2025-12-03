@@ -369,23 +369,23 @@ const StaffManagementDashboard = () => {
           const IconComponent = staffType.icon;
           const isActive = activeStaffType === staffType.key;
           return (
-            <Grid item key={staffType.key}>
-              <Button
+          <Grid item key={staffType.key}>
+            <Button
                 variant={isActive ? 'contained' : 'outlined'}
                 startIcon={<IconComponent />}
-                onClick={() => handleStaffTypeChange(staffType.key)}
-                sx={{
-                  minWidth: 120,
-                  textTransform: 'none',
+              onClick={() => handleStaffTypeChange(staffType.key)}
+              sx={{
+                minWidth: 120,
+                textTransform: 'none',
                   backgroundColor: isActive ? 'primary.main' : 'transparent',
-                  '&:hover': {
+                '&:hover': {
                     backgroundColor: isActive ? 'primary.dark' : 'rgba(25, 118, 210, 0.1)'
-                  }
-                }}
-              >
-                {staffType.label}
-              </Button>
-            </Grid>
+                }
+              }}
+            >
+              {staffType.label}
+            </Button>
+          </Grid>
           );
         })}
       </Grid>
