@@ -62,25 +62,46 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
     }
   }, [open]);
 
-  // Get all managers from employees list (in addition to evaluators passed as prop)
-  const allManagers = useMemo(() => {
-    return employees.filter(emp => {
-      const designation = (
-        emp.placementDesignation?.title ||
-        emp.placementDesignation ||
-        emp.designation ||
-        ''
-      ).toLowerCase();
-      return designation.includes('manager');
-    });
+  // Check if an employee has an evaluator-eligible designation
+  const isEvaluatorEligible = (emp) => {
+    const designation = (
+      emp.placementDesignation?.title ||
+      emp.placementDesignation ||
+      emp.designation ||
+      ''
+    ).toLowerCase();
+    
+    // List of evaluator-eligible designation keywords
+    const evaluatorKeywords = [
+      'director',
+      'assistant vice president',
+      'chairman steering committee',
+      'sr manager',
+      'senior manager',
+      'manager',
+      'head of department',
+      'hod',
+      'assistant manager',
+      'general manager',
+      'deputy manager',
+      'deputy director',
+      'executive director'
+    ];
+    
+    return evaluatorKeywords.some(keyword => designation.includes(keyword));
+  };
+
+  // Get all eligible evaluators from employees list (in addition to evaluators passed as prop)
+  const allEvaluatorEligible = useMemo(() => {
+    return employees.filter(isEvaluatorEligible);
   }, [employees]);
 
-  // Combine evaluators with managers (avoid duplicates)
+  // Combine evaluators with eligible employees (avoid duplicates)
   const combinedEvaluators = useMemo(() => {
     const evaluatorIds = new Set(evaluators.map(e => e._id));
-    const managers = allManagers.filter(m => !evaluatorIds.has(m._id));
-    return [...evaluators, ...managers];
-  }, [evaluators, allManagers]);
+    const additionalEvaluators = allEvaluatorEligible.filter(e => !evaluatorIds.has(e._id));
+    return [...evaluators, ...additionalEvaluators];
+  }, [evaluators, allEvaluatorEligible]);
 
   // Filter employees (exclude evaluators from prop AND selected evaluators to prevent self-evaluation)
   const availableEmployees = useMemo(() => {
