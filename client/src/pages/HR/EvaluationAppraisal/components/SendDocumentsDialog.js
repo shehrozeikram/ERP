@@ -38,7 +38,6 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
   const [employees, setEmployees] = useState([]);
   const [selectedEmployees, setSelectedEmployees] = useState([]);
   const [selectedEvaluators, setSelectedEvaluators] = useState([]);
-  const [formType, setFormType] = useState('blue_collar');
   const [sendAllHODs, setSendAllHODs] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -188,10 +187,10 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
         return;
       }
 
+      // Group employees by category and send appropriate forms
       const response = await evaluationDocumentsService.sendDocuments({
         employeeIds,
-        evaluatorIds,
-        formType
+        evaluatorIds
       });
 
       if (response.data.success) {
@@ -216,7 +215,6 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
   const handleClose = () => {
     setSelectedEmployees([]);
     setSelectedEvaluators([]);
-    setFormType('blue_collar');
     setSendAllHODs(false);
     setEmployeeSearch('');
     setEvaluatorDepartmentFilter('');
@@ -249,19 +247,35 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
           </Alert>
         )}
 
-        {/* Form Type Selection */}
-        <FormControl fullWidth sx={{ mb: 3 }}>
-          <InputLabel id="form-type-select-label">Form Type</InputLabel>
-          <Select
-            labelId="form-type-select-label"
-            value={formType}
-            onChange={(e) => setFormType(e.target.value)}
-            label="Form Type"
-          >
-            <MenuItem value="blue_collar">Blue Collar</MenuItem>
-            <MenuItem value="white_collar">White Collar</MenuItem>
-          </Select>
-        </FormControl>
+        {/* Category Info Alert */}
+        {selectedEmployees.length > 0 && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              <strong>Auto-categorization:</strong> Forms will be automatically assigned based on each employee's category:
+            </Typography>
+            <Box sx={{ mt: 1 }}>
+              <Chip 
+                label={`Blue Collar: ${selectedEmployees.filter(e => e.employeeCategory === 'blue_collar').length}`} 
+                color="info" 
+                size="small" 
+                sx={{ mr: 1 }} 
+              />
+              <Chip 
+                label={`White Collar: ${selectedEmployees.filter(e => e.employeeCategory === 'white_collar').length}`} 
+                color="success" 
+                size="small" 
+                sx={{ mr: 1 }} 
+              />
+              {selectedEmployees.filter(e => !e.employeeCategory).length > 0 && (
+                <Chip 
+                  label={`No Category: ${selectedEmployees.filter(e => !e.employeeCategory).length}`} 
+                  color="warning" 
+                  size="small" 
+                />
+              )}
+            </Box>
+          </Alert>
+        )}
 
         <Divider sx={{ my: 2 }} />
 
@@ -320,13 +334,23 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
                               checked={isEmployeeSelected(emp._id)}
                               onChange={() => toggleEmployee(emp)}
                             />
-                            <Box>
+                            <Box sx={{ flex: 1 }}>
                               <Typography variant="body2" fontWeight={500}>
                                 {emp.firstName} {emp.lastName}
                               </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                ID: {emp.employeeId || '—'}
-                              </Typography>
+                              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  ID: {emp.employeeId || '—'}
+                                </Typography>
+                                {emp.employeeCategory && (
+                                  <Chip
+                                    label={emp.employeeCategory === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
+                                    color={emp.employeeCategory === 'blue_collar' ? 'info' : 'success'}
+                                    size="small"
+                                    sx={{ height: 18, fontSize: '0.65rem' }}
+                                  />
+                                )}
+                              </Box>
                             </Box>
                           </Box>
                         ))}

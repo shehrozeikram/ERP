@@ -475,6 +475,17 @@ const EmployeeView = () => {
                   <Typography variant="body2" color="textSecondary">Designation</Typography>
                   <Typography variant="body1">{safeRenderText(employee.placementDesignation)}</Typography>
                 </Grid>
+                {employee.employeeCategory && (
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">Employee Category</Typography>
+                    <Chip
+                      label={employee.employeeCategory === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
+                      color={employee.employeeCategory === 'blue_collar' ? 'info' : 'success'}
+                      size="small"
+                      sx={{ mt: 0.5 }}
+                    />
+                  </Grid>
+                )}
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Qualification</Typography>
                   <Typography variant="body1">{employee.qualification}</Typography>

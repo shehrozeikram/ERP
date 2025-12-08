@@ -450,7 +450,7 @@ router.patch('/:id/status', [
 // Send evaluation documents to authorities
 router.post('/send', async (req, res) => {
   try {
-    const { employeeIds, evaluatorIds, formType } = req.body;
+    const { employeeIds, evaluatorIds } = req.body;
     
     // Simple validation - just check if data exists
     if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
@@ -460,15 +460,11 @@ router.post('/send', async (req, res) => {
     if (!evaluatorIds || !Array.isArray(evaluatorIds) || evaluatorIds.length === 0) {
       return res.status(400).json({ error: 'Evaluator IDs array is required' });
     }
-    
-    if (!formType || !['blue_collar', 'white_collar'].includes(formType)) {
-      return res.status(400).json({ error: 'Valid form type is required' });
-    }
     // Always use production URL for evaluation document emails
     const baseUrl = 'https://tovus.net';
     const results = [];
 
-    // Get employees
+    // Get employees with their categories
     const employees = await Employee.find({ _id: { $in: employeeIds } })
       .populate('placementDepartment', 'name')
       .populate('placementDesignation', 'title')
@@ -484,16 +480,19 @@ router.post('/send', async (req, res) => {
     const evaluatorDocumentsMap = new Map(); // evaluatorId -> array of {document, employee, accessLink}
 
     for (const employee of employees) {
+      // Determine form type from employee's category (default to white_collar if not set)
+      const employeeFormType = employee.employeeCategory === 'blue_collar' ? 'blue_collar' : 'white_collar';
+
       for (const evaluator of evaluators) {
         try {
           // Generate unique access token for each document (secure)
           const accessToken = crypto.randomBytes(32).toString('hex');
 
-          // Create evaluation document
+          // Create evaluation document with auto-determined form type
           const document = new EvaluationDocument({
             employee: employee._id,
             evaluator: evaluator._id,
-            formType,
+            formType: employeeFormType,
             status: 'draft',
             department: employee.placementDepartment?._id || null,
             code: employee.employeeId,
@@ -538,7 +537,8 @@ router.post('/send', async (req, res) => {
             document,
             employee,
             accessLink,
-            department: employee.placementDepartment
+            department: employee.placementDepartment,
+            formType: employeeFormType
           });
 
           results.push({
@@ -577,16 +577,38 @@ router.post('/send', async (req, res) => {
       }
 
       try {
-        // Send one email with all employees for this evaluator
-        const emailResult = await EmailService.sendBulkEvaluationDocumentEmail(
-          evaluator,
-          documentsData.map(d => ({
+        // Group documents by form type for email content
+        const documentsByFormType = documentsData.reduce((acc, d) => {
+          const formType = d.formType || 'white_collar';
+          if (!acc[formType]) acc[formType] = [];
+          acc[formType].push({
             employee: d.employee,
             document: d.document,
             department: d.department,
             accessLink: d.accessLink
-          })),
-          formType
+          });
+          return acc;
+        }, {});
+
+        // Send one email per form type with all employees for this evaluator
+        // For backward compatibility, send one email with mixed form types if needed
+        const allDocuments = documentsData.map(d => ({
+          employee: d.employee,
+          document: d.document,
+          department: d.department,
+          accessLink: d.accessLink,
+          formType: d.formType || 'white_collar'
+        }));
+
+        // Use the primary form type (most common) or white_collar as default
+        const primaryFormType = documentsData.length > 0 
+          ? (documentsData[0].formType || 'white_collar')
+          : 'white_collar';
+
+        const emailResult = await EmailService.sendBulkEvaluationDocumentEmail(
+          evaluator,
+          allDocuments,
+          primaryFormType // Pass for email template context, but documents contain their own formType
         );
 
         // Update all documents for this evaluator with email status

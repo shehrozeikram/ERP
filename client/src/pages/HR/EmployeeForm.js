@@ -559,6 +559,7 @@ const EmployeeForm = () => {
         placementDesignation: employeeData.placementDesignation?._id || employeeData.placementDesignation || '',
         oldDesignation: employeeData.oldDesignation?._id || employeeData.oldDesignation || undefined,
         placementLocation: employeeData.placementLocation?._id || employeeData.placementLocation || '',
+        employeeCategory: employeeData.employeeCategory || '',
         salary: {
           gross: employeeData.salary?.gross || 0,
           basic: employeeData.salary?.basic || 0
@@ -774,6 +775,7 @@ const EmployeeForm = () => {
       placementDesignation: '',
       placementLocation: '',
       oldDesignation: undefined,
+      employeeCategory: '',
       isActive: true,
       employmentStatus: 'Draft', // Default to Draft for new employees
       address: {
@@ -1263,7 +1265,21 @@ const EmployeeForm = () => {
       await fetchDesignations();
       
       // Set the newly created designation as selected
-      formik.setFieldValue('placementDesignation', response.data.data._id);
+      const newDesignation = response.data.data;
+      formik.setFieldValue('placementDesignation', newDesignation._id);
+      
+      // Auto-set category based on new designation
+      const title = (newDesignation.title || '').toLowerCase();
+      const level = (newDesignation.level || '').toLowerCase();
+      let category = 'white_collar'; // default
+      
+      // Blue collar keywords
+      const blueKeywords = ['worker', 'technician', 'operator', 'labour', 'labor', 'helper', 'driver', 'mechanic', 'foreman', 'attendant'];
+      if (blueKeywords.some(keyword => title.includes(keyword)) || level === 'entry') {
+        category = 'blue_collar';
+      }
+      
+      formik.setFieldValue('employeeCategory', category);
       
     } catch (error) {
       console.error('Error adding designation:', error);
@@ -2431,12 +2447,32 @@ const EmployeeForm = () => {
                 <Select
                   name="placementDesignation"
                   value={safeFormValue(formik.values.placementDesignation)}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     if (e.target.value === 'add_new') {
                       setShowAddDesignationDialog(true);
                       return;
                     }
                     formik.handleChange(e);
+                    // Auto-set category based on designation
+                    if (e.target.value) {
+                      const selectedDesignation = designations.find(d => d._id === e.target.value);
+                      if (selectedDesignation) {
+                        // Simple classification logic (matches backend)
+                        const title = (selectedDesignation.title || '').toLowerCase();
+                        const level = (selectedDesignation.level || '').toLowerCase();
+                        let category = 'white_collar'; // default
+                        
+                        // Blue collar keywords
+                        const blueKeywords = ['worker', 'technician', 'operator', 'labour', 'labor', 'helper', 'driver', 'mechanic', 'foreman', 'attendant'];
+                        if (blueKeywords.some(keyword => title.includes(keyword)) || level === 'entry') {
+                          category = 'blue_collar';
+                        }
+                        
+                        formik.setFieldValue('employeeCategory', category);
+                      }
+                    } else {
+                      formik.setFieldValue('employeeCategory', '');
+                    }
                   }}
                   error={formik.touched.placementDesignation && Boolean(formik.errors.placementDesignation)}
                   label="Designation/Position"
@@ -2458,12 +2494,29 @@ const EmployeeForm = () => {
                       }
                     }}
                   >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <AddIcon fontSize="small" />
-                        Add New Designation
-                      </Box>
-                    </MenuItem>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New Designation
+                    </Box>
+                  </MenuItem>
                   )}
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Employee Category */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Employee Category</InputLabel>
+                <Select
+                  name="employeeCategory"
+                  value={formik.values.employeeCategory || ''}
+                  onChange={formik.handleChange}
+                  error={formik.touched.employeeCategory && Boolean(formik.errors.employeeCategory)}
+                  label="Employee Category"
+                >
+                  <MenuItem value="white_collar">White Collar</MenuItem>
+                  <MenuItem value="blue_collar">Blue Collar</MenuItem>
                 </Select>
               </FormControl>
             </Grid>

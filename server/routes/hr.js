@@ -18,6 +18,7 @@ const path = require('path');
 const fs = require('fs');
 
 const { calculateMonthlyTax, calculateTaxableIncome, getTaxSlabInfo } = require('../utils/taxCalculator');
+const { classifyDesignationCategory } = require('../utils/employeeCategoryHelper');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
 const Sector = require('../models/hr/Sector');
 const EmployeeIncrement = require('../models/hr/EmployeeIncrement');
@@ -247,50 +248,6 @@ router.get('/employees',
   })
 );
 
-const classifyDesignationCategory = (title = '', level = '') => {
-  const normalizedTitle = title.toLowerCase();
-  const normalizedLevel = level?.toLowerCase?.() || '';
-
-  const whiteSpecificTitles = [
-    '3d visualizer', 'am', 'aso to president', 'advisor', 'architect',
-    'assistant vice president', 'autocad operator', 'biology teacher',
-    'building inspector', 'cro', 'chemistry teacher', 'clinical instructor',
-    'complaint attendant', 'content writer', 'document controller',
-    'english teacher', 'graphic designer', 'intern', 'internal auditor',
-    'internee', 'islamyat/quran teacher', 'laravel developer',
-    'lecturar computer science', 'lecturer', 'lecturer computer science',
-    'lecturer-economics', 'librarian',
-    'member steering committee', 'montessori', 'montessori teacher',
-    'nursing lecturer', 'pak studies & political science',
-    'patron-in-chief-education', 'play group teacher', 'president',
-    'principal', 'principal law college', 'principal secretary to president',
-    'receptionist', 'research assistant', 'research associate',
-    'science teacher', 'secretary', 'sharia education & sociology',
-    'sr architect', 'teacher', 'teacher it', 'teacher mathematics',
-    'teacher pre-school', 'teacher social study', 'urdu teacher',
-    'vice principle', 'web developer'
-  ];
-
-  if (whiteSpecificTitles.some(item => normalizedTitle === item.toLowerCase())) {
-    return 'white_collar';
-  }
-
-  const whiteKeywords = ['manager', 'officer', 'engineer', 'specialist', 'analyst', 'head', 'director', 'executive', 'supervisor', 'lead', 'coordinator', 'administrator', 'consultant', 'teacher', 'developer', 'designer', 'architect', 'inspector', 'secretary', 'principal', 'president'];
-  const blueKeywords = ['worker', 'technician', 'operator', 'labour', 'labor', 'helper', 'driver', 'mechanic', 'foreman', 'inspector', 'attendant'];
-
-  const isWhiteLevel = ['manager', 'lead', 'senior', 'director', 'executive'].some(keyword => normalizedLevel.includes(keyword));
-  const isBlueLevel = ['entry'].some(keyword => normalizedLevel.includes(keyword));
-
-  if (whiteKeywords.some(keyword => normalizedTitle.includes(keyword)) || isWhiteLevel) {
-    return 'white_collar';
-  }
-
-  if (blueKeywords.some(keyword => normalizedTitle.includes(keyword)) || isBlueLevel) {
-    return 'blue_collar';
-  }
-
-  return 'white_collar';
-};
 
 // @route   GET /api/hr/employees/designations/test
 // @desc    Diagnostic endpoint listing unique designations present in employee records
@@ -505,6 +462,14 @@ router.post('/employees', [
         delete employeeData[field];
       }
     });
+
+    // Set employeeCategory based on designation
+    if (employeeData.placementDesignation) {
+      const designation = await Designation.findById(employeeData.placementDesignation);
+      if (designation) {
+        employeeData.employeeCategory = classifyDesignationCategory(designation.title, designation.level);
+      }
+    }
 
     // Ensure profileImage is preserved (keep it even if empty string for potential clearing)
     // Only delete if explicitly null or undefined
@@ -918,6 +883,18 @@ router.put('/employees/:id', [
         delete employeeData[field];
       }
     });
+    
+    // Handle employeeCategory - prioritize user's manual selection
+    if ('employeeCategory' in req.body) {
+      // User explicitly set a value (including empty string to clear it)
+      employeeData.employeeCategory = req.body.employeeCategory || null;
+    } else if (employeeData.placementDesignation) {
+      // Auto-set category based on designation if user didn't provide one
+      const designation = await Designation.findById(employeeData.placementDesignation);
+      if (designation) {
+        employeeData.employeeCategory = classifyDesignationCategory(designation.title, designation.level);
+      }
+    }
     
     // Ensure profileImage is preserved (keep it even if empty string for potential clearing)
     // Only delete if explicitly null or undefined

@@ -452,6 +452,11 @@ const employeeSchema = new mongoose.Schema({
     ref: 'Designation',
     required: false
   },
+  employeeCategory: {
+    type: String,
+    enum: ['blue_collar', 'white_collar'],
+    required: false
+  },
   oldDesignation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Designation',
