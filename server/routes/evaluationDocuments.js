@@ -42,7 +42,7 @@ const approvalPopulate = {
 const basePopulateConfig = [
   employeePopulate,
   evaluatorPopulate,
-  { path: 'department', select: 'name' },
+  { path: 'department', select: 'name isActive' },
   approvalPopulate
 ];
 
@@ -360,10 +360,15 @@ router.get('/dashboard/grouped', async (req, res) => {
       EvaluationDocument.find(query)
     ).sort({ createdAt: -1 });
     
-    // Group by department
+    // Group by department - filter out documents from inactive departments
     const grouped = {};
     
     documents.forEach(doc => {
+      // Skip documents from inactive departments
+      if (doc.department && doc.department.isActive === false) {
+        return;
+      }
+      
       const deptId = doc.department?._id?.toString() || 'no-department';
       const deptName = doc.department?.name || 'No Department';
       

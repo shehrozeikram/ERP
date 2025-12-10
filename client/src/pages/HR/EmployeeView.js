@@ -35,7 +35,7 @@ import {
   EventNote as EventNoteIcon,
   Sync as SyncIcon
 } from '@mui/icons-material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
 import api from '../../services/api';
 import { useData } from '../../contexts/DataContext';
@@ -47,7 +47,11 @@ import TextField from '@mui/material/TextField';
 const EmployeeView = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { fetchEmployees } = useData();
+  
+  // Get the page number from location state (if coming from EmployeeList)
+  const savedPage = location.state?.page || 0;
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -325,7 +329,7 @@ const EmployeeView = () => {
           <Button
             variant="outlined"
             startIcon={<ArrowBackIcon />}
-            onClick={() => navigate('/hr/employees')}
+            onClick={() => navigate('/hr/employees', { state: { page: savedPage } })}
           >
             Back to List
           </Button>
@@ -362,7 +366,7 @@ const EmployeeView = () => {
           <Button
             variant="contained"
             startIcon={<EditIcon />}
-            onClick={() => navigate(`/hr/employees/${id}/edit`)}
+            onClick={() => navigate(`/hr/employees/${id}/edit`, { state: { page: savedPage } })}
           >
             Edit Employee
           </Button>

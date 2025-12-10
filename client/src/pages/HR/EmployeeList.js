@@ -38,11 +38,11 @@ import {
   Search as SearchIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
 import { PageLoading } from '../../components/LoadingSpinner';
 import api from '../../services/api';
-import { getImageUrl, handleImageError } from '../../utils/imageService';
+import { getImageUrl } from '../../utils/imageService';
 
 const EmployeeList = () => {
   const { employees, departments, projects, loading: dataLoading, fetchEmployees } = useData();
@@ -56,12 +56,25 @@ const EmployeeList = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
   // Pagination state
-  const [page, setPage] = useState(0);
+  const location = useLocation();
+  const [page, setPage] = useState(() => {
+    // Restore page from location state if available (when returning from edit)
+    return location.state?.page || 0;
+  });
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalItems, setTotalItems] = useState(0);
   const [paginatedEmployees, setPaginatedEmployees] = useState([]);
   
   const navigate = useNavigate();
+  
+  // Update page when location state changes (e.g., returning from edit)
+  useEffect(() => {
+    if (location.state?.page !== undefined) {
+      setPage(location.state.page);
+      // Clear the state after using it to avoid issues on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   // No need to fetch data - it's provided by DataContext
 
@@ -186,6 +199,33 @@ const EmployeeList = () => {
       newThisMonth
     };
   }, [employees, departments]);
+
+  // Scroll to specific employee after create/edit (must be after sortedEmployees is defined)
+  useEffect(() => {
+    if (location.state?.employeeId && sortedEmployees && sortedEmployees.length > 0) {
+      const employeeIndex = sortedEmployees.findIndex(emp => emp._id === location.state.employeeId);
+      if (employeeIndex !== -1) {
+        const targetPage = Math.floor(employeeIndex / rowsPerPage);
+        setPage(targetPage);
+        
+        // Scroll to the employee row after a short delay to ensure DOM is updated
+        setTimeout(() => {
+          const rowElement = document.querySelector(`[data-employee-id="${location.state.employeeId}"]`);
+          if (rowElement) {
+            rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Highlight the row briefly
+            rowElement.style.backgroundColor = '#e3f2fd';
+            setTimeout(() => {
+              rowElement.style.backgroundColor = '';
+            }, 2000);
+          }
+        }, 300);
+        
+        // Clear the state after using it
+        window.history.replaceState({}, document.title);
+      }
+    }
+  }, [location.state?.employeeId, sortedEmployees, rowsPerPage]);
 
   // Handle pagination for sorted employees
   useEffect(() => {
@@ -577,7 +617,7 @@ const EmployeeList = () => {
                 </TableRow>
               ) : paginatedEmployees.length > 0 ? (
                 paginatedEmployees.map((employee) => (
-                  <TableRow key={employee._id}>
+                  <TableRow key={employee._id} data-employee-id={employee._id}>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <Avatar 
@@ -657,14 +697,14 @@ const EmployeeList = () => {
                     <TableCell>
                       <IconButton
                         size="small"
-                        onClick={() => navigate(`/hr/employees/${employee._id}`)}
+                        onClick={() => navigate(`/hr/employees/${employee._id}`, { state: { page } })}
                         title="View Details"
                       >
                         <ViewIcon />
                       </IconButton>
                       <IconButton
                         size="small"
-                        onClick={() => navigate(`/hr/employees/${employee._id}/edit`)}
+                        onClick={() => navigate(`/hr/employees/${employee._id}/edit`, { state: { page } })}
                         title="Edit Employee"
                       >
                         <EditIcon />

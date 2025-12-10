@@ -40,7 +40,7 @@ import {
   PhotoCamera as PhotoCameraIcon,
   Upload as UploadIcon
 } from '@mui/icons-material';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import api from '../../services/api';
@@ -53,7 +53,11 @@ const steps = ['Personal Information', 'Employment Details', 'Contact & Address'
 const EmployeeForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { fetchEmployees } = useData();
+  
+  // Get the page number from location state (passed when navigating from EmployeeList)
+  const savedPage = location.state?.page || 0;
   const [activeStep, setActiveStep] = useState(0);
   const [departments, setDepartments] = useState([]);
 
@@ -898,6 +902,8 @@ const EmployeeForm = () => {
         
         console.log('🧹 Final cleaned values to send:', cleanedValues);
         
+        let employeeId = id;
+        
         if (id && id !== 'add') {
           console.log('🔄 Updating existing employee...');
           console.log('🎯 Salary before sending:', cleanedValues.salary);
@@ -906,6 +912,7 @@ const EmployeeForm = () => {
           // Update existing employee
           const response = await api.put(`/hr/employees/${id}`, cleanedValues);
           console.log('✅ Update response:', response);
+          employeeId = response.data?.data?._id || id;
           setSnackbar({
             open: true,
             message: 'Employee updated successfully',
@@ -916,6 +923,7 @@ const EmployeeForm = () => {
           // Create new employee
           const response = await api.post('/hr/employees', cleanedValues);
           console.log('✅ Create response:', response);
+          employeeId = response.data?.data?._id;
           setSnackbar({
             open: true,
             message: 'Employee created successfully',
@@ -927,7 +935,8 @@ const EmployeeForm = () => {
         await fetchEmployees(true);
         
         setTimeout(() => {
-          navigate('/hr/employees');
+          // Navigate back to the employee list with the employee ID to scroll to it
+          navigate('/hr/employees', { state: { employeeId, page: savedPage } });
         }, 1500);
       } catch (error) {
         console.error('❌ Error saving employee:', error);
@@ -2494,11 +2503,11 @@ const EmployeeForm = () => {
                       }
                     }}
                   >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <AddIcon fontSize="small" />
-                      Add New Designation
-                    </Box>
-                  </MenuItem>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AddIcon fontSize="small" />
+                        Add New Designation
+                      </Box>
+                    </MenuItem>
                   )}
                 </Select>
               </FormControl>

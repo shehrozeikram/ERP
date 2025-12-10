@@ -29,21 +29,26 @@ import {
   Visibility as VisibilityIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
-  DoneAll as DoneAllIcon
+  DoneAll as DoneAllIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { evaluationDocumentsService } from '../../../../services/evaluationDocumentsService';
+import api from '../../../../services/api';
 
-const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [] }) => {
+const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [], onDeleteDepartment }) => {
   const [expanded, setExpanded] = useState(false);
   const [approvalDialog, setApprovalDialog] = useState({ open: false, doc: null, action: null });
   const [bulkApprovalDialog, setBulkApprovalDialog] = useState({ open: false });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false });
   const [selectedDocuments, setSelectedDocuments] = useState(new Set());
   const [comments, setComments] = useState('');
   const [loading, setLoading] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [error, setError] = useState(null);
   const [bulkError, setBulkError] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
 
   const statusColors = useMemo(() => ({
       draft: 'default',
@@ -288,6 +293,28 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
     }
   }, [selectedDocuments, approvableDocuments, comments, onDocumentUpdate, handleCloseBulkApproval]);
 
+  const handleDeleteDepartment = async () => {
+    if (!department?._id) return;
+    
+    try {
+      setDeleteLoading(true);
+      setDeleteError(null);
+      
+      await api.delete(`/hr/departments/${department._id}`);
+      
+      setDeleteDialog({ open: false });
+      
+      // Notify parent to refresh the list
+      if (onDeleteDepartment) {
+        onDeleteDepartment(department._id);
+      }
+    } catch (err) {
+      setDeleteError(err.response?.data?.message || 'Failed to delete department');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   return (
     <Card sx={{ mb: 2 }}>
       <CardContent>
@@ -371,6 +398,16 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
               color="primary"
               variant="outlined"
             />
+            {department?._id && (
+              <IconButton
+                onClick={() => setDeleteDialog({ open: true })}
+                size="small"
+                color="error"
+                title="Delete Department"
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            )}
             <IconButton
               onClick={() => setExpanded(!expanded)}
               size="small"
@@ -661,6 +698,49 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
             startIcon={<DoneAllIcon />}
           >
             {bulkLoading ? 'Processing...' : `Approve ${selectedDocuments.size} Document(s)`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Department Dialog */}
+      <Dialog 
+        open={deleteDialog.open} 
+        onClose={() => setDeleteDialog({ open: false })} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Delete Department</DialogTitle>
+        <DialogContent>
+          {deleteError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+          <Typography>
+            Are you sure you want to delete the department <strong>{department?.name}</strong>?
+          </Typography>
+          {documents.length > 0 && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              This department contains {documents.length} evaluation document{documents.length !== 1 ? 's' : ''}. 
+              The department will still be deleted.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setDeleteDialog({ open: false })} 
+            disabled={deleteLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteDepartment}
+            variant="contained"
+            color="error"
+            disabled={deleteLoading}
+            startIcon={<DeleteIcon />}
+          >
+            {deleteLoading ? 'Deleting...' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

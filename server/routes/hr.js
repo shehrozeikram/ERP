@@ -1208,16 +1208,15 @@ router.put('/departments/:id',
 );
 
 // @route   DELETE /api/hr/departments/:id
-// @desc    Delete department (soft delete)
+// @desc    Delete department (soft delete) and all associated evaluation documents
 // @access  Private (HR and Admin)
 router.delete('/departments/:id', 
   authorize('super_admin', 'admin', 'hr_manager'), 
   asyncHandler(async (req, res) => {
-    const department = await Department.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
+    const EvaluationDocument = require('../models/hr/EvaluationDocument');
+    const EvaluationDocumentTracking = require('../models/hr/EvaluationDocumentTracking');
+    
+    const department = await Department.findById(req.params.id);
 
     if (!department) {
       return res.status(404).json({
@@ -1226,9 +1225,32 @@ router.delete('/departments/:id',
       });
     }
 
+    // Find all evaluation documents associated with this department
+    const evaluationDocuments = await EvaluationDocument.find({ department: req.params.id });
+    
+    let deletedDocsCount = 0;
+    let deletedTrackingCount = 0;
+
+    // Delete all evaluation documents and their tracking records
+    for (const doc of evaluationDocuments) {
+      // Delete associated tracking document if it exists
+      const trackingDeleted = await EvaluationDocumentTracking.deleteMany({ 
+        evaluationDocument: doc._id 
+      });
+      deletedTrackingCount += trackingDeleted.deletedCount || 0;
+      
+      // Delete the evaluation document
+      await EvaluationDocument.findByIdAndDelete(doc._id);
+      deletedDocsCount++;
+    }
+
+    // Soft delete the department
+    department.isActive = false;
+    await department.save();
+
     res.json({
       success: true,
-      message: 'Department deleted successfully'
+      message: `Department deleted successfully. ${deletedDocsCount} evaluation document(s) and ${deletedTrackingCount} tracking record(s) were also deleted.`
     });
   })
 );

@@ -126,6 +126,11 @@ const EvaluationDashboard = () => {
     fetchDocuments();
   }, [fetchDocuments]);
 
+  const handleDeleteDepartment = useCallback((deletedDepartmentId) => {
+    // Remove the deleted department from the list
+    setGroupedData(prev => prev.filter(group => group.department?._id !== deletedDepartmentId));
+  }, []);
+
   if (loading) {
     return <DashboardSkeleton />;
   }
@@ -240,6 +245,7 @@ const EvaluationDashboard = () => {
             onViewDocument={handleViewDocument}
             onDocumentUpdate={handleDocumentUpdate}
             assignedApprovalLevels={assignedApprovalLevels}
+            onDeleteDepartment={handleDeleteDepartment}
           />
         ))
       )}

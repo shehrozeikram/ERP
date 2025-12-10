@@ -71,6 +71,7 @@ const SUBMODULES = {
     'learning_development',
     'organizational_development',
     'fbr_tax_management',
+    'evaluation_appraisal',
     'reports'
   ],
   [MODULES.FINANCE]: [

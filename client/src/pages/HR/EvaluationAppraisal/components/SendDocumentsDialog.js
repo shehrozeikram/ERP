@@ -44,6 +44,7 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
   const [success, setSuccess] = useState(null);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [evaluatorDepartmentFilter, setEvaluatorDepartmentFilter] = useState('');
+  const [groupBy, setGroupBy] = useState('department'); // 'department' or 'project'
 
   // Fetch employees when dialog opens
   React.useEffect(() => {
@@ -85,7 +86,17 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
       'general manager',
       'deputy manager',
       'deputy director',
-      'executive director'
+      'executive director',
+      'principal',
+      'principle',
+      'vice principal',
+      'vice principle',
+      'chief executive officer',
+      'ceo',
+      'p.s.o',
+      'pso',
+      'chief security officer',
+      'cso'
     ];
     
     return evaluatorKeywords.some(keyword => designation.includes(keyword));
@@ -93,14 +104,25 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
 
   // Get all eligible evaluators from employees list (in addition to evaluators passed as prop)
   const allEvaluatorEligible = useMemo(() => {
-    return employees.filter(isEvaluatorEligible);
+    return employees.filter(emp => 
+      isEvaluatorEligible(emp) && 
+      emp.isActive === true && 
+      emp.employmentStatus === 'Active'
+    );
   }, [employees]);
 
-  // Combine evaluators with eligible employees (avoid duplicates)
+  // Combine evaluators with eligible employees (avoid duplicates) and sort alphabetically
   const combinedEvaluators = useMemo(() => {
     const evaluatorIds = new Set(evaluators.map(e => e._id));
     const additionalEvaluators = allEvaluatorEligible.filter(e => !evaluatorIds.has(e._id));
-    return [...evaluators, ...additionalEvaluators];
+    const combined = [...evaluators, ...additionalEvaluators];
+    
+    // Sort alphabetically by first name, then last name
+    return combined.sort((a, b) => {
+      const nameA = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
+      const nameB = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
   }, [evaluators, allEvaluatorEligible]);
 
   // Filter employees (exclude evaluators from prop AND selected evaluators to prevent self-evaluation)
@@ -112,7 +134,11 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
     // Combine both sets
     const allEvaluatorIds = new Set([...evaluatorIds, ...selectedEvaluatorIds]);
     
-    return employees.filter(emp => !allEvaluatorIds.has(emp._id));
+    return employees.filter(emp => 
+      !allEvaluatorIds.has(emp._id) &&
+      emp.isActive === true &&
+      emp.employmentStatus === 'Active'
+    );
   }, [employees, evaluators, selectedEvaluators]);
 
   const filteredEvaluators = useMemo(() => {
@@ -132,18 +158,27 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
         return name.includes(term) || empId.includes(term);
       })
       .forEach(emp => {
-        const deptId = emp.placementDepartment?._id || 'no-dept';
-        if (!map.has(deptId)) {
-          map.set(deptId, {
-            id: deptId,
-            name: emp.placementDepartment?.name || 'No Department',
+        let groupId, groupName;
+        
+        if (groupBy === 'project') {
+          groupId = emp.placementProject?._id || 'no-project';
+          groupName = emp.placementProject?.name || 'No Project';
+        } else {
+          groupId = emp.placementDepartment?._id || 'no-dept';
+          groupName = emp.placementDepartment?.name || 'No Department';
+        }
+        
+        if (!map.has(groupId)) {
+          map.set(groupId, {
+            id: groupId,
+            name: groupName,
             employees: []
           });
         }
-        map.get(deptId).employees.push(emp);
+        map.get(groupId).employees.push(emp);
       });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [availableEmployees, employeeSearch]);
+  }, [availableEmployees, employeeSearch, groupBy]);
 
   const isEmployeeSelected = (id) => selectedEmployees.some(emp => emp._id === id);
 
@@ -239,6 +274,7 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
     setSendAllHODs(false);
     setEmployeeSearch('');
     setEvaluatorDepartmentFilter('');
+    setGroupBy('department');
     setError(null);
     setSuccess(null);
     onClose();
@@ -302,16 +338,29 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
 
         {/* Employee Selection */}
         <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-            Select Employees to Evaluate
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="subtitle1" fontWeight="bold">
+              Select Employees to Evaluate
+            </Typography>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Group By</InputLabel>
+              <Select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value)}
+                label="Group By"
+              >
+                <MenuItem value="department">Department</MenuItem>
+                <MenuItem value="project">Project</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
           <TextField
             fullWidth
             size="small"
             placeholder="Search employees by name or ID..."
             value={employeeSearch}
             onChange={(e) => setEmployeeSearch(e.target.value)}
-            sx={{ mt: 2, mb: 2 }}
+            sx={{ mb: 2 }}
           />
           <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
             {groupedEmployees.length === 0 ? (
@@ -333,7 +382,7 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
                             size="small"
                             label={`${dept.employees.length} employee(s)`}
                           />
-                          <Tooltip title={allSelected ? 'Deselect all' : 'Select entire department'}>
+                          <Tooltip title={allSelected ? `Deselect all from ${dept.name}` : `Select entire ${groupBy}`}>
                             <IconButton
                               size="small"
                               onClick={(event) => {
