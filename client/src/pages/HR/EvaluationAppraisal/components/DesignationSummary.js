@@ -13,12 +13,16 @@ import {
 } from '@mui/material';
 
 const DesignationSummary = ({ loading, error, designations, summary }) => {
-  const totalEmployees = designations?.reduce?.((sum, item) => sum + (item.holderCount || 0), 0) || 0;
+  const totalEmployees = useMemo(() => 
+    designations?.reduce((sum, item) => sum + (item.holderCount || 0), 0) || 0,
+    [designations]
+  );
+  
   const groupedDesignations = useMemo(() => {
-    const list = designations || [];
+    if (!designations?.length) return { white: [], blue: [] };
     return {
-      white: list.filter(item => item.category === 'white_collar'),
-      blue: list.filter(item => item.category === 'blue_collar')
+      white: designations.filter(item => item.category === 'white_collar'),
+      blue: designations.filter(item => item.category === 'blue_collar')
     };
   }, [designations]);
 
@@ -39,7 +43,7 @@ const DesignationSummary = ({ loading, error, designations, summary }) => {
     );
   }
 
-  if (!designations || designations.length === 0) {
+  if (!designations?.length) {
     return (
       <Paper elevation={0} sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
@@ -104,23 +108,19 @@ const DesignationSummary = ({ loading, error, designations, summary }) => {
                           {item.level && <Chip label={item.level} size="small" />}
                         </Box>
                       }
+                      primaryTypographyProps={{ component: 'div' }}
                       secondary={
                         <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 1, color: 'text.secondary' }}>
                           {item.department?.name && (
-                            <Typography variant="caption">
-                              Dept: {item.department.name}
-                            </Typography>
+                            <Typography variant="caption">Dept: {item.department.name}</Typography>
                           )}
-                          <Typography variant="caption">
-                            Holders: {item.holderCount || 0}
-                          </Typography>
+                          <Typography variant="caption">Holders: {item.holderCount || 0}</Typography>
                           {item.section?.name && (
-                            <Typography variant="caption">
-                              Section: {item.section.name}
-                            </Typography>
+                            <Typography variant="caption">Section: {item.section.name}</Typography>
                           )}
                         </Box>
                       }
+                      secondaryTypographyProps={{ component: 'div' }}
                     />
                   </ListItem>
                 ))}

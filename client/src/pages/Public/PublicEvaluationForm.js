@@ -69,18 +69,20 @@ const PublicEvaluationForm = () => {
         setLoading(true);
         setError(null);
 
-        if (!token) {
-          setError('Access token is required. Please use the link provided in your email.');
+        // Allow access with token (public) OR without token (Level 0 approver via edit route)
+        const response = await evaluationDocumentsService.getById(id, token);
+        const doc = response.data?.data || response.data;
+
+        // For public access with token, check if already submitted
+        if (token && (doc.status === 'submitted' || doc.status === 'completed')) {
+          setError('This evaluation form has already been submitted and cannot be accessed again.');
           setLoading(false);
           return;
         }
 
-        const response = await evaluationDocumentsService.getById(id, token);
-        const doc = response.data?.data || response.data;
-
-        // Check if form is already submitted - prevent duplicate access
-        if (doc.status === 'submitted' || doc.status === 'completed') {
-          setError('This evaluation form has already been submitted and cannot be accessed again.');
+        // For Level 0 approvers (no token), allow editing even if submitted (as long as at Level 0)
+        if (!token && doc.status === 'completed') {
+          setError('This evaluation form has been completed and cannot be edited.');
           setLoading(false);
           return;
         }
@@ -89,7 +91,12 @@ const PublicEvaluationForm = () => {
         setActiveTab(doc.formType === 'blue_collar' ? 0 : 1);
       } catch (err) {
         console.error('Error fetching document:', err);
-        setError(err.response?.data?.error || 'Failed to load evaluation form. Please check your link.');
+        const errorMsg = err.response?.data?.error || 'Failed to load evaluation form.';
+        if (!token && err.response?.status === 403) {
+          setError('You are not authorized to edit this document. Only Level 0 approvers can edit documents at Level 0.');
+        } else {
+          setError(errorMsg);
+        }
       } finally {
         setLoading(false);
       }
@@ -218,9 +225,19 @@ const PublicEvaluationForm = () => {
           ...evaluationData,
           totalScore: totalObtainedScore,
           percentage: Math.round(percentage * 100) / 100,
-          status: 'submitted',
-          submittedAt: new Date()
         };
+
+        // For Level 0 approvers editing, allow resubmission
+        if (!token && document?.status === 'submitted') {
+          // Level 0 approver editing - mark as resubmitted
+          updateData.status = 'submitted';
+          updateData.resubmittedAt = new Date();
+          updateData.resubmittedBy = 'Level 0 Approver'; // Will be set server-side
+        } else {
+          // Public form submission - set status to submitted
+          updateData.status = 'submitted';
+          updateData.submittedAt = new Date();
+        }
 
         await evaluationDocumentsService.update(id, updateData, token);
         setSubmitSuccess(true);
@@ -414,10 +431,16 @@ const PublicEvaluationForm = () => {
                 type="submit"
                 variant="contained"
                 startIcon={<SaveIcon />}
-                disabled={submitting || document?.status === 'submitted' || document?.status === 'completed'}
+                disabled={submitting || (document?.status === 'completed' && !token)}
                 size="large"
               >
-                {submitting ? 'Submitting...' : document?.status === 'submitted' || document?.status === 'completed' ? 'Already Submitted' : 'Submit Evaluation'}
+                {submitting 
+                  ? 'Submitting...' 
+                  : !token && document?.status === 'submitted' 
+                    ? 'Resubmit Evaluation' 
+                    : document?.status === 'completed' 
+                      ? 'Already Completed' 
+                      : 'Submit Evaluation'}
               </Button>
             </Box>
           </form>

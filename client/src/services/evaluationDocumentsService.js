@@ -30,7 +30,7 @@ export const evaluationDocumentsService = {
     return api.delete(`/evaluation-documents/${id}`);
   },
 
-  // Get documents grouped by department for dashboard
+  // Get documents grouped by department or project for dashboard
   getGroupedByDepartment: (params = {}) => {
     return api.get('/evaluation-documents/dashboard/grouped', { params });
   },

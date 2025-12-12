@@ -524,9 +524,19 @@ const TajProperties = () => {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography fontWeight={600}>{property.ownerName || '—'}</Typography>
+                      <Typography fontWeight={600}>
+                        {property.resident?.name || property.ownerName || '—'}
+                      </Typography>
+                      {property.resident && (
+                        <Chip 
+                          label={property.resident.accountType || 'Resident'} 
+                          size="small" 
+                          color="primary" 
+                          sx={{ mt: 0.5, mb: 0.5 }}
+                        />
+                      )}
                       <Typography variant="body2" color="text.secondary">
-                        {property.contactNumber || '—'}
+                        {property.resident?.contactNumber || property.contactNumber || '—'}
                       </Typography>
                       {property.tenantName && (
                         <Typography variant="caption" color="text.secondary">

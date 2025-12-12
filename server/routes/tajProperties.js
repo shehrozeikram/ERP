@@ -26,6 +26,7 @@ router.get('/', async (req, res) => {
 
     const properties = await TajProperty.find(filters)
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
+      .populate('resident', 'name accountType contactNumber email')
       .sort({ srNo: 1 });
     res.json({ success: true, data: properties });
   } catch (error) {
@@ -37,7 +38,8 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const property = await TajProperty.findById(req.params.id)
-      .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt');
+      .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
+      .populate('resident', 'name accountType contactNumber email');
     if (!property) {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
@@ -87,7 +89,9 @@ router.patch('/:id/status', async (req, res) => {
       req.params.id,
       { status },
       { new: true, runValidators: true }
-    ).populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt');
+    )
+      .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
+      .populate('resident', 'name accountType contactNumber email');
 
     if (!property) {
       return res.status(404).json({ success: false, message: 'Property not found' });

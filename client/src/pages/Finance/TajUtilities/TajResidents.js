@@ -1,0 +1,1465 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid,
+  IconButton,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+  Alert,
+  Stack,
+  MenuItem,
+  Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  CircularProgress,
+  Divider,
+  Checkbox,
+  Autocomplete
+} from '@mui/material';
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Refresh as RefreshIcon,
+  Visibility as ViewIcon,
+  AccountBalance as AccountBalanceIcon,
+  GetApp as GetAppIcon,
+  Payment as PaymentIcon,
+  Home as HomeIcon,
+  Link as LinkIcon,
+  AutoAwesome as AutoAwesomeIcon,
+  Close as CloseIcon
+} from '@mui/icons-material';
+import dayjs from 'dayjs';
+import {
+  fetchResidents,
+  createResident,
+  updateResident,
+  deleteResident,
+  depositMoney,
+  transferMoney,
+  payBill,
+  fetchResidentTransactions,
+  assignProperties,
+  unassignProperties,
+  autoMatchProperties,
+  getUnassignedProperties
+} from '../../../services/tajResidentsService';
+import { fetchInvoicesForProperty } from '../../../services/propertyReceiptService';
+import pakistanBanks from '../../../constants/pakistanBanks';
+
+// Constants
+const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other'];
+const ACCOUNT_TYPES = ['Resident', 'Property Dealer', 'Other'];
+const BANK_REQUIRED_METHODS = ['Bank Transfer', 'Cheque', 'Online'];
+
+const formatCurrency = (value) =>
+  new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    maximumFractionDigits: 0
+  }).format(Number(value || 0));
+
+// Default form values
+const defaultFormData = {
+  name: '',
+  accountType: 'Resident',
+  cnic: '',
+  contactNumber: '',
+  email: '',
+  address: '',
+  balance: 0,
+  notes: ''
+};
+
+const defaultTransactionForm = {
+  amount: '',
+  description: '',
+  paymentMethod: 'Bank Transfer',
+  bank: '',
+  referenceNumberExternal: ''
+};
+
+const defaultPayForm = {
+  amount: '',
+  referenceType: 'CAM',
+  referenceId: '',
+  referenceNumber: '',
+  description: '',
+  paymentDate: dayjs().format('YYYY-MM-DD'),
+  bankName: '',
+  bankReference: '',
+  paymentMethod: 'Bank Transfer'
+};
+
+// Helper functions
+const getInvoiceType = (chargeTypes) => {
+  if (chargeTypes?.includes('ELECTRICITY')) return 'ELECTRICITY';
+  if (chargeTypes?.includes('RENT')) return 'RENT';
+  if (chargeTypes?.includes('CAM')) return 'CAM';
+  return chargeTypes?.[0] || 'CAM';
+};
+
+const getInvoiceDescription = (invoice) => {
+  if (invoice.periodFrom && invoice.periodTo) {
+    const from = dayjs(invoice.periodFrom).format('DD-MMM-YYYY');
+    const to = dayjs(invoice.periodTo).format('DD-MMM-YYYY');
+    const type = invoice.chargeTypes?.join(', ') || 'Invoice';
+    return `${type} From ${from} To ${to}`;
+  }
+  return invoice.description || invoice.invoiceNumber || 'Invoice';
+};
+
+const TajResidents = () => {
+  // State
+  const [loading, setLoading] = useState(false);
+  const [residents, setResidents] = useState([]);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [search, setSearch] = useState('');
+  const [accountTypeFilter, setAccountTypeFilter] = useState('');
+  
+  // Dialogs
+  const [formDialog, setFormDialog] = useState(false);
+  const [depositDialog, setDepositDialog] = useState(false);
+  const [transferDialog, setTransferDialog] = useState(false);
+  const [payDialog, setPayDialog] = useState(false);
+  const [transactionsDialog, setTransactionsDialog] = useState(false);
+  const [propertiesDialog, setPropertiesDialog] = useState(false);
+  
+  // Form state
+  const [selectedResident, setSelectedResident] = useState(null);
+  const [formData, setFormData] = useState(defaultFormData);
+  const [depositForm, setDepositForm] = useState(defaultTransactionForm);
+  const [transferForm, setTransferForm] = useState({
+    targetResidentId: '',
+    amount: '',
+    description: ''
+  });
+  const [payForm, setPayForm] = useState(defaultPayForm);
+  
+  // Invoice payment state
+  const [selectedProperty, setSelectedProperty] = useState(null);
+  const [invoices, setInvoices] = useState([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [allocations, setAllocations] = useState([]);
+  
+  // Transactions state
+  const [transactions, setTransactions] = useState([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  
+  // Property management state
+  const [unassignedProperties, setUnassignedProperties] = useState([]);
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState([]);
+  const [propertySearch, setPropertySearch] = useState('');
+
+  // Computed values
+  const filteredResidents = useMemo(
+    () => residents.filter(r => r.isActive !== false),
+    [residents]
+  );
+
+  const availableResidents = useMemo(
+    () => filteredResidents.filter(r => r._id !== selectedResident?._id),
+    [filteredResidents, selectedResident]
+  );
+
+  const totals = useMemo(() => {
+    const totalAllocated = allocations.reduce((sum, a) => sum + (a.allocatedAmount || 0), 0);
+    const receiptAmount = Number(payForm.amount) || 0;
+    return {
+      totalAllocated,
+      unallocated: receiptAmount - totalAllocated
+    };
+  }, [allocations, payForm.amount]);
+
+  // API calls
+  const loadResidents = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const params = {};
+      if (search) params.search = search;
+      if (accountTypeFilter) params.accountType = accountTypeFilter;
+      const response = await fetchResidents(params);
+      setResidents(response.data.data || []);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load residents');
+    } finally {
+      setLoading(false);
+    }
+  }, [search, accountTypeFilter]);
+
+  const loadUnassignedProperties = useCallback(async (searchTerm = '') => {
+    try {
+      setPropertiesLoading(true);
+      const params = {};
+      const search = searchTerm || propertySearch;
+      if (search?.trim()) {
+        params.search = search.trim();
+      }
+      params.includeAssigned = 'true';
+      const response = await getUnassignedProperties(params);
+      setUnassignedProperties(response.data.data || []);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load properties');
+    } finally {
+      setPropertiesLoading(false);
+    }
+  }, [propertySearch]);
+
+  // Effects
+  useEffect(() => {
+    loadResidents();
+  }, [loadResidents]);
+
+  useEffect(() => {
+    if (propertiesDialog && propertySearch) {
+      const timeoutId = setTimeout(() => {
+        loadUnassignedProperties(propertySearch);
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    } else if (propertiesDialog && !propertySearch) {
+      loadUnassignedProperties('');
+    }
+  }, [propertySearch, propertiesDialog, loadUnassignedProperties]);
+
+  // Handlers
+  const resetForm = useCallback(() => {
+    setFormData(defaultFormData);
+    setSelectedResident(null);
+  }, []);
+
+  const resetTransactionForm = useCallback(() => {
+    setDepositForm(defaultTransactionForm);
+  }, []);
+
+  const resetPayForm = useCallback(() => {
+    setPayForm(defaultPayForm);
+    setSelectedProperty(null);
+    setInvoices([]);
+    setAllocations([]);
+  }, []);
+
+  const showSuccess = useCallback((message) => {
+    setSuccess(message);
+    setTimeout(() => setSuccess(''), 3000);
+  }, []);
+
+  const handleError = useCallback((err, defaultMessage) => {
+    setError(err.response?.data?.message || defaultMessage);
+  }, []);
+
+  const handleCreate = useCallback(() => {
+    resetForm();
+    setFormDialog(true);
+  }, [resetForm]);
+
+  const handleEdit = useCallback((resident) => {
+    setSelectedResident(resident);
+    setFormData({
+      name: resident.name || '',
+      accountType: resident.accountType || 'Resident',
+      cnic: resident.cnic || '',
+      contactNumber: resident.contactNumber || '',
+      email: resident.email || '',
+      address: resident.address || '',
+      balance: resident.balance || 0,
+      notes: resident.notes || ''
+    });
+    setFormDialog(true);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      if (selectedResident) {
+        await updateResident(selectedResident._id, formData);
+        showSuccess('Resident updated successfully');
+      } else {
+        await createResident(formData);
+        showSuccess('Resident created successfully');
+      }
+      setFormDialog(false);
+      loadResidents();
+    } catch (err) {
+      handleError(err, 'Failed to save resident');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedResident, formData, loadResidents, showSuccess, handleError]);
+
+  const handleDelete = useCallback(async (resident) => {
+    if (!window.confirm(`Are you sure you want to delete ${resident.name}?`)) return;
+    try {
+      setLoading(true);
+      await deleteResident(resident._id);
+      showSuccess('Resident deleted successfully');
+      loadResidents();
+    } catch (err) {
+      handleError(err, 'Failed to delete resident');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadResidents, showSuccess, handleError]);
+
+  const handleDeposit = useCallback((resident) => {
+    setSelectedResident(resident);
+    resetTransactionForm();
+    setDepositDialog(true);
+  }, [resetTransactionForm]);
+
+  const handleTransfer = useCallback((resident) => {
+    setSelectedResident(resident);
+    setTransferForm({
+      targetResidentId: '',
+      amount: '',
+      description: ''
+    });
+    setTransferDialog(true);
+  }, []);
+
+  const handlePay = useCallback((resident) => {
+    setSelectedResident(resident);
+    resetPayForm();
+    setPayDialog(true);
+  }, [resetPayForm]);
+
+  const handlePropertyChange = useCallback(async (property) => {
+    setSelectedProperty(property);
+    if (!property?._id) {
+      setInvoices([]);
+      setAllocations([]);
+      return;
+    }
+
+    try {
+      setLoadingInvoices(true);
+      const response = await fetchInvoicesForProperty(property._id);
+      const invoiceList = response.data?.data || [];
+      setInvoices(invoiceList);
+      
+      const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+      
+      setAllocations(outstandingInvoices.map(inv => ({
+        invoice: inv._id,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceType: getInvoiceType(inv.chargeTypes),
+        balance: inv.balance || 0,
+        allocatedAmount: 0,
+        remaining: inv.balance || 0
+      })));
+    } catch (err) {
+      handleError(err, 'Failed to load invoices');
+      setInvoices([]);
+      setAllocations([]);
+    } finally {
+      setLoadingInvoices(false);
+    }
+  }, [handleError]);
+
+  const handleAllocationChange = useCallback((index, value) => {
+    const numValue = Number(value) || 0;
+    const balance = allocations[index].balance;
+    const newAllocated = Math.min(Math.max(0, numValue), balance);
+    
+    const updated = [...allocations];
+    updated[index] = {
+      ...updated[index],
+      allocatedAmount: newAllocated,
+      remaining: balance - newAllocated
+    };
+    setAllocations(updated);
+    
+    const totalAllocated = updated.reduce((sum, a) => sum + (a.allocatedAmount || 0), 0);
+    setPayForm(prev => ({ ...prev, amount: totalAllocated.toString() }));
+  }, [allocations]);
+
+  const handleViewTransactions = useCallback(async (resident) => {
+    setSelectedResident(resident);
+    setTransactionsDialog(true);
+    try {
+      setTransactionsLoading(true);
+      const response = await fetchResidentTransactions(resident._id);
+      setTransactions(response.data.data.transactions || []);
+    } catch (err) {
+      handleError(err, 'Failed to load transactions');
+    } finally {
+      setTransactionsLoading(false);
+    }
+  }, [handleError]);
+
+  const handleManageProperties = useCallback(async (resident) => {
+    setSelectedResident(resident);
+    setSelectedPropertyIds([]);
+    setPropertySearch('');
+    setPropertiesDialog(true);
+    await loadUnassignedProperties();
+  }, [loadUnassignedProperties]);
+
+  const handleAutoMatch = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await autoMatchProperties(selectedResident._id);
+      showSuccess(response.data.message || 'Properties auto-matched successfully');
+      setPropertiesDialog(false);
+      loadResidents();
+    } catch (err) {
+      handleError(err, 'Failed to auto-match properties');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedResident, loadResidents, showSuccess, handleError]);
+
+  const handleAssignProperties = useCallback(async () => {
+    if (selectedPropertyIds.length === 0) {
+      setError('Please select at least one property');
+      return;
+    }
+    try {
+      setLoading(true);
+      setError('');
+      await assignProperties(selectedResident._id, selectedPropertyIds);
+      showSuccess('Properties assigned successfully');
+      setSelectedPropertyIds([]);
+      
+      // Refresh resident data
+      const response = await fetchResidents({});
+      const updatedResident = response.data.data.find(r => r._id === selectedResident._id);
+      if (updatedResident) {
+        setSelectedResident(updatedResident);
+      }
+      
+      loadResidents();
+      loadUnassignedProperties();
+    } catch (err) {
+      handleError(err, 'Failed to assign properties');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedResident, selectedPropertyIds, loadResidents, loadUnassignedProperties, showSuccess, handleError]);
+
+  const handleUnassignProperty = useCallback(async (propertyId) => {
+    try {
+      setLoading(true);
+      setError('');
+      await unassignProperties(selectedResident._id, [propertyId]);
+      showSuccess('Property unassigned successfully');
+      
+      // Refresh resident data
+      const response = await fetchResidents({});
+      const updatedResident = response.data.data.find(r => r._id === selectedResident._id);
+      if (updatedResident) {
+        setSelectedResident(updatedResident);
+      }
+      
+      loadResidents();
+      loadUnassignedProperties();
+    } catch (err) {
+      handleError(err, 'Failed to unassign property');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedResident, loadResidents, loadUnassignedProperties, showSuccess, handleError]);
+
+  const submitTransaction = useCallback(async (type, form, apiCall) => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = {
+        ...form,
+        amount: parseFloat(form.amount) || 0
+      };
+      await apiCall(selectedResident._id, data);
+      showSuccess(`${type} successful`);
+      if (type === 'Deposit') setDepositDialog(false);
+      loadResidents();
+    } catch (err) {
+      handleError(err, `Failed to ${type.toLowerCase()}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedResident, loadResidents, showSuccess, handleError]);
+
+  const submitDeposit = useCallback(() => {
+    submitTransaction('Deposit', depositForm, depositMoney);
+  }, [depositForm, submitTransaction]);
+
+  const submitTransfer = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const transferData = {
+        ...transferForm,
+        amount: parseFloat(transferForm.amount) || 0
+      };
+      await transferMoney(selectedResident._id, transferData);
+      showSuccess('Transfer successful');
+      setTransferDialog(false);
+      loadResidents();
+    } catch (err) {
+      handleError(err, 'Failed to transfer');
+    } finally {
+      setLoading(false);
+    }
+  }, [transferForm, selectedResident, loadResidents, showSuccess, handleError]);
+
+  const submitPay = useCallback(async () => {
+    if (!selectedProperty) {
+      setError('Please select a property');
+      return;
+    }
+
+    const amountNum = Number(payForm.amount) || 0;
+    if (amountNum <= 0) {
+      setError('Please enter a valid payment amount');
+      return;
+    }
+
+    const validAllocations = allocations.filter(a => a.allocatedAmount > 0);
+    if (validAllocations.length === 0) {
+      setError('Please allocate at least one invoice');
+      return;
+    }
+
+    if (totals.totalAllocated > amountNum) {
+      setError('Total allocated amount cannot exceed payment amount');
+      return;
+    }
+
+    if (amountNum > (selectedResident?.balance || 0)) {
+      setError(`Insufficient balance. Current balance: ${formatCurrency(selectedResident?.balance || 0)}`);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      
+      await Promise.all(
+        validAllocations.map(async (allocation) => {
+          const invoice = invoices.find(inv => inv._id === allocation.invoice);
+          if (invoice && allocation.allocatedAmount > 0) {
+            return payBill(selectedResident._id, {
+              amount: allocation.allocatedAmount,
+              referenceType: allocation.invoiceType,
+              referenceId: invoice._id,
+              referenceNumber: invoice.invoiceNumber || '',
+              description: `${allocation.invoiceType} - ${getInvoiceDescription(invoice)}`,
+              paymentDate: payForm.paymentDate,
+              bankName: payForm.bankName,
+              bankReference: payForm.bankReference,
+              paymentMethod: payForm.paymentMethod
+            });
+          }
+        })
+      );
+      
+      showSuccess('Payment successful');
+      setPayDialog(false);
+      resetPayForm();
+      loadResidents();
+    } catch (err) {
+      handleError(err, 'Failed to pay invoices');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedProperty, payForm, allocations, totals, selectedResident, invoices, resetPayForm, loadResidents, showSuccess, handleError]);
+
+  // Payment method change handler
+  const handlePaymentMethodChange = useCallback((form, setForm, newMethod) => {
+    setForm({
+      ...form,
+      paymentMethod: newMethod,
+      bank: BANK_REQUIRED_METHODS.includes(newMethod) ? form.bank : ''
+    });
+  }, []);
+
+  // Render helpers
+  const renderBankField = useCallback((form, setForm, show = true) => {
+    if (!show || !BANK_REQUIRED_METHODS.includes(form.paymentMethod)) return null;
+    return (
+      <Grid item xs={12} md={6}>
+        <FormControl fullWidth>
+          <InputLabel>Bank</InputLabel>
+          <Select
+            value={form.bank}
+            label="Bank"
+            onChange={(e) => setForm({ ...form, bank: e.target.value })}
+          >
+            {pakistanBanks.map((bank) => (
+              <MenuItem key={bank} value={bank}>
+                {bank}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Grid>
+    );
+  }, []);
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" fontWeight="bold">
+          Taj Residents
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={handleCreate}
+        >
+          Add Resident
+        </Button>
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+          {success}
+        </Alert>
+      )}
+
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name, CNIC, phone, email..."
+              />
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Account Type</InputLabel>
+                <Select
+                  value={accountTypeFilter}
+                  label="Account Type"
+                  onChange={(e) => setAccountTypeFilter(e.target.value)}
+                >
+                  <MenuItem value="">All</MenuItem>
+                  {ACCOUNT_TYPES.map((type) => (
+                    <MenuItem key={type} value={type}>
+                      {type}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={loadResidents}
+                disabled={loading}
+              >
+                Refresh
+              </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {loading && !residents.length ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell><strong>Name</strong></TableCell>
+                <TableCell><strong>Account Type</strong></TableCell>
+                <TableCell><strong>Properties</strong></TableCell>
+                <TableCell><strong>Balance</strong></TableCell>
+                <TableCell><strong>Contact</strong></TableCell>
+                <TableCell><strong>Actions</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredResidents.map((resident) => (
+                <TableRow key={resident._id}>
+                  <TableCell>{resident.name}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={resident.accountType}
+                      size="small"
+                      color={resident.accountType === 'Resident' ? 'primary' : 'default'}
+                    />
+                  </TableCell>
+                  <TableCell>{resident.propertyCount || 0}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="bold" color="primary">
+                      {formatCurrency(resident.balance)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>{resident.contactNumber || '-'}</TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={1}>
+                      <Tooltip title="Deposit">
+                        <IconButton
+                          size="small"
+                          color="success"
+                          onClick={() => handleDeposit(resident)}
+                        >
+                          <GetAppIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Transfer">
+                        <IconButton
+                          size="small"
+                          color="info"
+                          onClick={() => handleTransfer(resident)}
+                        >
+                          <PaymentIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Pay Bill">
+                        <IconButton
+                          size="small"
+                          color="secondary"
+                          onClick={() => handlePay(resident)}
+                        >
+                          <AccountBalanceIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Properties">
+                        <IconButton
+                          size="small"
+                          color="info"
+                          onClick={() => handleManageProperties(resident)}
+                        >
+                          <HomeIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Transactions">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleViewTransactions(resident)}
+                        >
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => handleEdit(resident)}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDelete(resident)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {/* Create/Edit Form Dialog */}
+      <Dialog open={formDialog} onClose={() => setFormDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          {selectedResident ? 'Edit Resident' : 'Add Resident'}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Account Type</InputLabel>
+                <Select
+                  value={formData.accountType}
+                  label="Account Type"
+                  onChange={(e) => setFormData({ ...formData, accountType: e.target.value })}
+                >
+                  {ACCOUNT_TYPES.map((type) => (
+                    <MenuItem key={type} value={type}>
+                      {type}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="CNIC"
+                value={formData.cnic}
+                onChange={(e) => setFormData({ ...formData, cnic: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Contact Number"
+                value={formData.contactNumber}
+                onChange={(e) => setFormData({ ...formData, contactNumber: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Initial Balance"
+                type="number"
+                value={formData.balance}
+                onChange={(e) => setFormData({ ...formData, balance: parseFloat(e.target.value) || 0 })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Address"
+                multiline
+                rows={2}
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={2}
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFormDialog(false)}>Cancel</Button>
+          <Button onClick={handleSave} variant="contained" disabled={loading || !formData.name}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Deposit Dialog */}
+      <Dialog open={depositDialog} onClose={() => setDepositDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Deposit Money - {selectedResident?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <Alert severity="info">
+                Current Balance: {formatCurrency(selectedResident?.balance || 0)}
+              </Alert>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Amount"
+                type="number"
+                value={depositForm.amount}
+                onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Payment Method</InputLabel>
+                <Select
+                  value={depositForm.paymentMethod}
+                  label="Payment Method"
+                  onChange={(e) => handlePaymentMethodChange(depositForm, setDepositForm, e.target.value)}
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <MenuItem key={method} value={method}>
+                      {method}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            {renderBankField(depositForm, setDepositForm)}
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Reference Number"
+                value={depositForm.referenceNumberExternal}
+                onChange={(e) => setDepositForm({ ...depositForm, referenceNumberExternal: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Description"
+                multiline
+                rows={2}
+                value={depositForm.description}
+                onChange={(e) => setDepositForm({ ...depositForm, description: e.target.value })}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDepositDialog(false)}>Cancel</Button>
+          <Button onClick={submitDeposit} variant="contained" disabled={loading || !depositForm.amount}>
+            Deposit
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Transfer Dialog */}
+      <Dialog open={transferDialog} onClose={() => setTransferDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Transfer Money - {selectedResident?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <Alert severity="info">
+                Current Balance: {formatCurrency(selectedResident?.balance || 0)}
+              </Alert>
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Transfer To</InputLabel>
+                <Select
+                  value={transferForm.targetResidentId}
+                  label="Transfer To"
+                  onChange={(e) => setTransferForm({ ...transferForm, targetResidentId: e.target.value })}
+                >
+                  {availableResidents.map((r) => (
+                    <MenuItem key={r._id} value={r._id}>
+                      {r.name} ({formatCurrency(r.balance)})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Amount"
+                type="number"
+                value={transferForm.amount}
+                onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Description"
+                multiline
+                rows={2}
+                value={transferForm.description}
+                onChange={(e) => setTransferForm({ ...transferForm, description: e.target.value })}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTransferDialog(false)}>Cancel</Button>
+          <Button onClick={submitTransfer} variant="contained" disabled={loading || !transferForm.amount || !transferForm.targetResidentId}>
+            Transfer
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Pay Invoice Dialog */}
+      <Dialog open={payDialog} onClose={() => setPayDialog(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">Pay Invoice - {selectedResident?.name}</Typography>
+            <IconButton onClick={() => setPayDialog(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12}>
+              <Alert severity="info">
+                Current Balance: {formatCurrency(selectedResident?.balance || 0)}
+              </Alert>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Autocomplete
+                options={selectedResident?.properties || []}
+                getOptionLabel={(option) => 
+                  `${option.propertyName || option.plotNumber || ''} - ${option.ownerName || ''}`
+                }
+                value={selectedProperty}
+                onChange={(e, newValue) => handlePropertyChange(newValue)}
+                renderInput={(params) => (
+                  <TextField {...params} label="Select Property" size="small" required />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                label="Date"
+                type="date"
+                value={payForm.paymentDate}
+                onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })}
+                fullWidth
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                label="Amount"
+                type="number"
+                value={payForm.amount}
+                onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })}
+                fullWidth
+                size="small"
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Description"
+                value={payForm.description}
+                onChange={(e) => setPayForm({ ...payForm, description: e.target.value })}
+                fullWidth
+                size="small"
+                multiline
+                rows={2}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Bank</InputLabel>
+                <Select
+                  value={payForm.bankName}
+                  label="Bank"
+                  onChange={(e) => setPayForm({ ...payForm, bankName: e.target.value })}
+                >
+                  {pakistanBanks.map((bank) => (
+                    <MenuItem key={bank} value={bank}>
+                      {bank}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Bank Reference"
+                value={payForm.bankReference}
+                onChange={(e) => setPayForm({ ...payForm, bankReference: e.target.value })}
+                fullWidth
+                size="small"
+              />
+            </Grid>
+          </Grid>
+
+          {loadingInvoices ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : allocations.length > 0 ? (
+            <>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Product</TableCell>
+                      <TableCell>Nature</TableCell>
+                      <TableCell align="right">Balance</TableCell>
+                      <TableCell align="right">Pay</TableCell>
+                      <TableCell align="right">Remaining</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {allocations.map((alloc, index) => {
+                      const invoice = invoices.find(inv => inv._id === alloc.invoice);
+                      return (
+                        <TableRow key={alloc.invoice}>
+                          <TableCell>{alloc.invoiceType}</TableCell>
+                          <TableCell>{getInvoiceDescription(invoice || {})}</TableCell>
+                          <TableCell align="right">{formatCurrency(alloc.balance)}</TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              type="number"
+                              value={alloc.allocatedAmount || ''}
+                              onChange={(e) => handleAllocationChange(index, e.target.value)}
+                              size="small"
+                              inputProps={{ min: 0, max: alloc.balance, step: 1 }}
+                              sx={{ width: 120 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography color={alloc.remaining > 0 ? 'error.main' : 'success.main'}>
+                              {formatCurrency(alloc.remaining)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2" color="text.secondary">
+                    Total Allocated:
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600}>
+                    {formatCurrency(totals.totalAllocated)}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Un-Allocated Payment:
+                  </Typography>
+                  <Typography 
+                    variant="h6" 
+                    fontWeight={600}
+                    color={totals.unallocated < 0 ? 'error.main' : totals.unallocated > 0 ? 'warning.main' : 'success.main'}
+                  >
+                    {formatCurrency(totals.unallocated)}
+                  </Typography>
+                </Stack>
+              </Box>
+            </>
+          ) : selectedProperty ? (
+            <Alert severity="info">No outstanding invoices found for this property.</Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPayDialog(false)}>Close</Button>
+          <Button onClick={submitPay} variant="contained" disabled={loading || !selectedProperty || totals.totalAllocated <= 0}>
+            {loading ? 'Paying...' : 'Pay Invoice'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Transactions Dialog */}
+      <Dialog open={transactionsDialog} onClose={() => setTransactionsDialog(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          Transaction History - {selectedResident?.name}
+        </DialogTitle>
+        <DialogContent>
+          {transactionsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Date</strong></TableCell>
+                    <TableCell><strong>Type</strong></TableCell>
+                    <TableCell><strong>Amount</strong></TableCell>
+                    <TableCell><strong>Balance Before</strong></TableCell>
+                    <TableCell><strong>Balance After</strong></TableCell>
+                    <TableCell><strong>Payment Method</strong></TableCell>
+                    <TableCell><strong>Bank</strong></TableCell>
+                    <TableCell><strong>Description</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {transactions.map((txn) => (
+                    <TableRow key={txn._id}>
+                      <TableCell>{dayjs(txn.createdAt).format('DD MMM YYYY HH:mm')}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={txn.transactionType}
+                          size="small"
+                          color={txn.transactionType === 'deposit' || txn.transactionType === 'transfer' ? 'success' : 'default'}
+                        />
+                      </TableCell>
+                      <TableCell>{formatCurrency(txn.amount)}</TableCell>
+                      <TableCell>{formatCurrency(txn.balanceBefore)}</TableCell>
+                      <TableCell>{formatCurrency(txn.balanceAfter)}</TableCell>
+                      <TableCell>{txn.paymentMethod || '-'}</TableCell>
+                      <TableCell>{txn.bank || '-'}</TableCell>
+                      <TableCell>{txn.description || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTransactionsDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Properties Management Dialog */}
+      <Dialog open={propertiesDialog} onClose={() => setPropertiesDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          Manage Properties - {selectedResident?.name}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            {/* Current Properties */}
+            {selectedResident?.properties && selectedResident.properties.length > 0 && (
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h6" gutterBottom>
+                  Current Properties ({selectedResident.properties.length})
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Property Name</strong></TableCell>
+                        <TableCell><strong>Plot Number</strong></TableCell>
+                        <TableCell><strong>Sector</strong></TableCell>
+                        <TableCell><strong>Block</strong></TableCell>
+                        <TableCell><strong>Address</strong></TableCell>
+                        <TableCell><strong>Actions</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selectedResident.properties.map((property) => (
+                        <TableRow key={property._id}>
+                          <TableCell>{property.propertyName || '-'}</TableCell>
+                          <TableCell>{property.plotNumber || '-'}</TableCell>
+                          <TableCell>{property.sector || '-'}</TableCell>
+                          <TableCell>{property.block || '-'}</TableCell>
+                          <TableCell>{property.fullAddress || '-'}</TableCell>
+                          <TableCell>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleUnassignProperty(property._id)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            <Divider sx={{ my: 3 }} />
+
+            {/* Auto-match Section */}
+            <Box sx={{ mb: 3 }}>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Auto-match will find properties where the owner name matches "{selectedResident?.name}"
+              </Alert>
+              <Button
+                variant="outlined"
+                startIcon={<AutoAwesomeIcon />}
+                onClick={handleAutoMatch}
+                disabled={loading}
+              >
+                Auto-Match Properties by Owner Name
+              </Button>
+            </Box>
+
+            <Divider sx={{ my: 3 }} />
+
+            {/* Assign New Properties */}
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Search & Assign Properties
+              </Typography>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Search for properties by name, plot number, sector, block, or address. Select properties to link them to this resident.
+              </Alert>
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={12} md={9}>
+                  <TextField
+                    fullWidth
+                    label="Search Properties"
+                    value={propertySearch}
+                    onChange={(e) => setPropertySearch(e.target.value)}
+                    placeholder="Type property name, plot number, sector, block, address, or owner name..."
+                    autoFocus
+                  />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<RefreshIcon />}
+                    onClick={() => {
+                      setPropertySearch('');
+                      loadUnassignedProperties('');
+                    }}
+                    disabled={propertiesLoading}
+                  >
+                    Clear & Refresh
+                  </Button>
+                </Grid>
+              </Grid>
+
+              {propertiesLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                  <CircularProgress />
+                </Box>
+              ) : unassignedProperties.length === 0 ? (
+                <Alert severity="info">
+                  {propertySearch ? `No properties found matching "${propertySearch}"` : 'No properties found. Try searching by property name, plot number, or address.'}
+                </Alert>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            checked={
+                              unassignedProperties.length > 0 &&
+                              unassignedProperties
+                                .filter(p => !(p.resident && p.resident._id === selectedResident?._id))
+                                .every(p => selectedPropertyIds.includes(p._id))
+                            }
+                            indeterminate={
+                              selectedPropertyIds.length > 0 &&
+                              selectedPropertyIds.length < unassignedProperties.filter(p => !(p.resident && p.resident._id === selectedResident?._id)).length
+                            }
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const selectableProperties = unassignedProperties.filter(
+                                  p => !(p.resident && p.resident._id === selectedResident?._id)
+                                );
+                                setSelectedPropertyIds(selectableProperties.map(p => p._id));
+                              } else {
+                                setSelectedPropertyIds([]);
+                              }
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell><strong>Property Name</strong></TableCell>
+                        <TableCell><strong>Plot Number</strong></TableCell>
+                        <TableCell><strong>Sector</strong></TableCell>
+                        <TableCell><strong>Block</strong></TableCell>
+                        <TableCell><strong>Owner Name</strong></TableCell>
+                        <TableCell><strong>Address</strong></TableCell>
+                        <TableCell><strong>Current Resident</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {unassignedProperties.map((property) => {
+                        const isAlreadyAssigned = property.resident && property.resident._id !== selectedResident?._id;
+                        const isAssignedToThisResident = property.resident && property.resident._id === selectedResident?._id;
+                        return (
+                          <TableRow 
+                            key={property._id}
+                            sx={{
+                              backgroundColor: isAssignedToThisResident ? 'action.selected' : isAlreadyAssigned ? 'error.light' : 'inherit',
+                              opacity: isAssignedToThisResident ? 0.6 : 1
+                            }}
+                          >
+                            <TableCell padding="checkbox">
+                              <Checkbox
+                                checked={selectedPropertyIds.includes(property._id)}
+                                disabled={isAssignedToThisResident}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedPropertyIds([...selectedPropertyIds, property._id]);
+                                  } else {
+                                    setSelectedPropertyIds(selectedPropertyIds.filter(id => id !== property._id));
+                                  }
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={isAlreadyAssigned ? 'bold' : 'normal'}>
+                                {property.propertyName || '-'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{property.plotNumber || '-'}</TableCell>
+                            <TableCell>{property.sector || '-'}</TableCell>
+                            <TableCell>{property.block || '-'}</TableCell>
+                            <TableCell>{property.ownerName || '-'}</TableCell>
+                            <TableCell>{property.fullAddress || '-'}</TableCell>
+                            <TableCell>
+                              {isAssignedToThisResident ? (
+                                <Chip label="Already Assigned" size="small" color="success" />
+                              ) : isAlreadyAssigned ? (
+                                <Chip label={property.resident?.name || 'Assigned'} size="small" color="warning" />
+                              ) : (
+                                <Chip label="Unassigned" size="small" color="default" />
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPropertiesDialog(false)}>Cancel</Button>
+          <Button
+            onClick={handleAssignProperties}
+            variant="contained"
+            disabled={loading || selectedPropertyIds.length === 0}
+            startIcon={<LinkIcon />}
+          >
+            Assign Selected ({selectedPropertyIds.length})
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+export default TajResidents;

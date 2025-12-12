@@ -187,7 +187,8 @@ export const SUBMODULES = {
     'taj_cam_charges',
     'taj_electricity_bills',
     'taj_rental_agreements',
-    'taj_rental_management'
+    'taj_rental_management',
+    'taj_residents'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'purchase_orders',
@@ -486,6 +487,10 @@ export const MODULES = {
             path: '/finance/taj-utilities-charges/rental-management'
           },
           {
+            name: 'Taj Residents',
+            path: '/finance/taj-utilities-charges/taj-residents'
+          },
+          {
             name: 'Taj Properties',
             path: '/finance/taj-utilities-charges/taj-properties'
           },
@@ -762,6 +767,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/hr/evaluation-appraisal': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/documents': 'evaluation_appraisal',
       '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
+      '/hr/evaluation-appraisal/edit': 'evaluation_appraisal',
       '/hr/reports': 'reports',
       
       // Finance Module
@@ -776,6 +782,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
       '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
+      '/finance/taj-utilities-charges/taj-residents': 'taj_residents',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/receipts': 'taj_receipts',
       '/finance/reports': 'financial_reports',
@@ -834,7 +841,26 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/taj-residencia/land-acquisition/reporting-framework': 'reporting_framework',
       '/taj-residencia/complains-tickets': 'complains_tickets'
     };
-    return pathToSubmoduleMap[path];
+    
+    // First try exact match
+    if (pathToSubmoduleMap[path]) {
+      return pathToSubmoduleMap[path];
+    }
+    
+    // Handle dynamic routes (with :id or other params)
+    // Check if path starts with any mapped path
+    for (const [mappedPath, submodule] of Object.entries(pathToSubmoduleMap)) {
+      // Remove trailing slashes for comparison
+      const normalizedPath = path.replace(/\/$/, '');
+      const normalizedMappedPath = mappedPath.replace(/\/$/, '');
+      
+      // Check if path starts with mapped path (for dynamic routes like /edit/:id)
+      if (normalizedPath.startsWith(normalizedMappedPath + '/') || normalizedPath === normalizedMappedPath) {
+        return submodule;
+      }
+    }
+    
+    return null;
   };
 
   // Helper function to get module name from path

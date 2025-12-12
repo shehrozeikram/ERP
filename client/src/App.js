@@ -50,6 +50,7 @@ import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
 import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
 import Receipts from './pages/Finance/TajUtilities/Receipts';
+import TajResidents from './pages/Finance/TajUtilities/TajResidents';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -520,6 +521,10 @@ function App() {
               element={<PublicEvaluationForm />}
             />
             <Route
+              path="/hr/evaluation-appraisal/edit/:id"
+              element={<ProtectedRoute><PublicEvaluationForm /></ProtectedRoute>}
+            />
+            <Route
               path="/hr/evaluation-appraisal/dashboard"
               element={<ProtectedRoute><EvaluationDashboard /></ProtectedRoute>}
             />
@@ -885,6 +890,14 @@ function App() {
               }
             />
             <Route
+              path="/finance/taj-utilities-charges/taj-residents"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <TajResidents />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/finance/taj-utilities-charges/taj-properties"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
@@ -1228,10 +1241,11 @@ function App() {
               path="/admin/staff-management/assignments/:id/edit" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
-            <Route 
-              path="/admin/staff-management/locations" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><LocationManagement /></ProtectedRoute>} 
+            <Route
+              path="/admin/staff-management/locations"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><LocationManagement /></ProtectedRoute>}
             />
+
 
             {/* Utility Bills Management Routes */}
             <Route 

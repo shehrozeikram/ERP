@@ -21,8 +21,11 @@ import {
 import {
   Close as CloseIcon,
   Print as PrintIcon,
-  Download as DownloadIcon
+  Download as DownloadIcon,
+  Edit as EditIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import MarksDescriptionSection from './MarksDescriptionSection';
 import {
@@ -110,8 +113,16 @@ const ReadOnlyEvaluationTable = ({ categories, scores, subTotalMarks = 50, showD
   );
 };
 
-const DocumentViewer = ({ open, document, onClose }) => {
+const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUpdate }) => {
+  const navigate = useNavigate();
+  
   if (!document) return null;
+
+  const handleEdit = () => {
+    // Navigate to edit form for Level 0 approvers
+    navigate(`/hr/evaluation-appraisal/edit/${document._id}`);
+    onClose();
+  };
 
   const getStatusColor = (status) => {
     const colors = {
@@ -162,6 +173,17 @@ const DocumentViewer = ({ open, document, onClose }) => {
               size="small"
               color={getStatusColor(document.status)}
             />
+            {canEdit && (
+              <Button
+                startIcon={<EditIcon />}
+                onClick={handleEdit}
+                size="small"
+                variant="contained"
+                color="primary"
+              >
+                Edit
+              </Button>
+            )}
             <Button
               startIcon={<PrintIcon />}
               onClick={handlePrint}
@@ -362,6 +384,41 @@ const DocumentViewer = ({ open, document, onClose }) => {
                   </Typography>
                 </Grid>
               </Grid>
+            </>
+          )}
+
+          {/* Edit History */}
+          {document.editHistory && document.editHistory.length > 0 && (
+            <>
+              <Divider sx={{ my: 3 }} />
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HistoryIcon fontSize="small" />
+                  Edit History
+                </Typography>
+                <Box sx={{ pl: 2 }}>
+                  {document.editHistory.map((edit, index) => (
+                    <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: index < document.editHistory.length - 1 ? '1px solid' : 'none', borderColor: 'divider' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {edit.editedByName}
+                        </Typography>
+                        {edit.level !== null && edit.level !== undefined && (
+                          <Chip label={`Level ${edit.level}`} size="small" color="warning" variant="outlined" />
+                        )}
+                        <Typography variant="caption" color="text.secondary">
+                          {dayjs(edit.editedAt).format('DD MMM YYYY, HH:mm')}
+                        </Typography>
+                      </Box>
+                      {edit.changes && (
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 2, fontStyle: 'italic' }}>
+                          {edit.changes}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
             </>
           )}
         </Paper>

@@ -1,0 +1,699 @@
+const express = require('express');
+const router = express.Router();
+const { body, validationResult } = require('express-validator');
+const TajResident = require('../models/tajResidencia/TajResident');
+const TajTransaction = require('../models/tajResidencia/TajTransaction');
+const TajProperty = require('../models/tajResidencia/TajProperty');
+const { authMiddleware } = require('../middleware/auth');
+const asyncHandler = require('../middleware/errorHandler').asyncHandler;
+
+// Get all residents
+router.get('/', authMiddleware, asyncHandler(async (req, res) => {
+  const { search, accountType, isActive } = req.query;
+  const query = {};
+
+  if (search) {
+    query.$or = [
+      { name: new RegExp(search, 'i') },
+      { cnic: new RegExp(search, 'i') },
+      { contactNumber: new RegExp(search, 'i') },
+      { email: new RegExp(search, 'i') }
+    ];
+  }
+
+  if (accountType) query.accountType = accountType;
+  if (isActive !== undefined) query.isActive = isActive === 'true';
+
+  const residents = await TajResident.find(query)
+    .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+    .populate('createdBy', 'firstName lastName')
+    .populate('updatedBy', 'firstName lastName')
+    .sort({ name: 1 });
+
+  // Calculate property count for each resident
+  const residentsWithCount = residents.map(resident => {
+    const residentObj = resident.toObject();
+    residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+    return residentObj;
+  });
+
+  res.json({ success: true, data: residentsWithCount });
+}));
+
+// Get unassigned properties (MUST come before /:id route)
+router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, res) => {
+  const { search, includeAssigned } = req.query;
+  const query = {};
+
+  // If includeAssigned is not true, only show unassigned properties
+  if (includeAssigned !== 'true') {
+    query.$or = [
+      { resident: null },
+      { resident: { $exists: false } }
+    ];
+  }
+
+  if (search) {
+    const searchRegex = new RegExp(search.trim(), 'i');
+    const searchConditions = [
+      { propertyName: searchRegex },
+      { plotNumber: searchRegex },
+      { sector: searchRegex },
+      { block: searchRegex },
+      { ownerName: searchRegex },
+      { fullAddress: searchRegex },
+      { rdaNumber: searchRegex },
+      { street: searchRegex },
+      { project: searchRegex }
+    ];
+
+    // If search is a number, also search by srNo
+    if (!isNaN(search.trim()) && search.trim() !== '') {
+      const srNoValue = parseInt(search.trim());
+      if (!isNaN(srNoValue)) {
+        searchConditions.push({ srNo: srNoValue });
+      }
+    }
+
+    if (includeAssigned === 'true') {
+      // If including assigned, just add search conditions
+      query.$or = searchConditions;
+    } else {
+      // If only unassigned, combine with existing query
+      query.$and = [
+        {
+          $or: searchConditions
+        }
+      ];
+    }
+  }
+
+  const properties = await TajProperty.find(query)
+    .select('propertyName plotNumber sector block fullAddress ownerName contactNumber rdaNumber street project srNo resident')
+    .populate('resident', 'name')
+    .sort({ propertyName: 1 })
+    .limit(200);
+
+  res.json({ success: true, data: properties });
+}));
+
+// Get resident by ID
+router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const resident = await TajResident.findById(req.params.id)
+    .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+    .populate('createdBy', 'firstName lastName')
+    .populate('updatedBy', 'firstName lastName');
+
+  if (!resident) {
+    return res.status(404).json({ success: false, message: 'Resident not found' });
+  }
+
+  const residentObj = resident.toObject();
+  residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+
+  res.json({ success: true, data: residentObj });
+}));
+
+// Create resident
+router.post(
+  '/',
+  authMiddleware,
+  [
+    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('accountType').optional().isIn(['Resident', 'Property Dealer', 'Other']),
+    body('balance').optional().isFloat({ min: 0 })
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const residentData = {
+      ...req.body,
+      createdBy: req.user.id
+    };
+
+    const resident = new TajResident(residentData);
+    await resident.save();
+
+    await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
+    await resident.populate('createdBy', 'firstName lastName');
+
+    const residentObj = resident.toObject();
+    residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+
+    res.status(201).json({ success: true, data: residentObj });
+  })
+);
+
+// Update resident
+router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const resident = await TajResident.findById(req.params.id);
+
+  if (!resident) {
+    return res.status(404).json({ success: false, message: 'Resident not found' });
+  }
+
+  Object.assign(resident, req.body);
+  resident.updatedBy = req.user.id;
+  await resident.save();
+
+  await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
+  await resident.populate('updatedBy', 'firstName lastName');
+
+  const residentObj = resident.toObject();
+  residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+
+  res.json({ success: true, data: residentObj });
+}));
+
+// Delete resident (soft delete)
+router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
+  const resident = await TajResident.findById(req.params.id);
+
+  if (!resident) {
+    return res.status(404).json({ success: false, message: 'Resident not found' });
+  }
+
+  resident.isActive = false;
+  resident.updatedBy = req.user.id;
+  await resident.save();
+
+  res.json({ success: true, message: 'Resident deactivated successfully' });
+}));
+
+// Get transactions for a resident
+router.get('/:id/transactions', authMiddleware, asyncHandler(async (req, res) => {
+  const { page = 1, limit = 50, transactionType, startDate, endDate } = req.query;
+  const query = { resident: req.params.id };
+
+  if (transactionType) query.transactionType = transactionType;
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) query.createdAt.$gte = new Date(startDate);
+    if (endDate) query.createdAt.$lte = new Date(endDate);
+  }
+
+  const transactions = await TajTransaction.find(query)
+    .populate('resident', 'name accountType')
+    .populate('targetResident', 'name accountType')
+    .populate('createdBy', 'firstName lastName')
+    .sort({ createdAt: -1 })
+    .limit(limit * 1)
+    .skip((page - 1) * limit);
+
+  const total = await TajTransaction.countDocuments(query);
+
+  res.json({
+    success: true,
+    data: {
+      transactions,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: parseInt(limit)
+      }
+    }
+  });
+}));
+
+// Deposit money
+router.post(
+  '/:id/deposit',
+  authMiddleware,
+  [
+    body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
+    body('description').optional().trim(),
+    body('paymentMethod').optional().isIn(['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other']),
+    body('referenceNumberExternal').optional().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    const { amount, description, paymentMethod, bank, referenceNumberExternal } = req.body;
+    const amountNum = parseFloat(amount) || 0;
+    if (amountNum <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+    
+    // Validate bank is provided for bank-related payment methods
+    if ((paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online') && !bank) {
+      return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
+    }
+    
+    const balanceBefore = resident.balance || 0;
+    const balanceAfter = balanceBefore + amountNum;
+
+    // Update resident balance
+    resident.balance = balanceAfter;
+    resident.updatedBy = req.user.id;
+    await resident.save();
+
+    // Create transaction record
+    const transaction = new TajTransaction({
+      resident: resident._id,
+      transactionType: 'deposit',
+      amount: amountNum,
+      balanceBefore,
+      balanceAfter,
+      description: description || 'Deposit',
+      paymentMethod,
+      bank: bank || null,
+      referenceNumberExternal,
+      createdBy: req.user.id
+    });
+    await transaction.save();
+
+    await transaction.populate('resident', 'name accountType');
+    await transaction.populate('createdBy', 'firstName lastName');
+
+    res.status(201).json({
+      success: true,
+      message: 'Deposit successful',
+      data: {
+        transaction,
+        newBalance: balanceAfter
+      }
+    });
+  })
+);
+
+// Transfer money to another resident
+router.post(
+  '/:id/transfer',
+  authMiddleware,
+  [
+    body('targetResidentId').notEmpty().withMessage('Target resident ID is required'),
+    body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
+    body('description').optional().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { targetResidentId, amount, description } = req.body;
+    const amountNum = parseFloat(amount) || 0;
+    if (amountNum <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+
+    if (req.params.id === targetResidentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot transfer to the same account'
+      });
+    }
+
+    const sourceResident = await TajResident.findById(req.params.id);
+    const targetResident = await TajResident.findById(targetResidentId);
+
+    if (!sourceResident) {
+      return res.status(404).json({ success: false, message: 'Source resident not found' });
+    }
+    if (!targetResident) {
+      return res.status(404).json({ success: false, message: 'Target resident not found' });
+    }
+
+    const sourceBalanceBefore = sourceResident.balance || 0;
+    if (sourceBalanceBefore < amountNum) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient balance'
+      });
+    }
+
+    // Update source resident balance
+    const sourceBalanceAfter = sourceBalanceBefore - amountNum;
+    sourceResident.balance = sourceBalanceAfter;
+    sourceResident.updatedBy = req.user.id;
+    await sourceResident.save();
+
+    // Update target resident balance
+    const targetBalanceBefore = targetResident.balance || 0;
+    const targetBalanceAfter = targetBalanceBefore + amountNum;
+    targetResident.balance = targetBalanceAfter;
+    targetResident.updatedBy = req.user.id;
+    await targetResident.save();
+
+    // Create transaction records (one for source, one for target)
+    const sourceTransaction = new TajTransaction({
+      resident: sourceResident._id,
+      transactionType: 'transfer',
+      amount: amountNum,
+      targetResident: targetResident._id,
+      balanceBefore: sourceBalanceBefore,
+      balanceAfter: sourceBalanceAfter,
+      description: description || `Transfer to ${targetResident.name}`,
+      createdBy: req.user.id
+    });
+    await sourceTransaction.save();
+
+    const targetTransaction = new TajTransaction({
+      resident: targetResident._id,
+      transactionType: 'transfer',
+      amount: amountNum,
+      targetResident: sourceResident._id,
+      balanceBefore: targetBalanceBefore,
+      balanceAfter: targetBalanceAfter,
+      description: description || `Transfer from ${sourceResident.name}`,
+      createdBy: req.user.id
+    });
+    await targetTransaction.save();
+
+    await sourceTransaction.populate('resident', 'name accountType');
+    await sourceTransaction.populate('targetResident', 'name accountType');
+    await sourceTransaction.populate('createdBy', 'firstName lastName');
+
+    res.json({
+      success: true,
+      message: 'Transfer successful',
+      data: {
+        transaction: sourceTransaction,
+        newBalance: sourceBalanceAfter
+      }
+    });
+  })
+);
+
+// Assign properties to resident
+router.post(
+  '/:id/assign-properties',
+  authMiddleware,
+  [
+    body('propertyIds').isArray().withMessage('Property IDs must be an array'),
+    body('propertyIds.*').isMongoId().withMessage('Invalid property ID')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    const { propertyIds } = req.body;
+
+    // Verify all properties exist
+    const properties = await TajProperty.find({ _id: { $in: propertyIds } });
+    if (properties.length !== propertyIds.length) {
+      return res.status(400).json({ success: false, message: 'One or more properties not found' });
+    }
+
+    // Get current property assignments to handle reassignment
+    const propertiesToAssign = await TajProperty.find({ _id: { $in: propertyIds } });
+    const propertiesToReassign = propertiesToAssign.filter(p => p.resident && p.resident.toString() !== resident._id.toString());
+    
+    // Remove properties from previous residents (if any)
+    if (propertiesToReassign.length > 0) {
+      const previousResidentIds = [...new Set(propertiesToReassign.map(p => p.resident.toString()))];
+      for (const prevResidentId of previousResidentIds) {
+        const prevResident = await TajResident.findById(prevResidentId);
+        if (prevResident) {
+          const reassignedPropertyIds = propertiesToReassign
+            .filter(p => p.resident.toString() === prevResidentId)
+            .map(p => p._id.toString());
+          prevResident.properties = prevResident.properties.filter(
+            p => !reassignedPropertyIds.includes(p.toString())
+          );
+          prevResident.updatedBy = req.user.id;
+          await prevResident.save();
+        }
+      }
+    }
+
+    // Add properties to this resident (avoid duplicates)
+    const existingPropertyIds = resident.properties.map(p => p.toString());
+    const newPropertyIds = propertyIds.filter(id => !existingPropertyIds.includes(id));
+    
+    if (newPropertyIds.length > 0) {
+      resident.properties.push(...newPropertyIds);
+      resident.updatedBy = req.user.id;
+      await resident.save();
+    }
+
+    // Update all properties to reference this resident (handles both new assignments and reassignments)
+    await TajProperty.updateMany(
+      { _id: { $in: propertyIds } },
+      { $set: { resident: resident._id } }
+    );
+
+    await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
+    const residentObj = resident.toObject();
+    residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+
+    res.json({
+      success: true,
+      message: `${newPropertyIds.length} property/properties assigned successfully`,
+      data: residentObj
+    });
+  })
+);
+
+// Unassign properties from resident
+router.post(
+  '/:id/unassign-properties',
+  authMiddleware,
+  [
+    body('propertyIds').isArray().withMessage('Property IDs must be an array'),
+    body('propertyIds.*').isMongoId().withMessage('Invalid property ID')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    const { propertyIds } = req.body;
+
+    // Remove properties from resident
+    resident.properties = resident.properties.filter(
+      p => !propertyIds.includes(p.toString())
+    );
+    resident.updatedBy = req.user.id;
+    await resident.save();
+
+    // Update properties to remove resident reference
+    await TajProperty.updateMany(
+      { _id: { $in: propertyIds } },
+      { $set: { resident: null } }
+    );
+
+    await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
+    const residentObj = resident.toObject();
+    residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+
+    res.json({
+      success: true,
+      message: `${propertyIds.length} property/properties unassigned successfully`,
+      data: residentObj
+    });
+  })
+);
+
+// Auto-match properties by owner name
+router.post(
+  '/:id/auto-match-properties',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    if (!resident.name) {
+      return res.status(400).json({ success: false, message: 'Resident name is required for auto-matching' });
+    }
+
+    // Find properties with matching ownerName (case-insensitive, partial match)
+    const nameRegex = new RegExp(resident.name.trim(), 'i');
+    const matchedProperties = await TajProperty.find({
+      ownerName: nameRegex,
+      resident: { $in: [null, undefined] } // Only unassigned properties
+    });
+
+    if (matchedProperties.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No matching unassigned properties found',
+        data: { matchedCount: 0, properties: [] }
+      });
+    }
+
+    const propertyIds = matchedProperties.map(p => p._id);
+
+    // Add properties to resident
+    const existingPropertyIds = resident.properties.map(p => p.toString());
+    const newPropertyIds = propertyIds.filter(id => !existingPropertyIds.includes(id.toString()));
+    
+    if (newPropertyIds.length > 0) {
+      resident.properties.push(...newPropertyIds);
+      resident.updatedBy = req.user.id;
+      await resident.save();
+
+      // Update properties to reference this resident
+      await TajProperty.updateMany(
+        { _id: { $in: newPropertyIds } },
+        { $set: { resident: resident._id } }
+      );
+    }
+
+    await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
+    const residentObj = resident.toObject();
+    residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
+
+    res.json({
+      success: true,
+      message: `${newPropertyIds.length} property/properties auto-matched and assigned`,
+      data: {
+        resident: residentObj,
+        matchedProperties: matchedProperties.map(p => ({
+          _id: p._id,
+          propertyName: p.propertyName,
+          plotNumber: p.plotNumber,
+          sector: p.sector,
+          block: p.block,
+          fullAddress: p.fullAddress,
+          ownerName: p.ownerName
+        }))
+      }
+    });
+  })
+);
+
+// Pay bill (generic payment)
+router.post(
+  '/:id/pay',
+  authMiddleware,
+  [
+    body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
+    body('referenceType').optional().isIn(['CAM', 'Electricity', 'Water', 'RENT', 'ELECTRICITY', 'Other']),
+    body('referenceId').optional(),
+    body('referenceNumber').optional().trim(),
+    body('description').optional().trim(),
+    body('paymentMethod').optional().isIn(['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other']),
+    body('bankName').optional().trim(),
+    body('bankReference').optional().trim(),
+    body('paymentDate').optional().isISO8601().withMessage('Payment date must be a valid date')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    const { 
+      amount, 
+      referenceType, 
+      referenceId, 
+      referenceNumber, 
+      description,
+      paymentMethod,
+      bankName,
+      bankReference,
+      paymentDate
+    } = req.body;
+    const amountNum = parseFloat(amount) || 0;
+    if (amountNum <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+    }
+    
+    // Validate bank is provided for bank-related payment methods
+    if ((paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online') && !bankName) {
+      return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
+    }
+    
+    const balanceBefore = resident.balance || 0;
+
+    if (balanceBefore < amountNum) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient balance'
+      });
+    }
+
+    const balanceAfter = balanceBefore - amountNum;
+
+    // Update resident balance
+    resident.balance = balanceAfter;
+    resident.updatedBy = req.user.id;
+    await resident.save();
+
+    // Prepare transaction data - only include referenceId if it's a valid ObjectId
+    const transactionData = {
+      resident: resident._id,
+      transactionType: 'bill_payment',
+      amount: amountNum,
+      balanceBefore,
+      balanceAfter,
+      description: description || `Payment for ${referenceType || 'bill'}`,
+      createdBy: req.user.id
+    };
+
+    // Only add optional fields if they have valid values
+    if (referenceType) {
+      transactionData.referenceType = referenceType;
+    }
+    if (referenceId && referenceId.trim() !== '') {
+      // Validate it's a valid ObjectId
+      if (require('mongoose').Types.ObjectId.isValid(referenceId)) {
+        transactionData.referenceId = referenceId;
+      }
+    }
+    if (referenceNumber && referenceNumber.trim() !== '') {
+      transactionData.referenceNumber = referenceNumber.trim();
+    }
+    if (paymentMethod) {
+      transactionData.paymentMethod = paymentMethod;
+    }
+    if (bankName) {
+      transactionData.bank = bankName;
+    }
+    if (bankReference && bankReference.trim() !== '') {
+      transactionData.referenceNumberExternal = bankReference.trim();
+    }
+
+    // Create transaction record
+    const transaction = new TajTransaction(transactionData);
+    await transaction.save();
+
+    await transaction.populate('resident', 'name accountType');
+    await transaction.populate('createdBy', 'firstName lastName');
+
+    res.json({
+      success: true,
+      message: 'Payment successful',
+      data: {
+        transaction,
+        newBalance: balanceAfter
+      }
+    });
+  })
+);
+
+module.exports = router;
+

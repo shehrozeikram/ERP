@@ -6,14 +6,18 @@ const EvaluationDocument = require('../models/hr/EvaluationDocument');
 const Employee = require('../models/hr/Employee');
 const Department = require('../models/hr/Department');
 const ApprovalLevelConfiguration = require('../models/hr/ApprovalLevelConfiguration');
+const Level0ApproverAssignment = require('../models/hr/Level0ApproverAssignment');
+const Project = require('../models/hr/Project');
+const User = require('../models/User');
 const EmailService = require('../services/emailService');
 const TrackingService = require('../services/evaluationDocumentTrackingService');
 
 const employeePopulate = {
   path: 'employee',
-  select: 'firstName lastName employeeId email placementDepartment placementDesignation designation user',
+  select: 'firstName lastName employeeId email placementDepartment placementProject placementDesignation designation user',
   populate: [
     { path: 'placementDepartment', select: 'name' },
+    { path: 'placementProject', select: 'name company' },
     { path: 'placementDesignation', select: 'title' },
     { path: 'user', select: 'firstName lastName email department position employeeId' }
   ]
@@ -181,7 +185,7 @@ router.post('/', [
   }
 });
 
-// Update evaluation document (public access with token)
+// Update evaluation document (public access with token OR Level 0 approver)
 router.put('/:id', async (req, res) => {
   try {
     const { token } = req.query;
@@ -192,76 +196,226 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Evaluation document not found' });
     }
 
-    // If token is provided, verify it (for public access)
-    if (token && existingDoc.accessToken !== token) {
-      return res.status(403).json({ error: 'Invalid or expired access token' });
+    // Check access: either token-based (public) OR Level 0 approver
+    let hasAccess = false;
+    
+    if (token) {
+      // Public access with token
+      if (existingDoc.accessToken === token) {
+        hasAccess = true;
+      } else {
+        return res.status(403).json({ error: 'Invalid or expired access token' });
+      }
+    } else if (req.user) {
+      // Authenticated user - check if Level 0 approver (static or dynamic)
+      let isLevel0Approver = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', 0, req.user._id);
+      
+      // Also check dynamic Level 0 assignments
+      if (!isLevel0Approver && existingDoc.currentApprovalLevel === 0) {
+        // Check if user is assigned to this document's department/project
+        const Employee = require('../models/hr/Employee');
+        const employeeDoc = await Employee.findById(existingDoc.employee)
+          .populate('placementProject placementDepartment');
+        
+        const projectId = existingDoc.project || employeeDoc?.placementProject?._id;
+        const departmentId = existingDoc.department || employeeDoc?.placementDepartment?._id;
+        
+        if (projectId && departmentId) {
+          // Check for department-project assignment
+          const deptProjectAssignment = await Level0ApproverAssignment.findOne({
+            assignedUser: req.user._id,
+            assignmentType: 'department_project',
+            'departmentProjectAssignments': {
+              $elemMatch: {
+                department: departmentId,
+                project: projectId
+              }
+            },
+            isActive: true
+          });
+          
+          if (deptProjectAssignment) {
+            isLevel0Approver = true;
+          } else {
+            // Check for project-level assignment
+            const projectAssignment = await Level0ApproverAssignment.findOne({
+              assignedUser: req.user._id,
+              assignmentType: 'project',
+              assignedProjects: projectId,
+              isActive: true
+            });
+            
+            if (projectAssignment) {
+              isLevel0Approver = true;
+            }
+          }
+        }
+      }
+      
+      if (isLevel0Approver && existingDoc.currentApprovalLevel === 0) {
+        // Level 0 approver can edit documents at Level 0
+        hasAccess = true;
+      } else {
+        return res.status(403).json({ error: 'You are not authorized to edit this document' });
+      }
+    } else {
+      return res.status(401).json({ error: 'Authentication required or valid token needed' });
     }
 
     // Prevent duplicate submissions - if already submitted, reject the update
+    // BUT allow Level 0 approvers to edit submitted documents at Level 0
     if (req.body.status === 'submitted' && (existingDoc.status === 'submitted' || existingDoc.status === 'completed')) {
-      return res.status(400).json({ 
-        error: 'This evaluation form has already been submitted and cannot be modified.',
-        alreadySubmitted: true
-      });
+      // Check if user is Level 0 approver editing a Level 0 document (static or dynamic)
+      if (req.user) {
+        let isLevel0Approver = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', 0, req.user._id);
+        
+        // Also check dynamic Level 0 assignments
+        if (!isLevel0Approver && existingDoc.currentApprovalLevel === 0) {
+          const Employee = require('../models/hr/Employee');
+          const employeeDoc = await Employee.findById(existingDoc.employee)
+            .populate('placementProject placementDepartment');
+          
+          const projectId = existingDoc.project || employeeDoc?.placementProject?._id;
+          const departmentId = existingDoc.department || employeeDoc?.placementDepartment?._id;
+          
+          if (projectId && departmentId) {
+            const deptProjectAssignment = await Level0ApproverAssignment.findOne({
+              assignedUser: req.user._id,
+              assignmentType: 'department_project',
+              'departmentProjectAssignments': {
+                $elemMatch: {
+                  department: departmentId,
+                  project: projectId
+                }
+              },
+              isActive: true
+            });
+            
+            if (deptProjectAssignment) {
+              isLevel0Approver = true;
+            } else {
+              const projectAssignment = await Level0ApproverAssignment.findOne({
+                assignedUser: req.user._id,
+                assignmentType: 'project',
+                assignedProjects: projectId,
+                isActive: true
+              });
+              
+              if (projectAssignment) {
+                isLevel0Approver = true;
+              }
+            }
+          }
+        }
+        
+        if (isLevel0Approver && existingDoc.currentApprovalLevel === 0) {
+          // Level 0 approver can edit even if submitted (as long as it's at Level 0)
+          // Don't block the update
+        } else {
+          return res.status(400).json({ 
+            error: 'This evaluation form has already been submitted and cannot be modified.',
+            alreadySubmitted: true
+          });
+        }
+      } else {
+        return res.status(400).json({ 
+          error: 'This evaluation form has already been submitted and cannot be modified.',
+          alreadySubmitted: true
+        });
+      }
     }
 
     // Check if status is changing to 'submitted' and approval levels need to be initialized
     const isSubmitting = req.body.status === 'submitted' && existingDoc.status !== 'submitted';
+    const isResubmitting = req.body.status === 'submitted' && existingDoc.status === 'submitted' && !token && req.user;
 
     const updateData = {
       ...req.body,
-      ...(req.body.status === 'submitted' && { submittedAt: new Date() }),
+      ...(req.body.status === 'submitted' && !isResubmitting && { submittedAt: new Date() }),
       ...(req.body.status === 'completed' && { completedAt: new Date() })
     };
 
-    // Initialize approval levels if submitting for the first time
-    if (isSubmitting && (!existingDoc.approvalLevels || existingDoc.approvalLevels.length === 0)) {
-      const approvalLevels = [
-        {
-          level: 1,
-          title: 'Assistant Vice President / CHRO SGC',
-          approverName: 'Fahad Fareed',
-          status: 'pending'
-        },
-        {
-          level: 2,
-          title: 'Chairman Steering Committee',
-          approverName: 'Ahmad Tansim',
-          status: 'pending'
-        },
-        {
-          level: 3,
-          title: 'CEO SGC',
-          approverName: 'Sardar Umer Tanveer',
-          status: 'pending'
-        },
-        {
-          level: 4,
-          title: 'President SGC',
-          approverName: 'Sardar Tanveer Ilyas',
-          status: 'pending'
-        }
-      ];
+    // Track edit history for Level 0 approvers (static or dynamic)
+    if (!token && req.user && existingDoc.status === 'submitted') {
+      // Level 0 approver is editing/resubmitting
+      let isLevel0Approver = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', 0, req.user._id);
       
-      updateData.approvalLevels = approvalLevels;
-      updateData.approvalStatus = 'pending';
-      updateData.currentApprovalLevel = 1;
-      
-      // Try to find and link approvers by name
-      for (let i = 0; i < approvalLevels.length; i++) {
-        const approver = await Employee.findOne({
-          $or: [
-            { firstName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ')[0], 'i') }, 
-              lastName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ').slice(1).join(' '), 'i') } },
-            { firstName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ')[0], 'i') } }
-          ]
-        });
+      // Also check dynamic Level 0 assignments
+      if (!isLevel0Approver && existingDoc.currentApprovalLevel === 0) {
+        const Employee = require('../models/hr/Employee');
+        const employeeDoc = await Employee.findById(existingDoc.employee)
+          .populate('placementProject placementDepartment');
         
-        if (approver) {
-          updateData.approvalLevels[i].approver = approver._id;
+        const projectId = existingDoc.project || employeeDoc?.placementProject?._id;
+        const departmentId = existingDoc.department || employeeDoc?.placementDepartment?._id;
+        
+        if (projectId && departmentId) {
+          const deptProjectAssignment = await Level0ApproverAssignment.findOne({
+            assignedUser: req.user._id,
+            assignmentType: 'department_project',
+            'departmentProjectAssignments': {
+              $elemMatch: {
+                department: departmentId,
+                project: projectId
+              }
+            },
+            isActive: true
+          });
+          
+          if (deptProjectAssignment) {
+            isLevel0Approver = true;
+          } else {
+            const projectAssignment = await Level0ApproverAssignment.findOne({
+              assignedUser: req.user._id,
+              assignmentType: 'project',
+              assignedProjects: projectId,
+              isActive: true
+            });
+            
+            if (projectAssignment) {
+              isLevel0Approver = true;
+            }
+          }
         }
       }
+      
+      if (isLevel0Approver && existingDoc.currentApprovalLevel === 0) {
+        // Initialize editHistory if it doesn't exist
+        if (!updateData.editHistory) {
+          updateData.editHistory = existingDoc.editHistory || [];
+        }
+        
+        // Add edit history entry
+        const editEntry = {
+          editedBy: req.user._id,
+          editedByName: `${req.user.firstName} ${req.user.lastName}`,
+          editedAt: new Date(),
+          changes: isResubmitting ? 'Resubmitted evaluation with changes' : 'Edited evaluation data',
+          level: 0
+        };
+        
+        // Compare key fields to identify what changed
+        const changes = [];
+        if (req.body.totalScore !== undefined && req.body.totalScore !== existingDoc.totalScore) {
+          changes.push(`Total Score: ${existingDoc.totalScore} → ${req.body.totalScore}`);
+        }
+        if (req.body.percentage !== undefined && req.body.percentage !== existingDoc.percentage) {
+          changes.push(`Percentage: ${existingDoc.percentage}% → ${req.body.percentage}%`);
+        }
+        if (req.body.overallResult && req.body.overallResult !== existingDoc.overallResult) {
+          changes.push(`Overall Result: ${existingDoc.overallResult} → ${req.body.overallResult}`);
+        }
+        
+        if (changes.length > 0) {
+          editEntry.changes = changes.join(', ');
+        }
+        
+        updateData.editHistory = [...(existingDoc.editHistory || []), editEntry];
+      }
     }
+
+    // Note: Approval levels initialization is now handled in the pre-save middleware
+    // which will create Level 0-4 from ApprovalLevelConfiguration
 
     const document = await withPopulates(
       EvaluationDocument.findByIdAndUpdate(
@@ -273,6 +427,15 @@ router.put('/:id', async (req, res) => {
     
     if (isSubmitting) {
       await TrackingService.logSubmission(document, req.user);
+    } else if (isResubmitting) {
+      // Log resubmission for Level 0 approvers - use syncDocumentTracking which handles holder properly
+      await TrackingService.syncDocumentTracking({
+        document,
+        actorUser: req.user,
+        holderEmployee: document?.evaluator,
+        reason: 'Resubmitted by Level 0 approver after editing',
+        comments: 'Document was edited and resubmitted by Level 0 approver'
+      });
     }
 
     await TrackingService.syncDocumentTracking({
@@ -330,6 +493,23 @@ router.get('/approval-levels/assigned', async (req, res) => {
       module: config.module
     }));
 
+    // Check for dynamic Level 0 assignments
+    const level0Assignments = await Level0ApproverAssignment.find({
+      assignedUser: req.user._id,
+      isActive: true
+    });
+
+    // If user has dynamic Level 0 assignments, add Level 0 to assigned levels
+    if (level0Assignments.length > 0 && !assignedLevels.some(l => l.level === 0)) {
+      assignedLevels.push({
+        level: 0,
+        title: 'Department/Project Approver',
+        module: 'evaluation_appraisal'
+      });
+      // Sort by level
+      assignedLevels.sort((a, b) => a.level - b.level);
+    }
+
     res.json({
       success: true,
       data: {
@@ -349,55 +529,185 @@ router.get('/approval-levels/assigned', async (req, res) => {
 
 router.get('/dashboard/grouped', async (req, res) => {
   try {
-    const { status, formType } = req.query;
+    const { status, formType, groupBy = 'department' } = req.query;
     
     const query = {};
     if (status) query.status = status;
     if (formType) query.formType = formType;
     
-    // Use the full populate configuration to ensure all fields are populated correctly
-    const documents = await withPopulates(
+    // STRICT FILTERING: Only return documents at user's assigned approval level(s)
+    // Get user's assigned approval levels (static from ApprovalLevelConfiguration)
+    let userAssignedLevels = [];
+    if (req.user) {
+      const levelConfigs = await ApprovalLevelConfiguration.find({
+        module: 'evaluation_appraisal',
+        assignedUser: req.user._id,
+        isActive: true
+      });
+      userAssignedLevels = levelConfigs.map(config => config.level);
+    }
+    
+    // Check for dynamic Level 0 assignments
+    let level0Assignments = [];
+    let hasLevel0Static = userAssignedLevels.includes(0);
+    let hasLevel0Dynamic = false;
+    
+    if (req.user) {
+      level0Assignments = await Level0ApproverAssignment.find({
+        assignedUser: req.user._id,
+        isActive: true
+      })
+        .populate('assignedProjects', '_id')
+        .populate('departmentProjectAssignments.project', '_id')
+        .populate('departmentProjectAssignments.department', '_id');
+      
+      hasLevel0Dynamic = level0Assignments.length > 0;
+    }
+    
+    // If user has Level 0 assignments (static or dynamic), filter documents
+    if (hasLevel0Static || hasLevel0Dynamic) {
+      query.currentApprovalLevel = 0;
+    } else if (userAssignedLevels.length > 0) {
+      // User has other levels (1-4) but not Level 0
+      query.currentApprovalLevel = { $in: userAssignedLevels };
+    } else {
+      // If user has no assigned levels, return empty result (don't show any documents)
+      return res.json([]);
+    }
+    
+    // Use the base populate configuration (which already includes placementProject)
+    let documents = await withPopulates(
       EvaluationDocument.find(query)
     ).sort({ createdAt: -1 });
     
-    // Group by department - filter out documents from inactive departments
+    // If user has dynamic Level 0 assignments, filter documents in memory
+    // (because we need to check populated employee fields)
+    if (hasLevel0Dynamic && documents.length > 0) {
+      const projectIds = [];
+      const departmentProjectFilters = [];
+      
+      level0Assignments.forEach(assignment => {
+        if (assignment.assignmentType === 'project') {
+          // Project-level: add all project IDs
+          assignment.assignedProjects.forEach(project => {
+            if (project && project._id) {
+              projectIds.push(project._id.toString());
+            }
+          });
+        } else if (assignment.assignmentType === 'department_project') {
+          // Department-project level: add specific combinations
+          assignment.departmentProjectAssignments.forEach(dp => {
+            if (dp.project && dp.department && dp.project._id && dp.department._id) {
+              departmentProjectFilters.push({
+                project: dp.project._id.toString(),
+                department: dp.department._id.toString()
+              });
+            }
+          });
+        }
+      });
+      
+      // Filter documents based on employee's placementProject and placementDepartment
+      documents = documents.filter(doc => {
+        const employee = doc.employee;
+        if (!employee) return false;
+        
+        const docProjectId = (employee.placementProject?._id || doc.project || employee.placementProject)?.toString();
+        const docDeptId = (employee.placementDepartment?._id || doc.department || employee.placementDepartment)?.toString();
+        
+        // Check project-level assignments
+        if (projectIds.length > 0 && docProjectId) {
+          if (projectIds.includes(docProjectId)) {
+            return true; // Document is in an assigned project
+          }
+        }
+        
+        // Check department-project assignments
+        if (departmentProjectFilters.length > 0 && docProjectId && docDeptId) {
+          const matches = departmentProjectFilters.some(dp => {
+            return dp.project === docProjectId && dp.department === docDeptId;
+          });
+          if (matches) {
+            return true; // Document matches a department-project assignment
+          }
+        }
+        
+        // If we have filters but document doesn't match, exclude it
+        if (projectIds.length > 0 || departmentProjectFilters.length > 0) {
+          return false;
+        }
+        
+        // If no dynamic filters, include all Level 0 documents
+        return true;
+      });
+    }
+    
     const grouped = {};
     
-    documents.forEach(doc => {
-      // Skip documents from inactive departments
-      if (doc.department && doc.department.isActive === false) {
-        return;
-      }
-      
-      const deptId = doc.department?._id?.toString() || 'no-department';
-      const deptName = doc.department?.name || 'No Department';
-      
-      if (!grouped[deptId]) {
-        grouped[deptId] = {
-          department: {
-            _id: doc.department?._id || null,
-            name: deptName
-          },
-          hod: null,
-          documents: []
-        };
-      }
-      
-      grouped[deptId].documents.push(doc);
-    });
-    
-    // Get HOD for each department
-    for (const deptId in grouped) {
-      if (deptId !== 'no-department') {
-        const hod = await Employee.findOne({
-          'placementDepartment': deptId,
-          $or: [
-            { 'placementDesignation.title': { $regex: /hod|head of department/i } }
-          ]
-        }).select('firstName lastName employeeId email');
+    if (groupBy === 'project') {
+      // Group by project
+      documents.forEach(doc => {
+        // Skip documents from inactive departments
+        if (doc.department && doc.department.isActive === false) {
+          return;
+        }
         
-        if (hod) {
-          grouped[deptId].hod = hod;
+        const projectId = doc.employee?.placementProject?._id?.toString() || 'no-project';
+        const projectName = doc.employee?.placementProject?.name || 'No Project';
+        
+        if (!grouped[projectId]) {
+          grouped[projectId] = {
+            project: {
+              _id: doc.employee?.placementProject?._id || null,
+              name: projectName
+            },
+            department: null,
+            hod: null,
+            documents: []
+          };
+        }
+        
+        grouped[projectId].documents.push(doc);
+      });
+    } else {
+      // Group by department (default)
+      documents.forEach(doc => {
+        // Skip documents from inactive departments
+        if (doc.department && doc.department.isActive === false) {
+          return;
+        }
+        
+        const deptId = doc.department?._id?.toString() || 'no-department';
+        const deptName = doc.department?.name || 'No Department';
+        
+        if (!grouped[deptId]) {
+          grouped[deptId] = {
+            department: {
+              _id: doc.department?._id || null,
+              name: deptName
+            },
+            project: null,
+            hod: null,
+            documents: []
+          };
+        }
+        
+        grouped[deptId].documents.push(doc);
+      });
+      
+      // Get HOD for each department
+      for (const deptId in grouped) {
+        if (deptId !== 'no-department') {
+          const hod = await Employee.findOne({
+            'placementDepartment': deptId,
+            $or: [
+              { 'placementDesignation.title': { $regex: /hod|head of department/i } }
+            ]
+          }).select('firstName lastName employeeId email');
+          
+          if (hod) {
+            grouped[deptId].hod = hod;
+          }
         }
       }
     }
@@ -698,42 +1008,52 @@ const approveDocument = async (documentId, comments, user) => {
     throw new Error('Document has been rejected');
   }
   
-  // Initialize approval levels if they don't exist
+  // Initialize approval levels if they don't exist, or add Level 0 if missing
   if (!document.approvalLevels || document.approvalLevels.length === 0) {
-    // Get approval level configuration from database
-    const levelConfigs = await ApprovalLevelConfiguration.getActiveForModule('evaluation_appraisal');
-    
-    if (!levelConfigs || levelConfigs.length === 0) {
-      throw new Error('Approval level configuration not found. Please configure approval levels first.');
-    }
-    
-    // Build approval levels from configuration
-    // Find Employee records for assigned users (approver field should reference Employee, not User)
-    const approvalLevels = await Promise.all(levelConfigs.map(async (config) => {
-      let approverEmployee = null;
-      if (config.assignedUser) {
-        // Find the Employee record that corresponds to this User
-        approverEmployee = await Employee.findOne({ user: config.assignedUser._id });
-      }
-      
-      return {
-        level: config.level,
-        title: config.title,
-        approverName: config.assignedUser ? `${config.assignedUser.firstName} ${config.assignedUser.lastName}` : 'Unknown',
-        approver: approverEmployee ? approverEmployee._id : null, // Employee reference
-        assignedUserId: config.assignedUser ? config.assignedUser._id : null, // User reference for validation
-        status: 'pending'
-      };
-    }));
-    
-    document.approvalLevels = approvalLevels;
-    document.approvalStatus = 'pending';
-    document.currentApprovalLevel = 1;
+    // Level 0-4 will be initialized by the pre-save middleware
+    // But we need to ensure the document is saved to trigger the middleware
     await document.save();
+    
+    // Reload the document to get the initialized approval levels
+    await hydrateDocument(document);
+  } else {
+    // Check if Level 0 exists, if not, add it
+    const hasLevel0 = document.approvalLevels.some(level => level.level === 0);
+    if (!hasLevel0) {
+      // Get Level 0 configuration
+      const level0Config = await ApprovalLevelConfiguration.getByModuleAndLevel('evaluation_appraisal', 0);
+      
+      if (level0Config && level0Config.isActive) {
+        // Find Employee record for Level 0 approver
+        const level0Employee = await Employee.findOne({ user: level0Config.assignedUser._id });
+        
+        // Add Level 0 at the beginning
+        document.approvalLevels.unshift({
+          level: 0,
+          title: level0Config.title,
+          approverName: level0Config.assignedUser 
+            ? `${level0Config.assignedUser.firstName} ${level0Config.assignedUser.lastName}`
+            : 'Unknown',
+          approver: level0Employee ? level0Employee._id : null,
+          assignedUserId: level0Config.assignedUser ? level0Config.assignedUser._id : null,
+          status: 'pending'
+        });
+        
+        // Update currentApprovalLevel to 0 if document is still pending
+        if (document.approvalStatus === 'pending' || document.approvalStatus === 'in_progress') {
+          document.currentApprovalLevel = 0;
+        }
+        
+        await document.save();
+        await hydrateDocument(document);
+      }
+    }
   }
   
-  const currentLevel = document.currentApprovalLevel || 1;
-  const levelIndex = currentLevel - 1;
+  const currentLevel = document.currentApprovalLevel ?? (document.approvalLevels && document.approvalLevels.length > 0 ? document.approvalLevels[0].level : 1);
+  
+  // Find the index of the current level in approvalLevels array
+  const levelIndex = document.approvalLevels.findIndex(level => level.level === currentLevel);
   
   if (levelIndex < 0 || levelIndex >= document.approvalLevels.length) {
     throw new Error('Invalid approval level');
@@ -755,6 +1075,7 @@ const approveDocument = async (documentId, comments, user) => {
   
   // Check if current user is assigned to this approval level
   if (user) {
+    // Handle Level 0-4 approval (configuration-based)
     // Check assignedUserId first (User reference), then check configuration
     const assignedUserId = currentLevelData.assignedUserId;
     if (assignedUserId && assignedUserId.toString() !== user._id.toString()) {
@@ -790,17 +1111,32 @@ const approveDocument = async (documentId, comments, user) => {
     document.approvalStatus = 'approved';
     document.status = 'completed';
     document.completedAt = new Date();
+    document.currentApprovalLevel = null; // All levels completed
   } else {
-    document.currentApprovalLevel = currentLevel + 1;
+    // Find next pending level
+    const nextPendingLevel = document.approvalLevels.find(level => level.status === 'pending');
+    if (nextPendingLevel) {
+      document.currentApprovalLevel = nextPendingLevel.level;
+    } else {
+      // All levels are either approved or rejected, but not all approved
+      document.currentApprovalLevel = null;
+    }
     document.approvalStatus = 'in_progress';
   }
   
   await document.save();
   await hydrateDocument(document);
   
-  const nextLevelData = allApproved
-    ? null
-    : document.approvalLevels[(document.currentApprovalLevel || 1) - 1];
+  // Find next level data for tracking
+  let nextLevelData = null;
+  if (!allApproved && document.currentApprovalLevel !== null) {
+    const nextLevelIndex = document.approvalLevels.findIndex(
+      level => level.level === document.currentApprovalLevel
+    );
+    if (nextLevelIndex >= 0) {
+      nextLevelData = document.approvalLevels[nextLevelIndex];
+    }
+  }
   
   await TrackingService.logApproval({
     document,
@@ -1097,14 +1433,15 @@ router.post('/:id/reject', async (req, res) => {
       return res.status(400).json({ error: 'Document has already been rejected' });
     }
     
-    const currentLevel = document.currentApprovalLevel || 1;
-    const levelIndex = currentLevel - 1;
+    // Get current level - defaults to first level in array (could be 0 or 1)
+  const currentLevel = document.currentApprovalLevel ?? (document.approvalLevels && document.approvalLevels.length > 0 ? document.approvalLevels[0].level : 1);
+    const levelIndex = document.approvalLevels.findIndex(level => level.level === currentLevel);
     
     if (!document.approvalLevels || document.approvalLevels.length === 0) {
       return res.status(400).json({ error: 'Approval levels not initialized' });
     }
     
-    if (levelIndex >= document.approvalLevels.length) {
+    if (levelIndex < 0 || levelIndex >= document.approvalLevels.length) {
       return res.status(400).json({ error: 'Invalid approval level' });
     }
     

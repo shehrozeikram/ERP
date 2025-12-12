@@ -74,6 +74,11 @@ const tajPropertySchema = new mongoose.Schema(
       type: String,
       trim: true
     },
+    resident: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TajResident',
+      default: null
+    },
     contactNumber: {
       type: String,
       trim: true
@@ -260,6 +265,7 @@ rentalAgreement: {
 
 tajPropertySchema.index({ srNo: 1 }, { unique: true });
 tajPropertySchema.index({ ownerName: 1 });
+tajPropertySchema.index({ resident: 1 });
 
 // Auto-increment srNo starting from 1001
 tajPropertySchema.pre('save', async function(next) {

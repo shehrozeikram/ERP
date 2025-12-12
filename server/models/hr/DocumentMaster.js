@@ -146,11 +146,36 @@ documentMasterSchema.index({ moduleDocumentId: 1 });
 documentMasterSchema.index({ name: 'text', description: 'text', category: 'text', type: 'text' });
 
 // Pre-save middleware to auto-generate tracking ID
-documentMasterSchema.pre('save', function(next) {
+documentMasterSchema.pre('save', async function(next) {
   if (!this.trackingId) {
     const year = new Date().getFullYear();
-    const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-    this.trackingId = `DOC-${year}-${random}`;
+    let attempts = 0;
+    const maxAttempts = 10;
+    let trackingId;
+    let isUnique = false;
+
+    // Try to generate a unique tracking ID
+    while (!isUnique && attempts < maxAttempts) {
+      // Use timestamp + random for better uniqueness
+      const timestamp = Date.now().toString().slice(-6); // Last 6 digits of timestamp
+      const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0'); // 3 digit random
+      trackingId = `DOC-${year}-${timestamp}${random}`;
+      
+      // Check if this trackingId already exists
+      const existing = await this.constructor.findOne({ trackingId });
+      if (!existing) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
+      // Fallback: use full timestamp + counter if all attempts failed
+      const fallbackId = `DOC-${year}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      trackingId = fallbackId;
+    }
+
+    this.trackingId = trackingId;
   }
   next();
 });

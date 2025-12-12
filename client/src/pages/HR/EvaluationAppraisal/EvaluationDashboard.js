@@ -24,6 +24,7 @@ const EvaluationDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [formTypeFilter, setFormTypeFilter] = useState('');
+  const [groupBy, setGroupBy] = useState('department');
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [assignedApprovalLevels, setAssignedApprovalLevels] = useState([]);
@@ -43,6 +44,7 @@ const EvaluationDashboard = () => {
     }
   }, []);
 
+
   // Fetch grouped documents
   const fetchDocuments = useCallback(async () => {
     try {
@@ -52,6 +54,7 @@ const EvaluationDashboard = () => {
       const params = {};
       if (statusFilter) params.status = statusFilter;
       if (formTypeFilter) params.formType = formTypeFilter;
+      if (groupBy) params.groupBy = groupBy;
       
       const response = await evaluationDocumentsService.getGroupedByDepartment(params);
       setGroupedData(response.data || []);
@@ -61,7 +64,7 @@ const EvaluationDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, formTypeFilter]);
+  }, [statusFilter, formTypeFilter, groupBy]);
 
   useEffect(() => {
     fetchAssignedLevels();
@@ -70,21 +73,26 @@ const EvaluationDashboard = () => {
 
   // Filter documents by search term
   const filteredData = useMemo(() => {
-    if (!searchTerm.trim()) return groupedData;
+    let data = groupedData;
+
+    // Apply search filter
+    if (!searchTerm.trim()) return data;
 
     const search = searchTerm.toLowerCase();
-    return groupedData
+    return data
       .map(group => ({
       ...group,
       documents: group.documents.filter(doc => {
         const employeeName = `${doc.employee?.firstName || ''} ${doc.employee?.lastName || ''}`.toLowerCase();
         const employeeId = (doc.employee?.employeeId || '').toLowerCase();
         const departmentName = (group.department?.name || '').toLowerCase();
+        const projectName = (group.project?.name || '').toLowerCase();
         const hodName = group.hod ? `${group.hod.firstName} ${group.hod.lastName}`.toLowerCase() : '';
         
         return employeeName.includes(search) ||
           employeeId.includes(search) ||
           departmentName.includes(search) ||
+          projectName.includes(search) ||
           hodName.includes(search);
       })
       }))
@@ -103,6 +111,8 @@ const EvaluationDashboard = () => {
 
     return {
       totalDepartments: filteredData.length,
+      totalProjects: filteredData.length,
+      totalGroups: filteredData.length,
       totalDocuments: totalDocs,
       draft: statusCounts.draft || 0,
       inProgress: statusCounts.in_progress || 0,
@@ -152,7 +162,7 @@ const EvaluationDashboard = () => {
       {/* Filters */}
       <Box display="flex" gap={2} mb={3} flexWrap="wrap">
         <TextField
-          placeholder="Search by employee, department, or HOD..."
+          placeholder={`Search by employee, ${groupBy === 'project' ? 'project' : 'department'}, or HOD...`}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           InputProps={{
@@ -194,12 +204,24 @@ const EvaluationDashboard = () => {
             <MenuItem value="white_collar">White Collar</MenuItem>
           </Select>
         </FormControl>
+
+        <FormControl sx={{ minWidth: 150 }}>
+          <InputLabel>Group By</InputLabel>
+          <Select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value)}
+            label="Group By"
+          >
+            <MenuItem value="department">Department</MenuItem>
+            <MenuItem value="project">Project</MenuItem>
+          </Select>
+        </FormControl>
       </Box>
 
       {/* Statistics */}
       <Box display="flex" gap={2} mb={3} flexWrap="wrap">
         <Chip
-          label={`Total Departments: ${statistics.totalDepartments}`}
+          label={`Total ${groupBy === 'project' ? 'Projects' : 'Departments'}: ${statistics.totalGroups}`}
           color="primary"
           variant="outlined"
         />
@@ -238,8 +260,9 @@ const EvaluationDashboard = () => {
       ) : (
         filteredData.map((group) => (
           <DepartmentCard
-            key={group.department?._id || 'no-department'}
+            key={group.project?._id || group.department?._id || 'no-group'}
             department={group.department}
+            project={group.project}
             hod={group.hod}
             documents={group.documents}
             onViewDocument={handleViewDocument}
@@ -256,6 +279,8 @@ const EvaluationDashboard = () => {
           open={viewerOpen}
           document={selectedDocument}
           onClose={handleCloseViewer}
+          canEdit={assignedApprovalLevels.includes(0) && selectedDocument.currentApprovalLevel === 0}
+          onDocumentUpdate={handleDocumentUpdate}
         />
       )}
     </Box>

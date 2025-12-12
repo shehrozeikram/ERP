@@ -45,6 +45,7 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [evaluatorDepartmentFilter, setEvaluatorDepartmentFilter] = useState('');
   const [groupBy, setGroupBy] = useState('department'); // 'department' or 'project'
+  const [projectSubGroup, setProjectSubGroup] = useState('department'); // 'department' or 'section' (when groupBy is 'project')
 
   // Fetch employees when dialog opens
   React.useEffect(() => {
@@ -65,12 +66,12 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
 
   // Check if an employee has an evaluator-eligible designation
   const isEvaluatorEligible = (emp) => {
-    const designation = (
-      emp.placementDesignation?.title ||
-      emp.placementDesignation ||
-      emp.designation ||
-      ''
-    ).toLowerCase();
+      const designation = (
+        emp.placementDesignation?.title ||
+        emp.placementDesignation ||
+        emp.designation ||
+        ''
+      ).toLowerCase();
     
     // List of evaluator-eligible designation keywords
     const evaluatorKeywords = [
@@ -93,10 +94,16 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
       'vice principle',
       'chief executive officer',
       'ceo',
+      'chief operating officer',
+      'coo',
       'p.s.o',
       'pso',
       'chief security officer',
-      'cso'
+      'cso',
+      'program head',
+      'sr architect',
+      'senior architect',
+      'supervisor'
     ];
     
     return evaluatorKeywords.some(keyword => designation.includes(keyword));
@@ -148,25 +155,81 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
   }, [combinedEvaluators, evaluatorDepartmentFilter]);
 
   const groupedEmployees = useMemo(() => {
-    const map = new Map();
-    availableEmployees
-      .filter(emp => {
+    const filtered = availableEmployees.filter(emp => {
         if (!employeeSearch.trim()) return true;
         const term = employeeSearch.toLowerCase();
         const name = `${emp.firstName || ''} ${emp.lastName || ''}`.toLowerCase();
         const empId = (emp.employeeId || '').toLowerCase();
         return name.includes(term) || empId.includes(term);
-      })
-      .forEach(emp => {
-        let groupId, groupName;
+    });
+
+    if (groupBy === 'project') {
+      // Nested grouping: Project -> (Department or Section) -> Employees
+      const projectMap = new Map();
+      
+      filtered.forEach(emp => {
+        const projectId = emp.placementProject?._id?.toString() || emp.placementProject?.toString() || 'no-project';
+        const projectName = emp.placementProject?.name || 'No Project';
         
-        if (groupBy === 'project') {
-          groupId = emp.placementProject?._id || 'no-project';
-          groupName = emp.placementProject?.name || 'No Project';
+        let subGroupId, subGroupName;
+        if (projectSubGroup === 'section') {
+          // Handle both populated object and ObjectId cases
+          const section = emp.placementSection;
+          const sectionId = section?._id?.toString() || section?.toString();
+          subGroupName = section?.name || 'No Section';
+          // Use section name as key to group sections with same name together
+          // This prevents duplicates when sections have same name but different IDs
+          subGroupId = subGroupName.toLowerCase().trim();
         } else {
-          groupId = emp.placementDepartment?._id || 'no-dept';
-          groupName = emp.placementDepartment?.name || 'No Department';
+          // Handle both populated object and ObjectId cases
+          const dept = emp.placementDepartment;
+          subGroupId = dept?._id?.toString() || dept?.toString() || 'no-dept';
+          subGroupName = dept?.name || 'No Department';
         }
+        
+        if (!projectMap.has(projectId)) {
+          projectMap.set(projectId, {
+            id: projectId,
+            name: projectName,
+            subGroups: new Map() // Can be departments or sections
+          });
+        }
+        
+        const project = projectMap.get(projectId);
+        if (!project.subGroups.has(subGroupId)) {
+          project.subGroups.set(subGroupId, {
+            id: subGroupId,
+            name: subGroupName,
+            employees: []
+          });
+        }
+        
+        project.subGroups.get(subGroupId).employees.push(emp);
+      });
+      
+      // Convert to array structure and sort
+      return Array.from(projectMap.values())
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(project => ({
+          id: project.id,
+          name: project.name,
+          subGroups: Array.from(project.subGroups.values())
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(subGroup => ({
+              ...subGroup,
+              employees: subGroup.employees.sort((a, b) => {
+                const nameA = `${a.firstName || ''} ${a.lastName || ''}`.toLowerCase();
+                const nameB = `${b.firstName || ''} ${b.lastName || ''}`.toLowerCase();
+                return nameA.localeCompare(nameB);
+              })
+            }))
+        }));
+    } else {
+      // Flat grouping by department
+      const map = new Map();
+      filtered.forEach(emp => {
+        const groupId = emp.placementDepartment?._id || 'no-dept';
+        const groupName = emp.placementDepartment?.name || 'No Department';
         
         if (!map.has(groupId)) {
           map.set(groupId, {
@@ -178,7 +241,8 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
         map.get(groupId).employees.push(emp);
       });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [availableEmployees, employeeSearch, groupBy]);
+    }
+  }, [availableEmployees, employeeSearch, groupBy, projectSubGroup]);
 
   const isEmployeeSelected = (id) => selectedEmployees.some(emp => emp._id === id);
 
@@ -200,6 +264,24 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
       const ids = new Set(prev.map(emp => emp._id));
       const merged = [...prev];
       dept.employees.forEach(emp => {
+        if (!ids.has(emp._id)) {
+          merged.push(emp);
+        }
+      });
+      return merged;
+    });
+  };
+
+  const selectAllProjectEmployees = (project, shouldSelect) => {
+    setSelectedEmployees((prev) => {
+      const allProjectEmployees = project.subGroups.flatMap(subGroup => subGroup.employees);
+      if (!shouldSelect) {
+        const projectEmpIds = new Set(allProjectEmployees.map(emp => emp._id));
+        return prev.filter(emp => !projectEmpIds.has(emp._id));
+      }
+      const ids = new Set(prev.map(emp => emp._id));
+      const merged = [...prev];
+      allProjectEmployees.forEach(emp => {
         if (!ids.has(emp._id)) {
           merged.push(emp);
         }
@@ -338,21 +420,41 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
 
         {/* Employee Selection */}
         <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
             <Typography variant="subtitle1" fontWeight="bold">
-              Select Employees to Evaluate
-            </Typography>
-            <FormControl size="small" sx={{ minWidth: 150 }}>
-              <InputLabel>Group By</InputLabel>
-              <Select
-                value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value)}
-                label="Group By"
-              >
-                <MenuItem value="department">Department</MenuItem>
-                <MenuItem value="project">Project</MenuItem>
-              </Select>
-            </FormControl>
+            Select Employees to Evaluate
+          </Typography>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Group By</InputLabel>
+                <Select
+                  value={groupBy}
+                  onChange={(e) => {
+                    setGroupBy(e.target.value);
+                    if (e.target.value === 'project') {
+                      setProjectSubGroup('department'); // Reset to department when switching to project
+                    }
+                  }}
+                  label="Group By"
+                >
+                  <MenuItem value="department">Department</MenuItem>
+                  <MenuItem value="project">Project</MenuItem>
+                </Select>
+              </FormControl>
+              {groupBy === 'project' && (
+                <FormControl size="small" sx={{ minWidth: 150 }}>
+                  <InputLabel>Group By</InputLabel>
+                  <Select
+                    value={projectSubGroup}
+                    onChange={(e) => setProjectSubGroup(e.target.value)}
+                    label="Group By"
+                  >
+                    <MenuItem value="department">Department</MenuItem>
+                    <MenuItem value="section">Section</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+            </Box>
           </Box>
           <TextField
             fullWidth
@@ -367,7 +469,112 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
               <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
                 No employees match the criteria
               </Typography>
+            ) : groupBy === 'project' ? (
+              // Nested structure: Project -> (Department or Section) -> Employees
+              groupedEmployees.map((project) => {
+                const allProjectEmployees = project.subGroups.flatMap(subGroup => subGroup.employees);
+                const allProjectSelected = allProjectEmployees.every(emp => isEmployeeSelected(emp._id));
+                const totalEmployees = allProjectEmployees.length;
+                const subGroupLabel = projectSubGroup === 'section' ? 'Section' : 'Department';
+                
+                return (
+                  <Accordion key={project.id} disableGutters sx={{ mb: 1 }}>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                        <Typography fontWeight={600} color="primary">
+                          {project.name}
+                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip
+                            size="small"
+                            label={`${totalEmployees} employee(s)`}
+                            color="primary"
+                            variant="outlined"
+                          />
+                          <Tooltip title={allProjectSelected ? `Deselect all from ${project.name}` : `Select entire project`}>
+                            <IconButton
+                              size="small"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                selectAllProjectEmployees(project, !allProjectSelected);
+                              }}
+                            >
+                              <SelectAllIcon fontSize="small" color={allProjectSelected ? 'success' : 'action'} />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </Box>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      <Stack spacing={2}>
+                        {project.subGroups.map((subGroup) => {
+                          const allSubGroupSelected = subGroup.employees.every(emp => isEmployeeSelected(emp._id));
+                          return (
+                            <Accordion key={subGroup.id} disableGutters>
+                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                                  <Typography fontWeight={500}>
+                                    {subGroup.name}
+                                  </Typography>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <Chip
+                                      size="small"
+                                      label={`${subGroup.employees.length} employee(s)`}
+                                    />
+                                    <Tooltip title={allSubGroupSelected ? `Deselect all from ${subGroup.name}` : `Select entire ${subGroupLabel.toLowerCase()}`}>
+                                      <IconButton
+                                        size="small"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          selectDepartmentEmployees(subGroup, !allSubGroupSelected);
+                                        }}
+                                      >
+                                        <SelectAllIcon fontSize="small" color={allSubGroupSelected ? 'success' : 'action'} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Stack>
+                                </Box>
+                              </AccordionSummary>
+                              <AccordionDetails>
+                                <Stack spacing={1}>
+                                  {subGroup.employees.map(emp => (
+                                    <Box key={emp._id} sx={{ display: 'flex', alignItems: 'center' }}>
+                                      <Checkbox
+                                        checked={isEmployeeSelected(emp._id)}
+                                        onChange={() => toggleEmployee(emp)}
+                                      />
+                                      <Box sx={{ flex: 1 }}>
+                                        <Typography variant="body2" fontWeight={500}>
+                                          {emp.firstName} {emp.lastName}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
+                                          <Typography variant="caption" color="text.secondary">
+                                            ID: {emp.employeeId || '—'}
+                                          </Typography>
+                                          {emp.employeeCategory && (
+                                            <Chip
+                                              label={emp.employeeCategory === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
+                                              color={emp.employeeCategory === 'blue_collar' ? 'info' : 'success'}
+                                              size="small"
+                                              sx={{ height: 18, fontSize: '0.65rem' }}
+                                            />
+                                          )}
+                                        </Box>
+                                      </Box>
+                                    </Box>
+                                  ))}
+                                </Stack>
+                              </AccordionDetails>
+                            </Accordion>
+                          );
+                        })}
+                      </Stack>
+                    </AccordionDetails>
+                  </Accordion>
+                );
+              })
             ) : (
+              // Flat structure: Department -> Employees
               groupedEmployees.map((dept) => {
                 const allSelected = dept.employees.every(emp => isEmployeeSelected(emp._id));
                 return (
@@ -409,9 +616,9 @@ const SendDocumentsDialog = ({ open, onClose, evaluators = [] }) => {
                                 {emp.firstName} {emp.lastName}
                               </Typography>
                               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 0.5 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                  ID: {emp.employeeId || '—'}
-                                </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                ID: {emp.employeeId || '—'}
+                              </Typography>
                                 {emp.employeeCategory && (
                                   <Chip
                                     label={emp.employeeCategory === 'blue_collar' ? 'Blue Collar' : 'White Collar'}

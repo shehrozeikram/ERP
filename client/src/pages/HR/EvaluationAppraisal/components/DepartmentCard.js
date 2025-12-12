@@ -30,13 +30,14 @@ import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
   DoneAll as DoneAllIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { evaluationDocumentsService } from '../../../../services/evaluationDocumentsService';
 import api from '../../../../services/api';
 
-const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [], onDeleteDepartment }) => {
+const DepartmentCard = ({ department, project, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [], onDeleteDepartment }) => {
   const [expanded, setExpanded] = useState(false);
   const [approvalDialog, setApprovalDialog] = useState({ open: false, doc: null, action: null });
   const [bulkApprovalDialog, setBulkApprovalDialog] = useState({ open: false });
@@ -102,8 +103,10 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
     
     if (pendingDocs.length > 0) {
       const firstDoc = pendingDocs[0];
-      const currentLevel = firstDoc.currentApprovalLevel || 1;
-      const currentLevelData = firstDoc.approvalLevels?.[currentLevel - 1];
+      // Get current level - handle Level 0 properly
+      const currentLevel = firstDoc.currentApprovalLevel ?? (firstDoc.approvalLevels && firstDoc.approvalLevels.length > 0 ? firstDoc.approvalLevels[0].level : 1);
+      // Find level entry by level number (works for Level 0 and above)
+      const currentLevelData = firstDoc.approvalLevels?.find(level => level.level === currentLevel);
       
       return {
         hasPending: true,
@@ -168,8 +171,9 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
 
   const getCurrentApprovalLevel = useCallback((doc) => {
     if (!doc.approvalLevels?.length) return null;
-    const currentLevel = doc.currentApprovalLevel || 1;
-    return doc.approvalLevels[currentLevel - 1];
+    const currentLevel = doc.currentApprovalLevel ?? (doc.approvalLevels && doc.approvalLevels.length > 0 ? doc.approvalLevels[0].level : 1);
+    // Find the level entry by level number (works for Level 0 and above)
+    return doc.approvalLevels.find(level => level.level === currentLevel) || null;
   }, []);
 
   const getApprovedLevels = useCallback((doc) => {
@@ -188,10 +192,27 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
       return false;
     }
 
-    // Check if user is assigned to the current approval level
-    const currentLevel = doc.currentApprovalLevel || 1;
-    if (assignedApprovalLevels.length > 0 && !assignedApprovalLevels.includes(currentLevel)) {
-      return false; // User is not assigned to this level
+    // STRICT FILTERING: User can ONLY see documents at their exact assigned level
+    // Get the document's current approval level
+    const currentLevel = doc.currentApprovalLevel ?? (doc.approvalLevels && doc.approvalLevels.length > 0 ? doc.approvalLevels[0].level : null);
+    
+    // If document has no current level, don't show it
+    if (currentLevel === null || currentLevel === undefined) {
+      return false;
+    }
+    
+    // User must be assigned to this EXACT level to see the document
+    // Level 0 approver sees only Level 0 documents
+    // Level 1 approver sees only Level 1 documents
+    // And so on...
+    if (assignedApprovalLevels.length > 0) {
+      // Strict check: user must be assigned to the exact current level
+      if (!assignedApprovalLevels.includes(currentLevel)) {
+        return false; // User is not assigned to this level - don't show document
+      }
+    } else {
+      // If user has no assigned levels, don't show any documents
+      return false;
     }
 
     return true;
@@ -294,7 +315,7 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
   }, [selectedDocuments, approvableDocuments, comments, onDocumentUpdate, handleCloseBulkApproval]);
 
   const handleDeleteDepartment = async () => {
-    if (!department?._id) return;
+    if (!department?._id || project) return; // Don't allow deletion if it's a project
     
     try {
       setDeleteLoading(true);
@@ -321,8 +342,11 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           <Box>
             <Typography variant="h6" fontWeight="bold">
-              {department?.name || 'No Department'}
+              {project?.name || department?.name || 'No Group'}
             </Typography>
+            {project && (
+              <Chip label="Project" size="small" color="info" sx={{ mt: 0.5, mr: 1 }} />
+            )}
             {reviewPeriod && (
               <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 'bold' }}>
                 Review Period: {dayjs(reviewPeriod.from).format('DD MMM YYYY')} to {dayjs(reviewPeriod.to).format('DD MMM YYYY')}
@@ -333,7 +357,7 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
                 Submitted by: {submittedEvaluators.map(e => e.name).join(', ')}
               </Typography>
             )}
-            {hod && (
+            {hod && !project && (
               <Box display="flex" alignItems="center" mt={1}>
                 <Avatar sx={{ width: 32, height: 32, mr: 1 }}>
                   <PersonIcon fontSize="small" />
@@ -398,7 +422,7 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
               color="primary"
               variant="outlined"
             />
-            {department?._id && (
+            {department?._id && !project && (
               <IconButton
                 onClick={() => setDeleteDialog({ open: true })}
                 size="small"
@@ -485,7 +509,12 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
                     {doc.approvalStatus && (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                         Approval: {doc.approvalStatus === 'pending' ? 'Pending' : doc.approvalStatus === 'approved' ? 'Approved' : doc.approvalStatus === 'rejected' ? 'Rejected' : 'In Progress'}
-                        {doc.currentApprovalLevel && ` (Level ${doc.currentApprovalLevel}/4)`}
+                        {doc.currentApprovalLevel !== null && doc.currentApprovalLevel !== undefined && (() => {
+                          const maxLevel = doc.approvalLevels && doc.approvalLevels.length > 0 
+                            ? Math.max(...doc.approvalLevels.map(l => l.level))
+                            : 4;
+                          return ` (Level ${doc.currentApprovalLevel}/${maxLevel})`;
+                        })()}
                       </Typography>
                     )}
                     {getApprovedLevels(doc).length > 0 && (
@@ -521,6 +550,25 @@ const DepartmentCard = ({ department, hod, documents, onViewDocument, onDocument
                             )}
                           </Box>
                         ))}
+                      </Box>
+                    )}
+                    {doc.editHistory && doc.editHistory.length > 0 && (
+                      <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, fontWeight: 600 }}>
+                          <HistoryIcon sx={{ fontSize: 12 }} />
+                          Edit History:
+                        </Typography>
+                        {doc.editHistory.slice(-3).map((edit, index) => (
+                          <Typography key={index} variant="caption" color="text.secondary" sx={{ display: 'block', ml: 1.5 }}>
+                            {edit.editedByName} - {dayjs(edit.editedAt).format('DD MMM YYYY')}
+                            {edit.changes && `: ${edit.changes}`}
+                          </Typography>
+                        ))}
+                        {doc.editHistory.length > 3 && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 1.5, fontStyle: 'italic' }}>
+                            +{doc.editHistory.length - 3} more edit(s)
+                          </Typography>
+                        )}
                       </Box>
                     )}
                   </Box>

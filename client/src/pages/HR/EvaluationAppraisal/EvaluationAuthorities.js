@@ -17,6 +17,7 @@ import AuthorityStatsCards from './components/AuthorityStatsCards';
 import AuthorityTable from './components/AuthorityTable';
 import SendDocumentsDialog from './components/SendDocumentsDialog';
 import DesignationSummary from './components/DesignationSummary';
+import Level0ApproversTab from './components/Level0ApproversTab';
 import { filterByDesignation, filterBySearch, DESIGNATION_FILTERS } from './utils/employeeFilters';
 import { TableSkeleton } from './components/SkeletonLoader';
 
@@ -96,7 +97,10 @@ const EvaluationAuthorities = () => {
     return filterBySearch(getEmployeesByTab, searchTerm);
   }, [getEmployeesByTab, searchTerm]);
 
-  const currentLabel = useMemo(() => activeTab === 0 ? 'HOD' : 'Manager', [activeTab]);
+  const currentLabel = useMemo(() => {
+    if (activeTab === 0) return 'HOD';
+    return 'Manager';
+  }, [activeTab]);
 
   if (loading) {
     return (
@@ -148,35 +152,43 @@ const EvaluationAuthorities = () => {
       <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} sx={{ mb: 3 }}>
         <Tab label="HOD (Head of Department)" />
         <Tab label="Managers & Above" />
+        <Tab label="Level 0 Approvers" />
       </Tabs>
 
-      {/* Statistics Cards */}
-      <AuthorityStatsCards employees={filteredEmployees} label={currentLabel} />
+      {/* Tab Content */}
+      {activeTab === 2 ? (
+        <Level0ApproversTab />
+      ) : (
+        <>
+          {/* Statistics Cards */}
+          <AuthorityStatsCards employees={filteredEmployees} label={currentLabel} />
 
-      {/* Search Bar */}
-      <Box sx={{ mb: 3 }}>
-        <TextField
-          fullWidth
-          placeholder="Search by name, employee ID, department, or designation..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-          sx={{ bgcolor: 'background.paper' }}
-        />
-      </Box>
+          {/* Search Bar */}
+          <Box sx={{ mb: 3 }}>
+            <TextField
+              fullWidth
+              placeholder="Search by name, employee ID, department, or designation..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ bgcolor: 'background.paper' }}
+            />
+          </Box>
 
-      {/* Employees Table */}
-      <AuthorityTable
-        employees={filteredEmployees}
-        searchTerm={searchTerm}
-        label={currentLabel}
-      />
+          {/* Employees Table */}
+          <AuthorityTable
+            employees={filteredEmployees}
+            searchTerm={searchTerm}
+            label={currentLabel}
+          />
+        </>
+      )}
 
       {/* Designation Summary */}
       <Box sx={{ mt: 4 }}>
