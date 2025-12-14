@@ -8,8 +8,42 @@ const User = require('../models/User');
 const Department = require('../models/hr/Department');
 const SubRole = require('../models/SubRole');
 const { ROLE_VALUES } = require('../config/permissions');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
+
+// Configure multer for profile image uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'profile-images');
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'profile-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    // Check file type
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
+    }
+  }
+});
 
 // @route   POST /api/auth/register
 // @desc    Register a new user
@@ -265,17 +299,19 @@ router.put('/profile', [
     });
   }
 
-  const { firstName, lastName, phone, address } = req.body;
+  const { firstName, lastName, phone, address, profileImage } = req.body;
 
   // Update user profile
+  const updateData = {};
+  if (firstName !== undefined) updateData.firstName = firstName;
+  if (lastName !== undefined) updateData.lastName = lastName;
+  if (phone !== undefined) updateData.phone = phone;
+  if (address !== undefined) updateData.address = address;
+  if (profileImage !== undefined) updateData.profileImage = profileImage;
+
   const updatedUser = await User.findByIdAndUpdate(
     req.user.id,
-    {
-      firstName,
-      lastName,
-      phone,
-      address
-    },
+    updateData,
     { new: true, runValidators: true }
   );
 
@@ -287,6 +323,51 @@ router.put('/profile', [
     }
   });
 }));
+
+// @route   POST /api/auth/upload-profile-image
+// @desc    Upload profile image for current user
+// @access  Private
+router.post('/upload-profile-image', 
+  authMiddleware,
+  upload.single('profileImage'),
+  asyncHandler(async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No image file provided'
+        });
+      }
+
+      // Get the file path
+      const imagePath = `/uploads/profile-images/${req.file.filename}`;
+      
+      // Update user's profile image
+      const updatedUser = await User.findByIdAndUpdate(
+        req.user.id,
+        { profileImage: imagePath },
+        { new: true, runValidators: true }
+      );
+
+      res.json({
+        success: true,
+        message: 'Profile image uploaded successfully',
+        data: {
+          imagePath: imagePath,
+          filename: req.file.filename,
+          user: updatedUser.getProfile()
+        }
+      });
+    } catch (error) {
+      console.error('Error uploading profile image:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error uploading profile image',
+        error: error.message
+      });
+    }
+  })
+);
 
 // @route   PUT /api/auth/change-password
 // @desc    Change user password
