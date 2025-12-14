@@ -31,7 +31,7 @@ import {
   Cancel as CancelIcon,
   DoneAll as DoneAllIcon,
   Delete as DeleteIcon,
-  History as HistoryIcon
+  Edit as EditIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { evaluationDocumentsService } from '../../../../services/evaluationDocumentsService';
@@ -103,15 +103,29 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     
     if (pendingDocs.length > 0) {
       const firstDoc = pendingDocs[0];
-      // Get current level - handle Level 0 properly
-      const currentLevel = firstDoc.currentApprovalLevel ?? (firstDoc.approvalLevels && firstDoc.approvalLevels.length > 0 ? firstDoc.approvalLevels[0].level : 1);
-      // Find level entry by level number (works for Level 0 and above)
-      const currentLevelData = firstDoc.approvalLevels?.find(level => level.level === currentLevel);
+      // Check if document is at Level 0 (either currentApprovalLevel === 0 or level0ApprovalStatus === 'pending')
+      const isLevel0 = firstDoc.currentApprovalLevel === 0 || 
+                       (firstDoc.level0ApprovalStatus === 'pending' && firstDoc.status === 'submitted');
+      const currentLevel = isLevel0 ? 0 : (firstDoc.currentApprovalLevel ?? 1);
+      
+      // Handle Level 0
+      if (isLevel0 || currentLevel === 0) {
+        return {
+          hasPending: true,
+          currentLevel: 0,
+          currentLevelTitle: 'Level 0/4',
+          isLevel0: true,
+          totalDocs: pendingDocs.length
+        };
+      }
+      
+      const currentLevelData = firstDoc.approvalLevels?.[currentLevel - 1];
       
       return {
         hasPending: true,
         currentLevel,
-        currentLevelTitle: currentLevelData?.title || `Level ${currentLevel}`,
+        currentLevelTitle: currentLevelData?.title || `Level ${currentLevel}/4`,
+        isLevel0: false,
         totalDocs: pendingDocs.length
       };
     }
@@ -126,7 +140,13 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       setLoading(true);
       setError(null);
       
-      const response = await evaluationDocumentsService.approve(approvalDialog.doc._id, { comments });
+      // Check if this is Level 0 approval
+      const isLevel0 = approvalDialog.doc.currentApprovalLevel === 0;
+      const serviceMethod = isLevel0 
+        ? evaluationDocumentsService.approveLevel0 
+        : evaluationDocumentsService.approve;
+      
+      const response = await serviceMethod(approvalDialog.doc._id, { comments });
       
       if (response.data && onDocumentUpdate) {
         onDocumentUpdate(response.data.data);
@@ -148,7 +168,13 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       setLoading(true);
       setError(null);
       
-      const response = await evaluationDocumentsService.reject(approvalDialog.doc._id, { comments });
+      // Check if this is Level 0 approval
+      const isLevel0 = approvalDialog.doc.currentApprovalLevel === 0;
+      const serviceMethod = isLevel0 
+        ? evaluationDocumentsService.rejectLevel0 
+        : evaluationDocumentsService.reject;
+      
+      const response = await serviceMethod(approvalDialog.doc._id, { comments });
       
       if (response.data && onDocumentUpdate) {
         onDocumentUpdate(response.data.data);
@@ -170,14 +196,44 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
   };
 
   const getCurrentApprovalLevel = useCallback((doc) => {
+    // Handle Level 0
+    if (doc.currentApprovalLevel === 0) {
+      return {
+        level: 0,
+        title: 'Level 0',
+        approvers: doc.level0Approvers || []
+      };
+    }
+    
     if (!doc.approvalLevels?.length) return null;
-    const currentLevel = doc.currentApprovalLevel ?? (doc.approvalLevels && doc.approvalLevels.length > 0 ? doc.approvalLevels[0].level : 1);
-    // Find the level entry by level number (works for Level 0 and above)
-    return doc.approvalLevels.find(level => level.level === currentLevel) || null;
+    const currentLevel = doc.currentApprovalLevel || 1;
+    return doc.approvalLevels[currentLevel - 1];
   }, []);
 
   const getApprovedLevels = useCallback((doc) => {
-    return doc.approvalLevels?.filter(level => level.status === 'approved') || [];
+    const approvedLevels = [];
+    
+    // Add Level 0 approvals if approved
+    if (doc.level0ApprovalStatus === 'approved' && doc.level0Approvers && doc.level0Approvers.length > 0) {
+      doc.level0Approvers.forEach(approver => {
+        if (approver.status === 'approved') {
+          approvedLevels.push({
+            level: 0,
+            title: 'Level 0',
+            approverName: approver.approverName || 'Unknown',
+            approver: approver.assignedEmployee || null,
+            approvedAt: approver.approvedAt,
+            comments: approver.comments
+          });
+        }
+      });
+    }
+    
+    // Add Level 1-4 approvals
+    const level1to4Approvals = doc.approvalLevels?.filter(level => level.status === 'approved') || [];
+    approvedLevels.push(...level1to4Approvals);
+    
+    return approvedLevels;
   }, []);
 
   const canApprove = useCallback((doc) => {
@@ -192,27 +248,27 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       return false;
     }
 
-    // STRICT FILTERING: User can ONLY see documents at their exact assigned level
-    // Get the document's current approval level
-    const currentLevel = doc.currentApprovalLevel ?? (doc.approvalLevels && doc.approvalLevels.length > 0 ? doc.approvalLevels[0].level : null);
-    
-    // If document has no current level, don't show it
-    if (currentLevel === null || currentLevel === undefined) {
+    // Check for Level 0 approval
+    if (doc.currentApprovalLevel === 0) {
+      // Check if user is in level0Approvers array
+      if (doc.level0Approvers && doc.level0Approvers.length > 0) {
+        // User should be able to approve if they're in the level0Approvers list
+        // The dashboard filtering already ensures only authorized users see these documents
+        return doc.level0ApprovalStatus === 'pending';
+      }
       return false;
     }
-    
-    // User must be assigned to this EXACT level to see the document
-    // Level 0 approver sees only Level 0 documents
-    // Level 1 approver sees only Level 1 documents
-    // And so on...
-    if (assignedApprovalLevels.length > 0) {
-      // Strict check: user must be assigned to the exact current level
-      if (!assignedApprovalLevels.includes(currentLevel)) {
-        return false; // User is not assigned to this level - don't show document
-      }
-    } else {
-      // If user has no assigned levels, don't show any documents
+
+    // If document was approved at Level 0 but has moved to Level 1+, 
+    // Level 0 approvers cannot approve it again
+    if (doc.level0ApprovalStatus === 'approved' && doc.currentApprovalLevel >= 1) {
       return false;
+    }
+
+    // Check if user is assigned to the current approval level (Level 1+)
+    const currentLevel = doc.currentApprovalLevel || 1;
+    if (assignedApprovalLevels.length > 0 && !assignedApprovalLevels.includes(currentLevel)) {
+      return false; // User is not assigned to this level
     }
 
     return true;
@@ -408,7 +464,9 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                 </Button>
                 {approvalInfo?.currentLevelTitle && (
                   <Chip
-                    label={`Level ${approvalInfo.currentLevel}: ${approvalInfo.currentLevelTitle}`}
+                    label={approvalInfo.isLevel0 
+                      ? approvalInfo.currentLevelTitle 
+                      : `Level ${approvalInfo.currentLevel}: ${approvalInfo.currentLevelTitle}`}
                     size="small"
                     color="warning"
                     variant="outlined"
@@ -509,13 +567,22 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                     {doc.approvalStatus && (
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                         Approval: {doc.approvalStatus === 'pending' ? 'Pending' : doc.approvalStatus === 'approved' ? 'Approved' : doc.approvalStatus === 'rejected' ? 'Rejected' : 'In Progress'}
-                        {doc.currentApprovalLevel !== null && doc.currentApprovalLevel !== undefined && (() => {
-                          const maxLevel = doc.approvalLevels && doc.approvalLevels.length > 0 
-                            ? Math.max(...doc.approvalLevels.map(l => l.level))
-                            : 4;
-                          return ` (Level ${doc.currentApprovalLevel}/${maxLevel})`;
-                        })()}
+                        {(doc.currentApprovalLevel === 0 || 
+                          (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted'))
+                          ? ' (Level 0/4)' 
+                          : doc.currentApprovalLevel 
+                            ? ` (Level ${doc.currentApprovalLevel}/4)` 
+                            : ''}
                       </Typography>
+                    )}
+                    {/* Show message if document was approved at Level 0 but moved to Level 1+ */}
+                    {doc.level0ApprovalStatus === 'approved' && doc.currentApprovalLevel >= 1 && (
+                      <Chip
+                        label={`Moved to Level ${doc.currentApprovalLevel}`}
+                        size="small"
+                        color="info"
+                        sx={{ mt: 0.5 }}
+                      />
                     )}
                     {getApprovedLevels(doc).length > 0 && (
                       <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
@@ -552,29 +619,27 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                         ))}
                       </Box>
                     )}
-                    {doc.editHistory && doc.editHistory.length > 0 && (
-                      <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5, fontWeight: 600 }}>
-                          <HistoryIcon sx={{ fontSize: 12 }} />
-                          Edit History:
-                        </Typography>
-                        {doc.editHistory.slice(-3).map((edit, index) => (
-                          <Typography key={index} variant="caption" color="text.secondary" sx={{ display: 'block', ml: 1.5 }}>
-                            {edit.editedByName} - {dayjs(edit.editedAt).format('DD MMM YYYY')}
-                            {edit.changes && `: ${edit.changes}`}
-                          </Typography>
-                        ))}
-                        {doc.editHistory.length > 3 && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 1.5, fontStyle: 'italic' }}>
-                            +{doc.editHistory.length - 3} more edit(s)
-                          </Typography>
-                        )}
-                      </Box>
-                    )}
                   </Box>
                   <Box display="flex" alignItems="center" gap={1}>
                     {canApprove(doc) && (
                       <>
+                        {/* Edit button for Level 0 approvers */}
+                        {(doc.currentApprovalLevel === 0 || 
+                          (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')) && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            startIcon={<EditIcon />}
+                            onClick={() => {
+                              // Navigate to edit page (authenticated route, no token needed)
+                              window.location.href = `/hr/evaluation-appraisal/edit/${doc._id}`;
+                            }}
+                            title="Edit and resubmit document"
+                          >
+                            Edit
+                          </Button>
+                        )}
                         <Button
                           size="small"
                           variant="contained"
@@ -628,7 +693,11 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
               <Typography variant="body2" sx={{ mb: 2 }}>
                 <strong>Employee:</strong> {approvalDialog.doc.employee?.firstName} {approvalDialog.doc.employee?.lastName}
               </Typography>
-              {getCurrentApprovalLevel(approvalDialog.doc) && (
+              {approvalDialog.doc.currentApprovalLevel === 0 ? (
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  <strong>Current Level:</strong> Level 0/4
+                </Typography>
+              ) : getCurrentApprovalLevel(approvalDialog.doc) && (
                 <Typography variant="body2" sx={{ mb: 2 }}>
                   <strong>Current Level:</strong> {getCurrentApprovalLevel(approvalDialog.doc).title}
                 </Typography>
@@ -711,7 +780,12 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           ID: {doc.employee?.employeeId} • {doc.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
-                          {doc.currentApprovalLevel && ` • Level ${doc.currentApprovalLevel}`}
+                          {(doc.currentApprovalLevel === 0 || 
+                            (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted'))
+                            ? ' • Level 0/4' 
+                            : doc.currentApprovalLevel 
+                              ? ` • Level ${doc.currentApprovalLevel}/4` 
+                              : ''}
                         </Typography>
                       </Box>
                     }

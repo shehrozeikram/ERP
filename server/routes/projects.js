@@ -21,6 +21,7 @@ router.get('/',
 
     const projects = await Project.find(query)
       .populate('projectManager', 'firstName lastName employeeId')
+      .populate('departments', 'name code')
       .sort({ name: 1 });
 
     res.json({
@@ -44,7 +45,8 @@ router.get('/:id',
     }
 
     const project = await Project.findById(req.params.id)
-      .populate('projectManager', 'firstName lastName employeeId');
+      .populate('projectManager', 'firstName lastName employeeId')
+      .populate('departments', 'name code');
 
     if (!project) {
       return res.status(404).json({

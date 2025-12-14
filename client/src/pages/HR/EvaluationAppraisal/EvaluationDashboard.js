@@ -279,7 +279,7 @@ const EvaluationDashboard = () => {
           open={viewerOpen}
           document={selectedDocument}
           onClose={handleCloseViewer}
-          canEdit={assignedApprovalLevels.includes(0) && selectedDocument.currentApprovalLevel === 0}
+          canEdit={false}
           onDocumentUpdate={handleDocumentUpdate}
         />
       )}

@@ -63,6 +63,23 @@ export const evaluationDocumentsService = {
   // Get user's assigned approval levels
   getAssignedApprovalLevels: () => {
     return api.get('/evaluation-documents/approval-levels/assigned');
+  },
+
+  // Level 0 approval actions
+  approveLevel0: (id, data = {}) => {
+    return api.post(`/evaluation-documents/${id}/level0-approve`, data);
+  },
+
+  rejectLevel0: (id, data = {}) => {
+    return api.post(`/evaluation-documents/${id}/level0-reject`, data);
+  },
+
+  editLevel0: (id, data) => {
+    return api.put(`/evaluation-documents/${id}/level0-edit`, data);
+  },
+
+  resubmitLevel0: (id, data) => {
+    return api.post(`/evaluation-documents/${id}/level0-resubmit`, data);
   }
 };
 

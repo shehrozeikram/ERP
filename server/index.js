@@ -107,7 +107,7 @@ const waterUtilitySlabsRoutes = require('./routes/waterUtilitySlabs');
 const tajResidentsRoutes = require('./routes/tajResidents');
 const documentTrackingRoutes = require('./routes/documentTracking');
 const evaluationDocumentsRoutes = require('./routes/evaluationDocuments');
-const level0ApproversRoutes = require('./routes/level0Approvers');
+const evaluationLevel0AuthoritiesRoutes = require('./routes/evaluationLevel0Authorities');
 
 
 // Import services
@@ -472,7 +472,7 @@ app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, waterUtilitySl
 app.use('/api/taj-utilities/residents', authMiddleware, tajResidentsRoutes);
 app.use('/api/document-tracking', authMiddleware, documentTrackingRoutes);
 app.use('/api/evaluation-documents', authMiddleware, evaluationDocumentsRoutes);
-app.use('/api/level0-approvers', authMiddleware, level0ApproversRoutes);
+app.use('/api/evaluation-level0-authorities', authMiddleware, evaluationLevel0AuthoritiesRoutes);
 // Public evaluation documents route (token-based access)
 app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 

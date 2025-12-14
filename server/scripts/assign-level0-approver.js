@@ -93,7 +93,11 @@ async function processEmployee(employee) {
     
     if (existingConfig) {
       console.log(`\n⚠️  Level 0 configuration already exists:`);
-      console.log(`   Current Approver: ${existingConfig.assignedUser.firstName} ${existingConfig.assignedUser.lastName}`);
+      if (existingConfig.assignedUser) {
+        console.log(`   Current Approver: ${existingConfig.assignedUser.firstName} ${existingConfig.assignedUser.lastName}`);
+      } else {
+        console.log(`   Current Approver: None (null)`);
+      }
       console.log(`   Title: ${existingConfig.title}`);
       
       // Update existing configuration

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -23,9 +23,11 @@ import {
   Print as PrintIcon,
   Download as DownloadIcon,
   Edit as EditIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../../contexts/AuthContext';
 import dayjs from 'dayjs';
 import MarksDescriptionSection from './MarksDescriptionSection';
 import {
@@ -115,11 +117,72 @@ const ReadOnlyEvaluationTable = ({ categories, scores, subTotalMarks = 50, showD
 
 const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUpdate }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Check if user can edit this document (Level 0 approver)
+  // Must call hooks before any early returns
+  const canEditDocument = useMemo(() => {
+    // If no document, can't edit
+    if (!document) return false;
+    
+    // If canEdit prop is explicitly set, use it
+    if (canEdit) return true;
+    
+    // Check if document is at Level 0 and user is a Level 0 approver
+    const isLevel0 = document.currentApprovalLevel === 0 || 
+                     (document.level0ApprovalStatus === 'pending' && document.status === 'submitted');
+    
+    if (isLevel0 && user && document.level0Approvers && document.level0Approvers.length > 0) {
+      // Check if current user is in the level0Approvers array
+      const currentUserId = user._id?.toString() || user.id?.toString();
+      
+      const userInApprovers = document.level0Approvers.some(approver => {
+        // Handle both populated User object and ObjectId
+        let approverUserId = null;
+        if (approver.assignedUser) {
+          if (typeof approver.assignedUser === 'object') {
+            // Could be populated User object or ObjectId wrapped in object
+            if (approver.assignedUser._id) {
+              approverUserId = approver.assignedUser._id.toString();
+            } else if (approver.assignedUser.id) {
+              approverUserId = approver.assignedUser.id.toString();
+            } else if (approver.assignedUser.toString) {
+              // ObjectId with toString method
+              approverUserId = approver.assignedUser.toString();
+            }
+          } else {
+            // String ObjectId
+            approverUserId = approver.assignedUser.toString();
+          }
+        }
+        
+        return approverUserId && currentUserId && approverUserId === currentUserId;
+      });
+      
+      // Debug logging (remove in production)
+      if (!userInApprovers && isLevel0) {
+        console.log('[DocumentViewer] Level 0 edit check:', {
+          isLevel0,
+          currentApprovalLevel: document.currentApprovalLevel,
+          level0ApprovalStatus: document.level0ApprovalStatus,
+          currentUserId,
+          level0Approvers: document.level0Approvers.map(a => ({
+            assignedUser: a.assignedUser,
+            assignedUserId: a.assignedUser?._id || a.assignedUser?.id || a.assignedUser
+          }))
+        });
+      }
+      
+      return userInApprovers;
+    }
+    
+    return false;
+  }, [document, user, canEdit]);
   
   if (!document) return null;
 
   const handleEdit = () => {
-    // Navigate to edit form for Level 0 approvers
+    // Navigate to edit form (same route used for Level 0 editing)
     navigate(`/hr/evaluation-appraisal/edit/${document._id}`);
     onClose();
   };
@@ -173,7 +236,7 @@ const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUp
               size="small"
               color={getStatusColor(document.status)}
             />
-            {canEdit && (
+            {canEditDocument && (
               <Button
                 startIcon={<EditIcon />}
                 onClick={handleEdit}
@@ -387,6 +450,86 @@ const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUp
             </>
           )}
 
+          {/* Approval History */}
+          {(document.evaluator || 
+            (document.level0Approvers && document.level0Approvers.some(a => a.status === 'approved')) || 
+            (document.approvalLevels && document.approvalLevels.some(l => l.status === 'approved'))) && (
+            <>
+              <Divider sx={{ my: 3 }} />
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'success.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CheckCircleIcon fontSize="small" />
+                  Approval History
+                </Typography>
+                <Box sx={{ pl: 2 }}>
+                  {/* Submitter (Evaluator) */}
+                  {document.evaluator && document.submittedAt && (
+                    <Box sx={{ mb: 2, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <CheckCircleIcon sx={{ fontSize: 16, color: 'info.main' }} />
+                        <Typography variant="body2" fontWeight={600}>
+                          Submitted by: {document.evaluator.firstName} {document.evaluator.lastName}
+                          {document.evaluator.placementDesignation?.title && ` (${document.evaluator.placementDesignation.title})`}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          - {dayjs(document.submittedAt).format('DD MMM YYYY, HH:mm')}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )}
+                  
+                  {/* Level 0 Approvals */}
+                  {document.level0Approvers && document.level0Approvers
+                    .filter(approver => approver.status === 'approved')
+                    .map((approver, index) => (
+                      <Box key={`level0-${index}`} sx={{ mb: 2, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          <Typography variant="body2" fontWeight={600}>
+                            Level 0: {approver.approverName || 'Unknown'}
+                          </Typography>
+                          {approver.approvedAt && (
+                            <Typography variant="caption" color="text.secondary">
+                              - {dayjs(approver.approvedAt).format('DD MMM YYYY, HH:mm')}
+                            </Typography>
+                          )}
+                        </Box>
+                        {approver.comments && (
+                          <Typography variant="body2" color="text.secondary" sx={{ ml: 3, fontStyle: 'italic' }}>
+                            {approver.comments}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  
+                  {/* Level 1-4 Approvals */}
+                  {document.approvalLevels && document.approvalLevels
+                    .filter(level => level.status === 'approved')
+                    .map((level, index) => (
+                      <Box key={`level-${level.level}`} sx={{ mb: 2, pb: 2, borderBottom: index < document.approvalLevels.filter(l => l.status === 'approved').length - 1 ? '1px solid' : 'none', borderColor: 'divider' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                          <Typography variant="body2" fontWeight={600}>
+                            Level {level.level}: {level.approverName || level.title || 'Unknown'}
+                          </Typography>
+                          {level.approvedAt && (
+                            <Typography variant="caption" color="text.secondary">
+                              - {dayjs(level.approvedAt).format('DD MMM YYYY, HH:mm')}
+                            </Typography>
+                          )}
+                        </Box>
+                        {level.comments && (
+                          <Typography variant="body2" color="text.secondary" sx={{ ml: 3, fontStyle: 'italic' }}>
+                            {level.comments}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                </Box>
+              </Box>
+            </>
+          )}
+
           {/* Edit History */}
           {document.editHistory && document.editHistory.length > 0 && (
             <>
@@ -400,9 +543,6 @@ const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUp
                   {document.editHistory.map((edit, index) => (
                     <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: index < document.editHistory.length - 1 ? '1px solid' : 'none', borderColor: 'divider' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                        <Typography variant="body2" fontWeight={600}>
-                          {edit.editedByName}
-                        </Typography>
                         {edit.level !== null && edit.level !== undefined && (
                           <Chip label={`Level ${edit.level}`} size="small" color="warning" variant="outlined" />
                         )}
@@ -411,9 +551,95 @@ const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUp
                         </Typography>
                       </Box>
                       {edit.changes && (
-                        <Typography variant="body2" color="text.secondary" sx={{ ml: 2, fontStyle: 'italic' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 2, mb: 1, fontStyle: 'italic' }}>
                           {edit.changes}
                         </Typography>
+                      )}
+                      {/* Show detailed mark changes if available */}
+                      {edit.previousData && edit.newData && (
+                        <Box sx={{ ml: 2, mt: 1, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+                          <Typography variant="caption" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+                            Detailed Changes:
+                          </Typography>
+                          {edit.previousData.totalScore !== edit.newData.totalScore && (
+                            <Typography variant="caption" sx={{ display: 'block' }}>
+                              <strong>Total Score:</strong> {edit.previousData.totalScore || 0} → {edit.newData.totalScore || 0}
+                            </Typography>
+                          )}
+                          {edit.previousData.percentage !== edit.newData.percentage && (
+                            <Typography variant="caption" sx={{ display: 'block' }}>
+                              <strong>Percentage:</strong> {edit.previousData.percentage || 0}% → {edit.newData.percentage || 0}%
+                            </Typography>
+                          )}
+                          {edit.previousData.overallResult !== edit.newData.overallResult && (
+                            <Typography variant="caption" sx={{ display: 'block' }}>
+                              <strong>Overall Result:</strong> {edit.previousData.overallResult || 'N/A'} → {edit.newData.overallResult || 'N/A'}
+                            </Typography>
+                          )}
+                          {/* Show score changes for Blue Collar */}
+                          {document.formType === 'blue_collar' && edit.previousData.evaluationScores && edit.newData.evaluationScores && (
+                            <Box sx={{ mt: 1 }}>
+                              <Typography variant="caption" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+                                Score Changes:
+                              </Typography>
+                              {Object.keys(edit.newData.evaluationScores).map(key => {
+                                const oldScore = edit.previousData.evaluationScores[key]?.score || 0;
+                                const newScore = edit.newData.evaluationScores[key]?.score || 0;
+                                if (oldScore !== newScore) {
+                                  return (
+                                    <Typography key={key} variant="caption" sx={{ display: 'block', ml: 1 }}>
+                                      • {key}: {oldScore} → {newScore}
+                                    </Typography>
+                                  );
+                                }
+                                return null;
+                              })}
+                            </Box>
+                          )}
+                          {/* Show score changes for White Collar */}
+                          {document.formType === 'white_collar' && (
+                            <>
+                              {edit.previousData.whiteCollarProfessionalScores && edit.newData.whiteCollarProfessionalScores && (
+                                <Box sx={{ mt: 1 }}>
+                                  <Typography variant="caption" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+                                    Professional Score Changes:
+                                  </Typography>
+                                  {Object.keys(edit.newData.whiteCollarProfessionalScores).map(key => {
+                                    const oldScore = edit.previousData.whiteCollarProfessionalScores[key]?.score || 0;
+                                    const newScore = edit.newData.whiteCollarProfessionalScores[key]?.score || 0;
+                                    if (oldScore !== newScore) {
+                                      return (
+                                        <Typography key={key} variant="caption" sx={{ display: 'block', ml: 1 }}>
+                                          • {key}: {oldScore} → {newScore}
+                                        </Typography>
+                                      );
+                                    }
+                                    return null;
+                                  })}
+                                </Box>
+                              )}
+                              {edit.previousData.whiteCollarPersonalScores && edit.newData.whiteCollarPersonalScores && (
+                                <Box sx={{ mt: 1 }}>
+                                  <Typography variant="caption" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+                                    Personal Score Changes:
+                                  </Typography>
+                                  {Object.keys(edit.newData.whiteCollarPersonalScores).map(key => {
+                                    const oldScore = edit.previousData.whiteCollarPersonalScores[key]?.score || 0;
+                                    const newScore = edit.newData.whiteCollarPersonalScores[key]?.score || 0;
+                                    if (oldScore !== newScore) {
+                                      return (
+                                        <Typography key={key} variant="caption" sx={{ display: 'block', ml: 1 }}>
+                                          • {key}: {oldScore} → {newScore}
+                                        </Typography>
+                                      );
+                                    }
+                                    return null;
+                                  })}
+                                </Box>
+                              )}
+                            </>
+                          )}
+                        </Box>
                       )}
                     </Box>
                   ))}

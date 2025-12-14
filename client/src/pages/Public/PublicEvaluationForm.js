@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Box,
   Typography,
@@ -55,6 +56,7 @@ const PublicEvaluationForm = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
+  const { user } = useAuth(); // Get authenticated user for Level 0 editing
   const [document, setDocument] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -62,6 +64,7 @@ const PublicEvaluationForm = () => {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
+  const [isLevel0Edit, setIsLevel0Edit] = useState(false);
 
   useEffect(() => {
     const fetchDocument = async () => {
@@ -69,20 +72,32 @@ const PublicEvaluationForm = () => {
         setLoading(true);
         setError(null);
 
-        // Allow access with token (public) OR without token (Level 0 approver via edit route)
-        const response = await evaluationDocumentsService.getById(id, token);
-        const doc = response.data?.data || response.data;
-
-        // For public access with token, check if already submitted
-        if (token && (doc.status === 'submitted' || doc.status === 'completed')) {
-          setError('This evaluation form has already been submitted and cannot be accessed again.');
+        // Allow access with token (public) OR if user is authenticated (for Level 0 editing)
+        const accessToken = token || (user ? 'authenticated' : null);
+        
+        if (!accessToken) {
+          setError('Access token is required to view this evaluation form.');
           setLoading(false);
           return;
         }
+        
+        // Fetch document - use token if available, otherwise use authenticated API
+        const response = token 
+          ? await evaluationDocumentsService.getById(id, token)
+          : await evaluationDocumentsService.getById(id);
+        
+        const doc = response.data?.data || response.data;
 
-        // For Level 0 approvers (no token), allow editing even if submitted (as long as at Level 0)
-        if (!token && doc.status === 'completed') {
-          setError('This evaluation form has been completed and cannot be edited.');
+        // Check if this is Level 0 editing scenario
+        const isLevel0 = doc.currentApprovalLevel === 0 && 
+                        doc.level0ApprovalStatus === 'pending' && 
+                        user;
+        
+        setIsLevel0Edit(isLevel0);
+
+        // For public access with token, check if already submitted (unless Level 0 edit)
+        if (token && !isLevel0 && (doc.status === 'submitted' || doc.status === 'completed')) {
+          setError('This evaluation form has already been submitted and cannot be accessed again.');
           setLoading(false);
           return;
         }
@@ -92,11 +107,7 @@ const PublicEvaluationForm = () => {
       } catch (err) {
         console.error('Error fetching document:', err);
         const errorMsg = err.response?.data?.error || 'Failed to load evaluation form.';
-        if (!token && err.response?.status === 403) {
-          setError('You are not authorized to edit this document. Only Level 0 approvers can edit documents at Level 0.');
-        } else {
-          setError(errorMsg);
-        }
+        setError(errorMsg);
       } finally {
         setLoading(false);
       }
@@ -105,7 +116,7 @@ const PublicEvaluationForm = () => {
     if (id) {
       fetchDocument();
     }
-  }, [id, token]);
+  }, [id, token, user]);
 
   // Initialize form values based on document
   const initialValues = useMemo(() => {
@@ -227,21 +238,21 @@ const PublicEvaluationForm = () => {
           percentage: Math.round(percentage * 100) / 100,
         };
 
-        // For Level 0 approvers editing, allow resubmission
-        if (!token && document?.status === 'submitted') {
-          // Level 0 approver editing - mark as resubmitted
-          updateData.status = 'submitted';
-          updateData.resubmittedAt = new Date();
-          updateData.resubmittedBy = 'Level 0 Approver'; // Will be set server-side
+        // Check if this is Level 0 edit
+        if (isLevel0Edit && document.currentApprovalLevel === 0) {
+          // Use Level 0 resubmit endpoint (updates data but keeps at Level 0)
+          await evaluationDocumentsService.resubmitLevel0(id, updateData);
+          setSubmitSuccess(true);
+          setSuccessModalOpen(true);
         } else {
           // Public form submission - set status to submitted
           updateData.status = 'submitted';
           updateData.submittedAt = new Date();
-        }
 
-        await evaluationDocumentsService.update(id, updateData, token);
-        setSubmitSuccess(true);
-        setSuccessModalOpen(true);
+          await evaluationDocumentsService.update(id, updateData, token);
+          setSubmitSuccess(true);
+          setSuccessModalOpen(true);
+        }
       } catch (err) {
         console.error('Error submitting form:', err);
         setError(err.response?.data?.error || 'Failed to submit evaluation form. Please try again.');
@@ -330,8 +341,19 @@ const PublicEvaluationForm = () => {
           </Box>
           
           <Alert severity="info" sx={{ mb: 3 }}>
-            You are evaluating: <strong>{document.employee?.firstName} {document.employee?.lastName}</strong> 
-            ({document.employee?.employeeId}) - {document.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
+            {isLevel0Edit ? (
+              <>
+                <strong>Level 0 Edit Mode:</strong> You are editing the evaluation for{' '}
+                <strong>{document.employee?.firstName} {document.employee?.lastName}</strong> 
+                ({document.employee?.employeeId}) - {document.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}.
+                After editing, you can approve or resubmit this document.
+              </>
+            ) : (
+              <>
+                You are evaluating: <strong>{document.employee?.firstName} {document.employee?.lastName}</strong> 
+                ({document.employee?.employeeId}) - {document.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}
+              </>
+            )}
           </Alert>
 
           {error && (
@@ -436,11 +458,13 @@ const PublicEvaluationForm = () => {
               >
                 {submitting 
                   ? 'Submitting...' 
-                  : !token && document?.status === 'submitted' 
-                    ? 'Resubmit Evaluation' 
-                    : document?.status === 'completed' 
-                      ? 'Already Completed' 
-                      : 'Submit Evaluation'}
+                  : isLevel0Edit
+                    ? 'Resubmit Evaluation'
+                    : !token && document?.status === 'submitted' 
+                      ? 'Resubmit Evaluation' 
+                      : document?.status === 'completed' 
+                        ? 'Already Completed' 
+                        : 'Submit Evaluation'}
               </Button>
             </Box>
           </form>
@@ -467,10 +491,14 @@ const PublicEvaluationForm = () => {
         </DialogTitle>
         <DialogContent sx={{ textAlign: 'center', pb: 2 }}>
           <DialogContentText sx={{ fontSize: '1.1rem', mb: 2 }}>
-            Your evaluation has been submitted successfully.
+            {isLevel0Edit 
+              ? 'Evaluation document has been updated and resubmitted successfully.'
+              : 'Your evaluation has been submitted successfully.'}
           </DialogContentText>
           <DialogContentText sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-            The form has been received and will be processed. This link will no longer be accessible.
+            {isLevel0Edit
+              ? 'The document has been resubmitted at Level 0. Please approve it to move to Level 1.'
+              : 'The form has been received and will be processed. This link will no longer be accessible.'}
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'center', pb: 3 }}>

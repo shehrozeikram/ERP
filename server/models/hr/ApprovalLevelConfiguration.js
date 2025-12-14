@@ -10,7 +10,7 @@ const approvalLevelConfigurationSchema = new mongoose.Schema({
   level: {
     type: Number,
     required: true,
-    min: 0,
+    min: 1,
     max: 10
   },
   title: {
@@ -43,8 +43,8 @@ const approvalLevelConfigurationSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound index to ensure unique level per module
-approvalLevelConfigurationSchema.index({ module: 1, level: 1 }, { unique: true });
+// Compound index: Ensure unique user per module+level
+approvalLevelConfigurationSchema.index({ module: 1, level: 1, assignedUser: 1 }, { unique: true });
 
 // Index for faster lookups
 approvalLevelConfigurationSchema.index({ module: 1, isActive: 1 });
@@ -60,16 +60,15 @@ approvalLevelConfigurationSchema.statics.getActiveForModule = function(module) {
 
 // Static method to get configuration for a specific level
 approvalLevelConfigurationSchema.statics.getByModuleAndLevel = function(module, level) {
-  return this.findOne({ module, level, isActive: true })
+  return this.find({ module, level, isActive: true })
     .populate('assignedUser', 'firstName lastName email role')
     .populate('assignedEmployee', 'firstName lastName employeeId');
 };
 
 // Static method to check if user is assigned to a level
 approvalLevelConfigurationSchema.statics.isUserAssigned = async function(module, level, userId) {
-  const config = await this.findOne({ module, level, isActive: true });
-  if (!config) return false;
-  return config.assignedUser.toString() === userId.toString();
+  const configs = await this.find({ module, level, isActive: true });
+  return configs.some(config => config.assignedUser.toString() === userId.toString());
 };
 
 module.exports = mongoose.model('ApprovalLevelConfiguration', approvalLevelConfigurationSchema);

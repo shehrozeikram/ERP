@@ -17,9 +17,9 @@ import AuthorityStatsCards from './components/AuthorityStatsCards';
 import AuthorityTable from './components/AuthorityTable';
 import SendDocumentsDialog from './components/SendDocumentsDialog';
 import DesignationSummary from './components/DesignationSummary';
-import Level0ApproversTab from './components/Level0ApproversTab';
 import { filterByDesignation, filterBySearch, DESIGNATION_FILTERS } from './utils/employeeFilters';
 import { TableSkeleton } from './components/SkeletonLoader';
+import Level0AuthoritiesManager from './components/Level0AuthoritiesManager';
 
 const EvaluationAuthorities = () => {
   const [allEmployees, setAllEmployees] = useState([]);
@@ -155,9 +155,8 @@ const EvaluationAuthorities = () => {
         <Tab label="Level 0 Approvers" />
       </Tabs>
 
-      {/* Tab Content */}
       {activeTab === 2 ? (
-        <Level0ApproversTab />
+        <Level0AuthoritiesManager />
       ) : (
         <>
           {/* Statistics Cards */}
@@ -187,25 +186,25 @@ const EvaluationAuthorities = () => {
             searchTerm={searchTerm}
             label={currentLabel}
           />
+
+          {/* Designation Summary */}
+          <Box sx={{ mt: 4 }}>
+            <DesignationSummary
+              loading={designationLoading}
+              error={designationError}
+              designations={designations}
+              summary={designationSummary}
+            />
+          </Box>
+
+          {/* Send Documents Dialog */}
+          <SendDocumentsDialog
+            open={sendDialogOpen}
+            onClose={() => setSendDialogOpen(false)}
+            evaluators={filteredEmployees}
+          />
         </>
       )}
-
-      {/* Designation Summary */}
-      <Box sx={{ mt: 4 }}>
-        <DesignationSummary
-          loading={designationLoading}
-          error={designationError}
-          designations={designations}
-          summary={designationSummary}
-        />
-      </Box>
-
-      {/* Send Documents Dialog */}
-      <SendDocumentsDialog
-        open={sendDialogOpen}
-        onClose={() => setSendDialogOpen(false)}
-        evaluators={filteredEmployees}
-      />
     </Box>
   );
 };

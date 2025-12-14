@@ -80,8 +80,26 @@ router.put('/:id', async (req, res) => {
       ...evaluationData
     } = req.body;
 
-    // Check if status is changing to 'submitted' and approval levels need to be initialized
+    // Check if status is changing to 'submitted'
     const isSubmitting = req.body.status === 'submitted' && existingDoc.status !== 'submitted';
+
+    // Ensure project is set from employee before submission (for Level 0 routing)
+    if (isSubmitting && !existingDoc.project && existingDoc.employee) {
+      try {
+        const employee = await Employee.findById(existingDoc.employee)
+          .populate('placementProject', '_id')
+          .populate('placementDepartment', '_id');
+        
+        if (employee && employee.placementProject) {
+          evaluationData.project = employee.placementProject._id;
+        }
+        if (employee && employee.placementDepartment && !existingDoc.department) {
+          evaluationData.department = employee.placementDepartment._id;
+        }
+      } catch (err) {
+        console.warn('Could not populate employee project for Level 0 routing:', err.message);
+      }
+    }
 
     const updateData = {
       ...evaluationData,
@@ -89,54 +107,8 @@ router.put('/:id', async (req, res) => {
       ...(req.body.status === 'completed' && { completedAt: new Date() })
     };
 
-    // Initialize approval levels if submitting for the first time
-    if (isSubmitting && (!existingDoc.approvalLevels || existingDoc.approvalLevels.length === 0)) {
-      const approvalLevels = [
-        {
-          level: 1,
-          title: 'Assistant Vice President / CHRO SGC',
-          approverName: 'Fahad Fareed',
-          status: 'pending'
-        },
-        {
-          level: 2,
-          title: 'Chairman Steering Committee',
-          approverName: 'Ahmad Tansim',
-          status: 'pending'
-        },
-        {
-          level: 3,
-          title: 'CEO SGC',
-          approverName: 'Sardar Umer Tanveer',
-          status: 'pending'
-        },
-        {
-          level: 4,
-          title: 'President SGC',
-          approverName: 'Sardar Tanveer Ilyas',
-          status: 'pending'
-        }
-      ];
-      
-      updateData.approvalLevels = approvalLevels;
-      updateData.approvalStatus = 'pending';
-      updateData.currentApprovalLevel = 1;
-      
-      // Try to find and link approvers by name
-      for (let i = 0; i < approvalLevels.length; i++) {
-        const approver = await Employee.findOne({
-          $or: [
-            { firstName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ')[0], 'i') }, 
-              lastName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ').slice(1).join(' '), 'i') } },
-            { firstName: { $regex: new RegExp(approvalLevels[i].approverName.split(' ')[0], 'i') } }
-          ]
-        });
-        
-        if (approver) {
-          updateData.approvalLevels[i].approver = approver._id;
-        }
-      }
-    }
+    // DO NOT manually set approval levels here - let the pre-save middleware handle Level 0 routing
+    // The middleware will check for Level 0 approvers first, then initialize Level 1-4 if needed
 
     const document = await EvaluationDocument.findByIdAndUpdate(
       req.params.id,
