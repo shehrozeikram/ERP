@@ -64,7 +64,30 @@ const PublicEvaluationForm = () => {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
-  const [isLevel0Edit, setIsLevel0Edit] = useState(false);
+  const [isLevelEdit, setIsLevelEdit] = useState(false);
+  const [editLevel, setEditLevel] = useState(null);
+  const [assignedApprovalLevels, setAssignedApprovalLevels] = useState([]);
+
+  // Fetch user's assigned approval levels
+  useEffect(() => {
+    const fetchAssignedLevels = async () => {
+      if (!user) {
+        setAssignedApprovalLevels([]);
+        return;
+      }
+      try {
+        const response = await evaluationDocumentsService.getAssignedApprovalLevels();
+        if (response.data?.success) {
+          const levels = response.data.data.assignedLevels || [];
+          setAssignedApprovalLevels(levels.map(l => l.level));
+        }
+      } catch (err) {
+        console.error('Error fetching assigned approval levels:', err);
+        setAssignedApprovalLevels([]);
+      }
+    };
+    fetchAssignedLevels();
+  }, [user]);
 
   useEffect(() => {
     const fetchDocument = async () => {
@@ -72,7 +95,7 @@ const PublicEvaluationForm = () => {
         setLoading(true);
         setError(null);
 
-        // Allow access with token (public) OR if user is authenticated (for Level 0 editing)
+        // Allow access with token (public) OR if user is authenticated (for level editing)
         const accessToken = token || (user ? 'authenticated' : null);
         
         if (!accessToken) {
@@ -88,15 +111,42 @@ const PublicEvaluationForm = () => {
         
         const doc = response.data?.data || response.data;
 
-        // Check if this is Level 0 editing scenario
-        const isLevel0 = doc.currentApprovalLevel === 0 && 
-                        doc.level0ApprovalStatus === 'pending' && 
-                        user;
+        // Check if this is a level editing scenario (Level 0-4)
+        // For Level 0: check level0ApprovalStatus
+        // For Level 1-4: check if document is at that level and user is assigned
+        let isEdit = false;
+        let level = null;
         
-        setIsLevel0Edit(isLevel0);
+        if (user && doc.status === 'submitted') {
+          // Check Level 0
+          if (doc.currentApprovalLevel === 0 && doc.level0ApprovalStatus === 'pending') {
+            // Check if user is in level0Approvers
+            const currentUserId = user._id?.toString() || user.id?.toString();
+            const userInApprovers = doc.level0Approvers?.some(approver => {
+              const approverUserId = approver.assignedUser?._id?.toString() || 
+                                     approver.assignedUser?.toString();
+              return approverUserId && currentUserId && approverUserId === currentUserId;
+            });
+            if (userInApprovers) {
+              isEdit = true;
+              level = 0;
+            }
+          }
+          // Check Level 1-4
+          else if (doc.currentApprovalLevel >= 1 && doc.currentApprovalLevel <= 4) {
+            // Check if user is assigned to this level
+            if (assignedApprovalLevels.includes(doc.currentApprovalLevel)) {
+              isEdit = true;
+              level = doc.currentApprovalLevel;
+            }
+          }
+        }
+        
+        setIsLevelEdit(isEdit);
+        setEditLevel(level);
 
-        // For public access with token, check if already submitted (unless Level 0 edit)
-        if (token && !isLevel0 && (doc.status === 'submitted' || doc.status === 'completed')) {
+        // For public access with token, check if already submitted (unless level edit)
+        if (token && !isEdit && (doc.status === 'submitted' || doc.status === 'completed')) {
           setError('This evaluation form has already been submitted and cannot be accessed again.');
           setLoading(false);
           return;
@@ -116,7 +166,7 @@ const PublicEvaluationForm = () => {
     if (id) {
       fetchDocument();
     }
-  }, [id, token, user]);
+  }, [id, token, user, assignedApprovalLevels]);
 
   // Initialize form values based on document
   const initialValues = useMemo(() => {
@@ -238,10 +288,20 @@ const PublicEvaluationForm = () => {
           percentage: Math.round(percentage * 100) / 100,
         };
 
-        // Check if this is Level 0 edit
-        if (isLevel0Edit && document.currentApprovalLevel === 0) {
-          // Use Level 0 resubmit endpoint (updates data but keeps at Level 0)
-          await evaluationDocumentsService.resubmitLevel0(id, updateData);
+        // Check if this is a level edit (0-4)
+        if (isLevelEdit && editLevel !== null) {
+          // Use appropriate resubmit endpoint based on level
+          if (editLevel === 0) {
+            await evaluationDocumentsService.resubmitLevel0(id, updateData);
+          } else if (editLevel === 1) {
+            await evaluationDocumentsService.resubmitLevel1(id, updateData);
+          } else if (editLevel === 2) {
+            await evaluationDocumentsService.resubmitLevel2(id, updateData);
+          } else if (editLevel === 3) {
+            await evaluationDocumentsService.resubmitLevel3(id, updateData);
+          } else if (editLevel === 4) {
+            await evaluationDocumentsService.resubmitLevel4(id, updateData);
+          }
           setSubmitSuccess(true);
           setSuccessModalOpen(true);
         } else {
@@ -341,9 +401,9 @@ const PublicEvaluationForm = () => {
           </Box>
           
           <Alert severity="info" sx={{ mb: 3 }}>
-            {isLevel0Edit ? (
+            {isLevelEdit && editLevel !== null ? (
               <>
-                <strong>Level 0 Edit Mode:</strong> You are editing the evaluation for{' '}
+                <strong>Level {editLevel} Edit Mode:</strong> You are editing the evaluation for{' '}
                 <strong>{document.employee?.firstName} {document.employee?.lastName}</strong> 
                 ({document.employee?.employeeId}) - {document.formType === 'blue_collar' ? 'Blue Collar' : 'White Collar'}.
                 After editing, you can approve or resubmit this document.
@@ -458,7 +518,7 @@ const PublicEvaluationForm = () => {
               >
                 {submitting 
                   ? 'Submitting...' 
-                  : isLevel0Edit
+                  : isLevelEdit
                     ? 'Resubmit Evaluation'
                     : !token && document?.status === 'submitted' 
                       ? 'Resubmit Evaluation' 
@@ -491,13 +551,13 @@ const PublicEvaluationForm = () => {
         </DialogTitle>
         <DialogContent sx={{ textAlign: 'center', pb: 2 }}>
           <DialogContentText sx={{ fontSize: '1.1rem', mb: 2 }}>
-            {isLevel0Edit 
-              ? 'Evaluation document has been updated and resubmitted successfully.'
+            {isLevelEdit && editLevel !== null
+              ? `Evaluation document has been updated and resubmitted successfully at Level ${editLevel}.`
               : 'Your evaluation has been submitted successfully.'}
           </DialogContentText>
           <DialogContentText sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-            {isLevel0Edit
-              ? 'The document has been resubmitted at Level 0. Please approve it to move to Level 1.'
+            {isLevelEdit && editLevel !== null
+              ? `The document has been resubmitted at Level ${editLevel}. Please approve it to move to Level ${editLevel + 1}.`
               : 'The form has been received and will be processed. This link will no longer be accessible.'}
           </DialogContentText>
         </DialogContent>

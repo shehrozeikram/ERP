@@ -80,6 +80,39 @@ export const evaluationDocumentsService = {
 
   resubmitLevel0: (id, data) => {
     return api.post(`/evaluation-documents/${id}/level0-resubmit`, data);
+  },
+
+  // Level 1-4 edit/resubmit actions
+  editLevel1: (id, data) => {
+    return api.put(`/evaluation-documents/${id}/level1-edit`, data);
+  },
+
+  resubmitLevel1: (id, data) => {
+    return api.post(`/evaluation-documents/${id}/level1-resubmit`, data);
+  },
+
+  editLevel2: (id, data) => {
+    return api.put(`/evaluation-documents/${id}/level2-edit`, data);
+  },
+
+  resubmitLevel2: (id, data) => {
+    return api.post(`/evaluation-documents/${id}/level2-resubmit`, data);
+  },
+
+  editLevel3: (id, data) => {
+    return api.put(`/evaluation-documents/${id}/level3-edit`, data);
+  },
+
+  resubmitLevel3: (id, data) => {
+    return api.post(`/evaluation-documents/${id}/level3-resubmit`, data);
+  },
+
+  editLevel4: (id, data) => {
+    return api.put(`/evaluation-documents/${id}/level4-edit`, data);
+  },
+
+  resubmitLevel4: (id, data) => {
+    return api.post(`/evaluation-documents/${id}/level4-resubmit`, data);
   }
 };
 

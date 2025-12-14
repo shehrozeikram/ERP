@@ -281,6 +281,7 @@ const EvaluationDashboard = () => {
           onClose={handleCloseViewer}
           canEdit={false}
           onDocumentUpdate={handleDocumentUpdate}
+          assignedApprovalLevels={assignedApprovalLevels}
         />
       )}
     </Box>

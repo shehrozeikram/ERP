@@ -115,11 +115,11 @@ const ReadOnlyEvaluationTable = ({ categories, scores, subTotalMarks = 50, showD
   );
 };
 
-const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUpdate }) => {
+const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUpdate, assignedApprovalLevels = [] }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Check if user can edit this document (Level 0 approver)
+  // Check if user can edit this document (all levels 0-4)
   // Must call hooks before any early returns
   const canEditDocument = useMemo(() => {
     // If no document, can't edit
@@ -159,25 +159,18 @@ const DocumentViewer = ({ open, document, onClose, canEdit = false, onDocumentUp
         return approverUserId && currentUserId && approverUserId === currentUserId;
       });
       
-      // Debug logging (remove in production)
-      if (!userInApprovers && isLevel0) {
-        console.log('[DocumentViewer] Level 0 edit check:', {
-          isLevel0,
-          currentApprovalLevel: document.currentApprovalLevel,
-          level0ApprovalStatus: document.level0ApprovalStatus,
-          currentUserId,
-          level0Approvers: document.level0Approvers.map(a => ({
-            assignedUser: a.assignedUser,
-            assignedUserId: a.assignedUser?._id || a.assignedUser?.id || a.assignedUser
-          }))
-        });
-      }
-      
       return userInApprovers;
     }
     
+    // Check if document is at Level 1-4 and user is assigned to that level
+    if (document.currentApprovalLevel >= 1 && document.currentApprovalLevel <= 4) {
+      if (assignedApprovalLevels.includes(document.currentApprovalLevel)) {
+        return true;
+      }
+    }
+    
     return false;
-  }, [document, user, canEdit]);
+  }, [document, user, canEdit, assignedApprovalLevels]);
   
   if (!document) return null;
 

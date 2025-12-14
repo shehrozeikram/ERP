@@ -262,13 +262,40 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     // If document was approved at Level 0 but has moved to Level 1+, 
     // Level 0 approvers cannot approve it again
     if (doc.level0ApprovalStatus === 'approved' && doc.currentApprovalLevel >= 1) {
-      return false;
+      // This is correct - Level 0 approvers can't approve Level 1+ documents
+      // Continue to check if user is assigned to Level 1+
     }
 
     // Check if user is assigned to the current approval level (Level 1+)
-    const currentLevel = doc.currentApprovalLevel || 1;
+    const currentLevel = doc.currentApprovalLevel;
+    
+    // If currentLevel is null or undefined, document might be in an invalid state
+    if (!currentLevel || currentLevel < 1 || currentLevel > 4) {
+      return false;
+    }
+
+    // For Level 1-4, user must be assigned to the current level
+    // The dashboard filtering should ensure only assigned users see these documents,
+    // but we still need to verify here for security
     if (assignedApprovalLevels.length > 0 && !assignedApprovalLevels.includes(currentLevel)) {
       return false; // User is not assigned to this level
+    }
+
+    // Check if the approvalLevels array exists and has the current level entry
+    if (!doc.approvalLevels || !Array.isArray(doc.approvalLevels) || doc.approvalLevels.length === 0) {
+      return false; // Approval levels not initialized
+    }
+
+    // Find the level entry for the current level
+    const levelEntry = doc.approvalLevels.find(l => l.level === currentLevel);
+    
+    // Level entry must exist and have status 'pending' to be approvable
+    if (!levelEntry) {
+      return false; // Level entry doesn't exist
+    }
+
+    if (levelEntry.status !== 'pending') {
+      return false; // Level is not pending (already approved/rejected)
     }
 
     return true;
@@ -623,9 +650,11 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                   <Box display="flex" alignItems="center" gap={1}>
                     {canApprove(doc) && (
                       <>
-                        {/* Edit button for Level 0 approvers */}
-                        {(doc.currentApprovalLevel === 0 || 
-                          (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')) && (
+                        {/* Edit button for all levels (0-4) */}
+                        {((doc.currentApprovalLevel === 0 || 
+                          (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')) ||
+                          (doc.currentApprovalLevel >= 1 && doc.currentApprovalLevel <= 4 && 
+                           assignedApprovalLevels.includes(doc.currentApprovalLevel))) && (
                           <Button
                             size="small"
                             variant="outlined"

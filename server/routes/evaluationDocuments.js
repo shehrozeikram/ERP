@@ -1462,11 +1462,45 @@ router.post('/:id/level0-approve', async (req, res) => {
             }
           }
         } else {
-          // Level 1-4 already exist, ensure Level 1 is set to pending if it was already processed
-          const level1Entry = document.approvalLevels.find(l => l.level === 1);
-          if (level1Entry && level1Entry.status !== 'pending') {
+          // Level 1-4 already exist, ensure Level 1 exists and is set to pending
+          let level1Entry = document.approvalLevels.find(l => l.level === 1);
+          
+          if (!level1Entry) {
+            // Level 1 entry doesn't exist - create it
+            const level1Config = await ApprovalLevelConfiguration.findOne({
+              module: 'evaluation_appraisal',
+              level: 1,
+              isActive: true
+            }).populate('assignedUser', 'firstName lastName email role');
+            
+            if (level1Config) {
+              level1Entry = {
+                level: 1,
+                title: level1Config.title,
+                approverName: level1Config.assignedUser 
+                  ? `${level1Config.assignedUser.firstName} ${level1Config.assignedUser.lastName}`
+                  : 'Unknown',
+                approver: null,
+                assignedUserId: level1Config.assignedUser ? level1Config.assignedUser._id : null,
+                status: 'pending'
+              };
+              
+              // Link approver to Employee record
+              if (level1Entry.assignedUserId) {
+                const approver = await Employee.findOne({ user: level1Entry.assignedUserId });
+                if (approver) {
+                  level1Entry.approver = approver._id;
+                }
+              }
+              
+              document.approvalLevels.push(level1Entry);
+            }
+          } else if (level1Entry.status !== 'pending') {
             // Reset Level 1 to pending if it was already approved/rejected
             level1Entry.status = 'pending';
+            level1Entry.approvedAt = null;
+            level1Entry.rejectedAt = null;
+            level1Entry.approvedBy = null;
           }
         }
       } else {
@@ -1981,5 +2015,332 @@ router.post('/:id/level0-resubmit', async (req, res) => {
     });
   }
 });
+
+// Helper function to create edit/resubmit endpoints for levels 1-4
+const createLevelEditResubmitEndpoints = (level) => {
+  // Edit at Level X
+  router.put(`/:id/level${level}-edit`, async (req, res) => {
+    try {
+      const document = await EvaluationDocument.findById(req.params.id);
+      
+      if (!document) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'Evaluation document not found' 
+        });
+      }
+      
+      await hydrateDocument(document);
+      
+      // Check if document is at the correct level
+      if (document.currentApprovalLevel !== level) {
+        return res.status(400).json({ 
+          success: false,
+          error: `Document is not at Level ${level} approval stage` 
+        });
+      }
+      
+      // Check if current user is assigned to this approval level
+      if (req.user) {
+        const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', level, req.user._id);
+        if (!isAssigned) {
+          return res.status(403).json({ 
+            success: false,
+            error: `You are not authorized to edit this document at Level ${level}` 
+          });
+        }
+      }
+      
+      // Update document with new data (exclude system fields)
+      const updateData = { ...req.body };
+      delete updateData._id;
+      delete updateData.createdAt;
+      delete updateData.updatedAt;
+      delete updateData.employee;
+      delete updateData.evaluator;
+      
+      // Update document
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] !== undefined) {
+          document[key] = updateData[key];
+        }
+      });
+      
+      // Log edit history
+      if (req.user) {
+        if (!document.editHistory) {
+          document.editHistory = [];
+        }
+        // Get user's name
+        let editedByName = null;
+        try {
+          const user = await User.findById(req.user._id).select('firstName lastName email');
+          if (user) {
+            if (user.firstName) {
+              editedByName = user.lastName && user.lastName.trim() 
+                ? `${user.firstName} ${user.lastName}`
+                : user.firstName;
+            } else if (user.email) {
+              editedByName = user.email;
+            }
+          }
+        } catch (error) {
+          // Silently handle error
+        }
+        
+        if (!editedByName && req.user.firstName) {
+          editedByName = req.user.lastName && req.user.lastName.trim()
+            ? `${req.user.firstName} ${req.user.lastName}`
+            : req.user.firstName;
+        }
+        
+        if (!editedByName) {
+          editedByName = req.user.email || 'User';
+        }
+        
+        document.editHistory.push({
+          editedBy: req.user._id,
+          editedByName: editedByName,
+          editedAt: new Date(),
+          changes: `Document edited at Level ${level}`,
+          level: level
+        });
+      }
+      
+      await document.save();
+      await hydrateDocument(document);
+      
+      const populated = await withPopulates(
+        EvaluationDocument.findById(document._id)
+      );
+      
+      res.json({
+        success: true,
+        message: 'Document updated successfully',
+        data: populated
+      });
+    } catch (error) {
+      console.error(`Error editing evaluation document at Level ${level}:`, error);
+      res.status(500).json({ 
+        success: false,
+        error: `Failed to edit evaluation document at Level ${level}`,
+        message: error.message
+      });
+    }
+  });
+
+  // Resubmit at Level X
+  router.post(`/:id/level${level}-resubmit`, async (req, res) => {
+    try {
+      const document = await EvaluationDocument.findById(req.params.id);
+      
+      if (!document) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'Evaluation document not found' 
+        });
+      }
+      
+      await hydrateDocument(document);
+      
+      // Check if document is at the correct level
+      if (document.currentApprovalLevel !== level) {
+        return res.status(400).json({ 
+          success: false,
+          error: `Document is not at Level ${level} approval stage` 
+        });
+      }
+      
+      // Check if current user is assigned to this approval level
+      if (req.user) {
+        const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', level, req.user._id);
+        if (!isAssigned) {
+          return res.status(403).json({ 
+            success: false,
+            error: `You are not authorized to resubmit this document at Level ${level}` 
+          });
+        }
+      }
+      
+      // Capture previous data for change tracking
+      const previousData = {
+        totalScore: document.totalScore,
+        percentage: document.percentage,
+        evaluationScores: document.evaluationScores ? JSON.parse(JSON.stringify(document.evaluationScores)) : null,
+        whiteCollarProfessionalScores: document.whiteCollarProfessionalScores ? JSON.parse(JSON.stringify(document.whiteCollarProfessionalScores)) : null,
+        whiteCollarPersonalScores: document.whiteCollarPersonalScores ? JSON.parse(JSON.stringify(document.whiteCollarPersonalScores)) : null,
+        overallResult: document.overallResult
+      };
+      
+      // Update document with new data (exclude system fields)
+      const updateData = { ...req.body };
+      delete updateData._id;
+      delete updateData.createdAt;
+      delete updateData.updatedAt;
+      delete updateData.employee;
+      delete updateData.evaluator;
+      delete updateData.accessToken;
+      delete updateData.status;
+      delete updateData.submittedAt;
+      
+      // Update document fields
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key] !== undefined) {
+          document[key] = updateData[key];
+        }
+      });
+      
+      // Calculate mark changes
+      const newData = {
+        totalScore: document.totalScore,
+        percentage: document.percentage,
+        evaluationScores: document.evaluationScores ? JSON.parse(JSON.stringify(document.evaluationScores)) : null,
+        whiteCollarProfessionalScores: document.whiteCollarProfessionalScores ? JSON.parse(JSON.stringify(document.whiteCollarProfessionalScores)) : null,
+        whiteCollarPersonalScores: document.whiteCollarPersonalScores ? JSON.parse(JSON.stringify(document.whiteCollarPersonalScores)) : null,
+        overallResult: document.overallResult
+      };
+      
+      // Build changes description
+      const changes = [];
+      if (previousData.totalScore !== newData.totalScore) {
+        changes.push(`Total Score: ${previousData.totalScore || 0} → ${newData.totalScore || 0}`);
+      }
+      if (previousData.percentage !== newData.percentage) {
+        changes.push(`Percentage: ${previousData.percentage || 0}% → ${newData.percentage || 0}%`);
+      }
+      if (previousData.overallResult !== newData.overallResult) {
+        changes.push(`Overall Result: ${previousData.overallResult || 'N/A'} → ${newData.overallResult || 'N/A'}`);
+      }
+      
+      // Check for score changes
+      if (document.formType === 'blue_collar' && previousData.evaluationScores && newData.evaluationScores) {
+        const scoreChanges = [];
+        Object.keys(newData.evaluationScores).forEach(key => {
+          const oldScore = previousData.evaluationScores[key]?.score || 0;
+          const newScore = newData.evaluationScores[key]?.score || 0;
+          if (oldScore !== newScore) {
+            scoreChanges.push(`${key}: ${oldScore} → ${newScore}`);
+          }
+        });
+        if (scoreChanges.length > 0) {
+          changes.push(`Score Changes: ${scoreChanges.join(', ')}`);
+        }
+      } else if (document.formType === 'white_collar') {
+        if (previousData.whiteCollarProfessionalScores && newData.whiteCollarProfessionalScores) {
+          const profChanges = [];
+          Object.keys(newData.whiteCollarProfessionalScores).forEach(key => {
+            const oldScore = previousData.whiteCollarProfessionalScores[key]?.score || 0;
+            const newScore = newData.whiteCollarProfessionalScores[key]?.score || 0;
+            if (oldScore !== newScore) {
+              profChanges.push(`${key}: ${oldScore} → ${newScore}`);
+            }
+          });
+          if (profChanges.length > 0) {
+            changes.push(`Professional Scores: ${profChanges.join(', ')}`);
+          }
+        }
+        if (previousData.whiteCollarPersonalScores && newData.whiteCollarPersonalScores) {
+          const persChanges = [];
+          Object.keys(newData.whiteCollarPersonalScores).forEach(key => {
+            const oldScore = previousData.whiteCollarPersonalScores[key]?.score || 0;
+            const newScore = newData.whiteCollarPersonalScores[key]?.score || 0;
+            if (oldScore !== newScore) {
+              persChanges.push(`${key}: ${oldScore} → ${newScore}`);
+            }
+          });
+          if (persChanges.length > 0) {
+            changes.push(`Personal Scores: ${persChanges.join(', ')}`);
+          }
+        }
+      }
+      
+      const changesDescription = changes.length > 0 
+        ? `Document edited and resubmitted at Level ${level}. Changes: ${changes.join('; ')}`
+        : `Document edited and resubmitted at Level ${level}`;
+      
+      // Reset the current level's approval status back to pending
+      if (document.approvalLevels && document.approvalLevels.length > 0) {
+        const levelEntry = document.approvalLevels.find(l => l.level === level);
+        if (levelEntry) {
+          levelEntry.status = 'pending';
+          levelEntry.approvedAt = null;
+          levelEntry.comments = req.body.comments || levelEntry.comments || '';
+        }
+      }
+      
+      // Keep at current level - don't move to next level yet
+      document.currentApprovalLevel = level;
+      document.approvalStatus = 'pending';
+      
+      // Log edit history
+      if (req.user) {
+        if (!document.editHistory) {
+          document.editHistory = [];
+        }
+        let editedByName = null;
+        try {
+          const user = await User.findById(req.user._id).select('firstName lastName email');
+          if (user) {
+            if (user.firstName) {
+              editedByName = user.lastName && user.lastName.trim() 
+                ? `${user.firstName} ${user.lastName}`
+                : user.firstName;
+            } else if (user.email) {
+              editedByName = user.email;
+            }
+          }
+        } catch (error) {
+          // Silently handle error
+        }
+        
+        if (!editedByName && req.user.firstName) {
+          editedByName = req.user.lastName && req.user.lastName.trim()
+            ? `${req.user.firstName} ${req.user.lastName}`
+            : req.user.firstName;
+        }
+        
+        if (!editedByName) {
+          editedByName = req.user.email || 'User';
+        }
+        
+        document.editHistory.push({
+          editedBy: req.user._id,
+          editedByName: editedByName,
+          editedAt: new Date(),
+          changes: changesDescription,
+          level: level,
+          previousData: previousData,
+          newData: newData
+        });
+      }
+      
+      await document.save();
+      await hydrateDocument(document);
+      
+      const populated = await withPopulates(
+        EvaluationDocument.findById(document._id)
+      );
+      
+      res.json({
+        success: true,
+        message: `Document updated and resubmitted successfully. Please approve to move to Level ${level + 1}.`,
+        data: populated
+      });
+    } catch (error) {
+      console.error(`Error resubmitting evaluation document at Level ${level}:`, error);
+      res.status(500).json({ 
+        success: false,
+        error: `Failed to resubmit evaluation document at Level ${level}`,
+        message: error.message
+      });
+    }
+  });
+};
+
+// Create edit/resubmit endpoints for levels 1-4
+createLevelEditResubmitEndpoints(1);
+createLevelEditResubmitEndpoints(2);
+createLevelEditResubmitEndpoints(3);
+createLevelEditResubmitEndpoints(4);
 
 module.exports = router;
