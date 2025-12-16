@@ -919,20 +919,16 @@ const approveDocument = async (documentId, comments, user) => {
   
   // Check if current user is assigned to this approval level
   if (user) {
-    // For Level 1-4, check configuration first (this is the source of truth)
+    // For Level 1-4, use standard assignment check
+    const assignedUserId = currentLevelData.assignedUserId;
+    if (assignedUserId && assignedUserId.toString() !== user._id.toString()) {
+      throw new Error(`Only the assigned approver can approve at level ${currentLevel}`);
+    }
+    
+    // Also check against configuration as fallback (this is the source of truth)
     const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', currentLevel, user._id);
     if (!isAssigned) {
       throw new Error(`You are not authorized to approve at level ${currentLevel}`);
-    }
-    
-    // Also verify assignedUserId matches if it exists (secondary validation for data consistency)
-    // But don't block if configuration says user is authorized
-    const assignedUserId = currentLevelData.assignedUserId;
-    if (assignedUserId && assignedUserId.toString() !== user._id.toString()) {
-      // Log warning but don't block - configuration is the source of truth
-      console.warn(`Warning: Document ${document._id} has assignedUserId ${assignedUserId} but user ${user._id} is authorized by configuration for level ${currentLevel}`);
-      // Update the assignedUserId to match the current user (data consistency fix)
-      currentLevelData.assignedUserId = user._id;
     }
   }
   
@@ -1322,114 +1318,16 @@ router.post('/bulk-approve', async (req, res) => {
     
     await Promise.all(approvalPromises);
     
-    // Process excluded documents - advance them to the next level
-    const excludedResults = {
-      advanced: [],
-      failed: []
-    };
-    
-    if (excludeDocumentIds && excludeDocumentIds.length > 0) {
-      // Fetch excluded documents to validate and advance them
-      const excludedDocs = await EvaluationDocument.find({
-        _id: { $in: excludeDocumentIds }
-      });
-      
-      // Validate excluded documents are at the same level and in valid state
-      const validExcludedDocs = excludedDocs.filter(doc => 
-        doc.status === 'submitted' && 
-        (doc.approvalStatus === 'pending' || doc.approvalStatus === 'in_progress') &&
-        doc.approvalStatus !== 'approved' &&
-        doc.approvalStatus !== 'rejected' &&
-        (doc.currentApprovalLevel || 1) === targetLevel
-      );
-      
-      // Advance excluded documents to next level
-      const advancePromises = validExcludedDocs.map(async (doc) => {
-        try {
-          await hydrateDocument(doc);
-          
-          // Initialize approval levels if needed
-          if (!doc.approvalLevels || doc.approvalLevels.length === 0) {
-            const levelConfigs = await ApprovalLevelConfiguration.getActiveForModule('evaluation_appraisal');
-            if (levelConfigs && levelConfigs.length > 0) {
-              const approvalLevels = await Promise.all(levelConfigs.map(async (config) => {
-                let approverEmployee = null;
-                if (config.assignedUser) {
-                  approverEmployee = await Employee.findOne({ user: config.assignedUser._id });
-                }
-                return {
-                  level: config.level,
-                  title: config.title,
-                  approverName: config.assignedUser ? `${config.assignedUser.firstName} ${config.assignedUser.lastName}` : 'Unknown',
-                  approver: approverEmployee ? approverEmployee._id : null,
-                  assignedUserId: config.assignedUser ? config.assignedUser._id : null,
-                  status: 'pending'
-                };
-              }));
-              doc.approvalLevels = approvalLevels;
-              doc.approvalStatus = 'pending';
-              doc.currentApprovalLevel = 1;
-            }
-          }
-          
-          const currentLevel = doc.currentApprovalLevel || 1;
-          const levelIndex = currentLevel - 1;
-          
-          if (levelIndex >= 0 && levelIndex < doc.approvalLevels.length) {
-            // Auto-approve current level with comment indicating auto-advancement
-            doc.approvalLevels[levelIndex].status = 'approved';
-            doc.approvalLevels[levelIndex].approvedAt = new Date();
-            doc.approvalLevels[levelIndex].comments = `Auto-advanced from bulk approval (excluded from selection at Level ${targetLevel})`;
-            if (req.user) {
-              doc.approvalLevels[levelIndex].approvedBy = req.user._id;
-              const approverEmployee = await Employee.findOne({ user: req.user._id });
-              if (approverEmployee) {
-                doc.approvalLevels[levelIndex].approver = approverEmployee._id;
-              }
-            }
-            
-            // Check if all levels are approved
-            const allApproved = doc.approvalLevels.every(level => level.status === 'approved');
-            
-            if (allApproved) {
-              doc.approvalStatus = 'approved';
-              doc.status = 'completed';
-              doc.completedAt = new Date();
-            } else {
-              // Move to next level
-              doc.currentApprovalLevel = currentLevel + 1;
-              doc.approvalStatus = 'in_progress';
-            }
-            
-            await doc.save();
-            await hydrateDocument(doc);
-            
-            excludedResults.advanced.push({
-              documentId: doc._id,
-              employeeName: doc.employee ? `${doc.employee.firstName} ${doc.employee.lastName}` : 'Unknown',
-              fromLevel: targetLevel,
-              toLevel: doc.currentApprovalLevel || targetLevel + 1
-            });
-          }
-        } catch (error) {
-          console.error(`Error advancing excluded document ${doc._id}:`, error);
-          excludedResults.failed.push({
-            documentId: doc._id,
-            error: error.message
-          });
-        }
-      });
-      
-      await Promise.all(advancePromises);
-    }
+    // Excluded documents remain at their current level - no auto-advancement
+    // They will stay at the current level and can be approved later by the same or different approver
     
     // Build message
     let message = `Bulk approval completed for Level ${targetLevel}: ${results.successful.length} approved`;
     if (results.failed.length > 0) {
       message += `, ${results.failed.length} failed`;
     }
-    if (excludedResults.advanced.length > 0) {
-      message += `. ${excludedResults.advanced.length} excluded document(s) advanced to next level`;
+    if (excludeDocumentIds && excludeDocumentIds.length > 0) {
+      message += `. ${excludeDocumentIds.length} document(s) excluded and remain at Level ${targetLevel}`;
     }
     message += '.';
     
@@ -1439,15 +1337,14 @@ router.post('/bulk-approve', async (req, res) => {
       data: {
         successful: results.successful,
         failed: results.failed,
-        excluded: excludedResults.advanced,
-        excludedFailed: excludedResults.failed,
+        excluded: excludeDocumentIds || [],
         total: results.total,
         successCount: results.successful.length,
         failureCount: results.failed.length,
-        excludedCount: excludedResults.advanced.length,
+        excludedCount: excludeDocumentIds ? excludeDocumentIds.length : 0,
         approvedLevel: targetLevel,
-        note: excludedResults.advanced.length > 0 
-          ? 'Selected documents were approved. Excluded documents were automatically advanced to the next level for the next approver.'
+        note: excludeDocumentIds && excludeDocumentIds.length > 0 
+          ? 'Selected documents were approved and will proceed to the next level. Excluded documents remain at the current level and can be approved later.'
           : 'Selected documents were approved and will proceed to the next level for the next approver.'
       }
     });

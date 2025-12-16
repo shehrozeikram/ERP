@@ -36,8 +36,10 @@ import {
 import dayjs from 'dayjs';
 import { evaluationDocumentsService } from '../../../../services/evaluationDocumentsService';
 import api from '../../../../services/api';
+import { useAuth } from '../../../../contexts/AuthContext';
 
 const DepartmentCard = ({ department, project, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [], onDeleteDepartment }) => {
+  const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [approvalDialog, setApprovalDialog] = useState({ open: false, doc: null, action: null });
   const [bulkApprovalDialog, setBulkApprovalDialog] = useState({ open: false });
@@ -251,24 +253,136 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     }
 
     // Check for Level 0 approval
-    if (doc.currentApprovalLevel === 0 || 
-        (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted' && (!doc.currentApprovalLevel || doc.currentApprovalLevel === 0))) {
+    // Only check Level 0 if document is actually at Level 0 (not moved to Level 1+)
+    const isAtLevel0 = doc.currentApprovalLevel === 0 || 
+        (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted' && (!doc.currentApprovalLevel || doc.currentApprovalLevel === 0));
+    
+    if (isAtLevel0) {
+      // If Level 0 is fully approved, no one can approve it anymore
+      if (doc.level0ApprovalStatus === 'approved') {
+        return false;
+      }
+      
+      // If document was approved at Level 0 and moved to Level 1+, Level 0 approvers can't approve it
+      if (doc.level0ApprovalStatus === 'approved' && doc.currentApprovalLevel >= 1) {
+        return false;
+      }
+      
+      // If document has moved to Level 1+ (even if level0ApprovalStatus is still pending), 
+      // it's no longer at Level 0, so Level 0 approvers can't approve it
+      if (doc.currentApprovalLevel >= 1) {
+        return false;
+      }
+      
       // Check if user is in level0Approvers array
       if (doc.level0Approvers && doc.level0Approvers.length > 0) {
-        // User should be able to approve if they're in the level0Approvers list
+        // Check if current user has already approved this document at Level 0
+        if (user) {
+          const currentUserId = user._id?.toString() || user.id?.toString();
+          
+          // Find the user's entry in level0Approvers
+          const userApproverEntry = doc.level0Approvers.find(approver => {
+            if (!approver.assignedUser) return false;
+            
+            let approverUserId = null;
+            // Handle populated User object (has _id property)
+            if (typeof approver.assignedUser === 'object') {
+              if (approver.assignedUser._id) {
+                approverUserId = approver.assignedUser._id.toString();
+              } else if (approver.assignedUser.id) {
+                approverUserId = approver.assignedUser.id.toString();
+              } else if (approver.assignedUser.toString) {
+                approverUserId = approver.assignedUser.toString();
+              }
+            } else {
+              // Handle ObjectId (direct or string)
+              approverUserId = approver.assignedUser.toString();
+            }
+            
+            // Compare user IDs (case-insensitive string comparison)
+            const matches = approverUserId && currentUserId && 
+              (approverUserId === currentUserId || 
+               approverUserId.toLowerCase() === currentUserId.toLowerCase());
+            
+            return matches;
+          });
+          
+          // If user has already approved (status === 'approved'), don't show buttons
+          // This is the key check: if the current user has approved, hide buttons even if document is still at Level 0
+          if (userApproverEntry) {
+            // Check if the user's approval status is 'approved'
+            if (userApproverEntry.status === 'approved') {
+              return false; // User has already approved - hide buttons
+            }
+            // Also check if the approver has an approvedAt timestamp (another indicator of approval)
+            if (userApproverEntry.approvedAt) {
+              return false; // User has already approved - hide buttons
+            }
+            // If the entry exists but status is not 'pending', it might be approved
+            // (some implementations might use different status values)
+            if (userApproverEntry.status && userApproverEntry.status !== 'pending') {
+              return false; // User has already approved - hide buttons
+            }
+          }
+        }
+        
+        // User should be able to approve if they're in the level0Approvers list and haven't approved yet
         // The dashboard filtering already ensures only authorized users see these documents
+        // Return true only if level0ApprovalStatus is 'pending' (same logic as Level 1-4)
         return doc.level0ApprovalStatus === 'pending';
+      }
+      // If no level0Approvers array, but document is at Level 0 and status is pending,
+      // trust the dashboard filtering (same as Level 1-4 logic)
+      if (doc.level0ApprovalStatus === 'pending') {
+        return true;
       }
       return false;
     }
 
-    // If document was approved at Level 0 but has moved to Level 1+, 
-    // Level 0 approvers cannot approve it again - exclude it from Level 0 approvals
-    if (doc.level0ApprovalStatus === 'approved' && doc.currentApprovalLevel >= 1) {
-      // This document has already been approved at Level 0 and moved forward
-      // Level 0 approvers should not see this as approvable
-      return false;
+    // IMPORTANT: Check if document was approved at Level 0 and current user was a Level 0 approver
+    // If so, hide buttons for this user even if document moved to Level 1+
+    // This ensures Level 0 approvers don't see buttons after they've approved
+    if (doc.level0ApprovalStatus === 'approved' && doc.level0Approvers && doc.level0Approvers.length > 0 && user) {
+      const currentUserId = user._id?.toString() || user.id?.toString();
+      
+      // Check if current user was a Level 0 approver who has already approved
+      const userApproverEntry = doc.level0Approvers.find(approver => {
+        if (!approver.assignedUser) return false;
+        
+        let approverUserId = null;
+        // Handle populated User object (has _id property)
+        if (typeof approver.assignedUser === 'object') {
+          if (approver.assignedUser._id) {
+            approverUserId = approver.assignedUser._id.toString();
+          } else if (approver.assignedUser.id) {
+            approverUserId = approver.assignedUser.id.toString();
+          } else if (approver.assignedUser.toString) {
+            approverUserId = approver.assignedUser.toString();
+          }
+        } else {
+          // Handle ObjectId (direct or string)
+          approverUserId = approver.assignedUser.toString();
+        }
+        
+        // Compare user IDs (case-insensitive string comparison)
+        const matches = approverUserId && currentUserId && 
+          (approverUserId === currentUserId || 
+           approverUserId.toLowerCase() === currentUserId.toLowerCase());
+        
+        return matches;
+      });
+      
+      // If user was a Level 0 approver and has already approved, hide buttons
+      // This applies even if document has moved to Level 1+
+      if (userApproverEntry && (userApproverEntry.status === 'approved' || userApproverEntry.approvedAt)) {
+        return false; // User already approved at Level 0 - hide buttons
+      }
     }
+
+    // If document was approved at Level 0 but has moved to Level 1+, 
+    // Level 0 approvers cannot approve it again - but Level 1+ approvers CAN approve it
+    // So we skip this check and continue to Level 1+ logic below
+    // (This check was incorrectly blocking Level 1+ approvers)
 
     // Check if user is assigned to the current approval level (Level 1+)
     const currentLevel = doc.currentApprovalLevel;
@@ -278,16 +392,32 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       return false;
     }
 
-    // For Level 1-4, user must be assigned to the current level
-    // The dashboard filtering should ensure only assigned users see these documents,
-    // but we still need to verify here for security
-    if (assignedApprovalLevels.length > 0 && !assignedApprovalLevels.includes(currentLevel)) {
-      return false; // User is not assigned to this level
+    // For Level 1-4, check if user is assigned to the current level
+    // If assignedApprovalLevels is empty, trust the dashboard filtering (user can see it, so they can approve it)
+    // If assignedApprovalLevels has values, verify the user is assigned to this level
+    // BUT: If approvalLevels array is missing or incomplete, still allow if dashboard shows it (trust backend)
+    const isUserAssigned = assignedApprovalLevels.length === 0 || assignedApprovalLevels.includes(currentLevel);
+    
+    // If user is not assigned to Level 1+ and document is at Level 1+, don't show buttons
+    // This ensures Level 0-only approvers don't see buttons for Level 1+ documents
+    if (assignedApprovalLevels.length > 0 && !isUserAssigned) {
+      return false;
     }
-
+    
     // Check if the approvalLevels array exists and has the current level entry
+    // If approvalLevels doesn't exist, the document might have just moved from Level 0 to Level 1
+    // In this case, if the dashboard is showing it to the user, they should be able to approve it
     if (!doc.approvalLevels || !Array.isArray(doc.approvalLevels) || doc.approvalLevels.length === 0) {
-      return false; // Approval levels not initialized
+      // If approvalLevels is not initialized but document is at Level 1+,
+      // allow approval if user is assigned (or if assignedApprovalLevels is empty, trust dashboard)
+      // The backend will initialize it if needed
+      // This handles the case where documents just moved from Level 0 to Level 1
+      if (currentLevel >= 1 && currentLevel <= 4 && isUserAssigned) {
+        // Trust the dashboard filtering - if user can see it, they can approve it
+        // The backend will handle initialization if needed
+        return true;
+      }
+      return false; // Approval levels not initialized and user not assigned
     }
 
     // Find the level entry for the current level
@@ -295,7 +425,18 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     
     // Level entry must exist and have status 'pending' to be approvable
     if (!levelEntry) {
-      return false; // Level entry doesn't exist
+      // If level entry doesn't exist but document is at a valid level and user is assigned,
+      // allow approval (backend will handle it)
+      if (currentLevel >= 1 && currentLevel <= 4 && isUserAssigned) {
+        // Trust the dashboard filtering
+        return true;
+      }
+      return false; // Level entry doesn't exist and user not assigned
+    }
+
+    // Verify user is assigned to this level (if assignedApprovalLevels is populated)
+    if (!isUserAssigned) {
+      return false; // User is not assigned to this level
     }
 
     if (levelEntry.status !== 'pending') {
@@ -303,12 +444,49 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     }
 
     return true;
-  }, [assignedApprovalLevels]);
+  }, [assignedApprovalLevels, user]);
 
   // Get all documents that can be approved in this department
   const approvableDocuments = useMemo(() => {
     return documents.filter(doc => canApprove(doc));
   }, [documents, canApprove]);
+
+  // Get approvable documents grouped by level for accurate bulk approve counter
+  const approvableDocumentsByLevel = useMemo(() => {
+    const byLevel = {};
+    approvableDocuments.forEach(doc => {
+      // Determine the level of the document
+      const docLevel = doc.currentApprovalLevel === 0 || 
+        (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')
+        ? 0 
+        : doc.currentApprovalLevel;
+      
+      if (!byLevel[docLevel]) {
+        byLevel[docLevel] = [];
+      }
+      byLevel[docLevel].push(doc);
+    });
+    return byLevel;
+  }, [approvableDocuments]);
+
+  // Get the count for the most common level (for bulk approve button display)
+  // This matches what will be shown in the bulk approval dialog
+  const bulkApproveCount = useMemo(() => {
+    if (approvableDocuments.length === 0) return 0;
+    if (approvableDocuments.length === 1) return 1;
+    
+    // Get the level of the first approvable document (most common case)
+    // The bulk approval dialog filters to show only documents at the same level
+    const firstDoc = approvableDocuments[0];
+    const targetLevel = firstDoc.currentApprovalLevel === 0 || 
+      (firstDoc.level0ApprovalStatus === 'pending' && firstDoc.status === 'submitted')
+      ? 0 
+      : firstDoc.currentApprovalLevel;
+    
+    // Return count of documents at the same level (this matches what's shown in the dialog)
+    const sameLevelDocs = approvableDocumentsByLevel[targetLevel] || [];
+    return sameLevelDocs.length;
+  }, [approvableDocuments, approvableDocumentsByLevel]);
 
   // Initialize selected documents when bulk dialog opens
   const handleOpenBulkApproval = useCallback(() => {
@@ -431,8 +609,19 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       }
 
       const documentIds = sameLevelDocs.map(doc => doc._id);
+      
+      // Only exclude documents that are at the same level but not selected
+      // This ensures we don't exclude documents at different levels
       const excludeDocumentIds = approvableDocuments
-        .filter(doc => !selectedDocuments.has(doc._id))
+        .filter(doc => {
+          // Check if document is at the same level
+          const docLevel = doc.currentApprovalLevel === 0 || 
+            (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')
+            ? 0 
+            : doc.currentApprovalLevel;
+          // Only exclude if it's at the same level AND not selected
+          return docLevel === targetLevel && !selectedDocuments.has(doc._id);
+        })
         .map(doc => doc._id);
 
       const response = await evaluationDocumentsService.bulkApprove({
@@ -539,7 +728,7 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                     startIcon={<DoneAllIcon />}
                     onClick={handleOpenBulkApproval}
                   >
-                    Bulk Approve ({approvableDocuments.length})
+                    Bulk Approve ({bulkApproveCount})
                   </Button>
                 )}
                 <Button
