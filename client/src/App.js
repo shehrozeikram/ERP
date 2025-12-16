@@ -534,7 +534,7 @@ function App() {
             />
             <Route
               path="/hr/evaluation-appraisal/authorities"
-              element={<ProtectedRoute><EvaluationAuthorities /></ProtectedRoute>}
+              element={<ProtectedRoute requiredRole="super_admin"><EvaluationAuthorities /></ProtectedRoute>}
             />
 
             {/* Documents Tracking Routes */}

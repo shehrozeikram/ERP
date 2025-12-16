@@ -712,14 +712,25 @@ export const getModuleMenuItems = (userRole) => {
       text: module.name,
       icon: module.icon,
       path: module.path,
-      subItems: module.subItems ? module.subItems.map(subItem => ({
-        text: subItem.name,
-        path: subItem.path,
-        subItems: subItem.subItems ? subItem.subItems.map(subSubItem => ({
-          text: subSubItem.name,
-          path: subSubItem.path
-        })) : undefined
-      })) : undefined,
+      subItems: module.subItems ? module.subItems.map(subItem => {
+        // Filter sub-items within sub-items (e.g., Authorities in Evaluation & Appraisal)
+        const filteredSubItems = subItem.subItems ? subItem.subItems.filter(subSubItem => {
+          // Hide Authorities for non-super_admin users
+          if (subSubItem.path === '/hr/evaluation-appraisal/authorities' && userRole !== 'super_admin') {
+            return false;
+          }
+          return true;
+        }) : undefined;
+        
+        return {
+          text: subItem.name,
+          path: subItem.path,
+          subItems: filteredSubItems ? filteredSubItems.map(subSubItem => ({
+            text: subSubItem.name,
+            path: subSubItem.path
+          })) : undefined
+        };
+      }) : undefined,
       description: module.description
     };
   });
@@ -730,6 +741,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
   
   // Profile is always accessible
   if (path === '/profile') return true;
+  
+  // Authorities page in Evaluation & Appraisal is only accessible to super_admin
+  if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
+    return userRole === 'super_admin';
+  }
   
   // Helper function to map paths to submodule names
   const getSubmoduleFromPath = (path) => {
