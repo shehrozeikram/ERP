@@ -17,6 +17,7 @@ const ROLES = {
   AUDITOR: 'auditor',
   IT_MANAGER: 'it_manager',
   TAJ_RESIDENCIA_MANAGER: 'taj_residencia_manager',
+  APPRAISAL_MANAGER: 'appraisal_manager',
   EMPLOYEE: 'employee'
 };
 
@@ -218,6 +219,12 @@ const ROLE_MODULE_ACCESS = {
     canAccessAll: false,
     modules: [MODULES.TAJ_RESIDENCIA],
     description: 'Taj Residencia module management'
+  },
+  
+  [ROLES.APPRAISAL_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'Evaluation and Appraisal management'
   },
   
   [ROLES.EMPLOYEE]: {

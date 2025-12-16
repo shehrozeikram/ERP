@@ -16,6 +16,7 @@ import { evaluationDocumentsService } from '../../../services/evaluationDocument
 import DepartmentCard from './components/DepartmentCard';
 import DocumentViewer from './components/DocumentViewer';
 import { DashboardSkeleton } from './components/SkeletonLoader';
+import EvaluationCharts from './components/EvaluationCharts';
 
 const EvaluationDashboard = () => {
   const [groupedData, setGroupedData] = useState([]);
@@ -251,6 +252,11 @@ const EvaluationDashboard = () => {
           variant="outlined"
         />
       </Box>
+
+      {/* Charts Section */}
+      {filteredData.length > 0 && (
+        <EvaluationCharts groupedData={filteredData} />
+      )}
 
       {/* Department Cards */}
       {filteredData.length === 0 ? (

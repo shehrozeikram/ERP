@@ -61,7 +61,6 @@ const PublicEvaluationForm = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [isLevelEdit, setIsLevelEdit] = useState(false);
@@ -248,7 +247,6 @@ const PublicEvaluationForm = () => {
     onSubmit: async (values) => {
       try {
         setSubmitting(true);
-        setSubmitSuccess(false);
         setError(null);
 
         let totalObtainedScore, totalScore, percentage;
@@ -302,7 +300,6 @@ const PublicEvaluationForm = () => {
           } else if (editLevel === 4) {
             await evaluationDocumentsService.resubmitLevel4(id, updateData);
           }
-          setSubmitSuccess(true);
           setSuccessModalOpen(true);
         } else {
           // Public form submission - set status to submitted
@@ -310,7 +307,6 @@ const PublicEvaluationForm = () => {
           updateData.submittedAt = new Date();
 
           await evaluationDocumentsService.update(id, updateData, token);
-          setSubmitSuccess(true);
           setSuccessModalOpen(true);
         }
       } catch (err) {
@@ -337,11 +333,6 @@ const PublicEvaluationForm = () => {
       return professionalScore + personalScore;
     }
   }, [formik.values, activeTab]);
-
-  const percentage = useMemo(() => {
-    const totalMarks = activeTab === 0 ? 50 : 100;
-    return totalMarks > 0 ? Math.round((calculateTotalScore / totalMarks) * 100 * 100) / 100 : 0;
-  }, [calculateTotalScore, activeTab]);
 
   if (loading) {
     return (

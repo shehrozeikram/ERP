@@ -74,7 +74,8 @@ const UserManagement = () => {
         'crm_manager': 'crm',
         'audit_manager': 'audit',
         'it_manager': 'it',
-        'taj_residencia_manager': 'taj_residencia'
+        'taj_residencia_manager': 'taj_residencia',
+        'appraisal_manager': 'hr'
       };
       
       const module = roleToModuleMap[role];
@@ -580,7 +581,7 @@ const EditUserForm = ({ user, onSave, onCancel, departments }) => {
           onChange={(e) => setFormData({ ...formData, role: e.target.value })}
           label="Role"
         >
-          {['super_admin', 'higher_management', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'employee'].map((role) => (
+          {['super_admin', 'higher_management', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'appraisal_manager', 'employee'].map((role) => (
             <MenuItem key={role} value={role}>
               {role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
             </MenuItem>
@@ -923,7 +924,7 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
           }}
           label="Role"
         >
-          {['super_admin', 'higher_management', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'employee'].map((role) => (
+          {['super_admin', 'higher_management', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'it_manager', 'taj_residencia_manager', 'appraisal_manager', 'employee'].map((role) => (
             <MenuItem key={role} value={role}>
               {role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
             </MenuItem>
