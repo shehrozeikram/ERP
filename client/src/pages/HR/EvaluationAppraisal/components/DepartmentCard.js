@@ -149,7 +149,8 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       const response = await serviceMethod(approvalDialog.doc._id, { comments });
       
       if (response.data && onDocumentUpdate) {
-        onDocumentUpdate(response.data.data);
+        // Call with no arguments to trigger full refresh of all documents
+        onDocumentUpdate();
       }
       
       setApprovalDialog({ open: false, doc: null, action: null });
@@ -177,7 +178,8 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       const response = await serviceMethod(approvalDialog.doc._id, { comments });
       
       if (response.data && onDocumentUpdate) {
-        onDocumentUpdate(response.data.data);
+        // Call with no arguments to trigger full refresh of all documents
+        onDocumentUpdate();
       }
       
       setApprovalDialog({ open: false, doc: null, action: null });
@@ -249,7 +251,8 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     }
 
     // Check for Level 0 approval
-    if (doc.currentApprovalLevel === 0) {
+    if (doc.currentApprovalLevel === 0 || 
+        (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted' && (!doc.currentApprovalLevel || doc.currentApprovalLevel === 0))) {
       // Check if user is in level0Approvers array
       if (doc.level0Approvers && doc.level0Approvers.length > 0) {
         // User should be able to approve if they're in the level0Approvers list
@@ -260,10 +263,11 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     }
 
     // If document was approved at Level 0 but has moved to Level 1+, 
-    // Level 0 approvers cannot approve it again
+    // Level 0 approvers cannot approve it again - exclude it from Level 0 approvals
     if (doc.level0ApprovalStatus === 'approved' && doc.currentApprovalLevel >= 1) {
-      // This is correct - Level 0 approvers can't approve Level 1+ documents
-      // Continue to check if user is assigned to Level 1+
+      // This document has already been approved at Level 0 and moved forward
+      // Level 0 approvers should not see this as approvable
+      return false;
     }
 
     // Check if user is assigned to the current approval level (Level 1+)

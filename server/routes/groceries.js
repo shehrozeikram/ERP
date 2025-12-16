@@ -56,6 +56,23 @@ router.get('/', permissions.checkSubRolePermission('admin', 'grocery_management'
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
+    // Recalculate and update status for each item if needed
+    const updatePromises = items.map(async (item) => {
+      if (item && item.calculateStatus) {
+        const calculatedStatus = item.calculateStatus();
+        if (item.status !== calculatedStatus) {
+          item.status = calculatedStatus;
+          // Update status in database without triggering full save
+          await GroceryItem.findByIdAndUpdate(
+            item._id,
+            { status: calculatedStatus },
+            { runValidators: false, new: false }
+          );
+        }
+      }
+    });
+    await Promise.all(updatePromises);
+
     const total = await GroceryItem.countDocuments(filter);
 
     res.json({

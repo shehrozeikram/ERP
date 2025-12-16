@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -25,14 +25,19 @@ import {
   MenuItem,
   Grid,
   Alert,
-  Skeleton
+  Skeleton,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Warning as WarningIcon,
-  Search as SearchIcon
+  Search as SearchIcon,
+  ExpandMore as ExpandMoreIcon,
+  CalendarMonth as CalendarMonthIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import groceryService from '../../../services/groceryService';
@@ -46,6 +51,7 @@ const GroceryList = () => {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ open: false, grocery: null });
+  const [expandedMonths, setExpandedMonths] = useState(new Set());
 
   const fetchGroceries = useCallback(async () => {
     try {
@@ -101,6 +107,50 @@ const GroceryList = () => {
 
   const categories = ['Vegetables', 'Fruits', 'Dairy', 'Meat', 'Grains', 'Beverages', 'Snacks', 'Cleaning', 'Other'];
   const statuses = ['Available', 'Low Stock', 'Out of Stock', 'Expired'];
+
+  // Group groceries by month and year
+  const groupedGroceries = useMemo(() => {
+    const groups = {};
+    
+    groceries.forEach(grocery => {
+      const date = new Date(grocery.createdAt || grocery.updatedAt);
+      const year = date.getFullYear();
+      const month = date.getMonth(); // 0-11
+      const monthName = date.toLocaleString('default', { month: 'long' });
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const label = `${monthName} ${year}`;
+      
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          label,
+          year,
+          month,
+          monthName,
+          items: []
+        };
+      }
+      groups[key].items.push(grocery);
+    });
+    
+    // Sort by year and month (newest first)
+    return Object.values(groups).sort((a, b) => {
+      if (b.year !== a.year) return b.year - a.year;
+      return b.month - a.month;
+    });
+  }, [groceries]);
+
+  const toggleMonthExpansion = (monthKey) => {
+    setExpandedMonths(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(monthKey)) {
+        newSet.delete(monthKey);
+      } else {
+        newSet.add(monthKey);
+      }
+      return newSet;
+    });
+  };
 
   if (loading) {
     return (
@@ -235,74 +285,125 @@ const GroceryList = () => {
             </Grid>
           </Grid>
 
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Item ID</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Category</TableCell>
-                  <TableCell>Current Stock</TableCell>
-                  <TableCell>Unit Price</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Supplier</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {groceries.map((grocery) => (
-                  <TableRow key={grocery._id}>
-                    <TableCell>
-                      <Typography variant="subtitle2" fontWeight="bold">
-                        {grocery.itemId}
+          {groupedGroceries.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="body1" color="text.secondary">
+                No grocery items found
+              </Typography>
+            </Box>
+          ) : (
+            <Box>
+              {groupedGroceries.map((group) => (
+                <Accordion
+                  key={group.key}
+                  expanded={expandedMonths.has(group.key)}
+                  onChange={() => toggleMonthExpansion(group.key)}
+                  sx={{ mb: 2 }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon />}
+                    sx={{
+                      bgcolor: 'primary.light',
+                      color: 'primary.contrastText',
+                      '&:hover': {
+                        bgcolor: 'primary.main'
+                      },
+                      '& .MuiAccordionSummary-content': {
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        pr: 2
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
+                      <CalendarMonthIcon />
+                      <Typography variant="h6" fontWeight="bold">
+                        {group.label}
                       </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {grocery.name}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={grocery.category} size="small" />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {grocery.currentStock} {grocery.unit}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{formatCurrency(grocery.unitPrice)}</TableCell>
-                    <TableCell>
                       <Chip
-                        label={grocery.status}
-                        color={getStatusColor(grocery.status)}
+                        label={`${group.items.length} Item${group.items.length !== 1 ? 's' : ''}`}
                         size="small"
+                        sx={{
+                          bgcolor: 'rgba(255, 255, 255, 0.2)',
+                          color: 'inherit'
+                        }}
                       />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color={grocery.supplier ? 'text.primary' : 'text.secondary'}>
-                        {grocery.supplier || 'No Supplier'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={() => navigate(`/admin/groceries/${grocery._id}`)}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => setDeleteDialog({ open: true, grocery })}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ p: 0 }}>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table>
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'grey.50' }}>
+                            <TableCell>Item ID</TableCell>
+                            <TableCell>Name</TableCell>
+                            <TableCell>Category</TableCell>
+                            <TableCell>Current Stock</TableCell>
+                            <TableCell>Unit Price</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell>Supplier</TableCell>
+                            <TableCell>Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {group.items.map((grocery) => (
+                            <TableRow key={grocery._id} hover>
+                              <TableCell>
+                                <Typography variant="subtitle2" fontWeight="bold">
+                                  {grocery.itemId}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {grocery.name}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Chip label={grocery.category} size="small" />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {grocery.currentStock} {grocery.unit}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>{formatCurrency(grocery.unitPrice)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={grocery.status}
+                                  color={getStatusColor(grocery.status)}
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" color={grocery.supplier ? 'text.primary' : 'text.secondary'}>
+                                  {grocery.supplier || 'No Supplier'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => navigate(`/admin/groceries/${grocery._id}`)}
+                                >
+                                  <EditIcon />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => setDeleteDialog({ open: true, grocery })}
+                                >
+                                  <DeleteIcon />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </AccordionDetails>
+                </Accordion>
+              ))}
+            </Box>
+          )}
         </CardContent>
       </Card>
 

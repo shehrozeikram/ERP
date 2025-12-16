@@ -98,18 +98,30 @@ groceryItemSchema.virtual('totalValue').get(function() {
   return this.currentStock * this.unitPrice;
 });
 
-// Pre-save middleware to update status based on stock
-groceryItemSchema.pre('save', function(next) {
+// Method to calculate and return status based on current stock levels
+groceryItemSchema.methods.calculateStatus = function() {
+  // Check expiry first (highest priority)
+  if (this.expiryDate && this.expiryDate < new Date()) {
+    return 'Expired';
+  } 
+  // Check if out of stock
   if (this.currentStock <= 0) {
-    this.status = 'Out of Stock';
-  } else if (this.currentStock <= this.minStockLevel) {
-    this.status = 'Low Stock';
-  } else if (this.expiryDate && this.expiryDate < new Date()) {
-    this.status = 'Expired';
-  } else {
-    this.status = 'Available';
-  }
+    return 'Out of Stock';
+  } 
+  // Check if stock is at or below minimum level
+  if (this.currentStock <= this.minStockLevel) {
+    return 'Low Stock';
+  } 
+  // Stock is above minimum level - available
+  return 'Available';
+};
+
+// Pre-save middleware to update status based on stock levels
+groceryItemSchema.pre('save', function(next) {
+  // Always recalculate status before saving
+  this.status = this.calculateStatus();
   next();
 });
+
 
 module.exports = mongoose.model('GroceryItem', groceryItemSchema);
