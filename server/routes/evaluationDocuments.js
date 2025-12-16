@@ -1038,9 +1038,17 @@ router.post('/bulk-approve', async (req, res) => {
     
     // Validate that all documents are at the same approval level
     // This ensures each approver only approves their own level
+    // For Level 0, we need to populate project, department, employee, and level0Approvers
     const documents = await EvaluationDocument.find({
       _id: { $in: documentsToApprove }
-    }).select('currentApprovalLevel approvalStatus status');
+    })
+    .populate('project', '_id')
+    .populate('department', '_id')
+    .populate('employee', 'placementProject placementDepartment')
+    .populate('employee.placementProject', '_id')
+    .populate('employee.placementDepartment', '_id')
+    .populate('level0Approvers.assignedUser', '_id')
+    .select('currentApprovalLevel approvalStatus status level0ApprovalStatus level0Approvers project department employee');
     
     if (documents.length !== documentsToApprove.length) {
       return res.status(400).json({
@@ -1050,7 +1058,15 @@ router.post('/bulk-approve', async (req, res) => {
     }
     
     // Check that all documents are at the same current approval level
-    const approvalLevels = documents.map(doc => doc.currentApprovalLevel || 1);
+    // For Level 0, check if level0ApprovalStatus is 'pending' and currentApprovalLevel is 0
+    const approvalLevels = documents.map(doc => {
+      // If document is at Level 0 (either currentApprovalLevel === 0 or level0ApprovalStatus === 'pending')
+      if (doc.currentApprovalLevel === 0 || 
+          (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted' && (!doc.currentApprovalLevel || doc.currentApprovalLevel === 0))) {
+        return 0;
+      }
+      return doc.currentApprovalLevel || 1;
+    });
     const uniqueLevels = [...new Set(approvalLevels)];
     
     if (uniqueLevels.length > 1) {
@@ -1063,12 +1079,17 @@ router.post('/bulk-approve', async (req, res) => {
     const targetLevel = uniqueLevels[0];
     
     // Verify all documents are in a state that can be approved
-    const invalidDocs = documents.filter(doc => 
-      doc.status !== 'submitted' || 
-      (doc.approvalStatus !== 'pending' && doc.approvalStatus !== 'in_progress') ||
-      doc.approvalStatus === 'approved' ||
-      doc.approvalStatus === 'rejected'
-    );
+    const invalidDocs = documents.filter(doc => {
+      // For Level 0, check level0ApprovalStatus
+      if (targetLevel === 0) {
+        return doc.status !== 'submitted' || doc.level0ApprovalStatus !== 'pending';
+      }
+      // For Level 1-4, check approvalStatus
+      return doc.status !== 'submitted' || 
+             (doc.approvalStatus !== 'pending' && doc.approvalStatus !== 'in_progress') ||
+             doc.approvalStatus === 'approved' ||
+             doc.approvalStatus === 'rejected';
+    });
     
     if (invalidDocs.length > 0) {
       return res.status(400).json({
@@ -1079,12 +1100,56 @@ router.post('/bulk-approve', async (req, res) => {
     
     // Check if current user is assigned to this approval level
     if (req.user) {
-      const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', targetLevel, req.user._id);
-      if (!isAssigned) {
-        return res.status(403).json({
-          success: false,
-          error: `You are not authorized to approve documents at level ${targetLevel}`
-        });
+      if (targetLevel === 0) {
+        // For Level 0, check authorization for each document individually
+        const unauthorizedDocs = [];
+        for (const doc of documents) {
+          const docProjectId = doc.project?._id?.toString() || doc.employee?.placementProject?._id?.toString() || null;
+          const docDeptId = doc.department?._id?.toString() || doc.employee?.placementDepartment?._id?.toString() || null;
+          
+          const hasAuthority = await EvaluationLevel0Authority.hasAuthorityForDocument(
+            req.user._id,
+            docProjectId,
+            docDeptId
+          );
+          
+          if (!hasAuthority) {
+            unauthorizedDocs.push(doc._id);
+            continue;
+          }
+          
+          // Check if user is in level0Approvers array
+          const userInApprovers = doc.level0Approvers && doc.level0Approvers.some(approver => {
+            if (!approver.assignedUser) return false;
+            
+            // Handle populated User object (has _id property)
+            if (typeof approver.assignedUser === 'object' && approver.assignedUser._id) {
+              return approver.assignedUser._id.toString() === req.user._id.toString();
+            }
+            // Handle ObjectId (direct or string)
+            return approver.assignedUser.toString() === req.user._id.toString();
+          });
+          
+          if (!userInApprovers) {
+            unauthorizedDocs.push(doc._id);
+          }
+        }
+        
+        if (unauthorizedDocs.length > 0) {
+          return res.status(403).json({
+            success: false,
+            error: `You are not authorized to approve ${unauthorizedDocs.length} document(s) at Level 0`
+          });
+        }
+      } else {
+        // For Level 1-4, use the standard approval level check
+        const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', targetLevel, req.user._id);
+        if (!isAssigned) {
+          return res.status(403).json({
+            success: false,
+            error: `You are not authorized to approve documents at level ${targetLevel}`
+          });
+        }
       }
     }
     
@@ -1099,7 +1164,141 @@ router.post('/bulk-approve', async (req, res) => {
     // Each approval will only approve the CURRENT level, not all levels
     const approvalPromises = documentsToApprove.map(async (docId) => {
       try {
-        const populated = await approveDocument(docId, comments, req.user);
+        let populated;
+        
+        if (targetLevel === 0) {
+          // Handle Level 0 approval separately
+          const doc = documents.find(d => d._id.toString() === docId.toString());
+          if (!doc) {
+            throw new Error('Document not found');
+          }
+          
+          await hydrateDocument(doc);
+          
+          // Check if document is at Level 0
+          if (doc.currentApprovalLevel !== 0 && 
+              !(doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')) {
+            throw new Error('Document is not at Level 0 approval stage');
+          }
+          
+          if (doc.level0ApprovalStatus === 'approved') {
+            throw new Error('Document is already approved at Level 0');
+          }
+          
+          if (doc.level0ApprovalStatus === 'rejected') {
+            throw new Error('Document has been rejected at Level 0');
+          }
+          
+          // Approve at Level 0 - mark the current user's approval
+          if (doc.level0Approvers && doc.level0Approvers.length > 0) {
+            const approverIndex = doc.level0Approvers.findIndex(approver => {
+              if (!approver.assignedUser) return false;
+              
+              // Handle populated User object (has _id property)
+              if (typeof approver.assignedUser === 'object' && approver.assignedUser._id) {
+                return approver.assignedUser._id.toString() === req.user._id.toString();
+              }
+              // Handle ObjectId (direct or string)
+              return approver.assignedUser.toString() === req.user._id.toString();
+            });
+            
+            if (approverIndex >= 0) {
+              // Update the approver's status to approved
+              doc.level0Approvers[approverIndex].status = 'approved';
+              doc.level0Approvers[approverIndex].approvedAt = new Date();
+              doc.level0Approvers[approverIndex].comments = comments || '';
+            }
+            
+            // Check if all Level 0 approvers have approved
+            const allApproved = doc.level0Approvers.every(approver => approver.status === 'approved');
+            
+            if (allApproved) {
+              // All Level 0 approvers have approved - move to Level 1
+              doc.level0ApprovalStatus = 'approved';
+              doc.currentApprovalLevel = 1;
+              doc.approvalStatus = 'in_progress'; // In progress because Level 1+ are still pending
+              
+              // Initialize Level 1-4 if not already done
+              if (!doc.approvalLevels || doc.approvalLevels.length === 0) {
+                const levelConfigs = await ApprovalLevelConfiguration.find({
+                  module: 'evaluation_appraisal',
+                  level: { $gte: 1, $lte: 4 },
+                  isActive: true
+                })
+                  .populate('assignedUser', 'firstName lastName email role')
+                  .sort({ level: 1 });
+                
+                const approvalLevels = await Promise.all(levelConfigs.map(async (config) => {
+                  let approverEmployee = null;
+                  if (config.assignedUser) {
+                    approverEmployee = await Employee.findOne({ user: config.assignedUser._id });
+                  }
+                  return {
+                    level: config.level,
+                    title: config.title,
+                    approverName: config.assignedUser 
+                      ? `${config.assignedUser.firstName} ${config.assignedUser.lastName}`
+                      : 'Unknown',
+                    approver: approverEmployee ? approverEmployee._id : null,
+                    assignedUserId: config.assignedUser ? config.assignedUser._id : null,
+                    status: 'pending'
+                  };
+                }));
+                
+                doc.approvalLevels = approvalLevels;
+              } else {
+                // Level 1-4 already exist, ensure Level 1 exists and is set to pending
+                let level1Entry = doc.approvalLevels.find(l => l.level === 1);
+                
+                if (!level1Entry) {
+                  // Level 1 entry doesn't exist - create it
+                  const level1Config = await ApprovalLevelConfiguration.findOne({
+                    module: 'evaluation_appraisal',
+                    level: 1,
+                    isActive: true
+                  }).populate('assignedUser', 'firstName lastName email role');
+                  
+                  if (level1Config) {
+                    const approverEmployee = await Employee.findOne({ user: level1Config.assignedUser?._id });
+                    level1Entry = {
+                      level: 1,
+                      title: level1Config.title,
+                      approverName: level1Config.assignedUser 
+                        ? `${level1Config.assignedUser.firstName} ${level1Config.assignedUser.lastName}`
+                        : 'Unknown',
+                      approver: approverEmployee ? approverEmployee._id : null,
+                      assignedUserId: level1Config.assignedUser ? level1Config.assignedUser._id : null,
+                      status: 'pending'
+                    };
+                    doc.approvalLevels.push(level1Entry);
+                    doc.approvalLevels.sort((a, b) => a.level - b.level);
+                  }
+                } else {
+                  // Level 1 exists, ensure it's set to pending
+                  level1Entry.status = 'pending';
+                }
+              }
+            }
+          }
+          
+          await doc.save();
+          await hydrateDocument(doc);
+          
+          // Log approval tracking
+          await TrackingService.logApproval({
+            document: doc,
+            nextLevel: doc.approvalLevels && doc.approvalLevels.length > 0 ? doc.approvalLevels.find(l => l.level === 1) : null,
+            actorUser: req.user
+          });
+          
+          populated = await withPopulates(
+            EvaluationDocument.findById(doc._id)
+          );
+        } else {
+          // For Level 1-4, use the standard approveDocument function
+          populated = await approveDocument(docId, comments, req.user);
+        }
+        
         results.successful.push({
           documentId: docId,
           employeeName: populated.employee ? `${populated.employee.firstName} ${populated.employee.lastName}` : 'Unknown',
