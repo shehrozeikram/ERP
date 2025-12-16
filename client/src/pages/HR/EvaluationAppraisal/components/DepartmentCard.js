@@ -312,12 +312,35 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
 
   // Initialize selected documents when bulk dialog opens
   const handleOpenBulkApproval = useCallback(() => {
-    const allApprovableIds = approvableDocuments.map(doc => doc._id);
+    // Filter to only include documents that are actually approvable and at the same level
+    const validDocs = approvableDocuments.filter(doc => canApprove(doc));
+    
+    if (validDocs.length === 0) {
+      setBulkError('No documents available for bulk approval at your current level.');
+      return;
+    }
+    
+    // Get the level of the first document (all should be at the same level for bulk approval)
+    const targetLevel = validDocs[0].currentApprovalLevel === 0 || 
+      (validDocs[0].level0ApprovalStatus === 'pending' && validDocs[0].status === 'submitted')
+      ? 0 
+      : validDocs[0].currentApprovalLevel;
+    
+    // Filter to only include documents at the same level
+    const sameLevelDocs = validDocs.filter(doc => {
+      const docLevel = doc.currentApprovalLevel === 0 || 
+        (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')
+        ? 0 
+        : doc.currentApprovalLevel;
+      return docLevel === targetLevel;
+    });
+    
+    const allApprovableIds = sameLevelDocs.map(doc => doc._id);
     setSelectedDocuments(new Set(allApprovableIds));
     setBulkError(null);
     setComments('');
     setBulkApprovalDialog({ open: true });
-  }, [approvableDocuments]);
+  }, [approvableDocuments, canApprove]);
 
   const handleCloseBulkApproval = useCallback(() => {
     setBulkApprovalDialog({ open: false });
@@ -339,9 +362,26 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
   }, []);
 
   const handleSelectAll = useCallback(() => {
-    const allIds = approvableDocuments.map(doc => doc._id);
+    // Filter to only include documents that are actually approvable and at the same level
+    const validDocs = approvableDocuments.filter(doc => canApprove(doc));
+    if (validDocs.length === 0) return;
+    
+    const targetLevel = validDocs[0].currentApprovalLevel === 0 || 
+      (validDocs[0].level0ApprovalStatus === 'pending' && validDocs[0].status === 'submitted')
+      ? 0 
+      : validDocs[0].currentApprovalLevel;
+    
+    const sameLevelDocs = validDocs.filter(doc => {
+      const docLevel = doc.currentApprovalLevel === 0 || 
+        (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')
+        ? 0 
+        : doc.currentApprovalLevel;
+      return docLevel === targetLevel;
+    });
+    
+    const allIds = sameLevelDocs.map(doc => doc._id);
     setSelectedDocuments(new Set(allIds));
-  }, [approvableDocuments]);
+  }, [approvableDocuments, canApprove]);
 
   const handleDeselectAll = useCallback(() => {
     setSelectedDocuments(new Set());
@@ -357,7 +397,40 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       setBulkLoading(true);
       setBulkError(null);
 
-      const documentIds = Array.from(selectedDocuments);
+      // Filter selected documents to only include those that are actually approvable
+      // This ensures we don't try to approve documents that have moved to different levels
+      const selectedDocs = approvableDocuments.filter(doc => 
+        selectedDocuments.has(doc._id) && canApprove(doc)
+      );
+
+      if (selectedDocs.length === 0) {
+        setBulkError('No valid documents selected for approval. Some documents may have moved to a different approval level.');
+        setBulkLoading(false);
+        return;
+      }
+
+      // Get the approval level of the first document (all should be at the same level)
+      const targetLevel = selectedDocs[0].currentApprovalLevel === 0 || 
+        (selectedDocs[0].level0ApprovalStatus === 'pending' && selectedDocs[0].status === 'submitted')
+        ? 0 
+        : selectedDocs[0].currentApprovalLevel;
+
+      // Filter to only include documents at the same level
+      const sameLevelDocs = selectedDocs.filter(doc => {
+        const docLevel = doc.currentApprovalLevel === 0 || 
+          (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')
+          ? 0 
+          : doc.currentApprovalLevel;
+        return docLevel === targetLevel;
+      });
+
+      if (sameLevelDocs.length === 0) {
+        setBulkError('Selected documents are at different approval levels. Please select documents at the same level.');
+        setBulkLoading(false);
+        return;
+      }
+
+      const documentIds = sameLevelDocs.map(doc => doc._id);
       const excludeDocumentIds = approvableDocuments
         .filter(doc => !selectedDocuments.has(doc._id))
         .map(doc => doc._id);
@@ -399,7 +472,7 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     } finally {
       setBulkLoading(false);
     }
-  }, [selectedDocuments, approvableDocuments, comments, onDocumentUpdate, handleCloseBulkApproval]);
+  }, [selectedDocuments, approvableDocuments, comments, onDocumentUpdate, handleCloseBulkApproval, canApprove]);
 
   const handleDeleteDepartment = async () => {
     if (!department?._id || project) return; // Don't allow deletion if it's a project
@@ -785,12 +858,34 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
             </Box>
           </Box>
 
-          <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
-            {selectedDocuments.size} of {approvableDocuments.length} selected
-          </Typography>
+          {(() => {
+            // Filter to only show documents that are actually approvable and at the same level
+            const validDocs = approvableDocuments.filter(doc => canApprove(doc));
+            const targetLevel = validDocs.length > 0 
+              ? (validDocs[0].currentApprovalLevel === 0 || 
+                 (validDocs[0].level0ApprovalStatus === 'pending' && validDocs[0].status === 'submitted')
+                 ? 0 
+                 : validDocs[0].currentApprovalLevel)
+              : null;
+            
+            const sameLevelDocs = targetLevel !== null 
+              ? validDocs.filter(doc => {
+                  const docLevel = doc.currentApprovalLevel === 0 || 
+                    (doc.level0ApprovalStatus === 'pending' && doc.status === 'submitted')
+                    ? 0 
+                    : doc.currentApprovalLevel;
+                  return docLevel === targetLevel;
+                })
+              : [];
+            
+            return (
+              <>
+                <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
+                  {selectedDocuments.size} of {sameLevelDocs.length} selected
+                </Typography>
 
-          <List sx={{ maxHeight: 400, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-            {approvableDocuments.map((doc, index) => (
+                <List sx={{ maxHeight: 400, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                  {sameLevelDocs.map((doc, index) => (
               <React.Fragment key={doc._id}>
                 <ListItem
                   sx={{
@@ -825,10 +920,13 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
                     sx={{ flex: 1 }}
                   />
                 </ListItem>
-                {index < approvableDocuments.length - 1 && <Divider />}
+                {index < sameLevelDocs.length - 1 && <Divider />}
               </React.Fragment>
-            ))}
-          </List>
+                  ))}
+                </List>
+              </>
+            );
+          })()}
 
           <TextField
             fullWidth
