@@ -919,16 +919,20 @@ const approveDocument = async (documentId, comments, user) => {
   
   // Check if current user is assigned to this approval level
   if (user) {
-    // For Level 1-4, use standard assignment check
-    const assignedUserId = currentLevelData.assignedUserId;
-    if (assignedUserId && assignedUserId.toString() !== user._id.toString()) {
-      throw new Error(`Only the assigned approver can approve at level ${currentLevel}`);
-    }
-    
-    // Also check against configuration as fallback (this is the source of truth)
+    // For Level 1-4, check configuration first (this is the source of truth)
     const isAssigned = await ApprovalLevelConfiguration.isUserAssigned('evaluation_appraisal', currentLevel, user._id);
     if (!isAssigned) {
       throw new Error(`You are not authorized to approve at level ${currentLevel}`);
+    }
+    
+    // Also verify assignedUserId matches if it exists (secondary validation for data consistency)
+    // But don't block if configuration says user is authorized
+    const assignedUserId = currentLevelData.assignedUserId;
+    if (assignedUserId && assignedUserId.toString() !== user._id.toString()) {
+      // Log warning but don't block - configuration is the source of truth
+      console.warn(`Warning: Document ${document._id} has assignedUserId ${assignedUserId} but user ${user._id} is authorized by configuration for level ${currentLevel}`);
+      // Update the assignedUserId to match the current user (data consistency fix)
+      currentLevelData.assignedUserId = user._id;
     }
   }
   
