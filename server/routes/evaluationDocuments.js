@@ -364,18 +364,23 @@ router.get('/dashboard/grouped', async (req, res) => {
         module: 'evaluation_appraisal',
         assignedUser: req.user._id,
         isActive: true
-      });
+      }).lean();
       userAssignedLevels = levelConfigs.map(config => config.level);
     }
     
+    // Use lean() for better performance - get plain objects instead of Mongoose documents
     // Use the base populate configuration (which already includes placementProject)
     let documents = await withPopulates(
       EvaluationDocument.find(query)
-    ).sort({ createdAt: -1 });
+    ).lean().sort({ createdAt: -1 });
+    
+    // Store all documents before filtering (for public General Information statistics)
+    const allDocuments = [...documents];
     
     // Filter documents based on user's authority
     if (req.user) {
       const filteredDocs = [];
+      const userIdStr = req.user._id.toString();
       
       // Check if user has Level 0 authority
       const hasLevel0Authority = userLevel0Authorities && userLevel0Authorities.projects.length > 0;
@@ -440,7 +445,7 @@ router.get('/dashboard/grouped', async (req, res) => {
                       const approverUserId = approver.assignedUser?._id 
                         ? approver.assignedUser._id.toString() 
                         : (approver.assignedUser ? approver.assignedUser.toString() : null);
-                      return approverUserId === req.user._id.toString();
+                      return approverUserId === userIdStr;
                     }
                   );
                   if (userInApprovers) {
@@ -460,7 +465,7 @@ router.get('/dashboard/grouped', async (req, res) => {
                       const approverUserId = approver.assignedUser?._id 
                         ? approver.assignedUser._id.toString() 
                         : (approver.assignedUser ? approver.assignedUser.toString() : null);
-                      return approverUserId === req.user._id.toString();
+                      return approverUserId === userIdStr;
                     }
                   );
                   if (userInApprovers) {
@@ -517,6 +522,7 @@ router.get('/dashboard/grouped', async (req, res) => {
     }
     
     const grouped = {};
+    const departmentIds = new Set();
     
     if (groupBy === 'project') {
       // Group by project
@@ -567,26 +573,140 @@ router.get('/dashboard/grouped', async (req, res) => {
         }
         
         grouped[deptId].documents.push(doc);
+        
+        // Collect department IDs for batch HOD lookup
+        if (deptId !== 'no-department') {
+          departmentIds.add(deptId);
+        }
       });
       
-      // Get HOD for each department
-      for (const deptId in grouped) {
-        if (deptId !== 'no-department') {
-          const hod = await Employee.findOne({
-            'placementDepartment': deptId,
-            $or: [
-              { 'placementDesignation.title': { $regex: /hod|head of department/i } }
-            ]
-          }).select('firstName lastName employeeId email');
-          
-          if (hod) {
-            grouped[deptId].hod = hod;
+      // Batch HOD lookup - single query instead of one per department
+      if (departmentIds.size > 0) {
+        const deptIdsArray = Array.from(departmentIds);
+        const hods = await Employee.find({
+          'placementDepartment': { $in: deptIdsArray },
+          $or: [
+            { 'placementDesignation.title': { $regex: /hod|head of department/i } }
+          ]
+        }).select('firstName lastName employeeId email placementDepartment').lean();
+        
+        // Map HODs by department ID
+        const hodMap = {};
+        hods.forEach(hod => {
+          const hodDeptId = hod.placementDepartment?._id 
+            ? hod.placementDepartment._id.toString() 
+            : hod.placementDepartment?.toString();
+          if (hodDeptId && !hodMap[hodDeptId]) {
+            hodMap[hodDeptId] = {
+              firstName: hod.firstName,
+              lastName: hod.lastName,
+              employeeId: hod.employeeId,
+              email: hod.email
+            };
+          }
+        });
+        
+        // Assign HODs to grouped departments
+        for (const deptId in grouped) {
+          if (deptId !== 'no-department' && hodMap[deptId]) {
+            grouped[deptId].hod = hodMap[deptId];
           }
         }
       }
     }
     
-    res.json(Object.values(grouped));
+    // Group all documents (unfiltered) for public General Information statistics
+    const allGrouped = {};
+    const allDepartmentIds = new Set();
+    
+    if (groupBy === 'project') {
+      allDocuments.forEach(doc => {
+        if (doc.department && doc.department.isActive === false) {
+          return;
+        }
+        
+        const projectId = doc.employee?.placementProject?._id?.toString() || 'no-project';
+        const projectName = doc.employee?.placementProject?.name || 'No Project';
+        
+        if (!allGrouped[projectId]) {
+          allGrouped[projectId] = {
+            project: {
+              _id: doc.employee?.placementProject?._id || null,
+              name: projectName
+            },
+            department: null,
+            hod: null,
+            documents: []
+          };
+        }
+        
+        allGrouped[projectId].documents.push(doc);
+      });
+    } else {
+      allDocuments.forEach(doc => {
+        if (doc.department && doc.department.isActive === false) {
+          return;
+        }
+        
+        const deptId = doc.department?._id?.toString() || 'no-department';
+        const deptName = doc.department?.name || 'No Department';
+        
+        if (!allGrouped[deptId]) {
+          allGrouped[deptId] = {
+            department: {
+              _id: doc.department?._id || null,
+              name: deptName
+            },
+            project: null,
+            hod: null,
+            documents: []
+          };
+        }
+        
+        allGrouped[deptId].documents.push(doc);
+        
+        if (deptId !== 'no-department') {
+          allDepartmentIds.add(deptId);
+        }
+      });
+      
+      // Batch HOD lookup for all documents
+      if (allDepartmentIds.size > 0) {
+        const deptIdsArray = Array.from(allDepartmentIds);
+        const allHods = await Employee.find({
+          'placementDepartment': { $in: deptIdsArray },
+          $or: [
+            { 'placementDesignation.title': { $regex: /hod|head of department/i } }
+          ]
+        }).select('firstName lastName employeeId email placementDepartment').lean();
+        
+        const allHodMap = {};
+        allHods.forEach(hod => {
+          const hodDeptId = hod.placementDepartment?._id 
+            ? hod.placementDepartment._id.toString() 
+            : hod.placementDepartment?.toString();
+          if (hodDeptId && !allHodMap[hodDeptId]) {
+            allHodMap[hodDeptId] = {
+              firstName: hod.firstName,
+              lastName: hod.lastName,
+              employeeId: hod.employeeId,
+              email: hod.email
+            };
+          }
+        });
+        
+        for (const deptId in allGrouped) {
+          if (deptId !== 'no-department' && allHodMap[deptId]) {
+            allGrouped[deptId].hod = allHodMap[deptId];
+          }
+        }
+      }
+    }
+    
+    res.json({
+      filtered: Object.values(grouped),
+      allDocuments: Object.values(allGrouped) // Public general information - all documents
+    });
   } catch (error) {
     console.error('Error fetching grouped evaluation documents:', error);
     res.status(500).json({ error: 'Failed to fetch grouped evaluation documents' });

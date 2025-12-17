@@ -114,7 +114,7 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
               console.log('✅ PDF compressed successfully');
             } else {
               if (fs.existsSync(compressedPath)) {
-                fs.unlinkSync(compressedPath);
+              fs.unlinkSync(compressedPath);
               }
               console.log('ℹ️  Compression did not reduce size, using original');
             }
@@ -158,14 +158,14 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
     // Delete uploaded file if agreement creation fails
     if (req.file) {
       try {
-        const filePath = path.join(__dirname, '../uploads/rental-agreements', req.file.filename);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-        // Also check for compressed version
-        const compressedPath = filePath.replace('.pdf', '-compressed.pdf');
-        if (fs.existsSync(compressedPath)) {
-          fs.unlinkSync(compressedPath);
+      const filePath = path.join(__dirname, '../uploads/rental-agreements', req.file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      // Also check for compressed version
+      const compressedPath = filePath.replace('.pdf', '-compressed.pdf');
+      if (fs.existsSync(compressedPath)) {
+        fs.unlinkSync(compressedPath);
         }
       } catch (cleanupError) {
         console.error('Error cleaning up file:', cleanupError.message);
@@ -225,7 +225,7 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
               fs.renameSync(compressedPath, originalPath);
             } else {
               if (fs.existsSync(compressedPath)) {
-                fs.unlinkSync(compressedPath);
+              fs.unlinkSync(compressedPath);
               }
             }
           }

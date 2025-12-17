@@ -26,22 +26,22 @@ async function compressPDF(inputPath, outputPath, timeoutMs = 30000) {
       }
     }, timeoutMs);
 
+  try {
+    // Check if Ghostscript is available
     try {
-      // Check if Ghostscript is available
-      try {
         await Promise.race([
           execPromise('gs --version', { timeout: 5000 }),
           new Promise((_, reject) => setTimeout(() => reject(new Error('GS check timeout')), 5000))
         ]);
-      } catch {
+    } catch {
         clearTimeout(timeout);
-        fs.copyFileSync(inputPath, outputPath);
+      fs.copyFileSync(inputPath, outputPath);
         resolve(outputPath);
         return;
-      }
+    }
 
       // Compress PDF using Ghostscript with timeout
-      const gsCommand = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="${outputPath}" "${inputPath}"`;
+    const gsCommand = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="${outputPath}" "${inputPath}"`;
       
       try {
         await Promise.race([
@@ -50,19 +50,19 @@ async function compressPDF(inputPath, outputPath, timeoutMs = 30000) {
         ]);
         
         clearTimeout(timeout);
-        
-        // Use compressed version if it's smaller, otherwise use original
-        if (fs.existsSync(outputPath)) {
-          const originalSize = fs.statSync(inputPath).size;
-          const compressedSize = fs.statSync(outputPath).size;
-          
+    
+    // Use compressed version if it's smaller, otherwise use original
+    if (fs.existsSync(outputPath)) {
+      const originalSize = fs.statSync(inputPath).size;
+      const compressedSize = fs.statSync(outputPath).size;
+      
           if (compressedSize >= originalSize || compressedSize === 0) {
-            fs.copyFileSync(inputPath, outputPath);
-          }
-        } else {
-          fs.copyFileSync(inputPath, outputPath);
-        }
-        
+        fs.copyFileSync(inputPath, outputPath);
+      }
+    } else {
+      fs.copyFileSync(inputPath, outputPath);
+    }
+    
         resolve(outputPath);
       } catch (compressionError) {
         clearTimeout(timeout);
@@ -73,15 +73,15 @@ async function compressPDF(inputPath, outputPath, timeoutMs = 30000) {
         console.warn('PDF compression failed, using original file:', compressionError.message);
         resolve(outputPath);
       }
-    } catch (error) {
+  } catch (error) {
       clearTimeout(timeout);
-      // On error, copy original file
+    // On error, copy original file
       if (!fs.existsSync(outputPath)) {
-        fs.copyFileSync(inputPath, outputPath);
+    fs.copyFileSync(inputPath, outputPath);
       }
       console.warn('PDF compression error, using original file:', error.message);
       resolve(outputPath);
-    }
+  }
   });
 }
 
