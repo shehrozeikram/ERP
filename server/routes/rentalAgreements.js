@@ -73,6 +73,10 @@ router.get('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
 
 // Create new rental agreement
 router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'create'), upload.single('agreementImage'), async (req, res) => {
+  const startTime = Date.now();
+  console.log('📥 POST /rental-agreements - Request received');
+  console.log('📋 Body:', { agreementNumber: req.body.agreementNumber, propertyName: req.body.propertyName, status: req.body.status, hasFile: !!req.file });
+  
   try {
     const agreementData = {
       ...req.body,
@@ -81,18 +85,24 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
 
     // Handle file upload (image or PDF)
     if (req.file) {
+      console.log('📎 Processing file upload:', req.file.filename, req.file.mimetype);
       const originalPath = req.file.path;
       const fileExt = path.extname(req.file.filename).toLowerCase();
       const isPDF = fileExt === '.pdf' || req.file.mimetype === 'application/pdf';
       
       if (isPDF) {
+        console.log('📄 PDF detected, attempting compression...');
         try {
           const compressedPath = path.join(
             path.dirname(originalPath),
             path.basename(originalPath, '.pdf') + '-compressed.pdf'
           );
           
-          await compressPDF(originalPath, compressedPath);
+          // Compress with 20 second timeout to prevent request timeout
+          await Promise.race([
+            compressPDF(originalPath, compressedPath, 20000),
+            new Promise((resolve) => setTimeout(() => resolve(), 20000))
+          ]);
           
           if (fs.existsSync(compressedPath)) {
             const compressedSize = fs.statSync(compressedPath).size;
@@ -101,38 +111,70 @@ router.post('/', authMiddleware, permissions.checkSubRolePermission('admin', 're
             if (compressedSize < originalSize && compressedSize > 0) {
               fs.unlinkSync(originalPath);
               fs.renameSync(compressedPath, originalPath);
+              console.log('✅ PDF compressed successfully');
             } else {
-              fs.unlinkSync(compressedPath);
+              if (fs.existsSync(compressedPath)) {
+                fs.unlinkSync(compressedPath);
+              }
+              console.log('ℹ️  Compression did not reduce size, using original');
             }
           }
         } catch (error) {
-          console.error('PDF compression error:', error.message);
+          console.error('❌ PDF compression error:', error.message);
+          // Continue with original file if compression fails
         }
+      } else {
+        console.log('🖼️  Image file, skipping compression');
       }
       
       agreementData.agreementImage = `/uploads/rental-agreements/${req.file.filename}`;
+    } else {
+      console.log('ℹ️  No file uploaded');
     }
 
+    console.log('💾 Saving agreement to database...');
     const agreement = new RentalAgreement(agreementData);
     
-    await agreement.save();
-    await agreement.populate('createdBy', 'firstName lastName');
+    // Add timeout to database save operation (30 seconds)
+    await Promise.race([
+      agreement.save(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Database save timeout')), 30000))
+    ]);
     
+    console.log('✅ Agreement saved, populating createdBy...');
+    await Promise.race([
+      agreement.populate('createdBy', 'firstName lastName'),
+      new Promise((resolve) => setTimeout(() => resolve(), 5000))
+    ]);
+    
+    const duration = Date.now() - startTime;
+    console.log(`✅ Request completed in ${duration}ms`);
     res.status(201).json(agreement);
   } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(`❌ Error after ${duration}ms:`, error.message);
+    console.error('Stack:', error.stack);
+    
     // Delete uploaded file if agreement creation fails
     if (req.file) {
-      const filePath = path.join(__dirname, '../uploads/rental-agreements', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-      // Also check for compressed version
-      const compressedPath = filePath.replace('.pdf', '-compressed.pdf');
-      if (fs.existsSync(compressedPath)) {
-        fs.unlinkSync(compressedPath);
+      try {
+        const filePath = path.join(__dirname, '../uploads/rental-agreements', req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        // Also check for compressed version
+        const compressedPath = filePath.replace('.pdf', '-compressed.pdf');
+        if (fs.existsSync(compressedPath)) {
+          fs.unlinkSync(compressedPath);
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up file:', cleanupError.message);
       }
     }
-    res.status(400).json({ message: error.message });
+    
+    const statusCode = error.message.includes('timeout') ? 504 : 
+                      error.message.includes('duplicate') || error.message.includes('unique') ? 409 : 400;
+    res.status(statusCode).json({ message: error.message });
   }
 });
 
@@ -168,7 +210,11 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
             path.basename(originalPath, '.pdf') + '-compressed.pdf'
           );
           
-          await compressPDF(originalPath, compressedPath);
+          // Compress with 20 second timeout to prevent request timeout
+          await Promise.race([
+            compressPDF(originalPath, compressedPath, 20000),
+            new Promise((resolve) => setTimeout(() => resolve(), 20000))
+          ]);
           
           if (fs.existsSync(compressedPath)) {
             const compressedSize = fs.statSync(compressedPath).size;
@@ -178,11 +224,14 @@ router.put('/:id', authMiddleware, permissions.checkSubRolePermission('admin', '
               fs.unlinkSync(originalPath);
               fs.renameSync(compressedPath, originalPath);
             } else {
-              fs.unlinkSync(compressedPath);
+              if (fs.existsSync(compressedPath)) {
+                fs.unlinkSync(compressedPath);
+              }
             }
           }
         } catch (error) {
           console.error('PDF compression error:', error.message);
+          // Continue with original file if compression fails
         }
       }
       
