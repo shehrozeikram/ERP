@@ -18,7 +18,8 @@ import {
   Assignment as LogBookIcon,
   Warning as AlertIcon,
   TrendingUp as TrendingIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  LocationOn as LocationIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import vehicleService from '../../../services/vehicleService';
@@ -76,7 +77,7 @@ const AlertCard = ({ alerts, onDismiss }) => (
   </Card>
 );
 
-const QuickActions = ({ onAddVehicle, onAddMaintenance, onAddLogBook }) => (
+const QuickActions = ({ onAddVehicle, onAddMaintenance, onAddLogBook, onViewLocation }) => (
   <Card>
     <CardContent>
       <Typography variant="h6" gutterBottom>Quick Actions</Typography>
@@ -88,6 +89,14 @@ const QuickActions = ({ onAddVehicle, onAddMaintenance, onAddLogBook }) => (
           fullWidth
         >
           Add Vehicle
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<LocationIcon />}
+          onClick={onViewLocation}
+          fullWidth
+        >
+          Vehicle Location
         </Button>
         <Button
           variant="outlined"
@@ -322,7 +331,8 @@ const VehicleDashboard = () => {
         {/* Quick Actions */}
         <Grid item xs={12} md={4}>
           <QuickActions
-            onAddVehicle={() => navigate('/admin/vehicle-management/new')}
+            onAddVehicle={() => navigate('/admin/vehicle-management/vehicles/new')}
+            onViewLocation={() => navigate('/admin/vehicle-management/location')}
             onAddMaintenance={() => navigate('/admin/vehicle-management/maintenance/new')}
             onAddLogBook={() => navigate('/admin/vehicle-management/logbook/new')}
           />

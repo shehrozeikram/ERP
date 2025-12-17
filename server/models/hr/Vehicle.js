@@ -83,6 +83,17 @@ const vehicleSchema = new mongoose.Schema({
     trim: true,
     maxlength: 500
   },
+  // Trakker GPS Tracking fields
+  trakkerPhone: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  trakkerDeviceId: {
+    type: String,
+    trim: true,
+    default: null
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

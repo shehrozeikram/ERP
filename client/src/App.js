@@ -82,6 +82,7 @@ import VehicleReports from './pages/Admin/VehicleManagement/VehicleReports';
 import VehicleMaintenanceList from './pages/Admin/VehicleManagement/VehicleMaintenanceList';
 import VehicleLogBookList from './pages/Admin/VehicleManagement/VehicleLogBookList';
 import VehicleLogBookDetailsView from './pages/Admin/VehicleManagement/VehicleLogBookDetailsView';
+import VehicleLocationList from './pages/Admin/VehicleManagement/VehicleLocationList';
 import GroceryList from './pages/Admin/GroceryManagement/GroceryList';
 import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
 import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
@@ -1103,6 +1104,10 @@ function App() {
             <Route 
               path="/admin/vehicle-management/vehicles/:id/edit" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/admin/vehicle-management/location" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLocationList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance" 

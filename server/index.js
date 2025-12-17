@@ -75,6 +75,7 @@ const { router: imageProxyRoutes, setZKBioTimeWebSocketProxy } = require('./rout
 const vehicleRoutes = require('./routes/vehicles');
 const vehicleMaintenanceRoutes = require('./routes/vehicleMaintenance');
 const vehicleLogBookRoutes = require('./routes/vehicleLogBook');
+const trakkerRoutes = require('./routes/trakker');
 const groceryRoutes = require('./routes/groceries');
 const supplierRoutes = require('./routes/suppliers');
 const pettyCashRoutes = require('./routes/pettyCash');
@@ -429,6 +430,7 @@ app.use('/api/images', imageProxyRoutes);
 app.use('/api/vehicles', authMiddleware, vehicleRoutes);
 app.use('/api/vehicle-maintenance', authMiddleware, vehicleMaintenanceRoutes);
 app.use('/api/vehicle-logbook', authMiddleware, vehicleLogBookRoutes);
+app.use('/api/trakker', trakkerRoutes);
 app.use('/api/groceries', authMiddleware, groceryRoutes);
 app.use('/api/suppliers', authMiddleware, supplierRoutes);
 app.use('/api/petty-cash', authMiddleware, pettyCashRoutes);

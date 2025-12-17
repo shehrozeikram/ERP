@@ -575,6 +575,7 @@ export const MODULES = {
         subItems: [
           { name: 'Dashboard', path: '/admin/vehicle-management' },
           { name: 'Vehicles', path: '/admin/vehicle-management/vehicles' },
+          { name: 'Vehicle Location', path: '/admin/vehicle-management/location' },
           { name: 'Maintenance', path: '/admin/vehicle-management/maintenance' },
           { name: 'Log Book', path: '/admin/vehicle-management/logbook' },
           { name: 'Reports', path: '/admin/vehicle-management/reports' }

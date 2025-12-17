@@ -36,7 +36,9 @@ const VehicleForm = () => {
     capacity: 4,
     purchaseDate: '',
     currentMileage: 0,
-    notes: ''
+    notes: '',
+    trakkerPhone: '',
+    trakkerDeviceId: ''
   });
 
   const [loading, setLoading] = useState(false);
@@ -84,7 +86,9 @@ const VehicleForm = () => {
         capacity: vehicle.capacity || 4,
         purchaseDate: vehicle.purchaseDate ? new Date(vehicle.purchaseDate).toISOString().split('T')[0] : '',
         currentMileage: vehicle.currentMileage || 0,
-        notes: vehicle.notes || ''
+        notes: vehicle.notes || '',
+        trakkerPhone: vehicle.trakkerPhone || '',
+        trakkerDeviceId: vehicle.trakkerDeviceId || ''
       });
     } catch (err) {
       setError('Failed to fetch vehicle details');
@@ -337,6 +341,34 @@ const VehicleForm = () => {
                     <MenuItem value="Retired">Retired</MenuItem>
                   </Select>
                 </FormControl>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ mt: 2, mb: 2, fontWeight: 'bold' }}>
+                  Trakker GPS Tracking (Optional)
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Trakker Phone Number"
+                  name="trakkerPhone"
+                  value={formData.trakkerPhone}
+                  onChange={handleChange}
+                  placeholder="e.g., 03129110707"
+                  helperText="Phone number associated with Trakker device"
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Trakker Device ID"
+                  name="trakkerDeviceId"
+                  value={formData.trakkerDeviceId}
+                  onChange={handleChange}
+                  placeholder="e.g., 1707"
+                  helperText="Device ID from Trakker system"
+                />
               </Grid>
 
               <Grid item xs={12}>

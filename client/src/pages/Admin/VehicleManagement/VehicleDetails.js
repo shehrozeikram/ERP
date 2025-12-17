@@ -34,6 +34,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import vehicleService from '../../../services/vehicleService';
 import vehicleMaintenanceService from '../../../services/vehicleMaintenanceService';
 import vehicleLogBookService from '../../../services/vehicleLogBookService';
+import VehicleLocation from './VehicleLocation';
 
 const VehicleDetails = () => {
   const navigate = useNavigate();
@@ -745,6 +746,16 @@ const VehicleDetails = () => {
               </Box>
             </CardContent>
           </Card>
+
+          {/* Vehicle Location Tracking */}
+          {vehicle.trakkerPhone && vehicle.trakkerDeviceId && (
+            <Box sx={{ mt: 3 }}>
+              <VehicleLocation
+                vehicleId={vehicle.vehicleId}
+                vehicleName={`${vehicle.make} ${vehicle.model}`}
+              />
+            </Box>
+          )}
         </Grid>
 
         {/* Financial Information */}
