@@ -246,22 +246,56 @@ router.get('/:id/transactions', authMiddleware, asyncHandler(async (req, res) =>
     });
   }
 
-  // Add remaining amount to deposit transactions
-  const transactionsWithRemaining = transactions.map(txn => {
+  // Populate property information for bill_payment transactions
+  const transactionsWithProperty = await Promise.all(transactions.map(async (txn) => {
     const txnObj = txn.toObject();
+    
+    // Add remaining amount to deposit transactions
     if (txn.transactionType === 'deposit') {
       const depositId = txn._id.toString();
       const totalUsed = depositUsageMap[depositId] || 0;
       txnObj.remainingAmount = Math.max(0, (txn.amount || 0) - totalUsed);
       txnObj.totalUsed = totalUsed;
     }
+    
+    // Populate property information for bill_payment transactions
+    if (txn.transactionType === 'bill_payment' && txn.referenceId) {
+      try {
+        const invoice = await PropertyInvoice.findById(txn.referenceId)
+          .populate('property', 'propertyName propertyType srNo');
+        if (invoice && invoice.property) {
+          txnObj.property = {
+            _id: invoice.property._id,
+            propertyName: invoice.property.propertyName,
+            propertyType: invoice.property.propertyType,
+            srNo: invoice.property.srNo
+          };
+        }
+      } catch (error) {
+        // If invoice not found or error, property will remain undefined
+        console.error('Error populating property for transaction:', error);
+      }
+    }
+    
+    // Populate bank information for bill_payment transactions
+    // If bank is not directly set, try to get it from deposit transactions
+    if (txn.transactionType === 'bill_payment' && !txnObj.bank) {
+      if (txn.depositUsages && Array.isArray(txn.depositUsages) && txn.depositUsages.length > 0) {
+        // Get bank from the first deposit (deposits are already populated)
+        const firstDeposit = txn.depositUsages[0]?.depositId;
+        if (firstDeposit && firstDeposit.bank) {
+          txnObj.bank = firstDeposit.bank;
+        }
+      }
+    }
+    
     return txnObj;
-  });
+  }));
 
   res.json({
     success: true,
     data: {
-      transactions: transactionsWithRemaining,
+      transactions: transactionsWithProperty,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),

@@ -1676,6 +1676,7 @@ const TajResidents = () => {
                   <TableRow>
                     <TableCell><strong>Date</strong></TableCell>
                     <TableCell><strong>Type</strong></TableCell>
+                    <TableCell><strong>Property</strong></TableCell>
                     <TableCell><strong>Amount</strong></TableCell>
                     <TableCell><strong>Balance Before</strong></TableCell>
                     <TableCell><strong>Balance After</strong></TableCell>
@@ -1697,6 +1698,22 @@ const TajResidents = () => {
                             size="small"
                             color={txn.transactionType === 'deposit' || txn.transactionType === 'transfer' ? 'success' : 'default'}
                           />
+                        </TableCell>
+                        <TableCell>
+                          {txn.property ? (
+                            <Box>
+                              <Typography variant="body2" fontWeight={500}>
+                                {txn.property.propertyName || `SR# ${txn.property.srNo || 'N/A'}`}
+                              </Typography>
+                              {txn.property.propertyType && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {txn.property.propertyType}
+                                </Typography>
+                              )}
+                            </Box>
+                          ) : (
+                            '-'
+                          )}
                         </TableCell>
                         <TableCell>{formatCurrency(txn.amount)}</TableCell>
                         <TableCell>{formatCurrency(txn.balanceBefore)}</TableCell>
