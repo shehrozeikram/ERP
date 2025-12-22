@@ -30,14 +30,18 @@ import {
   Collapse,
   Divider,
   Checkbox,
-  FormControlLabel
+  FormControlLabel,
+  Autocomplete
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  FilterList as FilterListIcon,
+  Clear as ClearIcon,
+  Remove as RemoveIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -48,12 +52,24 @@ import {
   deleteProperty
 } from '../../../services/tajPropertiesService';
 import { fetchAvailableAgreements } from '../../../services/tajRentalManagementService';
+import { fetchResidents, assignProperties, unassignProperties } from '../../../services/tajResidentsService';
 
 // Default dropdown options - will be managed in state
 const defaultPropertyTypes = ['Villa', 'House', 'Building', 'Apartment', 'Shop', 'Office', 'Warehouse', 'Plot', 'Play Ground', 'Other'];
 const defaultAreaUnits = ['Sq Ft', 'Sq Yards', 'Marla', 'Kanal', 'Acres'];
 const defaultZoneTypes = ['Residential', 'Commercial', 'Agricultural'];
 const defaultCategoryTypes = ['Personal', 'Private', 'Personal Rent'];
+
+const defaultMeter = {
+  floor: '',
+  consumer: '',
+  meterNo: '',
+  connectionType: '',
+  meterType: '',
+  dateOfOccupation: '',
+  occupiedUnderConstruction: '',
+  isActive: true
+};
 
 const defaultForm = {
   srNo: '',
@@ -89,12 +105,7 @@ const defaultForm = {
   notes: '',
   familyStatus: '',
   hasElectricityWater: false,
-  electricityWaterConsumer: '',
-  electricityWaterMeterNo: '',
-  connectionType: '',
-  occupiedUnderConstruction: '',
-  dateOfOccupation: '',
-  meterType: ''
+  meters: []
 };
 
 const defaultConnectionTypes = ['Single Phase', 'Two Phase', 'Three Phase'];
@@ -132,6 +143,20 @@ const TajProperties = () => {
   const [search, setSearch] = useState('');
   const [agreements, setAgreements] = useState([]);
   const [agreementsLoading, setAgreementsLoading] = useState(false);
+  const [residents, setResidents] = useState([]);
+  const [residentsLoading, setResidentsLoading] = useState(false);
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    status: '',
+    propertyType: '',
+    zoneType: '',
+    categoryType: '',
+    project: '',
+    resident: '',
+    hasElectricityWater: ''
+  });
+  const [showFilters, setShowFilters] = useState(false);
   
   // Dropdown options state
   const [propertyTypes, setPropertyTypes] = useState(defaultPropertyTypes);
@@ -161,27 +186,64 @@ const TajProperties = () => {
     }
   }, []);
 
+  const loadResidents = useCallback(async () => {
+    try {
+      setResidentsLoading(true);
+      const response = await fetchResidents({ isActive: 'true' });
+      setResidents(response.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load residents:', err);
+    } finally {
+      setResidentsLoading(false);
+    }
+  }, []);
+
   const loadProperties = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await fetchProperties({ search });
+      const params = { search };
+      
+      // Add filters to params
+      Object.keys(filters).forEach(key => {
+        if (filters[key] !== '') {
+          params[key] = filters[key];
+        }
+      });
+      
+      const response = await fetchProperties(params);
       setProperties(response.data?.data || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load Taj properties');
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, filters]);
 
   useEffect(() => {
     loadProperties();
     loadAgreements();
-  }, [loadProperties, loadAgreements]);
+    loadResidents();
+  }, [loadProperties, loadAgreements, loadResidents]);
 
   const handleOpenDialog = (property) => {
     if (property) {
       setEditingProperty(property);
+      // Migrate old single meter data to new array format if needed
+      let meters = property.meters || [];
+      if (meters.length === 0 && property.hasElectricityWater && (property.electricityWaterMeterNo || property.electricityWaterConsumer)) {
+        meters = [{
+          floor: property.floor || property.unit || 'Ground Floor',
+          consumer: property.electricityWaterConsumer || '',
+          meterNo: property.electricityWaterMeterNo || '',
+          connectionType: property.connectionType || '',
+          meterType: property.meterType || '',
+          dateOfOccupation: property.dateOfOccupation ? dayjs(property.dateOfOccupation).format('YYYY-MM-DD') : '',
+          occupiedUnderConstruction: property.occupiedUnderConstruction || '',
+          isActive: true
+        }];
+      }
+      
       setFormData({
         srNo: property.srNo || '',
         propertyType: property.propertyType || 'House',
@@ -219,12 +281,10 @@ const TajProperties = () => {
         notes: property.notes || '',
         familyStatus: property.familyStatus || '',
         hasElectricityWater: property.hasElectricityWater || false,
-        electricityWaterConsumer: property.electricityWaterConsumer || '',
-        electricityWaterMeterNo: property.electricityWaterMeterNo || '',
-        connectionType: property.connectionType || '',
-        occupiedUnderConstruction: property.occupiedUnderConstruction || '',
-        dateOfOccupation: property.dateOfOccupation ? dayjs(property.dateOfOccupation).format('YYYY-MM-DD') : '',
-        meterType: property.meterType || ''
+        meters: meters.map(m => ({
+          ...m,
+          dateOfOccupation: m.dateOfOccupation ? dayjs(m.dateOfOccupation).format('YYYY-MM-DD') : ''
+        }))
       });
     } else {
       setEditingProperty(null);
@@ -261,6 +321,17 @@ const TajProperties = () => {
       }));
       return;
     }
+    
+    // Handle hasElectricityWater - auto-add meter if enabled and no meters exist
+    if (name === 'hasElectricityWater' && checked) {
+      setFormData((prev) => ({
+        ...prev,
+        hasElectricityWater: true,
+        meters: prev.meters.length === 0 ? [{ ...defaultMeter }] : prev.meters
+      }));
+      return;
+    }
+    
     setFormData((prev) => ({ 
       ...prev, 
       [name]: type === 'checkbox' ? checked : value 
@@ -358,10 +429,41 @@ const TajProperties = () => {
     }
   };
 
+  // Optimized meter handlers
+  const handleAddMeter = useCallback(() => {
+    setFormData(prev => ({
+      ...prev,
+      meters: [...prev.meters, { ...defaultMeter }]
+    }));
+  }, []);
+
+  const handleUpdateMeter = useCallback((index, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      meters: prev.meters.map((meter, i) => 
+        i === index ? { ...meter, [field]: value } : meter
+      )
+    }));
+  }, []);
+
+  const handleRemoveMeter = useCallback((index) => {
+    setFormData(prev => ({
+      ...prev,
+      meters: prev.meters.filter((_, i) => i !== index)
+    }));
+  }, []);
+
   const handleSaveProperty = async () => {
     try {
       setError('');
-      const { srNo, ...restForm } = formData;
+      
+      // Validate meters if hasElectricityWater is true
+      if (formData.hasElectricityWater && (!formData.meters || formData.meters.length === 0)) {
+        setError('Please add at least one meter when Electricity/Water is enabled');
+        return;
+      }
+
+      const { srNo, meters, ...restForm } = formData;
       const payload = {
         ...restForm,
         areaValue: Number(formData.areaValue) || 0,
@@ -370,26 +472,103 @@ const TajProperties = () => {
         parking: Number(formData.parking) || 0,
         expectedRent: Number(formData.expectedRent) || 0,
         securityDeposit: Number(formData.securityDeposit) || 0,
-        dateOfOccupation: formData.dateOfOccupation || undefined,
         rentalAgreement:
           formData.categoryType === 'Personal Rent' && formData.rentalAgreement
             ? formData.rentalAgreement
-            : undefined
+            : undefined,
+        // Process meters array
+        meters: formData.hasElectricityWater && meters
+          ? meters.map(m => ({
+              floor: m.floor || '',
+              consumer: m.consumer || '',
+              meterNo: m.meterNo || '',
+              connectionType: m.connectionType || '',
+              meterType: m.meterType || '',
+              dateOfOccupation: m.dateOfOccupation || undefined,
+              occupiedUnderConstruction: m.occupiedUnderConstruction || '',
+              isActive: m.isActive !== false
+            }))
+          : []
       };
 
       if (editingProperty && srNo) {
         payload.srNo = Number(srNo);
       }
 
+      let propertyId;
+      let oldResidentId = null;
+
       if (editingProperty) {
-        await updateProperty(editingProperty._id, payload);
+        // Store old resident ID for comparison
+        oldResidentId = editingProperty.resident?._id || editingProperty.resident || null;
+        const response = await updateProperty(editingProperty._id, payload);
+        propertyId = editingProperty._id;
         setSuccess('Property updated successfully');
       } else {
-        await createProperty(payload);
+        const response = await createProperty(payload);
+        // Extract property ID from response - try multiple possible structures
+        propertyId = response.data?.data?._id || response.data?._id || response._id;
+        if (!propertyId) {
+          console.error('Failed to extract property ID from response:', response);
+          setError('Property created but ID not found in response');
+          return;
+        }
         setSuccess('Property created successfully');
       }
+
+      // Auto-assign property to resident if ownerName matches a resident
+      if (formData.ownerName && propertyId) {
+        const selectedResident = residents.find(r => r.name === formData.ownerName);
+        
+        if (selectedResident) {
+          const selectedResidentId = selectedResident._id.toString();
+          const needsAssignment = !oldResidentId || oldResidentId.toString() !== selectedResidentId;
+          
+          if (needsAssignment) {
+            try {
+              // If updating and property was assigned to a different resident, unassign first
+              if (editingProperty && oldResidentId) {
+                const oldResidentIdStr = typeof oldResidentId === 'string' ? oldResidentId : oldResidentId.toString();
+                const propertyIdStr = typeof propertyId === 'string' ? propertyId : propertyId.toString();
+                await unassignProperties(oldResidentIdStr, [propertyIdStr]);
+              }
+              
+              // Ensure propertyId is a string for the API call
+              const propertyIdStr = typeof propertyId === 'string' ? propertyId : propertyId.toString();
+              const residentIdStr = typeof selectedResident._id === 'string' ? selectedResident._id : selectedResident._id.toString();
+              
+              // Assign property to the selected resident
+              await assignProperties(residentIdStr, [propertyIdStr]);
+              console.log('Successfully assigned property', propertyIdStr, 'to resident', residentIdStr);
+            } catch (assignErr) {
+              // Log error but don't fail the entire operation
+              console.error('Failed to assign property to resident:', assignErr);
+              console.error('Error details:', {
+                propertyId,
+                residentId: selectedResident._id,
+                error: assignErr.response?.data || assignErr.message
+              });
+              setSuccess('Property saved successfully, but assignment to resident failed. Please assign manually.');
+            }
+          }
+        } else {
+          console.warn('Resident not found for ownerName:', formData.ownerName);
+        }
+      } else if (editingProperty && oldResidentId && !formData.ownerName) {
+        // If owner name was removed, unassign from old resident
+        try {
+          const oldResidentIdStr = typeof oldResidentId === 'string' ? oldResidentId : oldResidentId.toString();
+          const propertyIdStr = typeof propertyId === 'string' ? propertyId : propertyId.toString();
+          await unassignProperties(oldResidentIdStr, [propertyIdStr]);
+        } catch (unassignErr) {
+          console.error('Failed to unassign property from resident:', unassignErr);
+        }
+      }
+
       handleCloseDialog();
       loadProperties();
+      // Refresh residents list to update property counts
+      loadResidents();
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to save property');
     }
@@ -407,18 +586,49 @@ const TajProperties = () => {
   };
 
   const filteredProperties = useMemo(() => {
-    if (!search) return properties;
-    const pattern = new RegExp(search, 'i');
-    return properties.filter(
-      (property) =>
-        pattern.test(property.propertyName || '') ||
-        pattern.test(property.propertyType || '') ||
-        pattern.test(property.categoryType || '') ||
-        pattern.test(property.plotNumber || '') ||
-        pattern.test(property.ownerName || '') ||
-        pattern.test(property.project || '')
-    );
-  }, [properties, search]);
+    // Since filters are applied on the backend, we just return properties
+    // Client-side search is also handled by backend, so we return all properties
+    return properties;
+  }, [properties]);
+  
+  const handleFilterChange = (name, value) => {
+    setFilters(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+  
+  const clearFilters = () => {
+    setFilters({
+      status: '',
+      propertyType: '',
+      zoneType: '',
+      categoryType: '',
+      project: '',
+      resident: '',
+      hasElectricityWater: ''
+    });
+    setSearch('');
+  };
+  
+  const hasActiveFilters = useMemo(() => {
+    return Object.values(filters).some(value => value !== '') || search !== '';
+  }, [filters, search]);
+  
+  // Get unique values for filter dropdowns
+  const uniqueProjects = useMemo(() => {
+    const projects = properties
+      .map(p => p.project)
+      .filter(p => p && p.trim() !== '');
+    return [...new Set(projects)].sort();
+  }, [properties]);
+  
+  const uniqueStatuses = useMemo(() => {
+    const statuses = properties
+      .map(p => p.status)
+      .filter(s => s && s.trim() !== '');
+    return [...new Set(statuses)].sort();
+  }, [properties]);
 
   const nextSrNo = useMemo(() => {
     if (!properties.length) return 1001;
@@ -472,6 +682,185 @@ const TajProperties = () => {
         </Alert>
       )}
 
+      {/* Filters Section */}
+      <Card sx={{ mb: 2 }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <FilterListIcon color="action" />
+              <Typography variant="h6">Filters</Typography>
+              {hasActiveFilters && (
+                <Chip 
+                  label={`${Object.values(filters).filter(f => f !== '').length + (search ? 1 : 0)} active`}
+                  size="small"
+                  color="primary"
+                />
+              )}
+            </Stack>
+            <Stack direction="row" spacing={1}>
+              {hasActiveFilters && (
+                <Button
+                  size="small"
+                  startIcon={<ClearIcon />}
+                  onClick={clearFilters}
+                >
+                  Clear All
+                </Button>
+              )}
+              <Button
+                size="small"
+                onClick={() => setShowFilters(!showFilters)}
+              >
+                {showFilters ? 'Hide' : 'Show'} Filters
+              </Button>
+            </Stack>
+          </Stack>
+          
+          <Collapse in={showFilters}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Status</InputLabel>
+                  <Select
+                    label="Status"
+                    value={filters.status}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    {uniqueStatuses.map((status) => (
+                      <MenuItem key={status} value={status}>
+                        {status}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Property Type</InputLabel>
+                  <Select
+                    label="Property Type"
+                    value={filters.propertyType}
+                    onChange={(e) => handleFilterChange('propertyType', e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    {propertyTypes.map((type) => (
+                      <MenuItem key={type} value={type}>
+                        {type}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Zone Type</InputLabel>
+                  <Select
+                    label="Zone Type"
+                    value={filters.zoneType}
+                    onChange={(e) => handleFilterChange('zoneType', e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    {zoneTypes.map((zone) => (
+                      <MenuItem key={zone} value={zone}>
+                        {zone}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Category Type</InputLabel>
+                  <Select
+                    label="Category Type"
+                    value={filters.categoryType}
+                    onChange={(e) => handleFilterChange('categoryType', e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    {categoryTypes.map((category) => (
+                      <MenuItem key={category} value={category}>
+                        {category}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Project</InputLabel>
+                  <Select
+                    label="Project"
+                    value={filters.project}
+                    onChange={(e) => handleFilterChange('project', e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    {uniqueProjects.map((project) => (
+                      <MenuItem key={project} value={project}>
+                        {project}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              <Grid item xs={12} sm={6} md={3}>
+                <Autocomplete
+                  size="small"
+                  options={residents}
+                  getOptionLabel={(option) => option.name || ''}
+                  value={residents.find(r => String(r._id) === String(filters.resident)) || null}
+                  onChange={(event, newValue) => {
+                    handleFilterChange('resident', newValue ? String(newValue._id) : '');
+                  }}
+                  loading={residentsLoading}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Owner / Resident"
+                      placeholder="Select resident"
+                    />
+                  )}
+                  renderOption={(props, resident) => (
+                    <Box component="li" {...props} key={resident._id}>
+                      <Box>
+                        <Typography variant="body2">{resident.name}</Typography>
+                        {resident.contactNumber && (
+                          <Typography variant="caption" color="text.secondary">
+                            {resident.contactNumber}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                  isOptionEqualToValue={(option, value) => String(option._id) === String(value._id)}
+                  noOptionsText={residentsLoading ? 'Loading...' : 'No residents found'}
+                />
+              </Grid>
+              
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Has Electricity/Water</InputLabel>
+                  <Select
+                    label="Has Electricity/Water"
+                    value={filters.hasElectricityWater}
+                    onChange={(e) => handleFilterChange('hasElectricityWater', e.target.value)}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="true">Yes</MenuItem>
+                    <MenuItem value="false">No</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          </Collapse>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent>
           <TableContainer component={Paper}>
@@ -484,7 +873,6 @@ const TajProperties = () => {
                   <TableCell>Location</TableCell>
                   <TableCell>Owner / Tenant</TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell align="right">Rent / Deposit</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -497,6 +885,15 @@ const TajProperties = () => {
                       <Typography variant="body2" color="text.secondary">
                         {(property.propertyType || '—')} • Plot {property.plotNumber || '—'} • RDA {property.rdaNumber || '—'}
                       </Typography>
+                      {property.hasElectricityWater && property.meters && property.meters.length > 0 && (
+                        <Chip 
+                          label={`${property.meters.length} Meter${property.meters.length > 1 ? 's' : ''}`}
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                          sx={{ mt: 0.5 }}
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       <Stack spacing={0.5}>
@@ -553,12 +950,6 @@ const TajProperties = () => {
                       <Chip label={property.status || 'Pending'} size="small" />
                     </TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight={600}>{formatCurrency(property.expectedRent)}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Deposit: {formatCurrency(property.securityDeposit)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
                       <Tooltip title="View Details">
                         <IconButton 
                           size="small" 
@@ -583,7 +974,7 @@ const TajProperties = () => {
                 ))}
                 {!filteredProperties.length && !loading && (
                   <TableRow>
-                    <TableCell colSpan={10} align="center">
+                    <TableCell colSpan={7} align="center">
                       <Typography color="text.secondary">No properties found</Typography>
                     </TableCell>
                   </TableRow>
@@ -722,12 +1113,68 @@ const TajProperties = () => {
               />
             </Grid>
             <Grid item xs={12} md={4}>
-              <TextField
-                label="Owner Name"
-                name="ownerName"
-                value={formData.ownerName}
-                onChange={handleInputChange}
-                fullWidth
+              <Autocomplete
+                options={residents}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  return option.name || '';
+                }}
+                value={residents.find(r => r.name === formData.ownerName) || null}
+                onChange={(event, newValue) => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    ownerName: newValue ? newValue.name : ''
+                  }));
+                }}
+                loading={residentsLoading}
+                filterOptions={(options, params) => {
+                  const { inputValue } = params;
+                  if (!inputValue) return options;
+                  
+                  const searchTerm = inputValue.toLowerCase();
+                  return options.filter((resident) => {
+                    const nameMatch = resident.name?.toLowerCase().includes(searchTerm);
+                    const contactMatch = resident.contactNumber?.toLowerCase().includes(searchTerm);
+                    const cnicMatch = resident.cnic?.toLowerCase().includes(searchTerm);
+                    return nameMatch || contactMatch || cnicMatch;
+                  });
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Owner Name"
+                    placeholder="Search by name, contact, or CNIC"
+                  />
+                )}
+                renderOption={(props, resident) => (
+                  <Box component="li" {...props} key={resident._id}>
+                    <Box>
+                      <Typography variant="body1">{resident.name}</Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                        {resident.accountType && resident.accountType !== 'Resident' && (
+                          <Chip 
+                            label={resident.accountType} 
+                            size="small" 
+                            variant="outlined"
+                            sx={{ height: '20px', fontSize: '0.7rem' }}
+                          />
+                        )}
+                        {resident.contactNumber && (
+                          <Typography variant="caption" color="text.secondary">
+                            {resident.contactNumber}
+                          </Typography>
+                        )}
+                        {resident.cnic && (
+                          <Typography variant="caption" color="text.secondary">
+                            CNIC: {resident.cnic}
+                          </Typography>
+                        )}
+                      </Stack>
+                    </Box>
+                  </Box>
+                )}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                noOptionsText={residentsLoading ? 'Loading residents...' : 'No residents found'}
               />
             </Grid>
             <Grid item xs={12} md={4}>
@@ -763,118 +1210,146 @@ const TajProperties = () => {
               />
             </Grid>
 
-            {/* Electricity & Water Section */}
+            {/* Dynamic Meters Section */}
             <Grid item xs={12}>
               <Collapse in={formData.hasElectricityWater}>
                 <Box sx={{ mt: 2, mb: 2 }}>
                   <Divider sx={{ mb: 2 }} />
-                  <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>
-                    Electricity & Water Details
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label="Consumer"
-                        name="electricityWaterConsumer"
-                        value={formData.electricityWaterConsumer}
-                        onChange={handleInputChange}
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label="Meter No"
-                        name="electricityWaterMeterNo"
-                        value={formData.electricityWaterMeterNo}
-                        onChange={handleInputChange}
-                        fullWidth
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <FormControl fullWidth>
-                        <InputLabel>Connection Type</InputLabel>
-                        <Select
-                          label="Connection Type"
-                          name="connectionType"
-                          value={formData.connectionType}
-                          onChange={handleInputChange}
-                        >
-                          {connectionTypes.map((type) => (
-                            <MenuItem key={type} value={type}>
-                              {type}
-                            </MenuItem>
-                          ))}
-                          <MenuItem 
-                            value="add_new" 
-                            sx={{ 
-                              borderTop: '1px solid #e0e0e0',
-                              backgroundColor: '#f5f5f5',
-                              '&:hover': {
-                                backgroundColor: '#e3f2fd'
-                              }
-                            }}
-                          >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <AddIcon fontSize="small" />
-                              Add New
-                            </Box>
-                          </MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <FormControl fullWidth>
-                        <InputLabel>Occupied / Under-construction</InputLabel>
-                        <Select
-                          label="Occupied / Under-construction"
-                          name="occupiedUnderConstruction"
-                          value={formData.occupiedUnderConstruction}
-                          onChange={handleInputChange}
-                        >
-                          {occupiedUnderConstructionOptions.map((option) => (
-                            <MenuItem key={option} value={option}>
-                              {option}
-                            </MenuItem>
-                          ))}
-                          <MenuItem 
-                            value="add_new" 
-                            sx={{ 
-                              borderTop: '1px solid #e0e0e0',
-                              backgroundColor: '#f5f5f5',
-                              '&:hover': {
-                                backgroundColor: '#e3f2fd'
-                              }
-                            }}
-                          >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <AddIcon fontSize="small" />
-                              Add New
-                            </Box>
-                          </MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label="Date of Occupation / Start Date"
-                        type="date"
-                        name="dateOfOccupation"
-                        value={formData.dateOfOccupation}
-                        onChange={handleInputChange}
-                        fullWidth
-                        InputLabelProps={{ shrink: true }}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        label="Meter Type"
-                        name="meterType"
-                        value={formData.meterType}
-                        onChange={handleInputChange}
-                        fullWidth
-                      />
-                    </Grid>
-                  </Grid>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                    <Typography variant="h6">
+                      Electricity & Water Meters
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={handleAddMeter}
+                    >
+                      Add Meter
+                    </Button>
+                  </Stack>
+
+                  {formData.meters && formData.meters.length > 0 ? (
+                    <Stack spacing={2}>
+                      {formData.meters.map((meter, index) => (
+                        <Card key={index} variant="outlined">
+                          <CardContent>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                              <Typography variant="subtitle1" fontWeight={600}>
+                                Meter {index + 1}
+                                {meter.floor && ` - ${meter.floor}`}
+                              </Typography>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleRemoveMeter(index)}
+                                disabled={formData.meters.length === 1}
+                              >
+                                <RemoveIcon fontSize="small" />
+                              </IconButton>
+                            </Stack>
+                            <Grid container spacing={2}>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <TextField
+                                  label="Floor/Unit *"
+                                  value={meter.floor}
+                                  onChange={(e) => handleUpdateMeter(index, 'floor', e.target.value)}
+                                  fullWidth
+                                  size="small"
+                                  required
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <TextField
+                                  label="Consumer"
+                                  value={meter.consumer}
+                                  onChange={(e) => handleUpdateMeter(index, 'consumer', e.target.value)}
+                                  fullWidth
+                                  size="small"
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <TextField
+                                  label="Meter No"
+                                  value={meter.meterNo}
+                                  onChange={(e) => handleUpdateMeter(index, 'meterNo', e.target.value)}
+                                  fullWidth
+                                  size="small"
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <FormControl fullWidth size="small">
+                                  <InputLabel>Connection Type</InputLabel>
+                                  <Select
+                                    label="Connection Type"
+                                    value={meter.connectionType || ''}
+                                    onChange={(e) => handleUpdateMeter(index, 'connectionType', e.target.value)}
+                                  >
+                                    {connectionTypes.map((type) => (
+                                      <MenuItem key={type} value={type}>
+                                        {type}
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <TextField
+                                  label="Meter Type"
+                                  value={meter.meterType}
+                                  onChange={(e) => handleUpdateMeter(index, 'meterType', e.target.value)}
+                                  fullWidth
+                                  size="small"
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <FormControl fullWidth size="small">
+                                  <InputLabel>Occupied / Under-construction</InputLabel>
+                                  <Select
+                                    label="Occupied / Under-construction"
+                                    value={meter.occupiedUnderConstruction || ''}
+                                    onChange={(e) => handleUpdateMeter(index, 'occupiedUnderConstruction', e.target.value)}
+                                  >
+                                    {occupiedUnderConstructionOptions.map((option) => (
+                                      <MenuItem key={option} value={option}>
+                                        {option}
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <TextField
+                                  label="Date of Occupation"
+                                  type="date"
+                                  value={meter.dateOfOccupation || ''}
+                                  onChange={(e) => handleUpdateMeter(index, 'dateOfOccupation', e.target.value)}
+                                  fullWidth
+                                  size="small"
+                                  InputLabelProps={{ shrink: true }}
+                                />
+                              </Grid>
+                              <Grid item xs={12} sm={6} md={3}>
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox
+                                      checked={meter.isActive !== false}
+                                      onChange={(e) => handleUpdateMeter(index, 'isActive', e.target.checked)}
+                                    />
+                                  }
+                                  label="Active"
+                                />
+                              </Grid>
+                            </Grid>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Alert severity="info">
+                      No meters added. Click "Add Meter" to add meter information.
+                    </Alert>
+                  )}
                   <Divider sx={{ mt: 2 }} />
                 </Box>
               </Collapse>

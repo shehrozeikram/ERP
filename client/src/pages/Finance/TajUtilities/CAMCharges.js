@@ -38,7 +38,6 @@ import {
   Visibility as ViewIcon,
   Print as PrintIcon,
   Download as DownloadIcon,
-  Payment as PaymentIcon,
   ReceiptLong as ReceiptIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
@@ -150,6 +149,7 @@ const CAMCharges = () => {
   const [properties, setProperties] = useState([]);
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [expandedInvoices, setExpandedInvoices] = useState(new Set());
   
   // Payment state
   const [paymentDialog, setPaymentDialog] = useState(false);
@@ -212,7 +212,7 @@ const CAMCharges = () => {
   const toggleRowExpansion = async (propertyId) => {
     const newExpanded = new Set(expandedRows);
     const isExpanding = !newExpanded.has(propertyId);
-    
+
     if (isExpanding) {
       newExpanded.add(propertyId);
       // Fetch invoices when expanding
@@ -232,6 +232,16 @@ const CAMCharges = () => {
       newExpanded.delete(propertyId);
     }
     setExpandedRows(newExpanded);
+  };
+
+  const toggleInvoiceExpansion = (invoiceId) => {
+    const newExpanded = new Set(expandedInvoices);
+    if (newExpanded.has(invoiceId)) {
+      newExpanded.delete(invoiceId);
+    } else {
+      newExpanded.add(invoiceId);
+    }
+    setExpandedInvoices(newExpanded);
   };
 
   const totalPayments = (payments) => {
@@ -1354,7 +1364,6 @@ const CAMCharges = () => {
                   <TableCell>Location</TableCell>
                   <TableCell>Owner</TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell>Payment Status</TableCell>
                   <TableCell align="right">CAM Amount</TableCell>
                   <TableCell align="right">Arrears</TableCell>
                   <TableCell align="right">Actions</TableCell>
@@ -1363,13 +1372,13 @@ const CAMCharges = () => {
               <TableBody>
                 {currentOverviewLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : properties.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                       <Typography color="text.secondary">No properties found</Typography>
                     </TableCell>
                   </TableRow>
@@ -1420,18 +1429,6 @@ const CAMCharges = () => {
                             }
                           />
                         </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const { color, label } = getPaymentStatusConfig(property.paymentStatus || 'unpaid');
-                            return (
-                              <Chip
-                                label={label}
-                                color={color}
-                                size="small"
-                              />
-                            );
-                          })()}
-                        </TableCell>
                         <TableCell align="right">
                           <Typography fontWeight={600}>
                             {formatCurrency(property.camAmount || 0)}
@@ -1462,15 +1459,6 @@ const CAMCharges = () => {
                                 <ReceiptIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Add Payment">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={() => handleOpenPaymentDialog(property)}
-                              >
-                                <PaymentIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -1489,11 +1477,14 @@ const CAMCharges = () => {
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
+                                      <TableCell></TableCell>
                                       <TableCell>Invoice #</TableCell>
                                       <TableCell>Date</TableCell>
                                       <TableCell>Period</TableCell>
                                       <TableCell>Due Date</TableCell>
                                       <TableCell align="right">Amount</TableCell>
+                                      <TableCell align="right">Paid</TableCell>
+                                      <TableCell align="right">Balance</TableCell>
                                       <TableCell>Status</TableCell>
                                       <TableCell align="right">Actions</TableCell>
                                     </TableRow>
@@ -1502,7 +1493,21 @@ const CAMCharges = () => {
                                     {propertyInvoices[property._id]
                                       .filter(inv => inv.chargeTypes?.includes('CAM'))
                                       .map((invoice) => (
-                                      <TableRow key={invoice._id}>
+                                      <React.Fragment key={invoice._id}>
+                                      <TableRow>
+                                        <TableCell>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => toggleInvoiceExpansion(invoice._id)}
+                                            sx={{ p: 0.5 }}
+                                          >
+                                            {expandedInvoices.has(invoice._id) ? (
+                                              <ExpandLessIcon fontSize="small" />
+                                            ) : (
+                                              <ExpandMoreIcon fontSize="small" />
+                                            )}
+                                          </IconButton>
+                                        </TableCell>
                                         <TableCell>{invoice.invoiceNumber || 'N/A'}</TableCell>
                                         <TableCell>
                                           {invoice.invoiceDate ? dayjs(invoice.invoiceDate).format('MMM D, YYYY') : 'N/A'}
@@ -1518,6 +1523,8 @@ const CAMCharges = () => {
                                           {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
                                         </TableCell>
                                         <TableCell align="right">{formatCurrency(invoice.grandTotal || 0)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(invoice.totalPaid || 0)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(invoice.balance || 0)}</TableCell>
                         <TableCell>
                           {(() => {
                                             const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
@@ -1572,6 +1579,58 @@ const CAMCharges = () => {
                                           </Stack>
                                         </TableCell>
                                       </TableRow>
+                                      <TableRow>
+                                        <TableCell colSpan={10} sx={{ py: 0, border: 0 }}>
+                                          <Collapse in={expandedInvoices.has(invoice._id)} timeout="auto" unmountOnExit>
+                                            <Box sx={{ py: 2, px: 3, bgcolor: 'grey.50' }}>
+                                              <Typography variant="subtitle2" gutterBottom sx={{ mb: 2 }}>
+                                                Payment History
+                                              </Typography>
+                                              {invoice.payments && invoice.payments.length > 0 ? (
+                                                <Table size="small">
+                                                  <TableHead>
+                                                    <TableRow>
+                                                      <TableCell>Date</TableCell>
+                                                      <TableCell align="right">Amount</TableCell>
+                                                      <TableCell>Method</TableCell>
+                                                      <TableCell>Bank</TableCell>
+                                                      <TableCell>Reference</TableCell>
+                                                      <TableCell>Notes</TableCell>
+                                                      <TableCell>Recorded By</TableCell>
+                                                    </TableRow>
+                                                  </TableHead>
+                                                  <TableBody>
+                                                    {invoice.payments.map((payment, idx) => (
+                                                      <TableRow key={idx}>
+                                                        <TableCell>
+                                                          {dayjs(payment.paymentDate).format('MMM D, YYYY')}
+                                                        </TableCell>
+                                                        <TableCell align="right">
+                                                          {formatCurrency(payment.amount || 0)}
+                                                        </TableCell>
+                                                        <TableCell>{payment.paymentMethod || 'N/A'}</TableCell>
+                                                        <TableCell>{payment.bankName || 'N/A'}</TableCell>
+                                                        <TableCell>{payment.reference || 'N/A'}</TableCell>
+                                                        <TableCell>{payment.notes || 'N/A'}</TableCell>
+                                                        <TableCell>
+                                                          {payment.recordedBy?.firstName && payment.recordedBy?.lastName
+                                                            ? `${payment.recordedBy.firstName} ${payment.recordedBy.lastName}`
+                                                            : 'N/A'}
+                                                        </TableCell>
+                                                      </TableRow>
+                                                    ))}
+                                                  </TableBody>
+                                                </Table>
+                                              ) : (
+                                                <Typography variant="body2" color="text.secondary">
+                                                  No payments recorded yet.
+                                                </Typography>
+                                              )}
+                                            </Box>
+                                          </Collapse>
+                                        </TableCell>
+                                      </TableRow>
+                                      </React.Fragment>
                                     ))}
                                   </TableBody>
                                 </Table>

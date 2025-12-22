@@ -498,57 +498,64 @@ evaluationDocumentSchema.statics.checkAndFixLevel0Routing = async function() {
         const departmentIdStr = departmentId ? departmentId.toString() : null;
         
         doc.level0ApprovalStatus = 'pending';
-        doc.level0Approvers = level0Approvers.map(auth => {
-          const approverName = auth.assignedUser 
-            ? `${auth.assignedUser.firstName} ${auth.assignedUser.lastName}`
-            : 'Unknown';
-          
-          // Get the matching authority scope for this approver
-          let matchingAuth = null;
-          for (const authScope of auth.authorities) {
-            if (authScope.project) {
-              const authProjectId = authScope.project._id ? authScope.project._id.toString() : authScope.project.toString();
-              
-              if (authProjectId === projectIdStr) {
-                // Check departments
-                if (!authScope.departments || authScope.departments.length === 0) {
-                  matchingAuth = authScope;
-                  break;
-                } else if (departmentIdStr) {
-                  const authDeptIds = authScope.departments.map(d => {
-                    if (d._id) return d._id.toString();
-                    if (typeof d === 'string') return d;
-                    return d.toString();
-                  });
-                  if (authDeptIds.includes(departmentIdStr)) {
+        doc.level0Approvers = level0Approvers
+          .filter(auth => auth.assignedUser && auth.assignedUser._id) // Filter out null assignedUser
+          .map(auth => {
+            const approverName = auth.assignedUser 
+              ? `${auth.assignedUser.firstName} ${auth.assignedUser.lastName}`
+              : 'Unknown';
+            
+            // Get the matching authority scope for this approver
+            let matchingAuth = null;
+            for (const authScope of auth.authorities) {
+              if (authScope.project) {
+                const authProjectId = authScope.project._id ? authScope.project._id.toString() : authScope.project.toString();
+                
+                if (authProjectId === projectIdStr) {
+                  // Check departments
+                  if (!authScope.departments || authScope.departments.length === 0) {
                     matchingAuth = authScope;
                     break;
+                  } else if (departmentIdStr) {
+                    const authDeptIds = authScope.departments.map(d => {
+                      if (d._id) return d._id.toString();
+                      if (typeof d === 'string') return d;
+                      return d.toString();
+                    });
+                    if (authDeptIds.includes(departmentIdStr)) {
+                      matchingAuth = authScope;
+                      break;
+                    }
                   }
                 }
               }
             }
-          }
+            
+            return {
+              assignedUser: auth.assignedUser._id,
+              assignedEmployee: auth.assignedEmployee ? auth.assignedEmployee._id : null,
+              approverName,
+              status: 'pending',
+              project: matchingAuth ? (matchingAuth.project._id || matchingAuth.project) : projectId,
+              departments: matchingAuth && matchingAuth.departments ? matchingAuth.departments.map(d => d._id || d) : (departmentIdStr ? [departmentId] : [])
+            };
+          });
+        
+        if (doc.level0Approvers.length > 0) {
+          doc.currentLevel0Approver = doc.level0Approvers[0].assignedUser;
+          doc.currentApprovalLevel = 0;
+          doc.approvalStatus = 'pending';
           
-          return {
-            assignedUser: auth.assignedUser._id,
-            assignedEmployee: auth.assignedEmployee ? auth.assignedEmployee._id : null,
-            approverName,
-            status: 'pending',
-            project: matchingAuth ? (matchingAuth.project._id || matchingAuth.project) : projectId,
-            departments: matchingAuth && matchingAuth.departments ? matchingAuth.departments.map(d => d._id || d) : (departmentIdStr ? [departmentId] : [])
-          };
-        });
-        
-        doc.currentLevel0Approver = doc.level0Approvers[0].assignedUser;
-        doc.currentApprovalLevel = 0;
-        doc.approvalStatus = 'pending';
-        
-        // Clear Level 1-4 approval levels since we're moving back to Level 0
-        // They will be initialized when Level 0 is approved
-        doc.approvalLevels = [];
-        
-        await doc.save();
-        fixedCount++;
+          // Clear Level 1-4 approval levels since we're moving back to Level 0
+          // They will be initialized when Level 0 is approved
+          doc.approvalLevels = [];
+          
+          await doc.save();
+          fixedCount++;
+        } else {
+          // No valid approvers found after filtering - skip this document
+          console.warn(`Document ${doc._id} has no valid Level 0 approvers after filtering`);
+        }
       }
     }
   }

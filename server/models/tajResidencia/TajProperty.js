@@ -234,6 +234,7 @@ rentalAgreement: {
       type: Boolean,
       default: false
     },
+    // Legacy single meter fields (kept for backward compatibility)
     electricityWaterConsumer: {
       type: String,
       trim: true
@@ -258,7 +259,44 @@ rentalAgreement: {
     meterType: {
       type: String,
       trim: true
-    }
+    },
+    // New dynamic meters array
+    meters: [{
+      floor: {
+        type: String,
+        trim: true,
+        required: true
+      },
+      consumer: {
+        type: String,
+        trim: true
+      },
+      meterNo: {
+        type: String,
+        trim: true
+      },
+      connectionType: {
+        type: String,
+        enum: ['Single Phase', 'Two Phase', 'Three Phase'],
+        trim: true
+      },
+      meterType: {
+        type: String,
+        trim: true
+      },
+      dateOfOccupation: {
+        type: Date
+      },
+      occupiedUnderConstruction: {
+        type: String,
+        enum: ['Office', 'Occupied', 'Under-Construction'],
+        trim: true
+      },
+      isActive: {
+        type: Boolean,
+        default: true
+      }
+    }]
   },
   { timestamps: true }
 );

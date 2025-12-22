@@ -47,13 +47,13 @@ import {
   Close as CloseIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import {
   fetchResidents,
   createResident,
   updateResident,
   deleteResident,
   depositMoney,
-  transferMoney,
   payBill,
   fetchResidentTransactions,
   assignProperties,
@@ -62,7 +62,7 @@ import {
   getUnassignedProperties
 } from '../../../services/tajResidentsService';
 import { fetchInvoicesForProperty } from '../../../services/propertyReceiptService';
-import pakistanBanks from '../../../constants/pakistanBanks';
+import api from '../../../services/api';
 
 // Constants
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other'];
@@ -93,7 +93,8 @@ const defaultTransactionForm = {
   description: '',
   paymentMethod: 'Bank Transfer',
   bank: '',
-  referenceNumberExternal: ''
+  referenceNumberExternal: '',
+  depositDate: dayjs().format('YYYY-MM-DD')
 };
 
 const defaultPayForm = {
@@ -109,13 +110,6 @@ const defaultPayForm = {
 };
 
 // Helper functions
-const getInvoiceType = (chargeTypes) => {
-  if (chargeTypes?.includes('ELECTRICITY')) return 'ELECTRICITY';
-  if (chargeTypes?.includes('RENT')) return 'RENT';
-  if (chargeTypes?.includes('CAM')) return 'CAM';
-  return chargeTypes?.[0] || 'CAM';
-};
-
 const getInvoiceDescription = (invoice) => {
   if (invoice.periodFrom && invoice.periodTo) {
     const from = dayjs(invoice.periodFrom).format('DD-MMM-YYYY');
@@ -126,7 +120,21 @@ const getInvoiceDescription = (invoice) => {
   return invoice.description || invoice.invoiceNumber || 'Invoice';
 };
 
+// Helper function to get available amount from deposit (optimized - used multiple times)
+const getDepositAvailableAmount = (deposit) => 
+  deposit.remainingAmount !== undefined ? deposit.remainingAmount : (deposit.amount || 0);
+
+// Helper function to determine invoice type from chargeTypes
+const getInvoiceTypeFromCharges = (chargeTypes) => {
+  if (!chargeTypes || !Array.isArray(chargeTypes)) return 'CAM';
+  if (chargeTypes.includes('ELECTRICITY')) return 'ELECTRICITY';
+  if (chargeTypes.includes('RENT')) return 'RENT';
+  if (chargeTypes.includes('CAM')) return 'CAM';
+  return chargeTypes[0] || 'CAM';
+};
+
 const TajResidents = () => {
+  const navigate = useNavigate();
   // State
   const [loading, setLoading] = useState(false);
   const [residents, setResidents] = useState([]);
@@ -138,20 +146,15 @@ const TajResidents = () => {
   // Dialogs
   const [formDialog, setFormDialog] = useState(false);
   const [depositDialog, setDepositDialog] = useState(false);
-  const [transferDialog, setTransferDialog] = useState(false);
   const [payDialog, setPayDialog] = useState(false);
   const [transactionsDialog, setTransactionsDialog] = useState(false);
+  const [depositsDialog, setDepositsDialog] = useState(false);
   const [propertiesDialog, setPropertiesDialog] = useState(false);
   
   // Form state
   const [selectedResident, setSelectedResident] = useState(null);
   const [formData, setFormData] = useState(defaultFormData);
   const [depositForm, setDepositForm] = useState(defaultTransactionForm);
-  const [transferForm, setTransferForm] = useState({
-    targetResidentId: '',
-    amount: '',
-    description: ''
-  });
   const [payForm, setPayForm] = useState(defaultPayForm);
   
   // Invoice payment state
@@ -163,12 +166,36 @@ const TajResidents = () => {
   // Transactions state
   const [transactions, setTransactions] = useState([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [deposits, setDeposits] = useState([]);
+  const [depositsLoading, setDepositsLoading] = useState(false);
+  
+  // Deposit payment state
+  const [depositPaymentDialog, setDepositPaymentDialog] = useState(false);
+  const [selectedDeposits, setSelectedDeposits] = useState([]);
+  const [depositUsage, setDepositUsage] = useState({}); // Track how much from each deposit is being used: { depositId: amount }
+  const [properties, setProperties] = useState([]);
+  const [depositPaymentForm, setDepositPaymentForm] = useState({
+    receiptDate: dayjs().format('YYYY-MM-DD'),
+    bankName: '',
+    bankReference: '',
+    description: '',
+    paymentMethod: 'Cash'
+  });
+  const [depositPaymentAllocations, setDepositPaymentAllocations] = useState([]);
   
   // Property management state
   const [unassignedProperties, setUnassignedProperties] = useState([]);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState([]);
   const [propertySearch, setPropertySearch] = useState('');
+  
+  // Bank management state
+  const [customBanks, setCustomBanks] = useState(() => {
+    const stored = localStorage.getItem('tajCustomBanks');
+    return stored ? JSON.parse(stored) : [];
+  });
+  const [addBankDialog, setAddBankDialog] = useState(false);
+  const [newBankName, setNewBankName] = useState('');
 
   // Computed values
   const filteredResidents = useMemo(
@@ -327,21 +354,78 @@ const TajResidents = () => {
     setDepositDialog(true);
   }, [resetTransactionForm]);
 
-  const handleTransfer = useCallback((resident) => {
+  const handlePay = useCallback(async (resident) => {
     setSelectedResident(resident);
-    setTransferForm({
-      targetResidentId: '',
-      amount: '',
-      description: ''
+    
+    // Load all deposits for this resident and open deposit payment dialog directly
+    try {
+      setDepositsLoading(true);
+      // Request all deposits by setting a high limit and filtering by transactionType
+      const response = await fetchResidentTransactions(resident._id, {
+        transactionType: 'deposit',
+        limit: 1000 // Get all deposits (adjust if needed)
+      });
+      const allDeposits = (response.data.data.transactions || []).filter(
+        txn => txn.transactionType === 'deposit'
+      );
+      // Ensure remainingAmount is preserved (should already be included from backend)
+      // Log for debugging if needed
+      // console.log('Loaded deposits with remainingAmount:', allDeposits.map(d => ({ 
+      //   id: d._id, 
+      //   amount: d.amount, 
+      //   remainingAmount: d.remainingAmount 
+      // })));
+      setSelectedDeposits(allDeposits);
+      setDeposits(allDeposits);
+      
+      // Initialize deposit usage - all deposits start with 0 usage
+      const initialUsage = {};
+      allDeposits.forEach(dep => {
+        initialUsage[dep._id] = 0;
+      });
+      setDepositUsage(initialUsage);
+    } catch (err) {
+      handleError(err, 'Failed to load deposit transactions');
+      setSelectedDeposits([]);
+      setDeposits([]);
+      setDepositUsage({});
+    } finally {
+      setDepositsLoading(false);
+    }
+    
+    // Open deposit payment dialog directly
+    setDepositPaymentDialog(true);
+    setSelectedProperty(null);
+    setDepositPaymentAllocations([]);
+    setDepositPaymentForm({
+      receiptDate: dayjs().format('YYYY-MM-DD'),
+      bankName: '',
+      bankReference: '',
+      description: '',
+      paymentMethod: 'Cash'
     });
-    setTransferDialog(true);
-  }, []);
-
-  const handlePay = useCallback((resident) => {
-    setSelectedResident(resident);
-    resetPayForm();
-    setPayDialog(true);
-  }, [resetPayForm]);
+    
+    // Refresh resident data to get latest balance
+    try {
+      await loadResidents();
+      // Update selectedResident with latest balance
+      const response = await fetchResidents({});
+      const updatedResident = response.data.data.find(r => r._id === resident._id);
+      if (updatedResident) {
+        setSelectedResident(updatedResident);
+      }
+    } catch (err) {
+      console.error('Error refreshing resident data:', err);
+    }
+    
+    // Load properties
+    try {
+      const response = await api.get('/taj-utilities/properties');
+      setProperties(response.data?.data || []);
+    } catch (err) {
+      console.error('Error loading properties:', err);
+    }
+  }, [handleError, loadResidents]);
 
   const handlePropertyChange = useCallback(async (property) => {
     setSelectedProperty(property);
@@ -353,6 +437,20 @@ const TajResidents = () => {
 
     try {
       setLoadingInvoices(true);
+      
+      // Refresh resident data to get latest balance
+      if (selectedResident?._id) {
+        try {
+          const response = await fetchResidents({});
+          const updatedResident = response.data.data.find(r => r._id === selectedResident._id);
+          if (updatedResident) {
+            setSelectedResident(updatedResident);
+          }
+        } catch (err) {
+          // Error refreshing resident - continue with invoice loading
+        }
+      }
+      
       const response = await fetchInvoicesForProperty(property._id);
       const invoiceList = response.data?.data || [];
       setInvoices(invoiceList);
@@ -362,7 +460,7 @@ const TajResidents = () => {
       setAllocations(outstandingInvoices.map(inv => ({
         invoice: inv._id,
         invoiceNumber: inv.invoiceNumber,
-        invoiceType: getInvoiceType(inv.chargeTypes),
+        invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
         balance: inv.balance || 0,
         allocatedAmount: 0,
         remaining: inv.balance || 0
@@ -374,7 +472,7 @@ const TajResidents = () => {
     } finally {
       setLoadingInvoices(false);
     }
-  }, [handleError]);
+  }, [handleError, selectedResident]);
 
   const handleAllocationChange = useCallback((index, value) => {
     const numValue = Number(value) || 0;
@@ -414,6 +512,301 @@ const TajResidents = () => {
     setPropertiesDialog(true);
     await loadUnassignedProperties();
   }, [loadUnassignedProperties]);
+
+  const handlePayFromDeposit = useCallback(async (depositTransactions) => {
+    // Load all deposits for this resident (not just the clicked one)
+    try {
+      const response = await fetchResidentTransactions(selectedResident._id);
+      const allDeposits = (response.data.data.transactions || []).filter(
+        txn => txn.transactionType === 'deposit'
+      );
+      setSelectedDeposits(allDeposits);
+      // Initialize deposit usage - all deposits start with 0 usage
+      const initialUsage = {};
+      allDeposits.forEach(dep => {
+        initialUsage[dep._id] = 0;
+      });
+      setDepositUsage(initialUsage);
+    } catch (err) {
+      console.error('Error loading deposits:', err);
+      setSelectedDeposits(depositTransactions);
+      setDepositUsage({});
+    }
+    
+    setDepositPaymentDialog(true);
+    setSelectedProperty(null);
+    setDepositPaymentAllocations([]);
+    setDepositPaymentForm({
+      receiptDate: dayjs().format('YYYY-MM-DD'),
+      bankName: '',
+      bankReference: '',
+      description: '',
+      paymentMethod: 'Cash'
+    });
+    
+    // Refresh resident data to get latest balance
+    try {
+      await loadResidents();
+      // Update selectedResident with latest balance
+      const response = await fetchResidents({});
+      const updatedResident = response.data.data.find(r => r._id === selectedResident?._id);
+      if (updatedResident) {
+        setSelectedResident(updatedResident);
+      }
+    } catch (err) {
+      console.error('Error refreshing resident data:', err);
+    }
+    
+    // Load properties
+    try {
+      const response = await api.get('/taj-utilities/properties');
+      setProperties(response.data?.data || []);
+    } catch (err) {
+      console.error('Error loading properties:', err);
+    }
+  }, [selectedResident, loadResidents]);
+
+  const handleDepositPaymentPropertyChange = useCallback(async (property) => {
+    setSelectedProperty(property);
+    if (!property?._id) {
+      setDepositPaymentAllocations([]);
+      return;
+    }
+
+    try {
+      setLoadingInvoices(true);
+      
+      // Refresh resident data to get latest balance
+      if (selectedResident?._id) {
+        try {
+          const response = await fetchResidents({});
+          const updatedResident = response.data.data.find(r => r._id === selectedResident._id);
+          if (updatedResident) {
+            setSelectedResident(updatedResident);
+          }
+        } catch (err) {
+          // Error refreshing resident - continue with invoice loading
+        }
+      }
+      
+      const response = await fetchInvoicesForProperty(property._id);
+      const invoiceList = response.data?.data || [];
+      setInvoices(invoiceList);
+      
+      const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+      
+      setDepositPaymentAllocations(outstandingInvoices.map(inv => ({
+        invoice: inv._id,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+        balance: inv.balance || 0,
+        allocatedAmount: 0,
+        remaining: inv.balance || 0
+      })));
+    } catch (err) {
+      handleError(err, 'Failed to load invoices');
+      setDepositPaymentAllocations([]);
+    } finally {
+      setLoadingInvoices(false);
+    }
+  }, [handleError, selectedResident]);
+
+  const handleDepositPaymentAllocationChange = useCallback((index, value) => {
+    const numValue = Number(value) || 0;
+    const balance = depositPaymentAllocations[index].balance;
+    const newAllocated = Math.min(Math.max(0, numValue), balance);
+    
+    const updated = [...depositPaymentAllocations];
+    updated[index] = {
+      ...updated[index],
+      allocatedAmount: newAllocated,
+      remaining: balance - newAllocated
+    };
+    setDepositPaymentAllocations(updated);
+    
+    // User manually controls deposit usage - no auto-distribution
+    // They adjust "Amount to Use" for each deposit independently
+  }, [depositPaymentAllocations]);
+
+  const handleDepositUsageChange = useCallback((depositId, value) => {
+    const deposit = selectedDeposits.find(d => d._id === depositId);
+    if (!deposit) return;
+    
+    const numValue = Number(value) || 0;
+    const availableAmount = getDepositAvailableAmount(deposit);
+    const newUsage = Math.min(Math.max(0, numValue), availableAmount);
+    
+    setDepositUsage(prev => ({
+      ...prev,
+      [depositId]: newUsage
+    }));
+  }, [selectedDeposits]);
+
+  const depositPaymentTotals = useMemo(() => {
+    const totalAllocated = depositPaymentAllocations.reduce((sum, a) => sum + (a.allocatedAmount || 0), 0);
+    const remainingBalance = selectedResident?.balance || 0;
+    const totalDepositAmount = selectedDeposits.reduce((sum, d) => sum + getDepositAvailableAmount(d), 0);
+    const totalDepositUsage = Object.values(depositUsage).reduce((sum, usage) => sum + (usage || 0), 0);
+    
+    return {
+      totalAllocated,
+      remainingBalance,
+      totalDepositAmount,
+      totalDepositUsage,
+      unallocated: remainingBalance - totalAllocated,
+      depositUnused: totalDepositAmount - totalDepositUsage,
+      unallocatedFromDeposits: totalDepositUsage - totalAllocated
+    };
+  }, [depositPaymentAllocations, selectedResident, selectedDeposits, depositUsage]);
+
+  const handleSubmitDepositPayment = useCallback(async () => {
+    if (!selectedProperty) {
+      setError('Please select a property');
+      return;
+    }
+
+    if (selectedDeposits.length === 0) {
+      setError('Please select at least one deposit');
+      return;
+    }
+
+    const validAllocations = depositPaymentAllocations.filter(a => a.allocatedAmount > 0);
+    if (validAllocations.length === 0) {
+      setError('Please allocate at least one invoice');
+      return;
+    }
+
+    // Validate total allocated must exactly equal total deposit usage
+    if (depositPaymentTotals.totalAllocated !== depositPaymentTotals.totalDepositUsage) {
+      if (depositPaymentTotals.totalAllocated < depositPaymentTotals.totalDepositUsage) {
+        setError(`Total allocated to invoices (${formatCurrency(depositPaymentTotals.totalAllocated)}) is less than total amount being used from deposits (${formatCurrency(depositPaymentTotals.totalDepositUsage)}). Please allocate the full amount to invoices.`);
+      } else {
+        setError(`Total allocated to invoices (${formatCurrency(depositPaymentTotals.totalAllocated)}) exceeds total amount being used from deposits (${formatCurrency(depositPaymentTotals.totalDepositUsage)}). Please reduce invoice allocations.`);
+      }
+      return;
+    }
+
+    // When paying from deposits, validate against deposit availability, not resident balance
+    // The resident balance check is not needed here since deposits are being used
+    // Only check if total deposit usage exceeds available deposits
+    if (depositPaymentTotals.totalDepositUsage > depositPaymentTotals.totalDepositAmount) {
+      setError(`Total amount being used from deposits (${formatCurrency(depositPaymentTotals.totalDepositUsage)}) exceeds available deposit amount (${formatCurrency(depositPaymentTotals.totalDepositAmount)}). Please reduce deposit usage.`);
+      return;
+    }
+
+    // Validate each deposit usage doesn't exceed available amount
+    for (const deposit of selectedDeposits) {
+      const usage = depositUsage[deposit._id] || 0;
+      const availableAmount = getDepositAvailableAmount(deposit);
+      if (usage > availableAmount) {
+        setError(`Usage amount for deposit dated ${dayjs(deposit.createdAt).format('DD MMM YYYY')} cannot exceed available amount (${formatCurrency(availableAmount)})`);
+        return;
+      }
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Prepare deposit usages array for tracking (needed for backend to calculate remainingAmount)
+      const depositsUsed = selectedDeposits
+        .filter(dep => (depositUsage[dep._id] || 0) > 0)
+        .map(dep => ({
+          depositId: dep._id,
+          depositDate: dayjs(dep.createdAt).format('DD MMM YYYY'),
+          amount: depositUsage[dep._id] || 0
+        }));
+      
+      const depositUsagesArray = depositsUsed.map(d => ({
+        depositId: d.depositId,
+        amount: d.amount
+      }));
+      
+      const depositInfo = depositsUsed.length > 0 
+        ? ` (Paid from ${depositsUsed.length} deposit${depositsUsed.length > 1 ? 's' : ''}: ${depositsUsed.map(d => `${d.depositDate} - ${formatCurrency(d.amount)}`).join(', ')})`
+        : ' (Paid from Deposit)';
+      
+      const { totalAllocated } = depositPaymentTotals;
+      
+      // Process payments sequentially when using deposits to avoid race conditions
+      // with balance updates and ensure all invoices are paid correctly
+      for (const allocation of validAllocations) {
+        const invoice = invoices.find(inv => inv._id === allocation.invoice);
+        if (!invoice || allocation.allocatedAmount <= 0) continue;
+        
+        // Calculate proportional deposit usage for this invoice payment
+        const proportion = allocation.allocatedAmount / totalAllocated;
+        const proportionalDepositUsages = depositUsagesArray.map(du => ({
+          depositId: du.depositId,
+          amount: Math.round((du.amount * proportion) * 100) / 100
+        }));
+        
+        await payBill(selectedResident._id, {
+          amount: allocation.allocatedAmount,
+          referenceType: allocation.invoiceType,
+          referenceId: invoice._id,
+          referenceNumber: invoice.invoiceNumber || '',
+          description: `${allocation.invoiceType} - ${getInvoiceDescription(invoice)}${depositInfo}`,
+          paymentDate: depositPaymentForm.receiptDate,
+          paymentMethod: depositPaymentForm.paymentMethod,
+          depositUsages: proportionalDepositUsages
+        });
+      }
+      
+      showSuccess('Payment successful');
+      setDepositPaymentDialog(false);
+      setDepositsDialog(false);
+      loadResidents();
+      
+      // Reload invoices to get updated totalPaid and balance
+      if (selectedProperty?._id) {
+        try {
+          const response = await fetchInvoicesForProperty(selectedProperty._id);
+          const invoiceList = response.data?.data || [];
+          setInvoices(invoiceList);
+          
+          const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+          setDepositPaymentAllocations(outstandingInvoices.map(inv => ({
+            invoice: inv._id,
+            invoiceNumber: inv.invoiceNumber,
+            invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+            balance: inv.balance || 0,
+            allocatedAmount: 0,
+            remaining: inv.balance || 0
+          })));
+        } catch (err) {
+          // Error reloading invoices - non-critical, continue
+        }
+      }
+      
+      // Refresh deposits to get updated remainingAmount values
+      // Use same parameters as handlePay to ensure we get all deposits with remainingAmount
+      try {
+        const response = await fetchResidentTransactions(selectedResident._id, {
+          transactionType: 'deposit',
+          limit: 1000 // Get all deposits
+        });
+        const depositTransactions = (response.data.data.transactions || []).filter(
+          txn => txn.transactionType === 'deposit'
+        );
+        setDeposits(depositTransactions);
+        // Update selectedDeposits with fresh data including updated remainingAmount
+        setSelectedDeposits(depositTransactions);
+        // Reset deposit usage
+        const resetUsage = {};
+        depositTransactions.forEach(dep => {
+          resetUsage[dep._id] = 0;
+        });
+        setDepositUsage(resetUsage);
+      } catch (err) {
+        // Error reloading deposits - non-critical, continue
+      }
+    } catch (err) {
+      handleError(err, 'Failed to pay invoices');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedProperty, selectedDeposits, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError]);
 
   const handleAutoMatch = useCallback(async () => {
     try {
@@ -504,25 +897,6 @@ const TajResidents = () => {
     submitTransaction('Deposit', depositForm, depositMoney);
   }, [depositForm, submitTransaction]);
 
-  const submitTransfer = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const transferData = {
-        ...transferForm,
-        amount: parseFloat(transferForm.amount) || 0
-      };
-      await transferMoney(selectedResident._id, transferData);
-      showSuccess('Transfer successful');
-      setTransferDialog(false);
-      loadResidents();
-    } catch (err) {
-      handleError(err, 'Failed to transfer');
-    } finally {
-      setLoading(false);
-    }
-  }, [transferForm, selectedResident, loadResidents, showSuccess, handleError]);
-
   const submitPay = useCallback(async () => {
     if (!selectedProperty) {
       setError('Please select a property');
@@ -578,6 +952,27 @@ const TajResidents = () => {
       setPayDialog(false);
       resetPayForm();
       loadResidents();
+      
+      // Reload invoices to get updated totalPaid and balance
+      if (selectedProperty?._id) {
+        try {
+          const response = await fetchInvoicesForProperty(selectedProperty._id);
+          const invoiceList = response.data?.data || [];
+          setInvoices(invoiceList);
+          
+          const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+          setAllocations(outstandingInvoices.map(inv => ({
+            invoice: inv._id,
+            invoiceNumber: inv.invoiceNumber,
+            invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+            balance: inv.balance || 0,
+            allocatedAmount: 0,
+            remaining: inv.balance || 0
+          })));
+        } catch (err) {
+          // Error reloading invoices - non-critical, continue
+        }
+      }
     } catch (err) {
       handleError(err, 'Failed to pay invoices');
     } finally {
@@ -594,6 +989,46 @@ const TajResidents = () => {
     });
   }, []);
 
+  // Bank management handlers
+  const handleAddBank = useCallback(() => {
+    if (!newBankName.trim()) return;
+    const trimmedName = newBankName.trim();
+    if (customBanks.includes(trimmedName)) {
+      setError('Bank already exists');
+      return;
+    }
+    const updated = [...customBanks, trimmedName];
+    setCustomBanks(updated);
+    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
+    // Auto-select the newly added bank in the active form
+    if (depositDialog) {
+      setDepositForm((prev) => ({ ...prev, bank: trimmedName }));
+    }
+    if (payDialog) {
+      setPayForm((prev) => ({ ...prev, bankName: trimmedName }));
+    }
+    if (depositPaymentDialog) {
+      setDepositPaymentForm((prev) => ({ ...prev, bankName: trimmedName }));
+    }
+    setNewBankName('');
+    setAddBankDialog(false);
+    setError('');
+  }, [newBankName, customBanks, depositDialog, payDialog, depositPaymentDialog]);
+
+  const handleRemoveBank = useCallback((bankName, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(`Remove "${bankName}" from the bank list?`)) return;
+    const updated = customBanks.filter(b => b !== bankName);
+    setCustomBanks(updated);
+    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
+    // Clear bank field if it was the removed bank
+    if (depositForm.bank === bankName) {
+      setDepositForm((prev) => ({ ...prev, bank: '' }));
+    }
+    showSuccess('Bank removed successfully');
+  }, [customBanks, depositForm.bank, showSuccess]);
+
   // Render helpers
   const renderBankField = useCallback((form, setForm, show = true) => {
     if (!show || !BANK_REQUIRED_METHODS.includes(form.paymentMethod)) return null;
@@ -604,18 +1039,71 @@ const TajResidents = () => {
           <Select
             value={form.bank}
             label="Bank"
-            onChange={(e) => setForm({ ...form, bank: e.target.value })}
+            onChange={(e) => {
+              if (e.target.value === 'add_new') {
+                setAddBankDialog(true);
+                setNewBankName('');
+              } else {
+                setForm({ ...form, bank: e.target.value });
+              }
+            }}
           >
-            {pakistanBanks.map((bank) => (
-              <MenuItem key={bank} value={bank}>
-                {bank}
+            {customBanks.length === 0 ? (
+              <MenuItem disabled value="">
+                <Typography variant="body2" color="text.secondary">
+                  No banks available. Add a new bank.
+                </Typography>
               </MenuItem>
-            ))}
+            ) : (
+              customBanks.map((bank) => (
+                <MenuItem 
+                  key={bank} 
+                  value={bank}
+                  sx={{ 
+                    '&:hover .delete-bank-btn': { 
+                      visibility: 'visible' 
+                    } 
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <span style={{ flex: 1 }}>{bank}</span>
+                    <IconButton
+                      className="delete-bank-btn"
+                      size="small"
+                      onClick={(e) => handleRemoveBank(bank, e)}
+                      sx={{ 
+                        ml: 1, 
+                        p: 0.5,
+                        visibility: 'hidden'
+                      }}
+                      color="error"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </MenuItem>
+              ))
+            )}
+            <MenuItem 
+              value="add_new" 
+              sx={{ 
+                borderTop: customBanks.length > 0 ? '1px solid #e0e0e0' : 'none',
+                backgroundColor: '#f5f5f5',
+                '&:hover': {
+                  backgroundColor: '#e3f2fd'
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <AddIcon fontSize="small" />
+                Add New Bank
+              </Box>
+            </MenuItem>
           </Select>
         </FormControl>
       </Grid>
     );
-  }, []);
+  }, [customBanks, handleRemoveBank]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -724,6 +1212,15 @@ const TajResidents = () => {
                   <TableCell>{resident.contactNumber || '-'}</TableCell>
                   <TableCell>
                     <Stack direction="row" spacing={1}>
+                      <Tooltip title="View Details">
+                        <IconButton
+                          size="small"
+                          color="info"
+                          onClick={() => navigate(`/finance/taj-utilities-charges/taj-residents/${resident._id}`)}
+                        >
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Deposit">
                         <IconButton
                           size="small"
@@ -731,15 +1228,6 @@ const TajResidents = () => {
                           onClick={() => handleDeposit(resident)}
                         >
                           <GetAppIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Transfer">
-                        <IconButton
-                          size="small"
-                          color="info"
-                          onClick={() => handleTransfer(resident)}
-                        >
-                          <PaymentIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Pay Bill">
@@ -903,7 +1391,18 @@ const TajResidents = () => {
                 Current Balance: {formatCurrency(selectedResident?.balance || 0)}
               </Alert>
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Deposit Date"
+                type="date"
+                value={depositForm.depositDate || dayjs().format('YYYY-MM-DD')}
+                onChange={(e) => setDepositForm({ ...depositForm, depositDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 label="Amount"
@@ -933,7 +1432,7 @@ const TajResidents = () => {
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
-                label="Reference Number"
+                label="Transaction Number"
                 value={depositForm.referenceNumberExternal}
                 onChange={(e) => setDepositForm({ ...depositForm, referenceNumberExternal: e.target.value })}
               />
@@ -954,64 +1453,6 @@ const TajResidents = () => {
           <Button onClick={() => setDepositDialog(false)}>Cancel</Button>
           <Button onClick={submitDeposit} variant="contained" disabled={loading || !depositForm.amount}>
             Deposit
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Transfer Dialog */}
-      <Dialog open={transferDialog} onClose={() => setTransferDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          Transfer Money - {selectedResident?.name}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <Alert severity="info">
-                Current Balance: {formatCurrency(selectedResident?.balance || 0)}
-              </Alert>
-            </Grid>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Transfer To</InputLabel>
-                <Select
-                  value={transferForm.targetResidentId}
-                  label="Transfer To"
-                  onChange={(e) => setTransferForm({ ...transferForm, targetResidentId: e.target.value })}
-                >
-                  {availableResidents.map((r) => (
-                    <MenuItem key={r._id} value={r._id}>
-                      {r.name} ({formatCurrency(r.balance)})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Amount"
-                type="number"
-                value={transferForm.amount}
-                onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
-                required
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Description"
-                multiline
-                rows={2}
-                value={transferForm.description}
-                onChange={(e) => setTransferForm({ ...transferForm, description: e.target.value })}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTransferDialog(false)}>Cancel</Button>
-          <Button onClick={submitTransfer} variant="contained" disabled={loading || !transferForm.amount || !transferForm.targetResidentId}>
-            Transfer
           </Button>
         </DialogActions>
       </Dialog>
@@ -1086,13 +1527,43 @@ const TajResidents = () => {
                 <Select
                   value={payForm.bankName}
                   label="Bank"
-                  onChange={(e) => setPayForm({ ...payForm, bankName: e.target.value })}
+                  onChange={(e) => {
+                    if (e.target.value === 'add_new') {
+                      setAddBankDialog(true);
+                      setNewBankName('');
+                    } else {
+                      setPayForm({ ...payForm, bankName: e.target.value });
+                    }
+                  }}
                 >
-                  {pakistanBanks.map((bank) => (
-                    <MenuItem key={bank} value={bank}>
-                      {bank}
+                  {customBanks.length === 0 ? (
+                    <MenuItem disabled value="">
+                      <Typography variant="body2" color="text.secondary">
+                        No banks available. Add a new bank.
+                      </Typography>
                     </MenuItem>
-                  ))}
+                  ) : (
+                    customBanks.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))
+                  )}
+                  <MenuItem 
+                    value="add_new" 
+                    sx={{ 
+                      borderTop: customBanks.length > 0 ? '1px solid #e0e0e0' : 'none',
+                      backgroundColor: '#f5f5f5',
+                      '&:hover': {
+                        backgroundColor: '#e3f2fd'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AddIcon fontSize="small" />
+                      Add New Bank
+                    </Box>
+                  </MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -1211,27 +1682,60 @@ const TajResidents = () => {
                     <TableCell><strong>Payment Method</strong></TableCell>
                     <TableCell><strong>Bank</strong></TableCell>
                     <TableCell><strong>Description</strong></TableCell>
+                    <TableCell><strong>Deposit Breakdown</strong></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {transactions.map((txn) => (
-                    <TableRow key={txn._id}>
-                      <TableCell>{dayjs(txn.createdAt).format('DD MMM YYYY HH:mm')}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={txn.transactionType}
-                          size="small"
-                          color={txn.transactionType === 'deposit' || txn.transactionType === 'transfer' ? 'success' : 'default'}
-                        />
-                      </TableCell>
-                      <TableCell>{formatCurrency(txn.amount)}</TableCell>
-                      <TableCell>{formatCurrency(txn.balanceBefore)}</TableCell>
-                      <TableCell>{formatCurrency(txn.balanceAfter)}</TableCell>
-                      <TableCell>{txn.paymentMethod || '-'}</TableCell>
-                      <TableCell>{txn.bank || '-'}</TableCell>
-                      <TableCell>{txn.description || '-'}</TableCell>
-                    </TableRow>
-                  ))}
+                  {transactions.map((txn) => {
+                    const hasDepositBreakdown = txn.depositUsages && Array.isArray(txn.depositUsages) && txn.depositUsages.length > 0;
+                    return (
+                      <TableRow key={txn._id}>
+                        <TableCell>{dayjs(txn.createdAt).format('DD MMM YYYY HH:mm')}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={txn.transactionType}
+                            size="small"
+                            color={txn.transactionType === 'deposit' || txn.transactionType === 'transfer' ? 'success' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>{formatCurrency(txn.amount)}</TableCell>
+                        <TableCell>{formatCurrency(txn.balanceBefore)}</TableCell>
+                        <TableCell>{formatCurrency(txn.balanceAfter)}</TableCell>
+                        <TableCell>{txn.paymentMethod || '-'}</TableCell>
+                        <TableCell>{txn.bank || '-'}</TableCell>
+                        <TableCell>{txn.description || '-'}</TableCell>
+                        <TableCell>
+                          {hasDepositBreakdown ? (
+                            <Box>
+                              {txn.depositUsages.map((usage, idx) => {
+                                const depositDate = usage.depositId?.createdAt 
+                                  ? dayjs(usage.depositId.createdAt).format('DD MMM YYYY')
+                                  : usage.depositId?._id 
+                                  ? 'Deposit'
+                                  : 'Deposit';
+                                const depositAmount = usage.depositId?.amount 
+                                  ? formatCurrency(usage.depositId.amount)
+                                  : '';
+                                return (
+                                  <Typography 
+                                    key={idx} 
+                                    variant="caption" 
+                                    display="block" 
+                                    sx={{ mb: 0.5 }}
+                                    title={depositAmount ? `From deposit of ${depositAmount}` : ''}
+                                  >
+                                    <strong>{depositDate}:</strong> {formatCurrency(usage.amount)}
+                                  </Typography>
+                                );
+                              })}
+                            </Box>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -1239,6 +1743,78 @@ const TajResidents = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setTransactionsDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Deposits Dialog - Shows only deposit transactions */}
+      <Dialog open={depositsDialog} onClose={() => setDepositsDialog(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          Transactions Deposited - {selectedResident?.name}
+        </DialogTitle>
+        <DialogContent>
+          {depositsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Date</strong></TableCell>
+                    <TableCell><strong>Type</strong></TableCell>
+                    <TableCell><strong>Amount</strong></TableCell>
+                    <TableCell><strong>Payment Method</strong></TableCell>
+                    <TableCell><strong>Bank</strong></TableCell>
+                    <TableCell><strong>Description</strong></TableCell>
+                    <TableCell><strong>Actions</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {deposits.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          No deposit transactions found
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    deposits.map((txn) => (
+                      <TableRow key={txn._id}>
+                        <TableCell>{dayjs(txn.createdAt).format('DD MMM YYYY HH:mm')}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={txn.transactionType}
+                            size="small"
+                            color="success"
+                          />
+                        </TableCell>
+                        <TableCell>{formatCurrency(txn.amount)}</TableCell>
+                        <TableCell>{txn.paymentMethod || '-'}</TableCell>
+                        <TableCell>{txn.bank || '-'}</TableCell>
+                        <TableCell>{txn.description || '-'}</TableCell>
+                        <TableCell>
+                          <Tooltip title="Pay Invoice">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handlePayFromDeposit([txn])}
+                            >
+                              <PaymentIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDepositsDialog(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -1260,6 +1836,7 @@ const TajResidents = () => {
                     <TableHead>
                       <TableRow>
                         <TableCell><strong>Property Name</strong></TableCell>
+                        <TableCell><strong>Meters</strong></TableCell>
                         <TableCell><strong>Plot Number</strong></TableCell>
                         <TableCell><strong>Sector</strong></TableCell>
                         <TableCell><strong>Block</strong></TableCell>
@@ -1268,9 +1845,24 @@ const TajResidents = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {selectedResident.properties.map((property) => (
+                      {selectedResident.properties.map((property) => {
+                        const activeMetersCount = property.meters?.filter(m => m.isActive !== false).length || 0;
+                        const totalMetersCount = property.meters?.length || 0;
+                        return (
                         <TableRow key={property._id}>
                           <TableCell>{property.propertyName || '-'}</TableCell>
+                          <TableCell>
+                            {property.meters && Array.isArray(property.meters) && totalMetersCount > 0 ? (
+                              <Chip 
+                                label={`${activeMetersCount}${totalMetersCount !== activeMetersCount ? `/${totalMetersCount}` : ''}`}
+                                size="small"
+                                color={activeMetersCount > 0 ? "primary" : "default"}
+                                variant={activeMetersCount > 0 ? "filled" : "outlined"}
+                              />
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">0</Typography>
+                            )}
+                          </TableCell>
                           <TableCell>{property.plotNumber || '-'}</TableCell>
                           <TableCell>{property.sector || '-'}</TableCell>
                           <TableCell>{property.block || '-'}</TableCell>
@@ -1285,7 +1877,8 @@ const TajResidents = () => {
                             </IconButton>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -1384,6 +1977,7 @@ const TajResidents = () => {
                           />
                         </TableCell>
                         <TableCell><strong>Property Name</strong></TableCell>
+                        <TableCell><strong>Meters</strong></TableCell>
                         <TableCell><strong>Plot Number</strong></TableCell>
                         <TableCell><strong>Sector</strong></TableCell>
                         <TableCell><strong>Block</strong></TableCell>
@@ -1396,6 +1990,8 @@ const TajResidents = () => {
                       {unassignedProperties.map((property) => {
                         const isAlreadyAssigned = property.resident && property.resident._id !== selectedResident?._id;
                         const isAssignedToThisResident = property.resident && property.resident._id === selectedResident?._id;
+                        const activeMetersCount = property.meters?.filter(m => m.isActive !== false).length || 0;
+                        const totalMetersCount = property.meters?.length || 0;
                         return (
                           <TableRow 
                             key={property._id}
@@ -1421,6 +2017,18 @@ const TajResidents = () => {
                               <Typography variant="body2" fontWeight={isAlreadyAssigned ? 'bold' : 'normal'}>
                                 {property.propertyName || '-'}
                               </Typography>
+                            </TableCell>
+                            <TableCell>
+                              {property.meters && Array.isArray(property.meters) && totalMetersCount > 0 ? (
+                                <Chip 
+                                  label={`${activeMetersCount}${totalMetersCount !== activeMetersCount ? `/${totalMetersCount}` : ''}`}
+                                  size="small"
+                                  color={activeMetersCount > 0 ? "primary" : "default"}
+                                  variant={activeMetersCount > 0 ? "filled" : "outlined"}
+                                />
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">0</Typography>
+                              )}
                             </TableCell>
                             <TableCell>{property.plotNumber || '-'}</TableCell>
                             <TableCell>{property.sector || '-'}</TableCell>
@@ -1455,6 +2063,346 @@ const TajResidents = () => {
             startIcon={<LinkIcon />}
           >
             Assign Selected ({selectedPropertyIds.length})
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Deposit Payment Dialog - Similar to Receipt Create */}
+      <Dialog open={depositPaymentDialog} onClose={() => setDepositPaymentDialog(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">Pay Invoices from Deposit</Typography>
+            <IconButton onClick={() => setDepositPaymentDialog(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers>
+          {/* All Deposits Table - User can see and allocate from each deposit */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Available Deposits
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              All deposits are shown below. You can allocate payments from multiple deposits. Adjust the "Amount to Use" for each deposit as needed.
+            </Typography>
+            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Deposit Date</strong></TableCell>
+                    <TableCell><strong>Deposit Amount</strong></TableCell>
+                    <TableCell><strong>Payment Method</strong></TableCell>
+                    <TableCell><strong>Bank</strong></TableCell>
+                    <TableCell><strong>Transaction Number</strong></TableCell>
+                    <TableCell align="right"><strong>Amount to Use</strong></TableCell>
+                    <TableCell align="right"><strong>Remaining</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedDeposits.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center" sx={{ py: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          No deposits available
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    selectedDeposits.map((deposit) => {
+                      const usageAmount = depositUsage[deposit._id] || 0;
+                      const availableAmount = getDepositAvailableAmount(deposit);
+                      const remaining = availableAmount - usageAmount;
+                      return (
+                        <TableRow key={deposit._id}>
+                          <TableCell>{dayjs(deposit.createdAt).format('DD MMM YYYY')}</TableCell>
+                          <TableCell>
+                            <Typography fontWeight={600}>
+                              {formatCurrency(deposit.amount || 0)}
+                            </Typography>
+                            {deposit.remainingAmount !== undefined && deposit.remainingAmount < deposit.amount && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Available: {formatCurrency(deposit.remainingAmount)}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>{deposit.paymentMethod || '-'}</TableCell>
+                          <TableCell>{deposit.bank || '-'}</TableCell>
+                          <TableCell>{deposit.referenceNumberExternal || '-'}</TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              type="number"
+                              value={usageAmount || ''}
+                              onChange={(e) => handleDepositUsageChange(deposit._id, e.target.value)}
+                              size="small"
+                              inputProps={{ 
+                                min: 0, 
+                                max: availableAmount, 
+                                step: 1 
+                              }}
+                              sx={{ width: 150 }}
+                              helperText={`Max: ${formatCurrency(availableAmount)}`}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography 
+                              fontWeight={600}
+                              color={remaining < 0 ? 'error.main' : remaining === 0 ? 'success.main' : 'text.primary'}
+                            >
+                              {formatCurrency(remaining)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Total Deposit Amount:
+                </Typography>
+                <Typography variant="h6" fontWeight={600}>
+                  {formatCurrency(depositPaymentTotals.totalDepositAmount)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Total Amount Being Used:
+                </Typography>
+                <Typography variant="h6" fontWeight={600} color="primary.main">
+                  {formatCurrency(depositPaymentTotals.totalDepositUsage)}
+                </Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="body2" color="text.secondary">
+                  Remaining Available Balance:
+                </Typography>
+                <Typography 
+                  variant="h6" 
+                  fontWeight={600}
+                  color={depositPaymentTotals.remainingBalance < 0 ? 'error.main' : 'success.main'}
+                >
+                  {formatCurrency(depositPaymentTotals.remainingBalance)}
+                </Typography>
+              </Stack>
+            </Box>
+          </Box>
+
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} sm={6}>
+              <Autocomplete
+                options={properties}
+                getOptionLabel={(option) => 
+                  `${option.propertyName || option.plotNumber || ''} - ${option.ownerName || ''}`
+                }
+                value={selectedProperty}
+                onChange={(e, newValue) => handleDepositPaymentPropertyChange(newValue)}
+                renderInput={(params) => (
+                  <TextField {...params} label="Select Property" size="small" required />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                label="Applied Date"
+                type="date"
+                value={depositPaymentForm.receiptDate}
+                onChange={(e) => setDepositPaymentForm({ ...depositPaymentForm, receiptDate: e.target.value })}
+                fullWidth
+                size="small"
+                InputLabelProps={{ shrink: true }}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                label="Total Amount to Use"
+                type="number"
+                value={depositPaymentTotals.totalDepositUsage}
+                fullWidth
+                size="small"
+                disabled
+                InputLabelProps={{ shrink: true }}
+                helperText="Sum of amounts from deposits"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Description"
+                value={depositPaymentForm.description}
+                onChange={(e) => setDepositPaymentForm({ ...depositPaymentForm, description: e.target.value })}
+                fullWidth
+                size="small"
+                multiline
+                rows={2}
+              />
+            </Grid>
+          </Grid>
+
+          {loadingInvoices ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : depositPaymentAllocations.length > 0 ? (
+            <>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>Invoice #</strong></TableCell>
+                      <TableCell><strong>Invoice Date</strong></TableCell>
+                      <TableCell><strong>Invoice Period</strong></TableCell>
+                      <TableCell><strong>Due Date</strong></TableCell>
+                      <TableCell align="right"><strong>Amount</strong></TableCell>
+                      <TableCell align="right"><strong>Paid</strong></TableCell>
+                      <TableCell align="right"><strong>Balance</strong></TableCell>
+                      <TableCell align="right"><strong>Pay Now</strong></TableCell>
+                      <TableCell align="right"><strong>Remaining</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {depositPaymentAllocations.map((alloc, index) => {
+                      const invoice = invoices.find(inv => inv._id === alloc.invoice);
+                      const periodText = invoice?.periodFrom && invoice?.periodTo
+                        ? `${dayjs(invoice.periodFrom).format('DD MMM YYYY')} - ${dayjs(invoice.periodTo).format('DD MMM YYYY')}`
+                        : '-';
+                      return (
+                        <TableRow key={alloc.invoice}>
+                          <TableCell>{invoice?.invoiceNumber || '-'}</TableCell>
+                          <TableCell>{invoice?.invoiceDate ? dayjs(invoice.invoiceDate).format('DD MMM YYYY') : '-'}</TableCell>
+                          <TableCell>{periodText}</TableCell>
+                          <TableCell>{invoice?.dueDate ? dayjs(invoice.dueDate).format('DD MMM YYYY') : '-'}</TableCell>
+                          <TableCell align="right">{formatCurrency(invoice?.grandTotal || 0)}</TableCell>
+                          <TableCell align="right">{formatCurrency(invoice?.totalPaid || 0)}</TableCell>
+                          <TableCell align="right">{formatCurrency(alloc.balance)}</TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              type="number"
+                              value={alloc.allocatedAmount || ''}
+                              onChange={(e) => handleDepositPaymentAllocationChange(index, e.target.value)}
+                              size="small"
+                              inputProps={{ min: 0, max: alloc.balance, step: 1 }}
+                              sx={{ width: 120 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography color={alloc.remaining > 0 ? 'error.main' : 'success.main'}>
+                              {formatCurrency(alloc.remaining)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Total Amount Being Used:
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600} color="primary.main">
+                    {formatCurrency(depositPaymentTotals.totalDepositUsage)}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Total Allocated to Invoices:
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600}>
+                    {formatCurrency(depositPaymentTotals.totalAllocated)}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="body2" color="text.secondary">
+                    Remaining to Allocate:
+                  </Typography>
+                  <Typography 
+                    variant="h6" 
+                    fontWeight={600}
+                    color={
+                      depositPaymentTotals.totalDepositUsage - depositPaymentTotals.totalAllocated === 0 
+                        ? 'success.main' 
+                        : depositPaymentTotals.totalAllocated < depositPaymentTotals.totalDepositUsage 
+                        ? 'warning.main' 
+                        : 'error.main'
+                    }
+                  >
+                    {formatCurrency(depositPaymentTotals.totalDepositUsage - depositPaymentTotals.totalAllocated)}
+                  </Typography>
+                </Stack>
+              </Box>
+              {depositPaymentTotals.totalAllocated !== depositPaymentTotals.totalDepositUsage && (
+                <Alert 
+                  severity={depositPaymentTotals.totalAllocated < depositPaymentTotals.totalDepositUsage ? "warning" : "error"} 
+                  sx={{ mt: 2 }}
+                >
+                  <Typography variant="body2">
+                    {depositPaymentTotals.totalAllocated < depositPaymentTotals.totalDepositUsage ? (
+                      <>
+                        <strong>Incomplete Allocation:</strong> Total allocated to invoices ({formatCurrency(depositPaymentTotals.totalAllocated)}) is less than total amount being used from deposits ({formatCurrency(depositPaymentTotals.totalDepositUsage)}). 
+                        Please allocate the full amount ({formatCurrency(depositPaymentTotals.totalDepositUsage - depositPaymentTotals.totalAllocated)}) to invoices.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Over Allocation:</strong> Total allocated to invoices ({formatCurrency(depositPaymentTotals.totalAllocated)}) exceeds total amount being used from deposits ({formatCurrency(depositPaymentTotals.totalDepositUsage)}). 
+                        Please reduce invoice allocations by {formatCurrency(depositPaymentTotals.totalAllocated - depositPaymentTotals.totalDepositUsage)}.
+                      </>
+                    )}
+                  </Typography>
+                </Alert>
+              )}
+            </>
+          ) : selectedProperty ? (
+            <Alert severity="info">No outstanding invoices found for this property.</Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDepositPaymentDialog(false)}>Close</Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitDepositPayment}
+            disabled={
+              loading || 
+              !selectedProperty || 
+              depositPaymentTotals.totalAllocated <= 0 ||
+              depositPaymentTotals.totalAllocated !== depositPaymentTotals.totalDepositUsage
+            }
+          >
+            {loading ? 'Paying...' : 'Pay Invoices'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Bank Dialog */}
+      <Dialog open={addBankDialog} onClose={() => setAddBankDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add New Bank</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Bank Name"
+            value={newBankName}
+            onChange={(e) => setNewBankName(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleAddBank();
+              }
+            }}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddBankDialog(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleAddBank}
+            disabled={!newBankName.trim()}
+          >
+            Add Bank
           </Button>
         </DialogActions>
       </Dialog>

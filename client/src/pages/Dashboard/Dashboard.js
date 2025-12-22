@@ -59,6 +59,7 @@ import RealtimeAttendanceMonitor from '../../components/RealtimeAttendanceMonito
 import PresentChart from '../../components/PresentChart';
 import DeviceStatusChart from '../../components/DeviceStatusChart';
 import DepartmentChart from '../../components/DepartmentChart';
+import indentService from '../../services/indentService';
 
 const DASHBOARD_DEBUG = process.env.REACT_APP_DASHBOARD_DEBUG === 'true';
 const logDebug = (...args) => {

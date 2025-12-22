@@ -73,6 +73,20 @@ const tajTransactionSchema = new mongoose.Schema(
       trim: true // External transaction reference (bank reference, cheque number, etc.)
     },
     
+    // For tracking deposit usage in bill payments (array to handle multiple deposits per payment)
+    depositUsages: [{
+      depositId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TajTransaction',
+        required: true
+      },
+      amount: {
+        type: Number,
+        required: true,
+        min: 0
+      }
+    }],
+    
     // Metadata
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

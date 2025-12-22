@@ -8,7 +8,14 @@ const Electricity = require('../models/tajResidencia/Electricity');
  */
 const getElectricitySlabForUnits = async (unitsConsumed) => {
   try {
-    const activeSlabs = await WaterUtilitySlab.getActiveSlabs();
+    // Try with populate first, fallback to lean if User model not available
+    let activeSlabs;
+    try {
+      activeSlabs = await WaterUtilitySlab.getActiveSlabs();
+    } catch (err) {
+      // If populate fails (e.g., User model not registered), use lean
+      activeSlabs = await WaterUtilitySlab.findOne({ isActive: true }).lean();
+    }
     
     if (!activeSlabs || !activeSlabs.slabs || activeSlabs.slabs.length === 0) {
       return { slab: null, unitRate: 0, fixRate: 0 };
@@ -43,7 +50,6 @@ const getElectricitySlabForUnits = async (unitsConsumed) => {
 
     return { slab: null, unitRate: 0, fixRate: 0, unitsSlab: '' };
   } catch (error) {
-    console.error('Error getting electricity slab for units:', error);
     return { slab: null, unitRate: 0, fixRate: 0, unitsSlab: '' };
   }
 };
@@ -106,16 +112,21 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
  */
 const getPreviousReading = async (meterNo, propertyKey) => {
   try {
-    // Try to find last bill by meter number first
+    // Try to find last bill by meter number first (must match exactly)
     let lastBill = null;
     if (meterNo) {
-      lastBill = await Electricity.findOne({ meterNo })
-        .sort({ toDate: -1 })
+      // Convert meterNo to string for consistent matching
+      const meterNoStr = String(meterNo);
+      lastBill = await Electricity.findOne({ 
+        meterNo: meterNoStr  // Exact match on meter number
+      })
+        .sort({ toDate: -1, createdAt: -1 })
         .lean();
     }
     
-    // If not found by meter, try by property key
-    if (!lastBill && propertyKey) {
+    // If not found by meter, try by property key (but only if meterNo was not provided or empty)
+    // This is a fallback for legacy properties without meter numbers
+    if (!lastBill && propertyKey && (!meterNo || String(meterNo).trim() === '')) {
       lastBill = await Electricity.findOne({
         $or: [
           { address: propertyKey },
@@ -123,7 +134,7 @@ const getPreviousReading = async (meterNo, propertyKey) => {
           { owner: propertyKey }
         ]
       })
-      .sort({ toDate: -1 })
+      .sort({ toDate: -1, createdAt: -1 })
       .lean();
     }
 
@@ -136,7 +147,6 @@ const getPreviousReading = async (meterNo, propertyKey) => {
 
     return { prvReading: 0, previousArrears: 0 };
   } catch (error) {
-    console.error('Error getting previous reading:', error);
     return { prvReading: 0, previousArrears: 0 };
   }
 };

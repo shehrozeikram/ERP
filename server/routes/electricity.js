@@ -281,6 +281,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             areaValue: property.areaValue || 0,
             areaUnit: property.areaUnit || null,
             electricityWaterMeterNo: property.electricityWaterMeterNo || null,
+            meters: property.meters || [], // Include meters array
             // Electricity related fields
             electricityAmount: propertyAmount || 0,
             electricityArrears: propertyArrears || 0,
@@ -299,6 +300,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             address: property.address || 'N/A',
             ownerName: property.ownerName || 'N/A',
             status: property.status || 'Pending',
+            meters: property.meters || [], // Include meters even in error case
             electricityAmount: 0,
             electricityArrears: 0,
             hasElectricity: false

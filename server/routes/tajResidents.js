@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const TajResident = require('../models/tajResidencia/TajResident');
 const TajTransaction = require('../models/tajResidencia/TajTransaction');
 const TajProperty = require('../models/tajResidencia/TajProperty');
+const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 const { authMiddleware } = require('../middleware/auth');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 
@@ -25,7 +26,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   if (isActive !== undefined) query.isActive = isActive === 'true';
 
   const residents = await TajResident.find(query)
-    .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+    .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName meters')
     .populate('createdBy', 'firstName lastName')
     .populate('updatedBy', 'firstName lastName')
     .sort({ name: 1 });
@@ -89,7 +90,7 @@ router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, re
   }
 
   const properties = await TajProperty.find(query)
-    .select('propertyName plotNumber sector block fullAddress ownerName contactNumber rdaNumber street project srNo resident')
+    .select('propertyName plotNumber sector block fullAddress ownerName contactNumber rdaNumber street project srNo resident meters')
     .populate('resident', 'name')
     .sort({ propertyName: 1 })
     .limit(200);
@@ -100,7 +101,7 @@ router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, re
 // Get resident by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   const resident = await TajResident.findById(req.params.id)
-    .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+    .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName meters')
     .populate('createdBy', 'firstName lastName')
     .populate('updatedBy', 'firstName lastName');
 
@@ -196,6 +197,7 @@ router.get('/:id/transactions', authMiddleware, asyncHandler(async (req, res) =>
   }
 
   const transactions = await TajTransaction.find(query)
+    .populate('depositUsages.depositId')
     .populate('resident', 'name accountType')
     .populate('targetResident', 'name accountType')
     .populate('createdBy', 'firstName lastName')
@@ -205,10 +207,61 @@ router.get('/:id/transactions', authMiddleware, asyncHandler(async (req, res) =>
 
   const total = await TajTransaction.countDocuments(query);
 
+  // Calculate remaining amounts for deposit transactions
+  // IMPORTANT: Get ALL deposit transactions for this resident (not just paginated ones)
+  // to ensure remainingAmount is calculated correctly for all deposits
+  const allDepositTransactions = await TajTransaction.find({
+    resident: req.params.id,
+    transactionType: 'deposit'
+  }).select('_id amount');
+  
+  const allDepositIds = allDepositTransactions.map(d => d._id);
+  
+  // Calculate total used from each deposit by checking ALL bill_payment transactions
+  const depositUsageMap = {};
+  if (allDepositIds.length > 0) {
+    const allPayments = await TajTransaction.find({
+      resident: req.params.id,
+      transactionType: 'bill_payment',
+      'depositUsages.depositId': { $in: allDepositIds }
+    }).select('depositUsages');
+    
+    allPayments.forEach(payment => {
+      if (payment.depositUsages && Array.isArray(payment.depositUsages)) {
+        payment.depositUsages.forEach(usage => {
+          // Handle both ObjectId and populated object cases
+          let depositId = null;
+          if (usage.depositId) {
+            // If it's an ObjectId or has _id, convert to string
+            depositId = usage.depositId._id ? usage.depositId._id.toString() : usage.depositId.toString();
+          }
+          if (depositId) {
+            if (!depositUsageMap[depositId]) {
+              depositUsageMap[depositId] = 0;
+            }
+            depositUsageMap[depositId] += usage.amount || 0;
+          }
+        });
+      }
+    });
+  }
+
+  // Add remaining amount to deposit transactions
+  const transactionsWithRemaining = transactions.map(txn => {
+    const txnObj = txn.toObject();
+    if (txn.transactionType === 'deposit') {
+      const depositId = txn._id.toString();
+      const totalUsed = depositUsageMap[depositId] || 0;
+      txnObj.remainingAmount = Math.max(0, (txn.amount || 0) - totalUsed);
+      txnObj.totalUsed = totalUsed;
+    }
+    return txnObj;
+  });
+
   res.json({
     success: true,
     data: {
-      transactions,
+      transactions: transactionsWithRemaining,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
@@ -438,10 +491,15 @@ router.post(
 
     // Add properties to this resident (avoid duplicates)
     const existingPropertyIds = resident.properties.map(p => p.toString());
-    const newPropertyIds = propertyIds.filter(id => !existingPropertyIds.includes(id));
+    // Ensure propertyIds are strings for comparison
+    const propertyIdsStr = propertyIds.map(id => id.toString());
+    const newPropertyIds = propertyIdsStr.filter(id => !existingPropertyIds.includes(id));
     
     if (newPropertyIds.length > 0) {
-      resident.properties.push(...newPropertyIds);
+      // Convert back to ObjectIds for storage
+      const mongoose = require('mongoose');
+      const newPropertyObjectIds = newPropertyIds.map(id => new mongoose.Types.ObjectId(id));
+      resident.properties.push(...newPropertyObjectIds);
       resident.updatedBy = req.user.id;
       await resident.save();
     }
@@ -615,7 +673,8 @@ router.post(
       paymentMethod,
       bankName,
       bankReference,
-      paymentDate
+      paymentDate,
+      depositUsages // Array of { depositId, amount } objects
     } = req.body;
     const amountNum = parseFloat(amount) || 0;
     if (amountNum <= 0) {
@@ -623,8 +682,12 @@ router.post(
     }
     
     // Validate bank is provided for bank-related payment methods
+    // Exception: If depositUsages are provided, bank is not required (deposit already has bank info)
     if ((paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque' || paymentMethod === 'Online') && !bankName) {
-      return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
+      const hasDepositUsages = depositUsages && Array.isArray(depositUsages) && depositUsages.length > 0;
+      if (!hasDepositUsages) {
+        return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
+      }
     }
     
     const balanceBefore = resident.balance || 0;
@@ -676,10 +739,44 @@ router.post(
     if (bankReference && bankReference.trim() !== '') {
       transactionData.referenceNumberExternal = bankReference.trim();
     }
+    
+    // Add deposit usage tracking if provided
+    if (depositUsages && Array.isArray(depositUsages) && depositUsages.length > 0) {
+      transactionData.depositUsages = depositUsages.map(usage => ({
+        depositId: usage.depositId,
+        amount: parseFloat(usage.amount) || 0
+      })).filter(usage => usage.depositId && usage.amount > 0);
+    }
 
     // Create transaction record
     const transaction = new TajTransaction(transactionData);
     await transaction.save();
+
+    // If referenceId is provided and it's a valid ObjectId, try to add payment to PropertyInvoice
+    if (referenceId && require('mongoose').Types.ObjectId.isValid(referenceId)) {
+      try {
+        const invoice = await PropertyInvoice.findById(referenceId);
+        if (invoice) {
+          // Add payment to invoice
+          const paymentEntry = {
+            amount: amountNum,
+            paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+            paymentMethod: paymentMethod || 'Bank Transfer',
+            bankName: bankName || '',
+            reference: bankReference || referenceNumber || '',
+            notes: description || `Payment from deposit - ${transaction._id}`,
+            recordedBy: req.user.id,
+            recordedAt: new Date()
+          };
+          
+          invoice.payments.push(paymentEntry);
+          await invoice.save(); // This will trigger pre-save hook to update totalPaid, balance, and status
+        }
+      } catch (invoiceError) {
+        // Log error but don't fail the payment transaction
+        console.error('Error updating PropertyInvoice with payment:', invoiceError);
+      }
+    }
 
     await transaction.populate('resident', 'name accountType');
     await transaction.populate('createdBy', 'firstName lastName');

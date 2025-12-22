@@ -275,11 +275,10 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
       }
       
       // Check if user is in level0Approvers array
-      if (doc.level0Approvers && doc.level0Approvers.length > 0) {
-        // Check if current user has already approved this document at Level 0
-        if (user) {
-          const currentUserId = user._id?.toString() || user.id?.toString();
-          
+      if (user) {
+        const currentUserId = user._id?.toString() || user.id?.toString();
+        
+        if (doc.level0Approvers && doc.level0Approvers.length > 0) {
           // Find the user's entry in level0Approvers
           const userApproverEntry = doc.level0Approvers.find(approver => {
             if (!approver.assignedUser) return false;
@@ -307,8 +306,7 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
             return matches;
           });
           
-          // If user has already approved (status === 'approved'), don't show buttons
-          // This is the key check: if the current user has approved, hide buttons even if document is still at Level 0
+          // If user is in the array, check if they've already approved
           if (userApproverEntry) {
             // Check if the user's approval status is 'approved'
             if (userApproverEntry.status === 'approved') {
@@ -323,19 +321,23 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
             if (userApproverEntry.status && userApproverEntry.status !== 'pending') {
               return false; // User has already approved - hide buttons
             }
+            
+            // User is in array and hasn't approved yet - allow approval if status is pending
+            return doc.level0ApprovalStatus === 'pending';
           }
         }
         
-        // User should be able to approve if they're in the level0Approvers list and haven't approved yet
-        // The dashboard filtering already ensures only authorized users see these documents
-        // Return true only if level0ApprovalStatus is 'pending' (same logic as Level 1-4)
-        return doc.level0ApprovalStatus === 'pending';
+        // User is NOT in level0Approvers array, but document is at Level 0
+        // The backend filtering already ensures only authorized users see these documents
+        // If the dashboard is showing it to the user, they have Level 0 authority
+        // So allow approval if level0ApprovalStatus is 'pending'
+        // This handles cases where level0Approvers might not be populated yet
+        // or where routing didn't include the user in the array
+        if (doc.level0ApprovalStatus === 'pending') {
+          return true;
+        }
       }
-      // If no level0Approvers array, but document is at Level 0 and status is pending,
-      // trust the dashboard filtering (same as Level 1-4 logic)
-      if (doc.level0ApprovalStatus === 'pending') {
-        return true;
-      }
+      
       return false;
     }
 

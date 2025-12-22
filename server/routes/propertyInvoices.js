@@ -6,29 +6,176 @@ const CAMCharge = require('../models/tajResidencia/CAMCharge');
 const Electricity = require('../models/tajResidencia/Electricity');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const { authMiddleware } = require('../middleware/auth');
-const { numberToWords } = require('../utils/camChargesHelper');
+const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesHelper');
 const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges } = require('../utils/electricityBillHelper');
 const dayjs = require('dayjs');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 
 // Generate invoice number with type prefix
-const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN') => {
+const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuffix = '') => {
   const paddedMonth = String(month).padStart(2, '0');
   const paddedIndex = String(propertySrNo || 1).padStart(4, '0');
   
   // Determine prefix based on type
-  let prefix = 'INV';
-  if (type === 'CAM' || type === 'CMC') {
-    prefix = 'INV-CMC';
-  } else if (type === 'ELECTRICITY' || type === 'ELC') {
-    prefix = 'INV-ELC';
-  } else if (type === 'RENT' || type === 'REN') {
-    prefix = 'INV-REN';
-  } else if (type === 'MIXED' || type === 'MIX') {
-    prefix = 'INV-MIX';
+  const prefixMap = {
+    'CAM': 'INV-CMC',
+    'CMC': 'INV-CMC',
+    'ELECTRICITY': 'INV-ELC',
+    'ELC': 'INV-ELC',
+    'RENT': 'INV-REN',
+    'REN': 'INV-REN',
+    'MIXED': 'INV-MIX',
+    'MIX': 'INV-MIX'
+  };
+  
+  const prefix = prefixMap[type] || 'INV';
+  const suffix = meterSuffix ? `-${meterSuffix}` : '';
+  return `${prefix}-${year}-${paddedMonth}-${paddedIndex}${suffix}`;
+};
+
+// Helper: Normalize readings map from various input formats
+const normalizeReadingsMap = (meterReadings, currentReading, metersToProcess) => {
+  const readingsMap = {};
+  
+  if (meterReadings && typeof meterReadings === 'object' && Object.keys(meterReadings).length > 0) {
+    Object.entries(meterReadings).forEach(([key, value]) => {
+      readingsMap[String(key)] = parseFloat(value) || 0;
+    });
+  } else if (typeof currentReading === 'object' && currentReading !== null) {
+    Object.entries(currentReading).forEach(([key, value]) => {
+      readingsMap[String(key)] = parseFloat(value) || 0;
+    });
+  } else if (currentReading !== undefined && currentReading !== null && currentReading !== '' && metersToProcess.length > 0) {
+    readingsMap[String(metersToProcess[0].meterNo || '')] = parseFloat(currentReading) || 0;
   }
   
-  return `${prefix}-${year}-${paddedMonth}-${paddedIndex}`;
+  return readingsMap;
+};
+
+// Helper: Update invoice fields
+const updateInvoiceFields = (invoice, { charges, subtotal, totalArrears, grandTotal, periodFrom, periodTo, chargeTypes }) => {
+  invoice.charges = charges;
+  invoice.subtotal = subtotal;
+  invoice.totalArrears = totalArrears;
+  invoice.grandTotal = grandTotal;
+  invoice.amountInWords = numberToWords(grandTotal);
+  if (chargeTypes) invoice.chargeTypes = chargeTypes;
+  if (periodFrom) invoice.periodFrom = new Date(periodFrom);
+  if (periodTo) {
+    invoice.periodTo = new Date(periodTo);
+    invoice.dueDate = new Date(periodTo);
+  }
+};
+
+// Helper: Populate invoice references
+const populateInvoiceReferences = async (invoice, { camCharge, electricityBill }) => {
+  await invoice.populate('property');
+  if (camCharge) await invoice.populate('camCharge');
+  if (electricityBill) await invoice.populate('electricityBill');
+};
+
+// Helper: Create new invoice (always creates new, never updates existing)
+// If invoice number exists, generates new unique number with timestamp
+const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, userId, periodFrom, periodTo, propertySrNo, invoiceType) => {
+  const now = dayjs();
+  const currentYear = now.year();
+  const currentMonth = now.month() + 1;
+  
+  // Check if invoice with this number already exists
+  let existingInvoice = await PropertyInvoice.findOne({ invoiceNumber });
+  
+  // If invoice exists, always generate a new unique invoice number
+  if (existingInvoice) {
+    const timestamp = Date.now().toString().slice(-4);
+    const baseSuffix = invoiceData.chargeTypes?.[0] === 'ELECTRICITY' && invoiceNumber.includes('-M') 
+      ? invoiceNumber.split('-M')[1].split('-')[0] 
+      : '';
+    invoiceData.invoiceNumber = generateInvoiceNumber(
+      propertySrNo,
+      currentYear,
+      currentMonth,
+      invoiceType,
+      baseSuffix ? `M${baseSuffix}-${timestamp}` : `-${timestamp}`
+    );
+  }
+  
+  // Always create new invoice (never update existing)
+  let invoice;
+  let attempts = 0;
+  const maxAttempts = 5;
+  
+  while (attempts < maxAttempts) {
+    try {
+      invoice = new PropertyInvoice(invoiceData);
+      await invoice.save();
+      return { invoice, isNew: true };
+    } catch (error) {
+      if (error.code === 11000 && error.keyPattern?.invoiceNumber) {
+        // Duplicate key error - generate new invoice number with timestamp
+        attempts++;
+        const timestamp = Date.now().toString().slice(-4) + attempts;
+        const baseSuffix = invoiceData.chargeTypes?.[0] === 'ELECTRICITY' && invoiceData.invoiceNumber.includes('-M') 
+          ? invoiceData.invoiceNumber.split('-M')[1].split('-')[0] 
+          : '';
+        invoiceData.invoiceNumber = generateInvoiceNumber(
+          propertySrNo,
+          currentYear,
+          currentMonth,
+          invoiceType,
+          baseSuffix ? `M${baseSuffix}-${timestamp}` : `-${timestamp}`
+        );
+      } else {
+        throw error;
+      }
+    }
+  }
+  
+  throw new Error('Failed to create invoice after multiple attempts');
+};
+
+// Helper: Create electricity bill data
+const createElectricityBillData = (meter, property, calculatedCharges, { prvReading, curReading, unitsConsumed, unitRate, unitsSlab, previousArrears }, periodFrom, periodTo, billInvoiceNumber, userId) => {
+  const now = dayjs();
+  return {
+    invoiceNumber: billInvoiceNumber,
+    meterNo: meter.meterNo || '',
+    propertyType: 'Residential',
+    prvReading,
+    curReading,
+    unitsConsumed,
+    iescoSlabs: unitsSlab || '',
+    fromDate: periodFrom ? new Date(periodFrom) : now.startOf('month').toDate(),
+    toDate: periodTo ? new Date(periodTo) : now.endOf('month').toDate(),
+    month: now.format('MMM-YY'),
+    dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+    iescoUnitPrice: parseFloat(unitRate) || 0,
+    electricityCost: calculatedCharges.electricityCost,
+    fcSurcharge: calculatedCharges.fcSurcharge,
+    meterRent: calculatedCharges.meterRent,
+    njSurcharge: calculatedCharges.njSurcharge,
+    gst: calculatedCharges.gst,
+    electricityDuty: calculatedCharges.electricityDuty,
+    tvFee: calculatedCharges.tvFee,
+    fixedCharges: calculatedCharges.fixedCharges,
+    totalBill: calculatedCharges.totalBill,
+    withSurcharge: calculatedCharges.withSurcharge,
+    receivedAmount: 0,
+    balance: calculatedCharges.withSurcharge,
+    arrears: previousArrears,
+    amount: calculatedCharges.withSurcharge,
+    amountInWords: numberToWords(calculatedCharges.withSurcharge),
+    plotNo: property.plotNumber || '',
+    rdaNo: property.rdaNumber || '',
+    street: property.street || '',
+    sector: property.sector || '',
+    category: property.categoryType || '',
+    address: property.address || property.fullAddress || '',
+    project: property.project || '',
+    owner: property.ownerName || '',
+    contactNo: property.contactNumber || '',
+    status: 'Active',
+    createdBy: userId
+  };
 };
 
 // Get previous reading and calculate charges for property
@@ -40,8 +187,24 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { currentReading } = req.query;
-    const meterNo = property.meterNumber || '';
+    const { currentReading, meterNo: requestedMeterNo } = req.query;
+    
+    // Get active meters from property
+    const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
+    
+    // If specific meter requested, use that; otherwise use first meter or legacy meter
+    let targetMeter = null;
+    if (requestedMeterNo && activeMeters.length > 0) {
+      targetMeter = activeMeters.find(m => m.meterNo === requestedMeterNo);
+    }
+    
+    if (!targetMeter) {
+      targetMeter = activeMeters.length > 0 
+        ? activeMeters[0]
+        : { meterNo: property.meterNumber || property.electricityWaterMeterNo || '', floor: property.floor || 'Ground Floor' };
+    }
+    
+    const meterNo = targetMeter.meterNo || '';
     const propertyKey = property.address || property.plotNumber || property.ownerName;
     
     // Get previous reading
@@ -78,13 +241,21 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
           currentReading: curReading,
           unitsConsumed,
           previousArrears,
+          meterNo,
+          meterFloor: targetMeter.floor,
           slab: {
             unitsSlab,
             unitRate,
             fixRate
           },
           charges,
-          grandTotal: charges.withSurcharge + previousArrears
+          grandTotal: charges.withSurcharge + previousArrears,
+          // Include all meters info for frontend
+          allMeters: activeMeters.length > 0 ? activeMeters.map(m => ({
+            meterNo: m.meterNo || '',
+            floor: m.floor || '',
+            isActive: m.isActive !== false
+          })) : undefined
         }
       });
     }
@@ -94,11 +265,17 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
       data: {
         previousReading: prvReading,
         previousArrears,
-        meterNo
+        meterNo,
+        meterFloor: targetMeter.floor,
+        // Include all meters info for frontend
+        allMeters: activeMeters.length > 0 ? activeMeters.map(m => ({
+          meterNo: m.meterNo || '',
+          floor: m.floor || '',
+          isActive: m.isActive !== false
+        })) : undefined
       }
     });
   } catch (error) {
-    console.error('Error calculating electricity:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 }));
@@ -125,12 +302,16 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     let camCharge = null;
     let electricityBill = null;
     let rentPayment = null;
+    const meterBillsData = []; // Store data for additional meters
 
     // Get CAM Charge
-    if (includeCAM === true && conditions.length > 0) {
-      camCharge = await CAMCharge.findOne({ $or: conditions })
-        .sort({ createdAt: -1 })
-        .lean();
+    if (includeCAM === true) {
+      // First try to find existing CAM charge in database if we have property identifiers
+      if (conditions.length > 0) {
+        camCharge = await CAMCharge.findOne({ $or: conditions })
+          .sort({ createdAt: -1 })
+          .lean();
+      }
       
       if (camCharge) {
         charges.push({
@@ -140,108 +321,152 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           arrears: camCharge.arrears || 0,
           total: (camCharge.amount || 0) + (camCharge.arrears || 0)
         });
+      } else {
+        // If no existing CAM charge found, calculate from charges slab based on zone type and property size
+        const propertySize = property.areaValue || 0;
+        const areaUnit = property.areaUnit || 'Marla';
+        const zoneType = property.zoneType || 'Residential';
+        
+        let camAmount = 0;
+        let camDescription = 'CAM Charges';
+        
+        // For Commercial zone, use commercial CAM charges
+        // For Residential zone, calculate based on property size
+        if (zoneType === 'Commercial') {
+          const camChargeInfo = await getCAMChargeForProperty(0, areaUnit, zoneType);
+          camAmount = camChargeInfo.amount || 0;
+          camDescription = 'Commercial CAM Charges';
+        } else if (propertySize > 0) {
+          // Residential zone: calculate based on property size
+          const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
+          camAmount = camChargeInfo.amount || 0;
+          camDescription = `CAM Charges (${propertySize} ${areaUnit})`;
+        }
+        
+        // Always add CAM charge entry when includeCAM is true, even if amount is 0
+        // This allows the invoice to be created and the amount can be set manually
+        charges.push({
+          type: 'CAM',
+          description: camDescription,
+          amount: camAmount,
+          arrears: 0,
+          total: camAmount
+        });
       }
     }
 
-    // Get Electricity Bill
+    // Get Electricity Bill - Handle multiple meters
+    let hasReadings = false; // Declare at function scope
     if (includeElectricity === true) {
-      const { currentReading } = req.body;
+      const { currentReading, meterReadings } = req.body;
       
-      // If current reading provided, calculate and create new bill
-      if (currentReading !== undefined && currentReading !== null && currentReading !== '') {
-        
-        // Get previous reading
-        const meterNo = property.meterNumber || '';
-        const propertyKey = property.address || property.plotNumber || property.ownerName;
-        const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey);
-        
-        // Validate current reading
-        const curReading = parseFloat(currentReading) || 0;
-        if (curReading < prvReading) {
-          return res.status(400).json({ 
-            success: false, 
-            message: `Current reading (${curReading}) cannot be less than previous reading (${prvReading})` 
-          });
-        }
-        
-        // Calculate units consumed
-        const unitsConsumed = Math.max(0, curReading - prvReading);
-        
-        // Get slab and calculate charges
-        const { slab, unitRate, fixRate, unitsSlab } = await getElectricitySlabForUnits(unitsConsumed);
-        if (!slab && unitsConsumed > 0) {
-          return res.status(400).json({ 
-            success: false, 
-            message: 'No matching slab found for units consumed' 
-          });
-        }
-        
-        // Calculate charges
-        const meterRent = property.hasElectricityWater ? 75 : 0;
-        const tvFee = property.hasElectricityWater ? 35 : 0;
-        const calculatedCharges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
-        
-        // Generate bill invoice number
+      // Get active meters from property
+      const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
+      
+      // If no meters array, fallback to legacy single meter
+      const metersToProcess = activeMeters.length > 0 
+        ? activeMeters 
+        : (property.meterNumber || property.electricityWaterMeterNo 
+          ? [{ meterNo: property.meterNumber || property.electricityWaterMeterNo || '', floor: property.floor || 'Ground Floor' }]
+          : []);
+      
+      // If current reading or meterReadings provided, calculate and create new bill(s)
+      hasReadings = (currentReading !== undefined && currentReading !== null && currentReading !== '') ||
+                    (meterReadings && typeof meterReadings === 'object' && Object.keys(meterReadings).length > 0);
+      
+      if (hasReadings) {
+        const readingsMap = normalizeReadingsMap(meterReadings, currentReading, metersToProcess);
         const now = dayjs();
         const monthYear = `${now.year()}-${String(now.month() + 1).padStart(2, '0')}`;
-        const billInvoiceNumber = `ELEC-${monthYear}-${String(property.srNo || 1).padStart(4, '0')}`;
+        const propertyKey = property.address || property.plotNumber || property.ownerName;
+        const meterRent = property.hasElectricityWater ? 75 : 0;
+        const tvFee = property.hasElectricityWater ? 35 : 0;
         
-        // Create electricity bill
-        const billData = {
-          invoiceNumber: billInvoiceNumber,
-          meterNo: meterNo,
-          propertyType: 'Residential',
-          prvReading,
-          curReading,
-          unitsConsumed,
-          iescoSlabs: unitsSlab || '',
-          fromDate: periodFrom ? new Date(periodFrom) : now.startOf('month').toDate(),
-          toDate: periodTo ? new Date(periodTo) : now.endOf('month').toDate(),
-          month: now.format('MMM-YY'),
-          dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
-          iescoUnitPrice: parseFloat(unitRate) || 0,
-          electricityCost: calculatedCharges.electricityCost,
-          fcSurcharge: calculatedCharges.fcSurcharge,
-          meterRent: calculatedCharges.meterRent,
-          njSurcharge: calculatedCharges.njSurcharge,
-          gst: calculatedCharges.gst,
-          electricityDuty: calculatedCharges.electricityDuty,
-          tvFee: calculatedCharges.tvFee,
-          fixedCharges: calculatedCharges.fixedCharges,
-          totalBill: calculatedCharges.totalBill,
-          withSurcharge: calculatedCharges.withSurcharge,
-          receivedAmount: 0,
-          balance: calculatedCharges.withSurcharge,
-          arrears: previousArrears,
-          amount: calculatedCharges.withSurcharge,
-          amountInWords: numberToWords(calculatedCharges.withSurcharge),
-          plotNo: property.plotNumber || '',
-          rdaNo: property.rdaNumber || '',
-          street: property.street || '',
-          sector: property.sector || '',
-          category: property.categoryType || '',
-          address: property.address || property.fullAddress || '',
-          project: property.project || '',
-          owner: property.ownerName || '',
-          contactNo: property.contactNumber || '',
-          status: 'Active',
-          createdBy: req.user.id
-        };
-        
-        electricityBill = new Electricity(billData);
-        await electricityBill.save();
-        
-        charges.push({
-          type: 'ELECTRICITY',
-          description: 'Electricity Bill',
-          amount: calculatedCharges.withSurcharge,
-          arrears: previousArrears,
-          total: calculatedCharges.withSurcharge + previousArrears
-        });
-      } else if (requestCharges && Array.isArray(requestCharges)) {
-        // Use manually entered charges from request
+        // Process each meter
+        for (let meterIndex = 0; meterIndex < metersToProcess.length; meterIndex++) {
+          const meter = metersToProcess[meterIndex];
+          const meterNo = String(meter.meterNo || '');
+          
+          // Get current reading for this meter
+          let curReading;
+          if (readingsMap[meterNo] !== undefined) {
+            curReading = readingsMap[meterNo];
+          } else if (meterReadings && typeof meterReadings === 'object') {
+            continue; // Skip if meterReadings provided but this meter has no reading
+          } else if (meterIndex === 0 && typeof currentReading === 'number') {
+            curReading = parseFloat(currentReading) || 0;
+          } else {
+            continue; // Skip if no reading for this meter
+          }
+          
+          // Get previous reading for this specific meter
+          const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey);
+          
+          // Validate current reading
+          if (curReading < prvReading) {
+            return res.status(400).json({ 
+              success: false, 
+              message: `Current reading (${curReading}) for meter ${meterNo || meter.floor} cannot be less than previous reading (${prvReading})` 
+            });
+          }
+          
+          // Calculate units consumed and charges
+          const unitsConsumed = Math.max(0, curReading - prvReading);
+          const { slab, unitRate, fixRate, unitsSlab } = await getElectricitySlabForUnits(unitsConsumed);
+          
+          if (!slab && unitsConsumed > 0) {
+            return res.status(400).json({ 
+              success: false, 
+              message: `No matching slab found for units consumed (${unitsConsumed}) for meter ${meterNo || meter.floor}` 
+            });
+          }
+          
+          const calculatedCharges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
+          
+          // Generate bill invoice number with meter suffix
+          const meterSuffix = metersToProcess.length > 1 ? `M${meterIndex + 1}` : '';
+          const billInvoiceNumber = `ELEC-${monthYear}-${String(property.srNo || 1).padStart(4, '0')}${meterSuffix ? `-${meterSuffix}` : ''}`;
+          
+          // Create electricity bill for this meter
+          const billData = createElectricityBillData(
+            meter, property, calculatedCharges,
+            { prvReading, curReading, unitsConsumed, unitRate, unitsSlab, previousArrears },
+            periodFrom, periodTo, billInvoiceNumber, req.user.id
+          );
+          
+          const meterBill = new Electricity(billData);
+          await meterBill.save();
+          
+          // Store first meter's bill for backward compatibility, or create separate invoices
+          if (meterIndex === 0) {
+            electricityBill = meterBill;
+            charges.push({
+              type: 'ELECTRICITY',
+              description: metersToProcess.length > 1 ? `Electricity Bill - ${meter.floor || 'Meter 1'}` : 'Electricity Bill',
+              amount: calculatedCharges.withSurcharge,
+              arrears: previousArrears,
+              total: calculatedCharges.withSurcharge + previousArrears
+            });
+          } else {
+            // For additional meters, store data to create separate invoices
+            meterBillsData.push({
+              bill: meterBill,
+              meter: meter,
+              meterIndex: meterIndex + 1,
+              charges: {
+                type: 'ELECTRICITY',
+                description: `Electricity Bill - ${meter.floor || `Meter ${meterIndex + 1}`}`,
+                amount: calculatedCharges.withSurcharge,
+                arrears: previousArrears,
+                total: calculatedCharges.withSurcharge + previousArrears
+              }
+            });
+          }
+        }
+      } else if (requestCharges && Array.isArray(requestCharges) && requestCharges.length > 0) {
+        // Use manually entered charges from request (only if no readings were processed)
         const electricityCharge = requestCharges.find(c => c.type === 'ELECTRICITY');
-        if (electricityCharge) {
+        if (electricityCharge && electricityCharge.amount > 0) {
           // Create a minimal electricity bill record for reference
           const now = dayjs();
           const billInvoiceNumber = `ELEC-${now.format('YYYY-MM')}-${String(property.srNo || 1).padStart(4, '0')}`;
@@ -326,7 +551,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
               : property.rentalAgreement;
             agreement = await TajRentalAgreement.findById(agreementId).lean();
           } catch (err) {
-            console.error('Error fetching rental agreement:', err);
+            // Error fetching rental agreement - continue without it
           }
         }
         
@@ -338,7 +563,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
               status: { $in: ['Active', 'Expired'] }
             }).sort({ createdAt: -1 }).lean();
           } catch (err) {
-            console.error('Error searching agreement by property name:', err);
+            // Error searching agreement by property name - continue without it
           }
         }
         
@@ -376,8 +601,9 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     }
 
     // If manual charges provided, update or add them to charges array
-    // Prioritize manually entered charges over fetched charges
-    if (requestCharges?.length > 0) {
+    // BUT: Don't override charges if we just calculated them from readings
+    const hasCalculatedCharges = includeElectricity === true && hasReadings && (electricityBill || meterBillsData.length > 0);
+    if (requestCharges?.length > 0 && !hasCalculatedCharges) {
       requestCharges.forEach(charge => {
         const chargeData = {
           type: charge.type,
@@ -460,52 +686,97 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       invoiceType = 'MIXED';
     }
 
-    // Generate invoice number
+    // Handle multiple meters for electricity invoices
     const now = dayjs();
-    const invoiceNumber = generateInvoiceNumber(
-      property.srNo,
-      now.year(),
-      now.month() + 1,
-      invoiceType
-    );
-
-    // Check if invoice already exists for this period
-    const existingInvoice = await PropertyInvoice.findOne({
-      property: property._id,
-      invoiceNumber
-    });
-
-    if (existingInvoice) {
-      // Update existing invoice with new charges and data
-      existingInvoice.charges = charges;
-      existingInvoice.subtotal = subtotal;
-      existingInvoice.totalArrears = totalArrears;
-      existingInvoice.grandTotal = grandTotal;
-      existingInvoice.amountInWords = numberToWords(grandTotal);
-      existingInvoice.chargeTypes = charges.map(c => c.type);
-      if (periodFrom) existingInvoice.periodFrom = new Date(periodFrom);
-      if (periodTo) existingInvoice.periodTo = new Date(periodTo);
-      if (periodTo) existingInvoice.dueDate = new Date(periodTo);
-      existingInvoice.updatedBy = req.user.id;
+    const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
+    const hasMultipleMeters = activeMeters.length > 1 && includeElectricity === true && electricityBill && meterBillsData.length > 0;
+    
+    // If we have multiple meters with electricity, create separate invoices for each
+    if (hasMultipleMeters) {
+      const createdInvoices = [];
+      const year = now.year();
+      const month = now.month() + 1;
       
-      await existingInvoice.save();
+      // Create invoice for first meter (already processed above)
+      const firstInvoiceNumber = generateInvoiceNumber(property.srNo, year, month, invoiceType, activeMeters.length > 1 ? 'M1' : '');
       
-      // Populate references
-      await existingInvoice.populate('property');
-      if (camCharge) await existingInvoice.populate('camCharge');
-      if (electricityBill) await existingInvoice.populate('electricityBill');
+      const firstInvoiceData = {
+        property: property._id,
+        invoiceNumber: firstInvoiceNumber,
+        invoiceDate: new Date(),
+        dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+        periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+        periodTo: periodTo ? new Date(periodTo) : undefined,
+        chargeTypes: charges.map(c => c.type),
+        camCharge: camCharge?._id,
+        electricityBill: electricityBill?._id,
+        rentPayment: rentPayment?._id,
+        charges,
+        subtotal,
+        totalArrears,
+        grandTotal,
+        amountInWords: numberToWords(grandTotal),
+        status: 'Issued',
+        paymentStatus: 'unpaid',
+        createdBy: req.user.id
+      };
       
-      // Convert to plain object to ensure charges are included
-      const updatedInvoiceObj = existingInvoice.toObject();
-      return res.json({ success: true, data: updatedInvoiceObj, message: 'Invoice updated successfully' });
+      const { invoice: firstInvoice } = await createOrUpdateInvoice(
+        firstInvoiceData, firstInvoiceNumber, property._id, req.user.id, periodFrom, periodTo, property.srNo, invoiceType
+      );
+      
+      await populateInvoiceReferences(firstInvoice, { camCharge, electricityBill });
+      createdInvoices.push(firstInvoice.toObject());
+      
+      // Create invoices for additional meters
+      for (const { bill: meterBill, meter, meterIndex, charges: meterCharges } of meterBillsData) {
+        const meterSubtotal = meterCharges.amount || 0;
+        const meterArrears = meterCharges.arrears || 0;
+        const meterGrandTotal = meterSubtotal + meterArrears;
+        const meterInvoiceNumber = generateInvoiceNumber(property.srNo, year, month, invoiceType, `M${meterIndex}`);
+        
+        const meterInvoiceData = {
+          property: property._id,
+          invoiceNumber: meterInvoiceNumber,
+          invoiceDate: new Date(),
+          dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+          periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+          periodTo: periodTo ? new Date(periodTo) : undefined,
+          chargeTypes: ['ELECTRICITY'],
+          electricityBill: meterBill._id,
+          charges: [meterCharges],
+          subtotal: meterSubtotal,
+          totalArrears: meterArrears,
+          grandTotal: meterGrandTotal,
+          amountInWords: numberToWords(meterGrandTotal),
+          status: 'Issued',
+          paymentStatus: 'unpaid',
+          createdBy: req.user.id
+        };
+        
+        const { invoice: meterInvoice } = await createOrUpdateInvoice(
+          meterInvoiceData, meterInvoiceNumber, property._id, req.user.id, periodFrom, periodTo, property.srNo, invoiceType
+        );
+        
+        await populateInvoiceReferences(meterInvoice, { electricityBill: meterBill });
+        createdInvoices.push(meterInvoice.toObject());
+      }
+      
+      return res.status(201).json({
+        success: true,
+        message: `Invoices created successfully for ${createdInvoices.length} meter(s)`,
+        data: createdInvoices.length === 1 ? createdInvoices[0] : createdInvoices
+      });
     }
-
-    // Create invoice
+    
+    // Single invoice creation (original logic for non-multiple meters or non-electricity)
+    const invoiceNumber = generateInvoiceNumber(property.srNo, now.year(), now.month() + 1, invoiceType);
+    
     const invoiceData = {
       property: property._id,
       invoiceNumber,
       invoiceDate: new Date(),
-      dueDate: periodTo ? new Date(periodTo) : dayjs().add(30, 'day').toDate(),
+      dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
       periodFrom: periodFrom ? new Date(periodFrom) : undefined,
       periodTo: periodTo ? new Date(periodTo) : undefined,
       chargeTypes: charges.map(c => c.type),
@@ -522,24 +793,19 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       createdBy: req.user.id
     };
 
-    const invoice = new PropertyInvoice(invoiceData);
-    await invoice.save();
-
-    // Populate references
-    await invoice.populate('property');
-    if (camCharge) await invoice.populate('camCharge');
-    if (electricityBill) await invoice.populate('electricityBill');
-
-    // Convert to plain object to ensure charges are included
+    const { invoice, isNew } = await createOrUpdateInvoice(
+      invoiceData, invoiceNumber, property._id, req.user.id, periodFrom, periodTo, property.srNo, invoiceType
+    );
+    
+    await populateInvoiceReferences(invoice, { camCharge, electricityBill });
+    
     const invoiceObj = invoice.toObject();
-
     res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
       data: invoiceObj
     });
   } catch (error) {
-    console.error('Error creating invoice:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 }));
@@ -570,6 +836,7 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
     const invoices = await PropertyInvoice.find({ property: req.params.propertyId })
       .populate('camCharge')
       .populate('electricityBill')
+      .populate('payments.recordedBy', 'firstName lastName')
       .sort({ invoiceDate: -1 });
 
     res.json({ success: true, data: invoices });
@@ -618,7 +885,6 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
       data: invoice
     });
   } catch (error) {
-    console.error('Error updating invoice:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 }));
@@ -659,7 +925,6 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
       message: 'Invoice deleted successfully'
     });
   } catch (error) {
-    console.error('Error deleting invoice:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 }));

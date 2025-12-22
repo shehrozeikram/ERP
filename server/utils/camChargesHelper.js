@@ -1,15 +1,22 @@
 const ChargesSlab = require('../models/tajResidencia/ChargesSlab');
 
 /**
- * Get CAM charge amount for a property based on its size
+ * Get CAM charge amount for a property based on its zone type and size
  * @param {Number|String} propertySize - Property size (e.g., 3.5, 4, 5, etc.)
  * @param {String} areaUnit - Unit of measurement (e.g., 'Marla', 'Sq Ft')
+ * @param {String} zoneType - Zone type ('Commercial' or 'Residential')
  * @returns {Promise<{amount: Number, slab: Object|null}>}
  */
-const getCAMChargeForProperty = async (propertySize, areaUnit = 'Marla') => {
+const getCAMChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneType = 'Residential') => {
   try {
     // Get active charges slabs
     const activeSlabs = await ChargesSlab.getActiveSlabs();
+    
+    // If zone is Commercial, return commercial CAM charges
+    if (zoneType && zoneType.toLowerCase() === 'commercial') {
+      const commercialAmount = activeSlabs?.commercialCamCharges || 2000;
+      return { amount: commercialAmount, slab: { type: 'commercial', commercialCamCharges: commercialAmount } };
+    }
     
     if (!activeSlabs || !activeSlabs.slabs || activeSlabs.slabs.length === 0) {
       return { amount: 0, slab: null };

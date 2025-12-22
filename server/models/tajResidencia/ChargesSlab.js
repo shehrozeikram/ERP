@@ -21,6 +21,11 @@ const chargesSlabSchema = new mongoose.Schema({
       min: [0, 'CAM Charges cannot be negative']
     }
   }],
+  commercialCamCharges: {
+    type: Number,
+    default: 2000,
+    min: [0, 'Commercial CAM Charges cannot be negative']
+  },
   // Audit fields
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

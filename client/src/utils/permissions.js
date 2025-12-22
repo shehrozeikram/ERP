@@ -29,7 +29,7 @@ export const MODULE_KEYS = {
   AUDIT: 'audit',
   IT: 'it',
   TAJ_RESIDENCIA: 'taj_residencia',
-  DOCUMENTS_TRACKING: 'documents_tracking',
+  GENERAL: 'general',
   ADMIN: 'admin'
 };
 
@@ -49,18 +49,18 @@ export const PERMISSIONS = {
     description: 'Access to all departments and modules'
   },
   
-  // Admin has access to admin module only
+  // Admin has access to admin module and general module
   [ROLES.ADMIN]: {
     canAccessAll: false,
-    modules: [MODULE_KEYS.ADMIN],
-    description: 'Admin module access only'
+    modules: [MODULE_KEYS.ADMIN, MODULE_KEYS.GENERAL],
+    description: 'Admin module and general module access'
   },
   
-  // HR Manager has access to HR module and admin events
+  // HR Manager has access to HR module, admin events, and general module
   [ROLES.HR_MANAGER]: {
     canAccessAll: false,
-    modules: [MODULE_KEYS.HR, MODULE_KEYS.ADMIN],
-    description: 'HR module management and event management'
+    modules: [MODULE_KEYS.HR, MODULE_KEYS.ADMIN, MODULE_KEYS.GENERAL],
+    description: 'HR module management, event management, and general module'
   },
   
   // Finance Manager has access to Finance module
@@ -660,15 +660,30 @@ export const MODULES = {
     ]
   },
 
-  documents_tracking: {
-    name: 'Documents Tracking',
-    path: '/documents-tracking',
-    icon: 'Description',
-    description: 'Document tracking and movement management',
+  general: {
+    name: 'General Module',
+    path: '/general',
+    icon: 'Folder',
+    description: 'General modules and utilities',
     roles: ['super_admin', 'admin', 'hr_manager'],
     subItems: [
-      { name: 'Dashboard', path: '/documents-tracking/dashboard' },
-      { name: 'Documents List', path: '/documents-tracking' }
+      { 
+        name: 'Documents Tracking', 
+        path: '/documents-tracking',
+        subItems: [
+          { name: 'Dashboard', path: '/documents-tracking/dashboard' },
+          { name: 'Documents List', path: '/documents-tracking' }
+        ]
+      },
+      {
+        name: 'Indents',
+        path: '/general/indents',
+        subItems: [
+          { name: 'Dashboard', path: '/general/indents/dashboard' },
+          { name: 'All Indents', path: '/general/indents' },
+          { name: 'Create Indent', path: '/general/indents/create' }
+        ]
+      }
     ]
   }
 };
@@ -743,9 +758,19 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
   // Profile is always accessible
   if (path === '/profile') return true;
   
+  // Super Admin and Higher Management have access to everything
+  if (userRole === 'super_admin' || userRole === 'higher_management') {
+    // Authorities page in Evaluation & Appraisal is only accessible to super_admin
+    if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
+      return userRole === 'super_admin';
+    }
+    // All other routes are accessible
+    return true;
+  }
+  
   // Authorities page in Evaluation & Appraisal is only accessible to super_admin
   if (path === '/hr/evaluation-appraisal/authorities' || path.startsWith('/hr/evaluation-appraisal/authorities/')) {
-    return userRole === 'super_admin';
+    return false;
   }
   
   // Helper function to map paths to submodule names
@@ -891,6 +916,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
     if (path.startsWith('/audit')) return 'audit';
     if (path.startsWith('/it')) return 'it';
     if (path.startsWith('/taj-residencia')) return 'taj_residencia';
+    if (path.startsWith('/documents-tracking')) return 'general';
     return null;
   };
   

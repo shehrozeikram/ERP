@@ -188,12 +188,33 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     let propertyDetails = [];
     
     try {
-      propertyDetails = properties.map(property => {
+      propertyDetails = await Promise.all(properties.map(async (property) => {
         try {
           const propertyKey = property.address || property.plotNumber || property.ownerName;
           const relatedCharges = chargesMap.get(propertyKey) || [];
           
-          const propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+          // Calculate CAM amount from property size if no charges found, otherwise use charges
+          let propertyAmount = 0;
+          if (relatedCharges.length > 0) {
+            // Use the latest charge amount or sum all charges
+            propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+          } else {
+            // Calculate CAM amount based on zone type and property size using charges slab
+            const propertySize = property.areaValue || 0;
+            const areaUnit = property.areaUnit || 'Marla';
+            const zoneType = property.zoneType || 'Residential';
+            
+            // For Commercial zone, use commercial CAM charges
+            // For Residential zone, calculate based on property size
+            if (zoneType === 'Commercial') {
+              const camChargeInfo = await getCAMChargeForProperty(0, areaUnit, zoneType);
+              propertyAmount = camChargeInfo.amount || 0;
+            } else if (propertySize > 0) {
+              const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
+              propertyAmount = camChargeInfo.amount || 0;
+            }
+          }
+          
           const propertyArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
           
           // Get all payments from related charges
@@ -218,9 +239,6 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           allPayments.forEach(payment => {
             payment.status = paymentStatus;
           });
-          
-          totalAmount += propertyAmount;
-          totalArrears += propertyArrears;
 
           // Safely extract all fields with defaults
           return {
@@ -266,7 +284,12 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             hasCAMCharge: false
           };
         }
-      });
+      }));
+      
+      // Calculate totals after all properties are processed
+      totalAmount = propertyDetails.reduce((sum, prop) => sum + (prop.camAmount || 0), 0);
+      totalArrears = propertyDetails.reduce((sum, prop) => sum + (prop.camArrears || 0), 0);
+      
       console.log(`✅ Processed ${propertyDetails.length} property details`);
     } catch (mappingError) {
       console.error('❌ Error mapping properties:', mappingError);
@@ -734,16 +757,30 @@ router.post('/bulk-create', authMiddleware, [
             }
           }
 
-          // Get CAM charge amount based on property size
+          // Get CAM charge amount based on zone type and property size
           const propertySize = property.areaValue || 0;
           const areaUnit = property.areaUnit || 'Marla';
-          const { amount } = await getCAMChargeForProperty(propertySize, areaUnit);
+          const zoneType = property.zoneType || 'Residential';
+          
+          // For Commercial zone, use commercial CAM charges (size not needed)
+          // For Residential zone, calculate based on property size
+          let amount = 0;
+          if (zoneType === 'Commercial') {
+            const camChargeInfo = await getCAMChargeForProperty(0, areaUnit, zoneType);
+            amount = camChargeInfo.amount || 0;
+          } else if (propertySize > 0) {
+            const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
+            amount = camChargeInfo.amount || 0;
+          }
 
           if (amount === 0) {
+            const reason = zoneType === 'Commercial'
+              ? 'Commercial CAM charges not configured'
+              : 'No matching slab found for property size';
             errors.push({
               propertyId: property._id,
               propertyName: property.propertyName || property.address,
-              reason: 'No matching slab found for property size'
+              reason
             });
             return;
           }

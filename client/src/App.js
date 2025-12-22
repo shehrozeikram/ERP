@@ -51,6 +51,7 @@ import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
 import Receipts from './pages/Finance/TajUtilities/Receipts';
 import TajResidents from './pages/Finance/TajUtilities/TajResidents';
+import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -174,6 +175,10 @@ import EvaluationDashboard from './pages/HR/EvaluationAppraisal/EvaluationDashbo
 import DocumentsTracking from './pages/HR/DocumentsTracking';
 import DocumentsTrackingDashboard from './pages/DocumentsTracking/DocumentsTrackingDashboard';
 import EvaluationTracking from './pages/DocumentsTracking/EvaluationTracking';
+import IndentsDashboard from './pages/General/Indents/IndentsDashboard';
+import IndentsList from './pages/General/Indents/IndentsList';
+import IndentForm from './pages/General/Indents/IndentForm';
+import IndentDetail from './pages/General/Indents/IndentDetail';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -552,6 +557,28 @@ function App() {
               element={<ProtectedRoute><DocumentsTracking /></ProtectedRoute>}
             />
 
+            {/* Indents Routes */}
+            <Route
+              path="/general/indents/dashboard"
+              element={<ProtectedRoute><IndentsDashboard /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/indents/create"
+              element={<ProtectedRoute><IndentForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/indents/:id/edit"
+              element={<ProtectedRoute><IndentForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/indents/:id"
+              element={<ProtectedRoute><IndentDetail /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/indents"
+              element={<ProtectedRoute><IndentsList /></ProtectedRoute>}
+            />
+
             {/* Loan Management Routes */}
             <Route
               path="/hr/loans"
@@ -895,6 +922,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
                   <TajResidents />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/taj-residents/:id"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <TajResidentDetail />
                 </ProtectedRoute>
               }
             />

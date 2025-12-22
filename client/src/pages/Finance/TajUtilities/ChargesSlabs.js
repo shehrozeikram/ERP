@@ -47,6 +47,9 @@ import {
 const camChargesValidationSchema = Yup.object({
   description: Yup.string(),
   isActive: Yup.boolean(),
+  commercialCamCharges: Yup.number()
+    .required('Commercial CAM Charges is required')
+    .min(0, 'Commercial CAM Charges cannot be negative'),
   slabs: Yup.array().of(
     Yup.object({
       size: Yup.string().required('Size is required'),
@@ -109,6 +112,7 @@ const ChargesSlabs = () => {
     initialValues: {
       description: '',
       isActive: true,
+      commercialCamCharges: '2000',
       slabs: defaultCamSlabs.map(s => ({ size: s.size, camCharges: s.camCharges.toString() }))
     },
     validationSchema: camChargesValidationSchema,
@@ -117,6 +121,7 @@ const ChargesSlabs = () => {
         const data = {
           description: values.description,
           isActive: values.isActive,
+          commercialCamCharges: parseFloat(values.commercialCamCharges) || 2000,
           slabs: values.slabs.map(slab => ({
             size: slab.size,
             camCharges: parseFloat(slab.camCharges) || 0
@@ -227,6 +232,7 @@ const ChargesSlabs = () => {
       camFormik.setValues({
         description: chargesSlab.description || '',
         isActive: chargesSlab.isActive !== undefined ? chargesSlab.isActive : true,
+        commercialCamCharges: (chargesSlab.commercialCamCharges || 2000).toString(),
         slabs: chargesSlab.slabs && chargesSlab.slabs.length > 0 
           ? chargesSlab.slabs.map(s => ({ size: s.size, camCharges: s.camCharges.toString() }))
           : defaultCamSlabs.map(s => ({ size: s.size, camCharges: s.camCharges.toString() }))
@@ -235,6 +241,7 @@ const ChargesSlabs = () => {
       camFormik.setValues({
         description: '',
         isActive: true,
+        commercialCamCharges: '2000',
         slabs: defaultCamSlabs.map(s => ({ size: s.size, camCharges: s.camCharges.toString() }))
       });
     }
@@ -247,6 +254,7 @@ const ChargesSlabs = () => {
       camFormik.setValues({
         description: chargesSlab.description || '',
         isActive: chargesSlab.isActive !== undefined ? chargesSlab.isActive : true,
+        commercialCamCharges: (chargesSlab.commercialCamCharges || 2000).toString(),
         slabs: chargesSlab.slabs && chargesSlab.slabs.length > 0 
           ? chargesSlab.slabs.map(s => ({ size: s.size, camCharges: s.camCharges.toString() }))
           : defaultCamSlabs.map(s => ({ size: s.size, camCharges: s.camCharges.toString() }))
@@ -419,6 +427,15 @@ const ChargesSlabs = () => {
                 </Typography>
               )}
 
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'primary.light', borderRadius: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Commercial CAM Charges (For Shops Only)
+                </Typography>
+                <Typography variant="h6" sx={{ color: 'primary.dark' }}>
+                  Rs {formatCurrency(chargesSlab?.commercialCamCharges || 2000)}
+                </Typography>
+              </Box>
+
               <TableContainer component={Paper} variant="outlined">
                 <Table>
                   <TableHead>
@@ -586,12 +603,27 @@ const ChargesSlabs = () => {
                   label="Set as Active"
                 />
               </Grid>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="commercialCamCharges"
+                  label="Commercial CAM Charges (For Shops Only)"
+                  type="number"
+                  value={camFormik.values.commercialCamCharges}
+                  onChange={camFormik.handleChange}
+                  error={camFormik.touched.commercialCamCharges && Boolean(camFormik.errors.commercialCamCharges)}
+                  helperText={camFormik.touched.commercialCamCharges && camFormik.errors.commercialCamCharges}
+                  InputProps={{
+                    startAdornment: <Typography sx={{ mr: 1 }}>Rs</Typography>
+                  }}
+                />
+              </Grid>
             </Grid>
 
             <Divider sx={{ my: 2 }} />
             
             <Typography variant="h6" gutterBottom>
-              CAM Charges Slabs
+              CAM Charges Slabs (Residential Properties by Size)
             </Typography>
 
             {camFormik.values.slabs.map((slab, index) => (

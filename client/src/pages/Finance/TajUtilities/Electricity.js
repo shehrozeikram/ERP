@@ -36,7 +36,6 @@ import {
   Visibility as ViewIcon,
   Print as PrintIcon,
   Download as DownloadIcon,
-  Payment as PaymentIcon,
   ReceiptLong as ReceiptIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
@@ -52,6 +51,7 @@ import {
   addPaymentToPropertyElectricity
 } from '../../../services/electricityService';
 import { createInvoice, updateInvoice, fetchInvoicesForProperty, getElectricityCalculation } from '../../../services/propertyInvoiceService';
+import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
@@ -161,6 +161,7 @@ const Electricity = () => {
   const [properties, setProperties] = useState([]);
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
+  const [expandedInvoices, setExpandedInvoices] = useState(new Set());
   
   // Payment state
   const [paymentDialog, setPaymentDialog] = useState(false);
@@ -190,6 +191,8 @@ const Electricity = () => {
   const [currentReading, setCurrentReading] = useState('');
   const [pendingReading, setPendingReading] = useState(null);
   const [calculating, setCalculating] = useState(false);
+  const [meterReadings, setMeterReadings] = useState({}); // Store readings for each meter: { meterNo: { previousReading, currentReading, previousArrears, calculationData } }
+  const [pendingMeterCalculations, setPendingMeterCalculations] = useState({}); // Track pending calculations per meter
 
   const loadCharges = async () => {
     try {
@@ -247,29 +250,93 @@ const Electricity = () => {
     setExpandedRows(newExpanded);
   };
 
+  const toggleInvoiceExpansion = (invoiceId) => {
+    const newExpanded = new Set(expandedInvoices);
+    if (newExpanded.has(invoiceId)) {
+      newExpanded.delete(invoiceId);
+    } else {
+      newExpanded.add(invoiceId);
+    }
+    setExpandedInvoices(newExpanded);
+  };
+
   const totalPayments = (payments) => {
     return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
   const handleCreateInvoice = async (property) => {
-    setInvoiceProperty(property);
     setInvoiceError('');
     setCurrentReading('');
+    setMeterReadings({});
     setInvoiceDialogOpen(true);
     
     try {
       setInvoiceLoading(true);
-      // Fetch previous reading
-      const readingResponse = await getElectricityCalculation(property._id);
+      
+      // Fetch full property details including meters array
+      const propertyResponse = await fetchPropertyById(property._id);
+      const fullProperty = propertyResponse.data?.data || property;
+      setInvoiceProperty(fullProperty);
+      
+      // Check if property has multiple active meters
+      const activeMeters = (fullProperty.meters || []).filter(m => m.isActive !== false);
+      const hasMultipleMeters = activeMeters.length > 1;
+      
+      // Fetch previous readings for all meters if multiple meters exist
+      const meterReadingsData = {};
+      
+      if (hasMultipleMeters) {
+        // Fetch previous reading for each meter
+        for (const meter of activeMeters) {
+          const meterNo = String(meter.meterNo || '');
+          try {
+            const readingResponse = await getElectricityCalculation(fullProperty._id, undefined, meterNo);
+            meterReadingsData[meterNo] = {
+              previousReading: readingResponse.data?.data?.previousReading || 0,
+              previousArrears: readingResponse.data?.data?.previousArrears || 0,
+              currentReading: '',
+              meter: meter
+            };
+          } catch (err) {
+            console.error(`Error fetching reading for meter ${meterNo}:`, err);
+            meterReadingsData[meterNo] = {
+              previousReading: 0,
+              previousArrears: 0,
+              currentReading: '',
+              meter: meter
+            };
+          }
+        }
+        setMeterReadings(meterReadingsData);
+      }
+      
+      // Fetch previous reading for first meter (for single meter or fallback)
+      const readingResponse = await getElectricityCalculation(fullProperty._id);
       const prevReading = readingResponse.data?.data?.previousReading || 0;
       const prevArrears = readingResponse.data?.data?.previousArrears || 0;
-      // Get meter number from response or property
-      const meterNo = readingResponse.data?.data?.meterNo || property.meterNumber || property.electricityWaterMeterNo || '';
+      
+      // Get meter number - prioritize from meters array if available
+      let meterNo = '';
+      let meterSelectValue = '';
+      
+      if (activeMeters.length > 0) {
+        // Use first active meter as default
+        const firstMeter = activeMeters[0];
+        meterNo = String(firstMeter?.meterNo || '');
+        // Find the original index in the full meters array
+        const originalIndex = fullProperty.meters.findIndex(m => m === firstMeter);
+        meterSelectValue = `${meterNo}|${originalIndex}`;
+      } else {
+        // Fallback to legacy fields
+        meterNo = String(readingResponse.data?.data?.meterNo || fullProperty.meterNumber || fullProperty.electricityWaterMeterNo || '');
+        meterSelectValue = meterNo;
+      }
       
       setReadingData({
         previousReading: prevReading,
         previousArrears: prevArrears,
-        meterNo
+        meterNo: meterNo,
+        meterSelectValue: meterSelectValue
       });
       
       // Initialize invoice data with default values
@@ -279,7 +346,7 @@ const Electricity = () => {
       
       // Generate invoice number for Electricity
       const invoiceNumber = generateInvoiceNumber(
-        property.srNo,
+        fullProperty.srNo,
         now.year(),
         now.month() + 1,
         'ELECTRICITY'
@@ -306,14 +373,24 @@ const Electricity = () => {
       });
     } catch (err) {
       console.error('Error fetching reading data:', err);
+      // Try to use the property we have, or fetch it
+      let propertyToUse = property;
+      try {
+        const propertyResponse = await fetchPropertyById(property._id);
+        propertyToUse = propertyResponse.data?.data || property;
+      } catch (fetchErr) {
+        console.error('Error fetching property details:', fetchErr);
+      }
+      setInvoiceProperty(propertyToUse);
+      
       // Get meter number from property as fallback
-      const meterNo = property.meterNumber || property.electricityWaterMeterNo || '';
+      const meterNo = propertyToUse.meterNumber || propertyToUse.electricityWaterMeterNo || '';
       setReadingData({ previousReading: 0, previousArrears: 0, meterNo });
       // Still initialize with defaults
       const now = dayjs();
       // Generate invoice number for Electricity
       const invoiceNumber = generateInvoiceNumber(
-        property.srNo,
+        propertyToUse.srNo,
         now.year(),
         now.month() + 1,
         'ELECTRICITY'
@@ -457,6 +534,80 @@ const Electricity = () => {
     };
   }, [pendingReading, invoiceProperty?._id]);
 
+  // Debounced calculation effect for multiple meters
+  useEffect(() => {
+    const activeMeters = (invoiceProperty?.meters || []).filter(m => m.isActive !== false);
+    const hasMultipleMeters = activeMeters.length > 1;
+    
+    if (!hasMultipleMeters || !invoiceProperty?._id || Object.keys(pendingMeterCalculations).length === 0) {
+      return;
+    }
+
+    // Debounce timer
+    const timeoutId = setTimeout(async () => {
+      try {
+        setCalculating(true);
+        setInvoiceError('');
+        
+        // Process each meter that has a pending calculation (filter out null/undefined first)
+        const validCalculations = Object.entries(pendingMeterCalculations)
+          .filter(([_, currentReading]) => currentReading !== null && currentReading !== undefined);
+        
+        if (validCalculations.length === 0) {
+          setCalculating(false);
+          return;
+        }
+        
+        const meterCalculationPromises = validCalculations.map(async ([meterNo, currentReading]) => {
+          try {
+            const response = await getElectricityCalculation(invoiceProperty._id, currentReading, meterNo);
+            
+            if (!response.data?.success) {
+              throw new Error('Calculation failed');
+            }
+
+            return { meterNo, calcData: response.data.data };
+          } catch (err) {
+            console.error(`Error calculating for meter ${meterNo}:`, err);
+            return null;
+          }
+        });
+
+        const results = (await Promise.all(meterCalculationPromises)).filter(Boolean);
+        
+        // Update meterReadings with calculation data
+        if (results.length > 0) {
+          setMeterReadings(prev => {
+            const updated = { ...prev };
+            results.forEach(({ meterNo, calcData }) => {
+              updated[meterNo] = {
+                ...updated[meterNo],
+                calculationData: calcData
+              };
+            });
+            return updated;
+          });
+        }
+
+        // Store calculations per meter - each meter has its own separate calculation
+        // Don't aggregate - each meter will get its own invoice with its own amounts
+        // We don't update invoiceData totals for multiple meters since each meter gets separate invoice
+
+        // Clear pending calculations
+        setPendingMeterCalculations({});
+      } catch (err) {
+        setInvoiceError(err.response?.data?.message || 'Failed to calculate charges');
+      } finally {
+        setCalculating(false);
+      }
+    }, 600); // 600ms debounce delay
+
+    // Cleanup function
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [pendingMeterCalculations, invoiceProperty?._id]);
+
   const handleInvoiceFieldChange = (field, value) => {
     if (!invoiceData) return;
     
@@ -570,25 +721,62 @@ const Electricity = () => {
       return;
     }
 
-    // Validate current reading if provided
+    // Check if property has multiple meters
+    const activeMeters = (invoiceProperty.meters || []).filter(m => m.isActive !== false);
+    const hasMultipleMeters = activeMeters.length > 1;
+
+    // Validate readings for multiple meters
+    if (hasMultipleMeters) {
+      for (const meter of activeMeters) {
+        const meterNo = String(meter.meterNo || '');
+        const meterReading = meterReadings[meterNo];
+        if (meterReading && meterReading.currentReading) {
+          const current = parseFloat(meterReading.currentReading);
+          const previous = meterReading.previousReading || 0;
+          if (current < previous) {
+            setInvoiceError(`Current reading (${current}) for meter ${meterNo} cannot be less than previous reading (${previous})`);
+            return;
+          }
+        }
+      }
+    } else {
+      // Validate current reading for single meter
     if (currentReading && parseFloat(currentReading) < readingData.previousReading) {
       setInvoiceError('Current reading cannot be less than previous reading');
       return;
+      }
     }
 
     try {
       setInvoiceLoading(true);
       setInvoiceError('');
       
+      // Prepare meter readings object for backend
+      let meterReadingsPayload = {};
+      if (hasMultipleMeters) {
+        activeMeters.forEach(meter => {
+          const meterNo = String(meter.meterNo || '');
+          const meterReading = meterReadings[meterNo];
+          if (meterReading && meterReading.currentReading) {
+            meterReadingsPayload[meterNo] = parseFloat(meterReading.currentReading);
+          }
+        });
+      }
+      
+      // Only send charges if we're not sending readings (for manual entry)
+      // When readings are provided, backend should calculate charges
+      const shouldSendCharges = !hasMultipleMeters || Object.keys(meterReadingsPayload).length === 0;
+      
       const response = await createInvoice(invoiceProperty._id, {
         includeCAM: false,
         includeElectricity: true,
         includeRent: false,
-        currentReading: currentReading ? parseFloat(currentReading) : undefined,
+        currentReading: hasMultipleMeters ? undefined : (currentReading ? parseFloat(currentReading) : undefined),
+        meterReadings: hasMultipleMeters && Object.keys(meterReadingsPayload).length > 0 ? meterReadingsPayload : undefined,
         periodFrom: invoiceData.periodFrom,
         periodTo: invoiceData.periodTo,
         dueDate: invoiceData.dueDate,
-        charges: invoiceData.charges || []
+        charges: shouldSendCharges ? (invoiceData.charges || []) : undefined
       });
 
       const savedInvoice = response.data?.data || invoiceData;
@@ -626,6 +814,7 @@ const Electricity = () => {
     setCurrentReading('');
     setPendingReading(null);
     setReadingData({ previousReading: 0, previousArrears: 0, meterNo: '' });
+    setMeterReadings({});
   };
 
   const generateElectricityVoucherPDF = () => {
@@ -1555,25 +1744,24 @@ const Electricity = () => {
                   <TableCell width={50}></TableCell>
                   <TableCell>Sr. No</TableCell>
                   <TableCell>Property</TableCell>
+                  <TableCell>Meters</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Owner</TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell>Payment Status</TableCell>
                   <TableCell align="right">Electricity Amount</TableCell>
-                  <TableCell align="right">Total Payments</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {currentOverviewLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : properties.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 3 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                       <Typography color="text.secondary">No properties found</Typography>
                     </TableCell>
                   </TableRow>
@@ -1601,6 +1789,29 @@ const Electricity = () => {
                           </Box>
                         </TableCell>
                         <TableCell>
+                          {(() => {
+                            // Debug: Check if meters exists
+                            if (process.env.NODE_ENV === 'development') {
+                              console.log('Property meters:', property.meters, 'Type:', typeof property.meters, 'Is Array:', Array.isArray(property.meters));
+                            }
+                            
+                            const metersArray = Array.isArray(property.meters) ? property.meters : [];
+                            const activeMetersCount = metersArray.filter(m => m && m.isActive !== false).length || 0;
+                            const totalMetersCount = metersArray.length || 0;
+                            
+                            return totalMetersCount > 0 ? (
+                              <Chip 
+                                label={`${activeMetersCount}${totalMetersCount !== activeMetersCount ? `/${totalMetersCount}` : ''}`}
+                                size="small"
+                                color={activeMetersCount > 0 ? "primary" : "default"}
+                                variant={activeMetersCount > 0 ? "filled" : "outlined"}
+                              />
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">0</Typography>
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell>
                           <Typography variant="body2">{property.address || '—'}</Typography>
                           <Typography variant="caption" color="text.secondary">
                             {property.street || '—'} • Sector {property.sector || '—'}
@@ -1623,18 +1834,6 @@ const Electricity = () => {
                             }
                           />
                         </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const { color, label } = getPaymentStatusConfig(property.paymentStatus || 'unpaid');
-                            return (
-                              <Chip
-                                label={label}
-                                color={color}
-                                size="small"
-                              />
-                            );
-                          })()}
-                        </TableCell>
                         <TableCell align="right">
                           <Typography fontWeight={600}>
                             {formatCurrency(property.electricityAmount || 0)}
@@ -1644,14 +1843,6 @@ const Electricity = () => {
                               Arrears: {formatCurrency(property.electricityArrears || 0)}
                             </Typography>
                           )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography fontWeight={600}>
-                            {formatCurrency(totalPayments(property.payments || []))}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {(property.payments || []).length} payment(s)
-                          </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
@@ -1673,15 +1864,6 @@ const Electricity = () => {
                                 <ReceiptIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Add Payment">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={() => handleOpenPaymentDialog(property)}
-                              >
-                                <PaymentIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -1700,11 +1882,14 @@ const Electricity = () => {
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
+                                      <TableCell></TableCell>
                                       <TableCell>Invoice #</TableCell>
                                       <TableCell>Date</TableCell>
                                       <TableCell>Period</TableCell>
                                       <TableCell>Due Date</TableCell>
                                       <TableCell align="right">Amount</TableCell>
+                                      <TableCell align="right">Paid</TableCell>
+                                      <TableCell align="right">Balance</TableCell>
                                       <TableCell>Status</TableCell>
                                       <TableCell align="right">Actions</TableCell>
                                     </TableRow>
@@ -1713,7 +1898,21 @@ const Electricity = () => {
                                     {propertyInvoices[property._id]
                                       .filter(inv => inv.chargeTypes?.includes('ELECTRICITY'))
                                       .map((invoice) => (
-                                      <TableRow key={invoice._id}>
+                                      <React.Fragment key={invoice._id}>
+                                      <TableRow>
+                                        <TableCell>
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => toggleInvoiceExpansion(invoice._id)}
+                                            sx={{ p: 0.5 }}
+                                          >
+                                            {expandedInvoices.has(invoice._id) ? (
+                                              <ExpandLessIcon fontSize="small" />
+                                            ) : (
+                                              <ExpandMoreIcon fontSize="small" />
+                                            )}
+                                          </IconButton>
+                                        </TableCell>
                                         <TableCell>{invoice.invoiceNumber || 'N/A'}</TableCell>
                                         <TableCell>
                                           {invoice.invoiceDate ? dayjs(invoice.invoiceDate).format('MMM D, YYYY') : 'N/A'}
@@ -1729,6 +1928,8 @@ const Electricity = () => {
                                           {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
                                         </TableCell>
                                         <TableCell align="right">{formatCurrency(invoice.grandTotal || 0)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(invoice.totalPaid || 0)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(invoice.balance || 0)}</TableCell>
                                         <TableCell>
                                           {(() => {
                                             const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
@@ -1752,19 +1953,39 @@ const Electricity = () => {
                                                   setInvoiceData(invoice);
                                                   setInvoiceError('');
                                                   setCurrentReading('');
+                                                  setMeterReadings({});
                                                   setInvoiceDialogOpen(true);
-                                                  // For viewing existing invoice, fetch reading data
-                                                  try {
-                                                    const readingResponse = await getElectricityCalculation(property._id);
-                                                    if (readingResponse.data?.success) {
-                                                      setReadingData({
-                                                        previousReading: readingResponse.data.data.previousReading || 0,
-                                                        previousArrears: readingResponse.data.data.previousArrears || 0,
-                                                        meterNo: readingResponse.data.data.meterNo || ''
-                                                      });
+                                                  
+                                                  // For viewing existing invoice, use the invoice's electricity bill data
+                                                  // This ensures we show the correct meter's data, not always the first meter
+                                                  if (invoice.electricityBill) {
+                                                    const bill = invoice.electricityBill;
+                                                    const meterNo = bill.meterNo || '';
+                                                    
+                                                    // If invoice has electricity bill with meter number, use that
+                                                    setReadingData({
+                                                      previousReading: bill.prvReading || 0,
+                                                      previousArrears: bill.arrears || 0,
+                                                      meterNo: meterNo,
+                                                      meterSelectValue: meterNo
+                                                    });
+                                                    
+                                                    // Set current reading from bill
+                                                    setCurrentReading(String(bill.curReading || ''));
+                                                  } else {
+                                                    // Fallback: fetch reading data for the property
+                                                    try {
+                                                      const readingResponse = await getElectricityCalculation(property._id);
+                                                      if (readingResponse.data?.success) {
+                                                        setReadingData({
+                                                          previousReading: readingResponse.data.data.previousReading || 0,
+                                                          previousArrears: readingResponse.data.data.previousArrears || 0,
+                                                          meterNo: readingResponse.data.data.meterNo || ''
+                                                        });
+                                                      }
+                                                    } catch (err) {
+                                                      console.error('Error fetching reading data:', err);
                                                     }
-                                                  } catch (err) {
-                                                    console.error('Error fetching reading data:', err);
                                                   }
                                                 }}
                                               >
@@ -1789,6 +2010,58 @@ const Electricity = () => {
                                           </Stack>
                                         </TableCell>
                                       </TableRow>
+                                      <TableRow>
+                                        <TableCell colSpan={10} sx={{ py: 0, border: 0 }}>
+                                          <Collapse in={expandedInvoices.has(invoice._id)} timeout="auto" unmountOnExit>
+                                            <Box sx={{ py: 2, px: 3, bgcolor: 'grey.50' }}>
+                                              <Typography variant="subtitle2" gutterBottom sx={{ mb: 2 }}>
+                                                Payment History
+                                              </Typography>
+                                              {invoice.payments && invoice.payments.length > 0 ? (
+                                                <Table size="small">
+                                                  <TableHead>
+                                                    <TableRow>
+                                                      <TableCell>Date</TableCell>
+                                                      <TableCell align="right">Amount</TableCell>
+                                                      <TableCell>Method</TableCell>
+                                                      <TableCell>Bank</TableCell>
+                                                      <TableCell>Reference</TableCell>
+                                                      <TableCell>Notes</TableCell>
+                                                      <TableCell>Recorded By</TableCell>
+                                                    </TableRow>
+                                                  </TableHead>
+                                                  <TableBody>
+                                                    {invoice.payments.map((payment, idx) => (
+                                                      <TableRow key={idx}>
+                                                        <TableCell>
+                                                          {dayjs(payment.paymentDate).format('MMM D, YYYY')}
+                                                        </TableCell>
+                                                        <TableCell align="right">
+                                                          {formatCurrency(payment.amount || 0)}
+                                                        </TableCell>
+                                                        <TableCell>{payment.paymentMethod || 'N/A'}</TableCell>
+                                                        <TableCell>{payment.bankName || 'N/A'}</TableCell>
+                                                        <TableCell>{payment.reference || 'N/A'}</TableCell>
+                                                        <TableCell>{payment.notes || 'N/A'}</TableCell>
+                                                        <TableCell>
+                                                          {payment.recordedBy?.firstName && payment.recordedBy?.lastName
+                                                            ? `${payment.recordedBy.firstName} ${payment.recordedBy.lastName}`
+                                                            : 'N/A'}
+                                                        </TableCell>
+                                                      </TableRow>
+                                                    ))}
+                                                  </TableBody>
+                                                </Table>
+                                              ) : (
+                                                <Typography variant="body2" color="text.secondary">
+                                                  No payments recorded yet.
+                                                </Typography>
+                                              )}
+                                            </Box>
+                                          </Collapse>
+                                        </TableCell>
+                                      </TableRow>
+                                      </React.Fragment>
                                     ))}
                                   </TableBody>
                                 </Table>
@@ -1854,26 +2127,191 @@ const Electricity = () => {
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
-                  <TextField
+                  <FormControl fullWidth size="small">
+                    <InputLabel id="meter-number-label">Meter Number</InputLabel>
+                    <Select
+                      labelId="meter-number-label"
+                      id="meter-number-select"
+                      value={readingData.meterSelectValue || readingData.meterNo || ''}
                     label="Meter Number"
-                    value={
-                      readingData.meterNo || 
-                      invoiceData?.electricityBill?.meterNo || 
-                      invoiceProperty?.meterNumber || 
-                      invoiceProperty?.electricityWaterMeterNo || 
-                      ''
-                    }
-                    onChange={(e) => setReadingData(prev => ({ ...prev, meterNo: e.target.value }))}
+                      onChange={(e) => {
+                        const selectedValue = e.target.value;
+                        // Extract meterNo from the selected value (format: "meterNo|index")
+                        const meterNo = selectedValue.includes('|') ? selectedValue.split('|')[0] : selectedValue;
+                        setReadingData(prev => ({ 
+                          ...prev, 
+                          meterNo: meterNo,
+                          meterSelectValue: selectedValue 
+                        }));
+                      }}
+                      MenuProps={{
+                        PaperProps: {
+                          style: {
+                            maxHeight: 300,
+                          },
+                        },
+                      }}
+                    >
+                      {invoiceProperty?.meters && invoiceProperty.meters.filter(m => m.isActive !== false).length > 0 ? (
+                        invoiceProperty.meters
+                          .filter(m => m.isActive !== false)
+                          .map((meter, index) => {
+                            // Use meterNo|index as value to ensure uniqueness, but extract meterNo on change
+                            const meterNoValue = String(meter.meterNo || '');
+                            const uniqueValue = `${meterNoValue}|${index}`;
+                            const displayText = `${meter.meterNo || 'N/A'}${meter.floor ? ` - Floor ${meter.floor}` : ''}${meter.consumer ? ` (${meter.consumer})` : ''}`;
+                            return (
+                              <MenuItem key={`meter-${index}-${meter.floor || ''}-${meter.consumer || ''}`} value={uniqueValue}>
+                                {displayText}
+                              </MenuItem>
+                            );
+                          })
+                      ) : (
+                        <MenuItem value={String(invoiceProperty?.meterNumber || invoiceProperty?.electricityWaterMeterNo || '')}>
+                          {invoiceProperty?.meterNumber || invoiceProperty?.electricityWaterMeterNo || 'No meter found'}
+                        </MenuItem>
+                      )}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                {!invoiceData._id && (() => {
+                  const activeMeters = (invoiceProperty?.meters || []).filter(m => m.isActive !== false);
+                  const hasMultipleMeters = activeMeters.length > 1;
+                  
+                  if (hasMultipleMeters) {
+                    // Show inputs for each meter
+                    return (
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                          Meter Readings ({activeMeters.length} meters)
+                        </Typography>
+                        <Stack spacing={2}>
+                          {activeMeters.map((meter, index) => {
+                            const meterNo = String(meter.meterNo || '');
+                            const meterReading = meterReadings[meterNo] || { previousReading: 0, currentReading: '', previousArrears: 0 };
+                            const unitsConsumed = meterReading.currentReading 
+                              ? Math.max(0, parseFloat(meterReading.currentReading) - (meterReading.previousReading || 0))
+                              : 0;
+                            return (
+                              <Box key={meterNo} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                                  Meter {meterNo} {meter.floor ? `- Floor ${meter.floor}` : ''} {meter.consumer ? `(${meter.consumer})` : ''}
+                                </Typography>
+                                <Grid container spacing={2}>
+                                  <Grid item xs={12} sm={4}>
+                                    <TextField
+                                      label="Previous Reading"
+                                      type="number"
+                                      value={meterReading.previousReading || 0}
                     fullWidth
                     size="small"
-                    helperText={
-                      (readingData.meterNo || invoiceData?.electricityBill?.meterNo || invoiceProperty?.meterNumber || invoiceProperty?.electricityWaterMeterNo) 
-                        ? '' 
-                        : 'No meter number found'
-                    }
+                                      InputProps={{ readOnly: true }}
+                                      inputProps={{ min: 0, step: 1 }}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={12} sm={4}>
+                                    <TextField
+                                      label="Current Reading"
+                                      type="number"
+                                      value={meterReading.currentReading || ''}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        setMeterReadings(prev => ({
+                                          ...prev,
+                                          [meterNo]: {
+                                            ...prev[meterNo],
+                                            currentReading: value
+                                          }
+                                        }));
+                                        
+                                        // Trigger calculation for this meter
+                                        if (value && !isNaN(parseFloat(value))) {
+                                          const current = parseFloat(value);
+                                          const previous = meterReading.previousReading || 0;
+                                          if (current >= previous) {
+                                            setPendingMeterCalculations(prev => ({
+                                              ...prev,
+                                              [meterNo]: current
+                                            }));
+                                          }
+                                        } else {
+                                          // Clear pending calculation if value is invalid
+                                          setPendingMeterCalculations(prev => {
+                                            const updated = { ...prev };
+                                            delete updated[meterNo];
+                                            return updated;
+                                          });
+                                        }
+                                      }}
+                                      fullWidth
+                                      size="small"
+                                      error={meterReading.currentReading && parseFloat(meterReading.currentReading) < (meterReading.previousReading || 0)}
+                                      helperText={meterReading.currentReading && parseFloat(meterReading.currentReading) < (meterReading.previousReading || 0)
+                                        ? 'Current reading cannot be less than previous reading' 
+                                        : unitsConsumed > 0 ? `Units Consumed: ${unitsConsumed}` : 'Enter current reading'}
+                                      inputProps={{ min: meterReading.previousReading || 0, step: 1 }}
                   />
                 </Grid>
-                {!invoiceData._id && (
+                                  <Grid item xs={12} sm={4}>
+                                    <TextField
+                                      label="Units Consumed"
+                                      type="number"
+                                      value={unitsConsumed}
+                                      fullWidth
+                                      size="small"
+                                      InputProps={{ readOnly: true }}
+                                    />
+                                  </Grid>
+                                </Grid>
+                                {/* Show separate amounts for this meter */}
+                                {meterReading.calculationData && (
+                                  <Box sx={{ mt: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                                      Meter {meterNo} Charges:
+                                    </Typography>
+                                    <Grid container spacing={1}>
+                                      <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">
+                                          Electricity Bill:
+                                        </Typography>
+                                      </Grid>
+                                      <Grid item xs={6}>
+                                        <Typography variant="body2" fontWeight={600}>
+                                          PKR {Math.round(meterReading.calculationData.charges?.withSurcharge || 0).toLocaleString()}
+                                        </Typography>
+                                      </Grid>
+                                      <Grid item xs={6}>
+                                        <Typography variant="body2" color="text.secondary">
+                                          Arrears:
+                                        </Typography>
+                                      </Grid>
+                                      <Grid item xs={6}>
+                                        <Typography variant="body2" fontWeight={600}>
+                                          PKR {(meterReading.calculationData.previousArrears || 0).toLocaleString()}
+                                        </Typography>
+                                      </Grid>
+                                      <Grid item xs={6}>
+                                        <Typography variant="body2" fontWeight={600}>
+                                          Total Amount:
+                                        </Typography>
+                                      </Grid>
+                                      <Grid item xs={6}>
+                                        <Typography variant="body2" fontWeight={600} color="primary">
+                                          Rs {Math.round((meterReading.calculationData.charges?.withSurcharge || 0) + (meterReading.calculationData.previousArrears || 0)).toLocaleString()}
+                                        </Typography>
+                                      </Grid>
+                                    </Grid>
+                                  </Box>
+                                )}
+                              </Box>
+                            );
+                          })}
+                        </Stack>
+                      </Grid>
+                    );
+                  } else {
+                    // Single meter - show original inputs
+                    return (
                   <>
                     <Grid item xs={12} sm={4}>
                       <TextField
@@ -1932,7 +2370,9 @@ const Electricity = () => {
                       />
                     </Grid>
                   </>
-                )}
+                    );
+                  }
+                })()}
                 <Grid item xs={12} sm={6}>
                   <TextField
                     label="Period From"
@@ -1964,6 +2404,19 @@ const Electricity = () => {
                     InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
+                {/* Show combined totals only for single meter, not for multiple meters */}
+                {(() => {
+                  const activeMeters = (invoiceProperty?.meters || []).filter(m => m.isActive !== false);
+                  const hasMultipleMeters = activeMeters.length > 1;
+                  
+                  // For multiple meters, don't show combined totals - each meter has its own amounts displayed above
+                  if (hasMultipleMeters) {
+                    return null;
+                  }
+                  
+                  // For single meter, show the original combined totals
+                  return (
+                    <>
                 {electricityCharge && (
                   <>
                     <Grid item xs={12} sm={6}>
@@ -2019,6 +2472,9 @@ const Electricity = () => {
                     }}
                   />
                 </Grid>
+                    </>
+                  );
+                })()}
                 <Grid item xs={12} sm={6}>
                   <TextField
                     label="Due Date"

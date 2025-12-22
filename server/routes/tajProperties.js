@@ -1,15 +1,50 @@
 const express = require('express');
 const router = express.Router();
 const TajProperty = require('../models/tajResidencia/TajProperty');
+const CAMCharge = require('../models/tajResidencia/CAMCharge');
+const Electricity = require('../models/tajResidencia/Electricity');
 
 // List properties
 router.get('/', async (req, res) => {
   try {
-    const { search, status } = req.query;
+    const { 
+      search, 
+      status, 
+      propertyType, 
+      zoneType, 
+      categoryType, 
+      project, 
+      resident,
+      hasElectricityWater 
+    } = req.query;
     const filters = {};
 
     if (status) {
       filters.status = status;
+    }
+
+    if (propertyType) {
+      filters.propertyType = propertyType;
+    }
+
+    if (zoneType) {
+      filters.zoneType = zoneType;
+    }
+
+    if (categoryType) {
+      filters.categoryType = categoryType;
+    }
+
+    if (project) {
+      filters.project = project;
+    }
+
+    if (resident) {
+      filters.resident = resident;
+    }
+
+    if (hasElectricityWater !== undefined) {
+      filters.hasElectricityWater = hasElectricityWater === 'true';
     }
 
     if (search) {
@@ -20,7 +55,8 @@ router.get('/', async (req, res) => {
         { street: pattern },
         { sector: pattern },
         { ownerName: pattern },
-        { project: pattern }
+        { project: pattern },
+        { propertyName: pattern }
       ];
     }
 
@@ -106,11 +142,48 @@ router.patch('/:id/status', async (req, res) => {
 // Delete property
 router.delete('/:id', async (req, res) => {
   try {
-    const property = await TajProperty.findByIdAndDelete(req.params.id);
-
+    const property = await TajProperty.findById(req.params.id);
+    
     if (!property) {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
+
+    // Build matching conditions based on property identifiers
+    const propertyKey = property.address || property.plotNumber || property.ownerName;
+    const conditions = [];
+    if (property.address) conditions.push({ address: property.address });
+    if (property.plotNumber) conditions.push({ plotNo: property.plotNumber });
+    if (property.ownerName) conditions.push({ owner: property.ownerName });
+
+    // Delete all associated records to prevent them from being attached to new properties
+    const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
+    await PropertyInvoice.deleteMany({ property: req.params.id });
+
+    // Delete CAM charges that match this property by address/plotNumber/ownerName
+    if (conditions.length > 0) {
+      await CAMCharge.deleteMany({ $or: conditions });
+    }
+
+    // Delete Electricity bills that match this property by address/plotNumber/ownerName
+    // Also match by meter number if property has one
+    const electricityConditions = [...conditions];
+    if (property.electricityWaterMeterNo) {
+      electricityConditions.push({ meterNo: property.electricityWaterMeterNo });
+    }
+    // Also check meters array
+    if (property.meters && Array.isArray(property.meters)) {
+      property.meters.forEach(meter => {
+        if (meter.meterNo) {
+          electricityConditions.push({ meterNo: meter.meterNo });
+        }
+      });
+    }
+    if (electricityConditions.length > 0) {
+      await Electricity.deleteMany({ $or: electricityConditions });
+    }
+
+    // Delete the property
+    await TajProperty.findByIdAndDelete(req.params.id);
 
     res.json({ success: true, message: 'Property deleted successfully' });
   } catch (error) {

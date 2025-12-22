@@ -35,7 +35,8 @@ import {
   Security,
   Computer,
   LocationCity,
-  Description
+  Description,
+  Folder
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -71,7 +72,8 @@ const iconMap = {
   Security: <Security />,
   Computer: <Computer />,
   LocationCity: <LocationCity />,
-  Description: <Description />
+  Description: <Description />,
+  Folder: <Folder />
 };
   return iconMap[iconName] || <Dashboard />;
 };
@@ -135,8 +137,11 @@ const Sidebar = () => {
       '/hr/evaluation-appraisal/authorities': 'evaluation_appraisal',
       '/hr/reports': 'reports',
       
-      // Documents Tracking Module
+      // General Module - Documents Tracking
       '/documents-tracking': 'document_tracking',
+      '/general/indents': 'indents',
+      '/general/indents/dashboard': 'indents',
+      '/general/indents/create': 'indents',
       
       // Finance Module
       '/finance/accounts': 'chart_of_accounts',
@@ -222,7 +227,8 @@ const Sidebar = () => {
     if (path.startsWith('/audit')) return 'audit';
     if (path.startsWith('/it')) return 'it';
     if (path.startsWith('/taj-residencia')) return 'taj_residencia';
-    if (path.startsWith('/documents-tracking')) return 'documents_tracking';
+    if (path.startsWith('/documents-tracking')) return 'general';
+    if (path.startsWith('/general/indents')) return 'general';
     return null;
   };
 
