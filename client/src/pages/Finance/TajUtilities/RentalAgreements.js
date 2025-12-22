@@ -23,7 +23,9 @@ import {
   TextField,
   Typography,
   Alert,
-  Stack
+  Stack,
+  Autocomplete,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -35,6 +37,8 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
+import { fetchResidents } from '../../../services/tajResidentsService';
+import { fetchProperties } from '../../../services/tajPropertiesService';
 
 const defaultForm = {
   agreementNumber: '',
@@ -66,10 +70,70 @@ const RentalAgreements = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [residents, setResidents] = useState([]);
+  const [residentsLoading, setResidentsLoading] = useState(false);
+  const [properties, setProperties] = useState([]);
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
+  const [selectedResident, setSelectedResident] = useState(null);
 
   useEffect(() => {
     fetchAgreements();
+    fetchResidentsData();
   }, []);
+
+  const fetchResidentsData = async () => {
+    try {
+      setResidentsLoading(true);
+      const response = await fetchResidents({ isActive: 'true' });
+      const allResidents = response.data.data || [];
+      
+      // Deduplicate residents by name to ensure each resident appears only once
+      const uniqueResidents = [];
+      const seenNames = new Set();
+      
+      allResidents.forEach((resident) => {
+        const residentName = resident.name?.trim().toLowerCase();
+        if (residentName && !seenNames.has(residentName)) {
+          seenNames.add(residentName);
+          uniqueResidents.push(resident);
+        }
+      });
+      
+      setResidents(uniqueResidents);
+    } catch (err) {
+      console.error('Failed to load residents:', err);
+    } finally {
+      setResidentsLoading(false);
+    }
+  };
+
+  const fetchPropertiesForResident = async (resident) => {
+    try {
+      setPropertiesLoading(true);
+      // Fetch all properties
+      const response = await fetchProperties({});
+      const allProperties = response.data?.data || [];
+      
+      // Filter properties assigned to this resident
+      if (resident.properties && Array.isArray(resident.properties) && resident.properties.length > 0) {
+        const residentPropertyIds = resident.properties.map(p => 
+          typeof p === 'object' ? p._id || p : p
+        );
+        const filteredProperties = allProperties.filter(property => 
+          residentPropertyIds.includes(property._id)
+        );
+        setProperties(filteredProperties);
+      } else {
+        // If resident has no properties assigned, show empty list
+        setProperties([]);
+      }
+    } catch (err) {
+      console.error('Failed to load properties:', err);
+      setProperties([]);
+    } finally {
+      setPropertiesLoading(false);
+    }
+  };
 
   const fetchAgreements = async () => {
     try {
@@ -82,14 +146,15 @@ const RentalAgreements = () => {
     }
   };
 
-  const handleOpenDialog = (agreement) => {
+  const handleOpenDialog = async (agreement) => {
     if (agreement) {
       setEditingAgreement(agreement);
+      const tenantName = agreement.tenantName || agreement.landlordName || '';
       setFormData({
         agreementNumber: agreement.agreementNumber,
         propertyName: agreement.propertyName,
         propertyAddress: agreement.propertyAddress,
-        tenantName: agreement.tenantName || agreement.landlordName || '',
+        tenantName: tenantName,
         tenantContact: agreement.tenantContact || agreement.landlordContact || '',
         tenantIdCard: agreement.tenantIdCard || agreement.landlordIdCard || '',
         monthlyRent: agreement.monthlyRent,
@@ -101,9 +166,27 @@ const RentalAgreements = () => {
         terms: agreement.terms || '',
         status: agreement.status || 'Active'
       });
+      
+      // If tenant name exists, find the resident and load their properties
+      // Wait a bit to ensure residents are loaded
+      if (tenantName && residents.length > 0) {
+        const matchingResident = residents.find(r => r.name === tenantName);
+        if (matchingResident) {
+          setSelectedResident(matchingResident);
+          await fetchPropertiesForResident(matchingResident);
+        } else {
+          setSelectedResident(null);
+          setProperties([]);
+        }
+      } else {
+        setSelectedResident(null);
+        setProperties([]);
+      }
     } else {
       setEditingAgreement(null);
       setFormData(defaultForm);
+      setSelectedResident(null);
+      setProperties([]);
     }
     setSelectedFile(null);
     setDialogOpen(true);
@@ -116,6 +199,8 @@ const RentalAgreements = () => {
     setEditingAgreement(null);
     setFormData(defaultForm);
     setSelectedFile(null);
+    setSelectedResident(null);
+    setProperties([]);
     setError('');
     setSuccess('');
   };
@@ -322,13 +407,97 @@ const RentalAgreements = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                label="Tenant Name"
-                name="tenantName"
-                value={formData.tenantName}
-                onChange={handleInputChange}
-                fullWidth
-                required
+              <Autocomplete
+                options={residents}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  return option.name || '';
+                }}
+                value={residents.find(r => r.name === formData.tenantName) || null}
+                onChange={async (event, newValue) => {
+                  if (newValue) {
+                    setSelectedResident(newValue);
+                    // Auto-fill related fields from resident data
+                    setFormData((prev) => ({
+                      ...prev,
+                      tenantName: newValue.name || '',
+                      tenantContact: newValue.contactNumber || prev.tenantContact,
+                      tenantIdCard: newValue.cnic || prev.tenantIdCard
+                    }));
+                    
+                    // Load properties for this resident
+                    await fetchPropertiesForResident(newValue);
+                  } else {
+                    setSelectedResident(null);
+                    // Clear tenant name and properties if resident is deselected
+                    setFormData((prev) => ({
+                      ...prev,
+                      tenantName: '',
+                      propertyName: '',
+                      propertyAddress: ''
+                    }));
+                    setProperties([]);
+                  }
+                }}
+                loading={residentsLoading}
+                filterOptions={(options, params) => {
+                  const { inputValue } = params;
+                  if (!inputValue) return options;
+                  
+                  const searchTerm = inputValue.toLowerCase();
+                  return options.filter((resident) => {
+                    const nameMatch = resident.name?.toLowerCase().includes(searchTerm);
+                    const contactMatch = resident.contactNumber?.toLowerCase().includes(searchTerm);
+                    const cnicMatch = resident.cnic?.toLowerCase().includes(searchTerm);
+                    return nameMatch || contactMatch || cnicMatch;
+                  });
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Tenant Name"
+                    placeholder="Search by name, contact, or CNIC"
+                    required
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {residentsLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+                renderOption={(props, resident) => (
+                  <Box component="li" {...props} key={resident._id}>
+                    <Box>
+                      <Typography variant="body1">{resident.name}</Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                        {resident.accountType && resident.accountType !== 'Resident' && (
+                          <Chip 
+                            label={resident.accountType} 
+                            size="small" 
+                            variant="outlined"
+                            sx={{ height: '20px', fontSize: '0.7rem' }}
+                          />
+                        )}
+                        {resident.contactNumber && (
+                          <Typography variant="caption" color="text.secondary">
+                            {resident.contactNumber}
+                          </Typography>
+                        )}
+                        {resident.cnic && (
+                          <Typography variant="caption" color="text.secondary">
+                            CNIC: {resident.cnic}
+                          </Typography>
+                        )}
+                      </Stack>
+                    </Box>
+                  </Box>
+                )}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                noOptionsText={residentsLoading ? 'Loading residents...' : 'No residents found'}
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -351,12 +520,89 @@ const RentalAgreements = () => {
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField
-                label="Property Name"
-                name="propertyName"
-                value={formData.propertyName}
-                onChange={handleInputChange}
-                fullWidth
+              <Autocomplete
+                options={properties}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  return option.propertyName || option.plotNumber || option.address || '';
+                }}
+                value={properties.find(p => p.propertyName === formData.propertyName || p.plotNumber === formData.propertyName) || null}
+                onChange={(event, newValue) => {
+                  if (newValue) {
+                    // Auto-fill related fields from property data
+                    setFormData((prev) => ({
+                      ...prev,
+                      propertyName: newValue.propertyName || newValue.plotNumber || '',
+                      propertyAddress: newValue.address || newValue.fullAddress || prev.propertyAddress
+                    }));
+                  } else {
+                    // Clear property fields if property is deselected
+                    setFormData((prev) => ({
+                      ...prev,
+                      propertyName: '',
+                      propertyAddress: ''
+                    }));
+                  }
+                }}
+                loading={propertiesLoading}
+                disabled={!selectedResident || properties.length === 0}
+                filterOptions={(options, params) => {
+                  const { inputValue } = params;
+                  if (!inputValue) return options;
+                  
+                  const searchTerm = inputValue.toLowerCase();
+                  return options.filter((property) => {
+                    const nameMatch = property.propertyName?.toLowerCase().includes(searchTerm);
+                    const plotMatch = property.plotNumber?.toLowerCase().includes(searchTerm);
+                    const addressMatch = property.address?.toLowerCase().includes(searchTerm) || 
+                                       property.fullAddress?.toLowerCase().includes(searchTerm);
+                    return nameMatch || plotMatch || addressMatch;
+                  });
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Property Name"
+                    placeholder={!selectedResident ? "Select tenant first" : properties.length === 0 ? "No properties found for this tenant" : "Search by name, plot, or address"}
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {propertiesLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+                renderOption={(props, property) => (
+                  <Box component="li" {...props} key={property._id}>
+                    <Box>
+                      <Typography variant="body1">
+                        {property.propertyName || property.plotNumber || 'Unnamed Property'}
+                      </Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                        {property.plotNumber && (
+                          <Typography variant="caption" color="text.secondary">
+                            Plot: {property.plotNumber}
+                          </Typography>
+                        )}
+                        {property.sector && (
+                          <Typography variant="caption" color="text.secondary">
+                            Sector: {property.sector}
+                          </Typography>
+                        )}
+                        {(property.address || property.fullAddress) && (
+                          <Typography variant="caption" color="text.secondary">
+                            {property.address || property.fullAddress}
+                          </Typography>
+                        )}
+                      </Stack>
+                    </Box>
+                  </Box>
+                )}
+                isOptionEqualToValue={(option, value) => option._id === value._id}
+                noOptionsText={propertiesLoading ? 'Loading properties...' : !selectedResident ? 'Select a tenant first' : 'No properties found for this tenant'}
               />
             </Grid>
             <Grid item xs={12}>

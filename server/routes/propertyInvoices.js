@@ -5,6 +5,7 @@ const TajProperty = require('../models/tajResidencia/TajProperty');
 const CAMCharge = require('../models/tajResidencia/CAMCharge');
 const Electricity = require('../models/tajResidencia/Electricity');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
+const TajTransaction = require('../models/tajResidencia/TajTransaction');
 const { authMiddleware } = require('../middleware/auth');
 const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesHelper');
 const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges } = require('../utils/electricityBillHelper');
@@ -302,6 +303,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     let camCharge = null;
     let electricityBill = null;
     let rentPayment = null;
+    let rentChargeAdded = false; // Track if rent charge was calculated from agreement
     const meterBillsData = []; // Store data for additional meters
 
     // Get CAM Charge
@@ -527,7 +529,6 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 
     // Get Rent Payment from Rental Agreement (especially for Personal Rent category)
     if (includeRent === true) {
-      let rentChargeAdded = false;
       let agreement = null;
       
       // Helper function to create rent charge object
@@ -602,9 +603,17 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 
     // If manual charges provided, update or add them to charges array
     // BUT: Don't override charges if we just calculated them from readings
+    // For rental charges, if backend already calculated from agreement, use that instead of manual charges
     const hasCalculatedCharges = includeElectricity === true && hasReadings && (electricityBill || meterBillsData.length > 0);
+    const hasCalculatedRentCharge = includeRent === true && rentChargeAdded;
+    
     if (requestCharges?.length > 0 && !hasCalculatedCharges) {
       requestCharges.forEach(charge => {
+        // Skip RENT charges if backend already calculated them from agreement
+        if (charge.type === 'RENT' && hasCalculatedRentCharge) {
+          return; // Skip this charge, use the one calculated from agreement
+        }
+        
         const chargeData = {
           type: charge.type,
           description: charge.description || `${charge.type} Charges`,
@@ -839,7 +848,55 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
       .populate('payments.recordedBy', 'firstName lastName')
       .sort({ invoiceDate: -1 });
 
-    res.json({ success: true, data: invoices });
+    // Enhance payments with bank information from transactions
+    const invoicesWithBankInfo = await Promise.all(invoices.map(async (invoice) => {
+      const invoiceObj = invoice.toObject();
+      
+      // Find transactions that reference this invoice
+      const transactions = await TajTransaction.find({
+        referenceId: invoice._id,
+        transactionType: 'bill_payment'
+      })
+        .populate('depositUsages.depositId')
+        .sort({ createdAt: -1 });
+      
+      // Match payments to transactions and enhance with bank info
+      if (invoiceObj.payments && Array.isArray(invoiceObj.payments)) {
+        invoiceObj.payments = invoiceObj.payments.map((payment) => {
+          const paymentObj = { ...payment };
+          
+          // Try to find a matching transaction
+          // Match by amount and payment date (within 1 day tolerance)
+          const matchingTransaction = transactions.find(txn => {
+            const amountMatch = Math.abs(txn.amount - (payment.amount || 0)) < 0.01;
+            const dateMatch = payment.paymentDate && 
+              Math.abs(new Date(txn.createdAt).getTime() - new Date(payment.paymentDate).getTime()) < 24 * 60 * 60 * 1000;
+            return amountMatch && (dateMatch || !payment.paymentDate);
+          });
+          
+          // If payment doesn't have bankName but transaction has bank info, use it
+          if (!paymentObj.bankName && matchingTransaction) {
+            // First try to get bank from transaction directly
+            if (matchingTransaction.bank) {
+              paymentObj.bankName = matchingTransaction.bank;
+            } 
+            // If not, try to get from deposit transactions
+            else if (matchingTransaction.depositUsages && Array.isArray(matchingTransaction.depositUsages) && matchingTransaction.depositUsages.length > 0) {
+              const firstDeposit = matchingTransaction.depositUsages[0]?.depositId;
+              if (firstDeposit && firstDeposit.bank) {
+                paymentObj.bankName = firstDeposit.bank;
+              }
+            }
+          }
+          
+          return paymentObj;
+        });
+      }
+      
+      return invoiceObj;
+    }));
+
+    res.json({ success: true, data: invoicesWithBankInfo });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

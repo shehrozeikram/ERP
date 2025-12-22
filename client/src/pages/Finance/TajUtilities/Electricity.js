@@ -54,6 +54,7 @@ import { createInvoice, updateInvoice, fetchInvoicesForProperty, getElectricityC
 import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
+import { getImageUrl } from '../../../utils/imageService';
 
 // Number to words converter
 const numberToWords = (num) => {
@@ -859,6 +860,9 @@ const Electricity = () => {
     const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
     const clientName = property.ownerName || property.tenantName || '—';
     const address = electricityBill.address || property.address || '—';
+    // Fetch floor from meters array based on meterNo
+    const matchedMeter = property.meters?.find(m => String(m.meterNo) === String(meterNo) && m.isActive !== false);
+    const floor = matchedMeter?.floor || property.floor || '—';
     const invoiceNumber = invoice.invoiceNumber || '—';
     const periodFrom = formatDate(invoice.periodFrom || electricityBill.fromDate);
     const periodTo = formatDate(invoice.periodTo || electricityBill.toDate);
@@ -997,6 +1001,7 @@ const Electricity = () => {
       const inlineFields = [
         ['Meter ID', meterNo],
         ['Client', clientName],
+        ['Floor', floor],
         ['Address', address],
         ['Period From', periodFrom],
         ['Period To', periodTo],
@@ -1021,16 +1026,30 @@ const Electricity = () => {
       pdf.text('Bill Computation', startX, cursorY);
       cursorY += 3;
       cursorY = drawComputationTable(startX, cursorY, formatMonthLabel());
+      cursorY += 1; // Add spacing before footer
 
+      // Footer notes
       const panelFootnotes = [
         '1. The above mentioned charges are calculated based on proportionate share of user in total cost of electricity of the Project and do not include any profit element of Taj Residencia.',
         '2. Kindly make payment through cash, crossed cheque or bank drafts on our specified deposit slip at any Allied Bank Limited main Phase I Account No. Taj Residencia Limited Bank Limited, The Centaurus Mall Branch, Islamabad.',
         '3. Please deposit your bills before due date to avoid Late Payment Surcharge.',
         '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 68 442.'
       ];
+      
+      // Calculate total height needed for footer notes
       pdf.setFont('helvetica', 'italic');
       pdf.setFontSize(5.2);
-      let noteY = pageHeight - 24;
+      let totalFooterHeight = 0;
+      panelFootnotes.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, panelWidth - 2 * marginX);
+        totalFooterHeight += wrapped.length * 3.2;
+      });
+      
+      // Position footer dynamically - ensure it doesn't overlap with content
+      // Use bottom of page with margin, but ensure it's below the content
+      const footerStartY = Math.max(cursorY + 2, pageHeight - totalFooterHeight - 6);
+      
+      let noteY = footerStartY;
       panelFootnotes.forEach((line) => {
         const wrapped = pdf.splitTextToSize(line, panelWidth - 2 * marginX);
         wrapped.forEach((wrappedLine) => {
@@ -1057,6 +1076,322 @@ const Electricity = () => {
       return;
     }
     generateElectricityVoucherPDF();
+  };
+
+  const generatePaymentReceiptPDF = (invoice, payment, property) => {
+    // Constants
+    const CONSTANTS = {
+      COPIES: ['Bank Copy', 'Office Copy', 'Client Copy'],
+      MARGIN_X: 6,
+      TOP_MARGIN: 10,
+      FOOTER_NOTES: [
+        '1. The above mentioned charges are calculated based on proportionate share of user in total cost of electricity of the Project and do not include any profit element of Taj Residencia.',
+        '2. Kindly make payment through cash, crossed cheque or bank drafts on our specified deposit slip at any Allied Bank Limited main Phase I Account No. Taj Residencia Limited Bank Limited, The Centaurus Mall Branch, Islamabad.',
+        '3. Please deposit your bills before due date to avoid Late Payment Surcharge.',
+        '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 68 442.'
+      ],
+      COLORS: {
+        RED: [178, 34, 34],
+        GREEN: [0, 128, 0],
+        ORANGE: [255, 140, 0],
+        WATERMARK_PAID: [200, 230, 200],
+        WATERMARK_PARTIAL: [255, 220, 180],
+        BLACK: [0, 0, 0]
+      }
+    };
+
+    // Helper functions
+    const formatDate = (value, format = 'D-MMM-YY') => value ? dayjs(value).format(format) : '—';
+    const formatFullDate = (value) => value ? dayjs(value).format('MMMM D, YYYY') : '—';
+    const formatAmount = (value) => {
+      const num = Number(value) || 0;
+      return (num < 0 ? '(' : '') + Math.abs(num).toLocaleString('en-PK', { minimumFractionDigits: 0 }) + (num < 0 ? ')' : '');
+    };
+    const formatRate = (value) => (Number(value) || 0).toFixed(2);
+
+    // Initialize PDF
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const availableWidth = panelWidth - CONSTANTS.MARGIN_X * 2;
+    const panelCenterX = (panelWidth - CONSTANTS.MARGIN_X * 2) / 2;
+
+    // Extract data
+    const electricityCharge = invoice.charges?.find(c => c.type === 'ELECTRICITY');
+    const electricityBill = invoice.electricityBill || {};
+    
+    // Calculate month label once
+    const monthLabel = electricityBill.month?.toUpperCase() || 
+      (invoice.periodTo ? dayjs(invoice.periodTo).format('MMMM-YY').toUpperCase() : 
+       dayjs().format('MMMM-YY').toUpperCase());
+
+    // Calculate invoice values
+    const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
+    // Fetch floor from meters array based on meterNo
+    const matchedMeter = property.meters?.find(m => String(m.meterNo) === String(meterNo) && m.isActive !== false);
+    const floor = matchedMeter?.floor || property.floor || '—';
+    
+    const invoiceData = {
+      meterNo: meterNo,
+      clientName: property.ownerName || property.tenantName || '—',
+      floor: floor,
+      address: electricityBill.address || property.address || '—',
+      invoiceNumber: invoice.invoiceNumber || '—',
+      periodFrom: formatDate(invoice.periodFrom || electricityBill.fromDate),
+      periodTo: formatDate(invoice.periodTo || electricityBill.toDate),
+      readingDate: formatFullDate(invoice.periodTo || electricityBill.toDate),
+      dueDate: formatFullDate(invoice.dueDate || electricityBill.dueDate),
+      unitsConsumed: electricityBill.unitsConsumed || 0,
+      unitsCharged: electricityBill.unitsConsumedForDays || electricityBill.unitsConsumed || 0
+    };
+
+    // Calculate amounts
+    const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
+    const arrears = electricityCharge?.arrears || electricityBill.arrears || 0;
+    const amountReceived = electricityBill.receivedAmount || 0;
+    const submittedInFreePeriod = totalBill + arrears;
+    const payableWithinDueDate = totalBill + arrears - amountReceived;
+    const payableAfterDueDate = electricityBill.withSurcharge || payableWithinDueDate;
+    const latePaymentSurcharge = Math.max(payableAfterDueDate - payableWithinDueDate, 0);
+
+    // Calculate payment status
+    const totalPaid = invoice.totalPaid || 0;
+    const grandTotal = invoice.grandTotal || (totalBill + arrears);
+    const balance = invoice.balance || (grandTotal - totalPaid);
+    const isPaid = balance <= 0 && totalPaid > 0;
+    const isPartiallyPaid = totalPaid > 0 && balance > 0;
+    const paymentStatus = isPaid ? 'PAID' : isPartiallyPaid ? 'PARTIALLY PAID' : 'UNPAID';
+    const paymentStatusColor = isPaid ? CONSTANTS.COLORS.GREEN : 
+                              isPartiallyPaid ? CONSTANTS.COLORS.ORANGE : CONSTANTS.COLORS.RED;
+
+    // Draw vertical dividers
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) pdf.setLineDash([1, 2], 0);
+    pdf.line(panelWidth, CONSTANTS.TOP_MARGIN - 5, panelWidth, pageHeight - 15);
+    pdf.line(panelWidth * 2, CONSTANTS.TOP_MARGIN - 5, panelWidth * 2, pageHeight - 15);
+    if (pdf.setLineDash) pdf.setLineDash([], 0);
+
+    // Reusable drawing functions
+    const setTextStyle = (font = 'helvetica', style = 'normal', size = 10) => {
+      pdf.setFont(font, style);
+      pdf.setFontSize(size);
+    };
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 30) => {
+      const valueWidth = availableWidth - labelWidth;
+      setTextStyle('helvetica', 'bold', 7);
+      pdf.text(label, startX, startY);
+      setTextStyle('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawMeterTable = (startX, startY) => {
+      const headers = ['Meter No.', 'Previous', 'Present', 'Unit Consumed', 'Units Charged', 'IESCO SLAB'];
+      const values = [
+        invoiceData.meterNo,
+        formatAmount(electricityBill.prvReading),
+        formatAmount(electricityBill.curReading),
+        formatAmount(invoiceData.unitsConsumed),
+        formatAmount(invoiceData.unitsCharged),
+        electricityBill.iescoSlabs || '—'
+      ];
+      const cellWidth = availableWidth / headers.length;
+      const headerHeight = 5;
+      const valueHeight = 6;
+      
+      headers.forEach((header, idx) => {
+        const cellX = startX + idx * cellWidth;
+        pdf.rect(cellX, startY, cellWidth, headerHeight);
+        setTextStyle('helvetica', 'bold', 5);
+        pdf.text(header, cellX + cellWidth / 2, startY + headerHeight - 1.2, { align: 'center' });
+      });
+      
+      values.forEach((value, idx) => {
+        const cellX = startX + idx * cellWidth;
+        pdf.rect(cellX, startY + headerHeight, cellWidth, valueHeight);
+        setTextStyle('helvetica', 'normal', 5.5);
+        pdf.text(String(value || '—'), cellX + cellWidth / 2, startY + headerHeight + valueHeight - 1.2, { align: 'center' });
+      });
+      
+      return startY + headerHeight + valueHeight;
+    };
+
+    const drawComputationTable = (startX, startY) => {
+      const rows = [
+        { label: 'Share of IESCO Supply Cost Rate', value: `${formatRate(electricityBill.iescoUnitPrice || 0)}   ${formatAmount(electricityBill.electricityCost || 0)}`, bold: false },
+        { label: 'FC Surcharge', value: formatAmount(electricityBill.fcSurcharge || 0), bold: false },
+        { label: 'Meter Rent', value: formatAmount(electricityBill.meterRent || 0), bold: false },
+        { label: 'NJ Surcharge', value: formatAmount(electricityBill.njSurcharge || 0), bold: false },
+        { label: 'Sales Tax', value: formatAmount(electricityBill.gst || 0), bold: false },
+        { label: 'Electricity Duty', value: formatAmount(electricityBill.electricityDuty || 0), bold: false },
+        { label: 'TV Fee', value: formatAmount(electricityBill.tvFee || 0), bold: false },
+        { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0), bold: false },
+        { label: 'Charges for the Month', value: formatAmount(totalBill), bold: false },
+        { label: `Amount Received in ${monthLabel.replace('-', ' ')}`, value: formatAmount(amountReceived ? -amountReceived : 0), bold: false },
+        { label: '*Amount Submitted in Free Period', value: formatAmount(submittedInFreePeriod), bold: true },
+        { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate), bold: true },
+        { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge), bold: false },
+        { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate), bold: true }
+      ];
+
+      const rowHeight = 6;
+      setTextStyle('helvetica', 'normal', 7);
+      
+      rows.forEach((row, idx) => {
+        const y = startY + idx * rowHeight;
+        setTextStyle('helvetica', row.bold ? 'bold' : 'normal', 7);
+        pdf.text(row.label, startX, y + 4);
+        pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
+        pdf.line(startX, y + rowHeight, startX + availableWidth, y + rowHeight);
+      });
+
+      return startY + rows.length * rowHeight;
+    };
+
+    const drawWatermark = (startX) => {
+      if (!isPaid && !isPartiallyPaid) return;
+      
+      const watermarkText = isPaid ? 'PAID' : 'PARTIAL PAID';
+      const centerX = startX + panelCenterX;
+      const centerY = pageHeight / 2;
+      
+      setTextStyle('helvetica', 'bold', 40);
+      pdf.setTextColor(...(isPaid ? CONSTANTS.COLORS.WATERMARK_PAID : CONSTANTS.COLORS.WATERMARK_PARTIAL));
+      pdf.text(watermarkText, centerX, centerY, { align: 'center', angle: -45 });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+    };
+
+    const drawFooter = (startX, cursorY) => {
+      setTextStyle('helvetica', 'italic', 5.2);
+      const footerWidth = availableWidth;
+      
+      // Pre-calculate wrapped lines and height
+      const wrappedLines = [];
+      let totalFooterHeight = 0;
+      CONSTANTS.FOOTER_NOTES.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, footerWidth);
+        wrappedLines.push(wrapped);
+        totalFooterHeight += wrapped.length * 3.2;
+      });
+      
+      const footerStartY = Math.max(cursorY + 5, pageHeight - totalFooterHeight - 8);
+      let noteY = footerStartY;
+      
+      wrappedLines.forEach((wrapped) => {
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, noteY);
+          noteY += 3.2;
+        });
+      });
+    };
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + CONSTANTS.MARGIN_X;
+      let cursorY = CONSTANTS.TOP_MARGIN;
+
+      // Copy label
+      setTextStyle('helvetica', 'italic', 8);
+      pdf.text(`(${copyLabel})`, startX + panelCenterX, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      // Header
+      setTextStyle('helvetica', 'bold', 11);
+      pdf.setTextColor(...CONSTANTS.COLORS.RED);
+      pdf.text(`Taj Electricity Billing For The Month Of ${monthLabel}`, startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+      cursorY += 6;
+
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.text('Statement of Electricity Charges', startX + panelCenterX, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      // Invoice fields
+      const inlineFields = [
+        ['Meter ID', invoiceData.meterNo],
+        ['Client', invoiceData.clientName],
+        ['Floor', invoiceData.floor],
+        ['Address', invoiceData.address],
+        ['Period From', invoiceData.periodFrom],
+        ['Period To', invoiceData.periodTo],
+        ['Invoice No.', invoiceData.invoiceNumber],
+        ['Reading Date', invoiceData.readingDate],
+        ['Due Date', invoiceData.dueDate]
+      ];
+      
+      inlineFields.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 2;
+
+      // Meter Reading Table
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('IESCO Meter Reading', startX, cursorY);
+      cursorY = drawMeterTable(startX - 2, cursorY + 2) + 4;
+      
+      // Bill Computation Table
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Bill Computation', startX, cursorY);
+      cursorY = drawComputationTable(startX, cursorY + 3) + 4;
+
+      // Payment Information Section
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Payment Information', startX, cursorY);
+      cursorY += 5;
+
+      const paymentInfo = [
+        ['Payment Date:', formatFullDate(payment.paymentDate)],
+        ['Payment Amount:', formatAmount(payment.amount || 0)],
+        ['Arrears Paid:', formatAmount(payment.arrears || 0)],
+        ['Total Paid:', formatAmount(payment.totalAmount || payment.amount || 0)],
+        ['Payment Method:', payment.paymentMethod || '—'],
+        ['Bank:', payment.bankName || '—'],
+        ['Reference:', payment.reference || '—'],
+      ];
+
+      paymentInfo.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 3;
+
+      // Payment Status
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.setTextColor(...paymentStatusColor);
+      pdf.text(`Status: ${paymentStatus}`, startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+      cursorY += 5;
+
+      // Total Summary
+      setTextStyle('helvetica', 'bold', 7);
+      pdf.text('Grand Total:', startX, cursorY);
+      pdf.text(formatAmount(grandTotal), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 5;
+      pdf.text('Total Paid:', startX, cursorY);
+      pdf.text(formatAmount(totalPaid), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 5;
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Balance:', startX, cursorY);
+      pdf.text(formatAmount(balance), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 8;
+
+      // Footer and watermark
+      drawFooter(startX, cursorY);
+      drawWatermark(startX);
+    };
+
+    // Generate all panels
+    CONSTANTS.COPIES.forEach((copy, index) => drawPanel(copy, index));
+
+    // Save PDF
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'property')
+      .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
+    const receiptDate = dayjs(payment.paymentDate).format('YYYY-MM-DD');
+    pdf.save(`Payment_Receipt_${sanitizedName}_${receiptDate}.pdf`);
   };
 
   const getPaymentStatusConfig = (status) => {
@@ -2028,6 +2363,7 @@ const Electricity = () => {
                                                       <TableCell>Reference</TableCell>
                                                       <TableCell>Notes</TableCell>
                                                       <TableCell>Recorded By</TableCell>
+                                                      <TableCell>Actions</TableCell>
                                                     </TableRow>
                                                   </TableHead>
                                                   <TableBody>
@@ -2047,6 +2383,35 @@ const Electricity = () => {
                                                           {payment.recordedBy?.firstName && payment.recordedBy?.lastName
                                                             ? `${payment.recordedBy.firstName} ${payment.recordedBy.lastName}`
                                                             : 'N/A'}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                          <Stack direction="row" spacing={1}>
+                                                            {payment.attachmentUrl && (
+                                                              <Tooltip title="View Attachment">
+                                                                <IconButton
+                                                                  size="small"
+                                                                  color="primary"
+                                                                  onClick={() => {
+                                                                    const attachmentUrl = getImageUrl(payment.attachmentUrl);
+                                                                    window.open(attachmentUrl, '_blank');
+                                                                  }}
+                                                                >
+                                                                  <ViewIcon fontSize="small" />
+                                                                </IconButton>
+                                                              </Tooltip>
+                                                            )}
+                                                            <Tooltip title="Download Payment Receipt">
+                                                              <IconButton
+                                                                size="small"
+                                                                color="primary"
+                                                                onClick={() => {
+                                                                  generatePaymentReceiptPDF(invoice, payment, property);
+                                                                }}
+                                                              >
+                                                                <DownloadIcon fontSize="small" />
+                                                              </IconButton>
+                                                            </Tooltip>
+                                                          </Stack>
                                                         </TableCell>
                                                       </TableRow>
                                                     ))}
@@ -2125,54 +2490,6 @@ const Electricity = () => {
                     size="small"
                     InputProps={{ readOnly: true }}
                   />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel id="meter-number-label">Meter Number</InputLabel>
-                    <Select
-                      labelId="meter-number-label"
-                      id="meter-number-select"
-                      value={readingData.meterSelectValue || readingData.meterNo || ''}
-                    label="Meter Number"
-                      onChange={(e) => {
-                        const selectedValue = e.target.value;
-                        // Extract meterNo from the selected value (format: "meterNo|index")
-                        const meterNo = selectedValue.includes('|') ? selectedValue.split('|')[0] : selectedValue;
-                        setReadingData(prev => ({ 
-                          ...prev, 
-                          meterNo: meterNo,
-                          meterSelectValue: selectedValue 
-                        }));
-                      }}
-                      MenuProps={{
-                        PaperProps: {
-                          style: {
-                            maxHeight: 300,
-                          },
-                        },
-                      }}
-                    >
-                      {invoiceProperty?.meters && invoiceProperty.meters.filter(m => m.isActive !== false).length > 0 ? (
-                        invoiceProperty.meters
-                          .filter(m => m.isActive !== false)
-                          .map((meter, index) => {
-                            // Use meterNo|index as value to ensure uniqueness, but extract meterNo on change
-                            const meterNoValue = String(meter.meterNo || '');
-                            const uniqueValue = `${meterNoValue}|${index}`;
-                            const displayText = `${meter.meterNo || 'N/A'}${meter.floor ? ` - Floor ${meter.floor}` : ''}${meter.consumer ? ` (${meter.consumer})` : ''}`;
-                            return (
-                              <MenuItem key={`meter-${index}-${meter.floor || ''}-${meter.consumer || ''}`} value={uniqueValue}>
-                                {displayText}
-                              </MenuItem>
-                            );
-                          })
-                      ) : (
-                        <MenuItem value={String(invoiceProperty?.meterNumber || invoiceProperty?.electricityWaterMeterNo || '')}>
-                          {invoiceProperty?.meterNumber || invoiceProperty?.electricityWaterMeterNo || 'No meter found'}
-                        </MenuItem>
-                      )}
-                    </Select>
-                  </FormControl>
                 </Grid>
                 {!invoiceData._id && (() => {
                   const activeMeters = (invoiceProperty?.meters || []).filter(m => m.isActive !== false);

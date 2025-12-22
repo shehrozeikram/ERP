@@ -1121,10 +1121,21 @@ const TajProperties = () => {
                 }}
                 value={residents.find(r => r.name === formData.ownerName) || null}
                 onChange={(event, newValue) => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    ownerName: newValue ? newValue.name : ''
-                  }));
+                  if (newValue) {
+                    // Auto-fill related fields from resident data
+                    setFormData((prev) => ({
+                      ...prev,
+                      ownerName: newValue.name || '',
+                      contactNumber: newValue.contactNumber || prev.contactNumber,
+                      address: newValue.address || prev.address
+                    }));
+                  } else {
+                    // Clear owner name if resident is deselected
+                    setFormData((prev) => ({
+                      ...prev,
+                      ownerName: ''
+                    }));
+                  }
                 }}
                 loading={residentsLoading}
                 filterOptions={(options, params) => {

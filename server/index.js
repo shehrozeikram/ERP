@@ -513,68 +513,65 @@ const PORT = process.env.PORT || 5001;
 // Initialize Change Stream service after MongoDB connection
 mongoose.connection.once('open', async () => {
   try {
-    console.log('🚀 Initializing Change Stream service...');
-    changeStreamService = new ChangeStreamService();
-    await changeStreamService.start();
-    console.log('✅ Change Stream service initialized successfully');
+    // Initialize services in parallel for faster startup
+    console.log('🚀 Initializing services in parallel...');
     
-    // Initialize ZKBio Time WebSocket Proxy
-    console.log('🔌 Initializing ZKBio Time WebSocket Proxy...');
-    zkbioTimeWebSocketProxy = new ZKBioTimeWebSocketProxy();
-    zkbioTimeWebSocketProxy.initializeSocketIO(server);
-    
-    // Connect image proxy to WebSocket proxy
-    setZKBioTimeWebSocketProxy(zkbioTimeWebSocketProxy);
-    
-    // Test and connect to ZKBio Time WebSocket
-    setTimeout(async () => {
-      console.log('🧪 Testing ZKBio Time connection before starting WebSocket...');
-      const connectionTest = await zkbioTimeWebSocketProxy.testConnection();
+    const initPromises = [
+      // Initialize Change Stream service
+      (async () => {
+        console.log('🚀 Initializing Change Stream service...');
+        changeStreamService = new ChangeStreamService();
+        await changeStreamService.start();
+        console.log('✅ Change Stream service initialized successfully');
+      })(),
       
-      if (connectionTest) {
-        console.log('✅ Connection test passed, starting WebSocket connections...');
-        zkbioTimeWebSocketProxy.connectToZKBioTime();
-        // Start chart WebSocket connection after a short delay
-        setTimeout(() => {
+      // Initialize ZKBio Time WebSocket Proxy (non-blocking)
+      (async () => {
+        console.log('🔌 Initializing ZKBio Time WebSocket Proxy...');
+        zkbioTimeWebSocketProxy = new ZKBioTimeWebSocketProxy();
+        zkbioTimeWebSocketProxy.initializeSocketIO(server);
+        setZKBioTimeWebSocketProxy(zkbioTimeWebSocketProxy);
+        console.log('✅ ZKBio Time WebSocket Proxy initialized');
+        
+        // Connect WebSockets asynchronously (non-blocking)
+        setTimeout(async () => {
+          console.log('🧪 Testing ZKBio Time connection...');
+          const connectionTest = await zkbioTimeWebSocketProxy.testConnection();
+          
+          if (connectionTest) {
+            console.log('✅ Connection test passed, starting WebSocket connections...');
+          } else {
+            console.log('⚠️  Connection test failed, will attempt WebSocket connections anyway...');
+          }
+          
+          // Connect all WebSockets in parallel instead of sequentially
+          zkbioTimeWebSocketProxy.connectToZKBioTime();
           zkbioTimeWebSocketProxy.connectToChartWebSocket();
-        }, 1000);
-        // Start device WebSocket connection after another delay
-        setTimeout(() => {
           zkbioTimeWebSocketProxy.connectToDeviceWebSocket();
-        }, 2000);
-        // Start department WebSocket connection after another delay
-        setTimeout(() => {
           zkbioTimeWebSocketProxy.connectToDepartmentWebSocket();
-        }, 3000);
-      } else {
-        console.log('⚠️  Connection test failed, will attempt WebSocket connections anyway...');
-        zkbioTimeWebSocketProxy.connectToZKBioTime();
-        setTimeout(() => {
-          zkbioTimeWebSocketProxy.connectToChartWebSocket();
-        }, 1000);
-        setTimeout(() => {
-          zkbioTimeWebSocketProxy.connectToDeviceWebSocket();
-        }, 2000);
-        setTimeout(() => {
-          zkbioTimeWebSocketProxy.connectToDepartmentWebSocket();
-        }, 3000);
-      }
+          
+          // Start periodic retry mechanism
+          setTimeout(() => {
+            zkbioTimeWebSocketProxy.startPeriodicRetry();
+          }, 2000);
+        }, 500); // Reduced from 2000ms to 500ms
+      })(),
       
-      // Start periodic retry mechanism for disabled WebSockets
-      setTimeout(() => {
-        zkbioTimeWebSocketProxy.startPeriodicRetry();
-      }, 4000); // Start after all WebSockets have had a chance to connect
-    }, 2000); // Wait 2 seconds for server to be fully ready
+      // Start IT Notification Service (non-blocking)
+      (async () => {
+        console.log('🔔 Starting IT Notification Service...');
+        itNotificationService.start();
+        console.log('✅ IT Notification Service started successfully');
+      })()
+    ];
     
-    console.log('✅ ZKBio Time WebSocket Proxy initialized');
-    
-    // Start IT Notification Service
-    console.log('🔔 Starting IT Notification Service...');
-    itNotificationService.start();
-    console.log('✅ IT Notification Service started successfully');
+    // Wait for all critical services to initialize
+    await Promise.all(initPromises);
+    console.log('✅ All services initialized successfully');
     
   } catch (error) {
     console.error('❌ Failed to initialize services:', error);
+    // Don't block server startup if services fail
   }
 });
 
@@ -583,7 +580,7 @@ mongoose.connection.once('open', async () => {
 // Initialize Anniversary Leave Scheduler
 const AnniversaryLeaveScheduler = require('./services/anniversaryLeaveScheduler');
 
-server.listen(PORT, 'localhost', async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 SGC ERP Server running on port ${PORT}`);
   console.log(`📊 Environment: ${NODE_ENV}`);
   console.log(`🌐 API Base URL: http://0.0.0.0:${PORT}/api`);

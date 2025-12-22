@@ -217,6 +217,21 @@ const TajResidents = () => {
     };
   }, [allocations, payForm.amount]);
 
+  // Filter properties to only show those assigned to selected resident (for deposit payment dialog)
+  const filteredPropertiesForDeposit = useMemo(() => {
+    if (!selectedResident || !selectedResident.properties || !Array.isArray(selectedResident.properties)) {
+      return properties;
+    }
+    // Get IDs of properties assigned to this resident
+    const residentPropertyIds = selectedResident.properties.map(p => 
+      typeof p === 'object' ? p._id || p : p
+    );
+    // Filter properties to only include those assigned to the resident
+    return properties.filter(property => 
+      residentPropertyIds.includes(property._id)
+    );
+  }, [properties, selectedResident]);
+
   // API calls
   const loadResidents = useCallback(async () => {
     try {
@@ -2211,7 +2226,7 @@ const TajResidents = () => {
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={12} sm={6}>
               <Autocomplete
-                options={properties}
+                options={filteredPropertiesForDeposit}
                 getOptionLabel={(option) => 
                   `${option.propertyName || option.plotNumber || ''} - ${option.ownerName || ''}`
                 }

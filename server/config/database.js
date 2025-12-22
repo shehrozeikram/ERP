@@ -9,8 +9,8 @@ const connectDB = async () => {
       maxPoolSize: 20, // Increased from 10 to handle more concurrent connections
       minPoolSize: 2, // Increased from 1 to maintain minimum connections
       maxIdleTimeMS: 30000,
-      serverSelectionTimeoutMS: 30000, // Increased from 5000ms
-      socketTimeoutMS: 60000, // Increased from 45000ms
+      serverSelectionTimeoutMS: 10000, // Reduced from 30000ms for faster failure detection
+      socketTimeoutMS: 45000, // Reduced from 60000ms
       // SSL/TLS options
       tls: true,
       tlsAllowInvalidCertificates: false,
@@ -18,7 +18,7 @@ const connectDB = async () => {
       retryWrites: true,
       w: 'majority',
       // Connection timeout
-      connectTimeoutMS: 30000, // Increased from 10000ms
+      connectTimeoutMS: 10000, // Reduced from 30000ms for faster connection attempts
       // Heartbeat settings
       heartbeatFrequencyMS: 10000,
       // Buffer settings

@@ -485,114 +485,127 @@ export const DataProvider = ({ children }) => {
     hasLoadedData.current = false;
   }, []);
   
-  // Preload data when authenticated - only run once
+  // Lazy load data when authenticated - delay preload to improve initial page load
   useEffect(() => {
+    let preloadTimer = null;
+    
     if (isAuthenticated && !isPreloading && !hasLoadedData.current) {
-      console.log('🚀 Preloading essential HR data...');
-      setIsPreloading(true);
       hasLoadedData.current = true;
       
-      // Set loading states to true
-      setLoading(prev => ({
-        ...prev,
-        departments: true,
-        employees: true,
-        positions: true,
-        banks: true,
-        companies: true,
-        projects: true
-      }));
+      // Delay preload by 500ms to allow initial page render first (lazy loading)
+      preloadTimer = setTimeout(() => {
+        console.log('🚀 Preloading essential HR data...');
+        setIsPreloading(true);
+        
+        // Set loading states to true
+        setLoading(prev => ({
+          ...prev,
+          departments: true,
+          employees: true,
+          positions: true,
+          banks: true,
+          companies: true,
+          projects: true
+        }));
       
-      // Load data directly without using the fetch functions to avoid dependency issues
-      // Load employees separately with longer timeout to avoid blocking other data
-      const loadData = async () => {
-        try {
-          // Load non-employee data first (faster)
-          const [departmentsRes, positionsRes, banksRes, companiesRes, projectsRes] = await Promise.all([
-            api.get('/hr/departments'),
-            api.get('/positions'),
-            api.get('/hr/banks'),
-            api.get('/hr/companies'),
-            api.get('/projects')
-          ]);
-          
-          setDepartments(departmentsRes.data.data || []);
-          setPositions(positionsRes.data.data || []);
-          setBanks(banksRes.data.data || []);
-          setCompanies(companiesRes.data.data || []);
-          setProjects(projectsRes.data.data || []);
-          
-          // Set cache timestamps for non-employee data
-          const now = Date.now();
-          setLastFetched(prev => ({
-            ...prev,
-            departments: now,
-            positions: now,
-            banks: now,
-            companies: now,
-            projects: now
-          }));
-          
-          // Set loading states to false for non-employee data
-          setLoading(prev => ({
-            ...prev,
-            departments: false,
-            positions: false,
-            banks: false,
-            companies: false,
-            projects: false
-          }));
-          
-          console.log('✅ Essential HR data (non-employees) preloaded successfully');
-          
-          // Load employees separately (may take longer)
+        // Load data directly without using the fetch functions to avoid dependency issues
+        // Load employees separately with longer timeout to avoid blocking other data
+        const loadData = async () => {
           try {
-            const employeesRes = await api.get('/hr/employees?getAll=true');
-            setEmployees(employeesRes.data.data || []);
-            setLastFetched(prev => ({ ...prev, employees: Date.now() }));
-            setLoading(prev => ({ ...prev, employees: false }));
-            setErrors(prev => ({ ...prev, employees: null }));
-            console.log('✅ Employees preloaded successfully');
-          } catch (employeeError) {
-            console.error('❌ Error preloading employees:', employeeError);
+            // Load non-employee data first (faster)
+            const [departmentsRes, positionsRes, banksRes, companiesRes, projectsRes] = await Promise.all([
+              api.get('/hr/departments'),
+              api.get('/positions'),
+              api.get('/hr/banks'),
+              api.get('/hr/companies'),
+              api.get('/projects')
+            ]);
+            
+            setDepartments(departmentsRes.data.data || []);
+            setPositions(positionsRes.data.data || []);
+            setBanks(banksRes.data.data || []);
+            setCompanies(companiesRes.data.data || []);
+            setProjects(projectsRes.data.data || []);
+            
+            // Set cache timestamps for non-employee data
+            const now = Date.now();
+            setLastFetched(prev => ({
+              ...prev,
+              departments: now,
+              positions: now,
+              banks: now,
+              companies: now,
+              projects: now
+            }));
+            
+            // Set loading states to false for non-employee data
+            setLoading(prev => ({
+              ...prev,
+              departments: false,
+              positions: false,
+              banks: false,
+              companies: false,
+              projects: false
+            }));
+            
+            console.log('✅ Essential HR data (non-employees) preloaded successfully');
+            
+            // Load employees separately (may take longer)
+            try {
+              const employeesRes = await api.get('/hr/employees?getAll=true');
+              setEmployees(employeesRes.data.data || []);
+              setLastFetched(prev => ({ ...prev, employees: Date.now() }));
+              setLoading(prev => ({ ...prev, employees: false }));
+              setErrors(prev => ({ ...prev, employees: null }));
+              console.log('✅ Employees preloaded successfully');
+            } catch (employeeError) {
+              console.error('❌ Error preloading employees:', employeeError);
+              setErrors(prev => ({
+                ...prev,
+                employees: employeeError.response?.data?.message || employeeError.message || 'Failed to load employees. Please refresh the page.'
+              }));
+              setLoading(prev => ({ ...prev, employees: false }));
+              // Don't set employees to empty array, keep existing data if any
+            }
+            
+          } catch (error) {
+            console.error('❌ Error preloading HR data:', error);
+            // Set error states for failed requests
             setErrors(prev => ({
               ...prev,
-              employees: employeeError.response?.data?.message || employeeError.message || 'Failed to load employees. Please refresh the page.'
+              departments: error.response?.data?.message || error.message,
+              positions: error.response?.data?.message || error.message,
+              banks: error.response?.data?.message || error.message,
+              companies: error.response?.data?.message || error.message,
+              projects: error.response?.data?.message || error.message
             }));
-            setLoading(prev => ({ ...prev, employees: false }));
-            // Don't set employees to empty array, keep existing data if any
+            // Set loading states to false for failed requests
+            setLoading(prev => ({
+              ...prev,
+              departments: false,
+              positions: false,
+              banks: false,
+              companies: false,
+              projects: false
+            }));
+          } finally {
+            setIsPreloading(false);
           }
-          
-        } catch (error) {
-          console.error('❌ Error preloading HR data:', error);
-          // Set error states for failed requests
-          setErrors(prev => ({
-            ...prev,
-            departments: error.response?.data?.message || error.message,
-            positions: error.response?.data?.message || error.message,
-            banks: error.response?.data?.message || error.message,
-            companies: error.response?.data?.message || error.message,
-            projects: error.response?.data?.message || error.message
-          }));
-          // Set loading states to false for failed requests
-          setLoading(prev => ({
-            ...prev,
-            departments: false,
-            positions: false,
-            banks: false,
-            companies: false,
-            projects: false
-          }));
-        } finally {
-          setIsPreloading(false);
-        }
-      };
-      
-      loadData();
+        };
+        
+        loadData();
+      }, 500); // Delay by 500ms for lazy loading (allows initial page render first)
     } else if (!isAuthenticated) {
       clearData();
       hasLoadedData.current = false;
     }
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (preloadTimer) {
+        clearTimeout(preloadTimer);
+      }
+    };
   }, [isAuthenticated, clearData, isPreloading]); // Include all dependencies
   
   const contextValue = {

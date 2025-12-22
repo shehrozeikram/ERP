@@ -53,6 +53,7 @@ import jsPDF from 'jspdf';
 import { useNavigate } from 'react-router-dom';
 import {
   fetchProperties,
+  fetchPropertyById,
   addPayment,
   fetchInvoice,
   updatePaymentStatus,
@@ -279,85 +280,82 @@ const RentalManagement = () => {
     
     try {
       setInvoiceLoading(true);
-      // Don't send charges array - let backend fetch from agreement
-      const response = await createInvoice(property._id, {
-        includeCAM: false,
-        includeElectricity: false,
-        includeRent: true
+      
+      // Fetch full property details with rental agreement populated if needed
+      let propertyWithAgreement = property;
+      if (!property.rentalAgreement || typeof property.rentalAgreement === 'string') {
+        try {
+          const propertyResponse = await fetchPropertyById(property._id);
+          propertyWithAgreement = propertyResponse.data?.data || property;
+        } catch (err) {
+          // If fetch fails, use the property we have
+          console.error('Failed to fetch property details:', err);
+        }
+      }
+      
+      // Prepare invoice data locally without creating it in database
+      // This is just for preview - actual creation happens in handleSaveInvoice
+      const now = dayjs();
+      const periodFrom = now.startOf('month').toDate();
+      const periodTo = now.endOf('month').toDate();
+      const invoiceNumber = generateInvoiceNumber(
+        propertyWithAgreement.srNo,
+        now.year(),
+        now.month() + 1,
+        'RENT'
+      );
+      
+      // Calculate rental charges from agreement or property
+      let monthlyRent = 0;
+      let arrears = 0;
+      
+      // Try to get rent from rental agreement
+      if (propertyWithAgreement.rentalAgreement?.monthlyRent) {
+        monthlyRent = propertyWithAgreement.rentalAgreement.monthlyRent || 0;
+      } else if (propertyWithAgreement.categoryType === 'Personal Rent' && propertyWithAgreement.rentalPayments?.length > 0) {
+        // Fallback to latest rental payment
+        const latestPayment = [...propertyWithAgreement.rentalPayments]
+          .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0))[0];
+        if (latestPayment) {
+          monthlyRent = latestPayment.amount || 0;
+          arrears = latestPayment.arrears || 0;
+        }
+      }
+      
+      // Calculate arrears from existing unpaid invoices (if needed, can be fetched later)
+      // For now, use 0 or from payment if available
+      
+      const charges = [{
+        type: 'RENT',
+        description: 'Rental Charges',
+        amount: monthlyRent,
+        arrears: arrears,
+        total: monthlyRent + arrears
+      }];
+      
+      const subtotal = monthlyRent;
+      const totalArrears = arrears;
+      const grandTotal = subtotal + totalArrears;
+      
+      setInvoiceData({
+        invoiceNumber,
+        dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+        periodFrom,
+        periodTo,
+        chargeTypes: ['RENT'],
+        charges,
+        subtotal,
+        totalArrears,
+        grandTotal,
+        amountInWords: '' // Can be calculated if needed
       });
       
-      const invoice = response.data?.data;
-      
-      if (invoice) {
-        // Ensure charges array exists and has the correct structure
-        if (!invoice.charges || !Array.isArray(invoice.charges) || invoice.charges.length === 0) {
-          invoice.charges = [{
-            type: 'RENT',
-            description: 'Rental Charges',
-            amount: 0,
-            arrears: 0,
-            total: 0
-          }];
-        }
-        
-        // Generate invoice number if not provided
-        if (!invoice.invoiceNumber) {
-          const now = dayjs();
-          const invoiceNumber = generateInvoiceNumber(
-            property.srNo,
-            now.year(),
-            now.month() + 1,
-            'RENT'
-          );
-          invoice.invoiceNumber = invoiceNumber;
-        }
-        
-        // Ensure dates are Date objects
-        if (invoice.periodFrom && typeof invoice.periodFrom === 'string') {
-          invoice.periodFrom = new Date(invoice.periodFrom);
-        }
-        if (invoice.periodTo && typeof invoice.periodTo === 'string') {
-          invoice.periodTo = new Date(invoice.periodTo);
-        }
-        if (invoice.dueDate && typeof invoice.dueDate === 'string') {
-          invoice.dueDate = new Date(invoice.dueDate);
-        }
-        
-        setInvoiceData(invoice);
-      } else {
-        // Initialize with default values if no invoice returned
-        const now = dayjs();
-        const periodFrom = now.startOf('month').toDate();
-        const periodTo = now.endOf('month').toDate();
-        const invoiceNumber = generateInvoiceNumber(
-          property.srNo,
-          now.year(),
-          now.month() + 1,
-          'RENT'
-        );
-        
-        setInvoiceData({
-          invoiceNumber,
-          dueDate: dayjs(periodTo).add(30, 'day').toDate(),
-          periodFrom,
-          periodTo,
-          chargeTypes: ['RENT'],
-          charges: [{
-            type: 'RENT',
-            description: 'Rental Charges',
-            amount: 0,
-            arrears: 0,
-            total: 0
-          }],
-          subtotal: 0,
-          totalArrears: 0,
-          grandTotal: 0
-        });
+      if (monthlyRent === 0) {
         setInvoiceError('No rental payment found. You can manually enter the amount.');
       }
     } catch (err) {
-      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
-      // Still initialize with defaults on error
+      setInvoiceError(err.response?.data?.message || 'Failed to prepare invoice');
+      // Initialize with defaults on error
       const now = dayjs();
       const periodFrom = now.startOf('month').toDate();
       const periodTo = now.endOf('month').toDate();
@@ -966,6 +964,248 @@ const RentalManagement = () => {
       .replace(/\s+/g, '_');
 
     pdf.save(`Rent_Invoice_${sanitizedName || property._id}.pdf`);
+  };
+
+  const generateRentalPaymentReceiptPDF = (invoice, payment, property) => {
+    // Constants
+    const CONSTANTS = {
+      COPIES: ['Bank Copy', 'Office Copy', 'Client Copy'],
+      MARGIN_X: 6,
+      TOP_MARGIN: 10,
+      FOOTER_NOTES: [
+        '1. This receipt confirms payment received for rental charges as per the rental agreement.',
+        '2. Please keep this receipt for your records.',
+        '3. For any queries, please contact TAJ Official WhatsApp No.: 0345 77 68 442.',
+        '4. Late payment surcharges may apply if payment is made after the due date.'
+      ],
+      COLORS: {
+        RED: [178, 34, 34],
+        GREEN: [0, 128, 0],
+        ORANGE: [255, 140, 0],
+        WATERMARK_PAID: [200, 230, 200],
+        WATERMARK_PARTIAL: [255, 220, 180],
+        BLACK: [0, 0, 0]
+      }
+    };
+
+    // Helper functions
+    const formatDate = (value, format = 'D-MMM-YY') => value ? dayjs(value).format(format) : '—';
+    const formatFullDate = (value) => value ? dayjs(value).format('MMMM D, YYYY') : '—';
+    const formatAmount = (value) => {
+      const num = Number(value) || 0;
+      return (num < 0 ? '(' : '') + Math.abs(num).toLocaleString('en-PK', { minimumFractionDigits: 0 }) + (num < 0 ? ')' : '');
+    };
+
+    // Initialize PDF
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const availableWidth = panelWidth - CONSTANTS.MARGIN_X * 2;
+    const panelCenterX = (panelWidth - CONSTANTS.MARGIN_X * 2) / 2;
+
+    // Extract data
+    const rentCharge = invoice.charges?.find(c => c.type === 'RENT');
+    const monthlyRent = rentCharge?.amount || 0;
+    const arrears = rentCharge?.arrears || 0;
+    
+    // Calculate month label
+    const monthLabel = invoice.periodTo 
+      ? dayjs(invoice.periodTo).format('MMMM-YY').toUpperCase()
+      : dayjs().format('MMMM-YY').toUpperCase();
+
+    // Calculate payment status
+    const totalPaid = invoice.totalPaid || 0;
+    const grandTotal = invoice.grandTotal || (monthlyRent + arrears);
+    const balance = invoice.balance || (grandTotal - totalPaid);
+    const isPaid = balance <= 0 && totalPaid > 0;
+    const isPartiallyPaid = totalPaid > 0 && balance > 0;
+    const paymentStatus = isPaid ? 'PAID' : isPartiallyPaid ? 'PARTIALLY PAID' : 'UNPAID';
+    const paymentStatusColor = isPaid ? CONSTANTS.COLORS.GREEN : 
+                              isPartiallyPaid ? CONSTANTS.COLORS.ORANGE : CONSTANTS.COLORS.RED;
+
+    // Property data
+    const tenantName = property.tenantName || property.ownerName || '—';
+    const propertyName = property.propertyName || property.plotNumber || '—';
+    const address = property.fullAddress || property.address || '—';
+    const floor = property.floor || '—';
+
+    // Draw vertical dividers
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) pdf.setLineDash([1, 2], 0);
+    pdf.line(panelWidth, CONSTANTS.TOP_MARGIN - 5, panelWidth, pageHeight - 15);
+    pdf.line(panelWidth * 2, CONSTANTS.TOP_MARGIN - 5, panelWidth * 2, pageHeight - 15);
+    if (pdf.setLineDash) pdf.setLineDash([], 0);
+
+    // Reusable drawing functions
+    const setTextStyle = (font = 'helvetica', style = 'normal', size = 10) => {
+      pdf.setFont(font, style);
+      pdf.setFontSize(size);
+    };
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 30) => {
+      const valueWidth = availableWidth - labelWidth;
+      setTextStyle('helvetica', 'bold', 7);
+      pdf.text(label, startX, startY);
+      setTextStyle('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawWatermark = (startX) => {
+      if (!isPaid && !isPartiallyPaid) return;
+      
+      const watermarkText = isPaid ? 'PAID' : 'PARTIAL PAID';
+      const centerX = startX + panelCenterX;
+      const centerY = pageHeight / 2;
+      
+      setTextStyle('helvetica', 'bold', 40);
+      pdf.setTextColor(...(isPaid ? CONSTANTS.COLORS.WATERMARK_PAID : CONSTANTS.COLORS.WATERMARK_PARTIAL));
+      pdf.text(watermarkText, centerX, centerY, { align: 'center', angle: -45 });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+    };
+
+    const drawFooter = (startX, cursorY) => {
+      setTextStyle('helvetica', 'italic', 5.2);
+      const footerWidth = availableWidth;
+      
+      // Pre-calculate wrapped lines and height
+      const wrappedLines = [];
+      let totalFooterHeight = 0;
+      CONSTANTS.FOOTER_NOTES.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, footerWidth);
+        wrappedLines.push(wrapped);
+        totalFooterHeight += wrapped.length * 3.2;
+      });
+      
+      const footerStartY = Math.max(cursorY + 5, pageHeight - totalFooterHeight - 8);
+      let noteY = footerStartY;
+      
+      wrappedLines.forEach((wrapped) => {
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, noteY);
+          noteY += 3.2;
+        });
+      });
+    };
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + CONSTANTS.MARGIN_X;
+      let cursorY = CONSTANTS.TOP_MARGIN;
+
+      // Copy label
+      setTextStyle('helvetica', 'italic', 8);
+      pdf.text(`(${copyLabel})`, startX + panelCenterX, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      // Header
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.setTextColor(...CONSTANTS.COLORS.RED);
+      pdf.text(`Taj Rental Payment Receipt For The Month Of ${monthLabel}`, startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+      cursorY += 5;
+
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.text('Rental Payment Receipt', startX + panelCenterX, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      // Property and Invoice fields
+      const inlineFields = [
+        ['Property Name', propertyName],
+        ['Tenant Name', tenantName],
+        ['Floor', floor],
+        ['Address', address],
+        ['Period From', formatDate(invoice.periodFrom)],
+        ['Period To', formatDate(invoice.periodTo)],
+        ['Invoice No.', invoice.invoiceNumber || '—'],
+        ['Due Date', formatFullDate(invoice.dueDate)],
+      ];
+      
+      inlineFields.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 2;
+
+      // Rental Charges Summary
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Rental Charges Summary', startX, cursorY);
+      cursorY += 3;
+
+      const chargesRows = [
+        { label: 'Monthly Rent', value: formatAmount(monthlyRent), bold: false },
+        { label: 'Arrears', value: formatAmount(arrears), bold: false },
+        { label: 'Grand Total', value: formatAmount(grandTotal), bold: true }
+      ];
+
+      const rowHeight = 5;
+      setTextStyle('helvetica', 'normal', 7);
+      
+      chargesRows.forEach((row) => {
+        setTextStyle('helvetica', row.bold ? 'bold' : 'normal', 7);
+        pdf.text(row.label, startX, cursorY + 4);
+        pdf.text(String(row.value), startX + availableWidth, cursorY + 4, { align: 'right' });
+        pdf.line(startX, cursorY + rowHeight, startX + availableWidth, cursorY + rowHeight);
+        cursorY += rowHeight;
+      });
+      cursorY += 4;
+
+      // Payment Information Section
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Payment Information', startX, cursorY);
+      cursorY += 5;
+
+      const paymentInfo = [
+        ['Payment Date:', formatFullDate(payment.paymentDate)],
+        ['Payment Amount:', formatAmount(payment.amount || 0)],
+        ['Arrears Paid:', formatAmount(payment.arrears || 0)],
+        ['Total Paid:', formatAmount(payment.totalAmount || payment.amount || 0)],
+        ['Payment Method:', payment.paymentMethod || '—'],
+        ['Bank:', payment.bankName || '—'],
+        ['Reference:', payment.reference || '—'],
+      ];
+
+      paymentInfo.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 3;
+
+      // Payment Status
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.setTextColor(...paymentStatusColor);
+      pdf.text(`Status: ${paymentStatus}`, startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+      cursorY += 5;
+
+      // Total Summary
+      setTextStyle('helvetica', 'bold', 7);
+      pdf.text('Grand Total:', startX, cursorY);
+      pdf.text(formatAmount(grandTotal), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 5;
+      pdf.text('Total Paid:', startX, cursorY);
+      pdf.text(formatAmount(totalPaid), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 5;
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Balance:', startX, cursorY);
+      pdf.text(formatAmount(balance), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 8;
+
+      // Footer and watermark
+      drawFooter(startX, cursorY);
+      drawWatermark(startX);
+    };
+
+    // Generate all panels
+    CONSTANTS.COPIES.forEach((copy, index) => drawPanel(copy, index));
+
+    // Save PDF
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'rent-property')
+      .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
+    const receiptDate = dayjs(payment.paymentDate).format('YYYY-MM-DD');
+    pdf.save(`Rental_Payment_Receipt_${sanitizedName}_${receiptDate}.pdf`);
   };
 
   const handleDownloadInvoice = () => {
@@ -1584,6 +1824,7 @@ const RentalManagement = () => {
                                                     <TableCell>Reference</TableCell>
                                                     <TableCell>Notes</TableCell>
                                                     <TableCell>Recorded By</TableCell>
+                                                    <TableCell align="center">Actions</TableCell>
                                                   </TableRow>
                                                 </TableHead>
                                                 <TableBody>
@@ -1603,6 +1844,17 @@ const RentalManagement = () => {
                                                         {payment.recordedBy?.firstName && payment.recordedBy?.lastName
                                                           ? `${payment.recordedBy.firstName} ${payment.recordedBy.lastName}`
                                                           : 'N/A'}
+                                                      </TableCell>
+                                                      <TableCell align="center">
+                                                        <Tooltip title="Download Payment Receipt">
+                                                          <IconButton
+                                                            size="small"
+                                                            color="primary"
+                                                            onClick={() => generateRentalPaymentReceiptPDF(invoice, payment, property)}
+                                                          >
+                                                            <DownloadIcon fontSize="small" />
+                                                          </IconButton>
+                                                        </Tooltip>
                                                       </TableCell>
                                                     </TableRow>
                                                   ))}
