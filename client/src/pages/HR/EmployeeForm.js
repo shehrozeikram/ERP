@@ -147,8 +147,8 @@ const EmployeeForm = () => {
   // Validation schema
   const validationSchema = Yup.object({
     firstName: Yup.string().required('First name is required'),
-    lastName: Yup.string().required('Last name is required'),
-    email: Yup.string().email('Invalid email').required('Email is required'),
+    lastName: Yup.string(),
+    email: Yup.string().email('Invalid email'),
     phone: Yup.string().required('Phone is required'),
     dateOfBirth: Yup.date().required('Date of birth is required'),
     gender: Yup.string().required('Gender is required'),

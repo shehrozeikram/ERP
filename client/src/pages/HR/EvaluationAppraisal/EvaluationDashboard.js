@@ -53,6 +53,8 @@ const EvaluationDashboard = () => {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [assignedApprovalLevels, setAssignedApprovalLevels] = useState([]);
 
+  const [readOnlyLevels, setReadOnlyLevels] = useState([]);
+
   // Fetch user's assigned approval levels
   const fetchAssignedLevels = useCallback(async () => {
     try {
@@ -60,11 +62,15 @@ const EvaluationDashboard = () => {
       if (response.data?.success) {
         const levels = response.data.data.assignedLevels || [];
         setAssignedApprovalLevels(levels.map(l => l.level));
+        // Track read-only levels separately
+        const readOnly = levels.filter(l => l.readOnly).map(l => l.level);
+        setReadOnlyLevels(readOnly);
       }
     } catch (err) {
       console.error('Error fetching assigned approval levels:', err);
       // Don't show error, just set empty array (user might not have any assignments)
       setAssignedApprovalLevels([]);
+      setReadOnlyLevels([]);
     }
   }, []);
 
@@ -160,17 +166,36 @@ const EvaluationDashboard = () => {
   const publicStatistics = useMemo(() => {
     const dataSource = allDocumentsGrouped.length > 0 ? allDocumentsGrouped : groupedData;
     const totalDocs = dataSource.reduce((sum, group) => sum + group.documents.length, 0);
-    const statusCounts = dataSource.reduce((acc, group) => {
+    
+    let sentCount = 0;
+    let submittedCount = 0;
+    let completedCount = 0;
+    
+    dataSource.forEach(group => {
       group.documents.forEach(doc => {
-        acc[doc.status] = (acc[doc.status] || 0) + 1;
+        // Count sent: documents that have been sent to evaluators
+        // This includes documents with sentAt date or status indicating they were sent
+        if (doc.sentAt || doc.status === 'sent' || doc.status === 'in_progress' || 
+            doc.status === 'submitted' || doc.status === 'completed') {
+          sentCount += 1;
+        }
+        
+        // Count submitted
+        if (doc.status === 'submitted' || doc.status === 'completed') {
+          submittedCount += 1;
+        }
+        
+        // Count completed
+        if (doc.status === 'completed') {
+          completedCount += 1;
+        }
       });
-      return acc;
-    }, {});
+    });
 
     return {
-      sent: statusCounts.sent || 0,
-      submitted: statusCounts.submitted || 0,
-      completed: statusCounts.completed || 0
+      sent: sentCount,
+      submitted: submittedCount,
+      completed: completedCount
     };
   }, [allDocumentsGrouped, groupedData]);
 
@@ -181,6 +206,10 @@ const EvaluationDashboard = () => {
     const approverMap = new Map();
     const level0ApproverMap = new Map(); // All Level 0 approvers with their document counts
     const level0PendingApproverMap = new Map(); // Level 0 approvers holding pending documents
+    const level1ApproverMap = new Map(); // Level 1 approvers with their document counts
+    const level2ApproverMap = new Map(); // Level 2 approvers with their document counts
+    const level3ApproverMap = new Map(); // Level 3 approvers with their document counts
+    const level4ApproverMap = new Map(); // Level 4 approvers with their document counts
     const evaluatorMap = new Map(); // Evaluator statistics
     const departmentMap = new Map(); // Department statistics
     const projectMap = new Map(); // Project statistics
@@ -243,22 +272,47 @@ const EvaluationDashboard = () => {
           });
         }
 
-        // Count by approver (Level 1-4)
+        // Count by approver (Level 1-4) - track pending documents at each level
+        // Only count documents that are currently at that level with pending status
         if (doc.currentApprovalLevel >= 1 && doc.approvalLevels && doc.approvalLevels.length > 0) {
+          // Find the current level entry that is pending (document submitted from previous level)
           const currentLevelEntry = doc.approvalLevels.find(level => 
             level.level === doc.currentApprovalLevel && level.status === 'pending'
           );
+          
           if (currentLevelEntry) {
             const approverName = currentLevelEntry.approverName || 
               (currentLevelEntry.approver 
                 ? `${currentLevelEntry.approver.firstName || ''} ${currentLevelEntry.approver.lastName || ''}`.trim()
                 : 'Unknown');
+            const approverId = currentLevelEntry.approver?._id?.toString() || 
+                              currentLevelEntry.approver?.toString() || 
+                              approverName;
+            
+            // Add to general approver map (for pending approvers section)
             const count = approverMap.get(approverName) || 0;
             approverMap.set(approverName, count + 1);
+            
+            // Track by specific level - only count if document is currently at this level and pending
+            const levelMaps = {
+              1: level1ApproverMap,
+              2: level2ApproverMap,
+              3: level3ApproverMap,
+              4: level4ApproverMap
+            };
+            const levelMap = levelMaps[doc.currentApprovalLevel];
+            if (levelMap) {
+              if (!levelMap.has(approverId)) {
+                levelMap.set(approverId, { name: approverName, count: 0 });
+              }
+              // Count this document - it's submitted from previous level and pending at current level
+              levelMap.get(approverId).count += 1;
+            }
           }
         }
 
         // Count evaluator statistics (sent vs submitted)
+        // Count all documents sent to evaluators (any status that indicates document was sent)
         if (doc.evaluator) {
           const evaluatorName = doc.evaluator.firstName && doc.evaluator.lastName
             ? `${doc.evaluator.firstName} ${doc.evaluator.lastName}`.trim()
@@ -274,9 +328,12 @@ const EvaluationDashboard = () => {
           }
           
           const evaluatorStats = evaluatorMap.get(evaluatorId);
-          if (doc.status === 'sent' || doc.status === 'in_progress' || doc.status === 'submitted' || doc.status === 'completed') {
+          // Count all documents sent to this evaluator (has sentAt or status indicating sent)
+          if (doc.sentAt || doc.status === 'sent' || doc.status === 'in_progress' || 
+              doc.status === 'submitted' || doc.status === 'completed') {
             evaluatorStats.sent += 1;
           }
+          // Count documents submitted by this evaluator
           if (doc.status === 'submitted' || doc.status === 'completed') {
             evaluatorStats.submitted += 1;
           }
@@ -350,10 +407,24 @@ const EvaluationDashboard = () => {
     const level0PendingApproverList = Array.from(level0PendingApproverMap.values())
       .sort((a, b) => b.count - a.count);
 
+    // Convert Level 1-4 approver maps to sorted arrays
+    const level1ApproverList = Array.from(level1ApproverMap.values())
+      .sort((a, b) => b.count - a.count);
+    const level2ApproverList = Array.from(level2ApproverMap.values())
+      .sort((a, b) => b.count - a.count);
+    const level3ApproverList = Array.from(level3ApproverMap.values())
+      .sort((a, b) => b.count - a.count);
+    const level4ApproverList = Array.from(level4ApproverMap.values())
+      .sort((a, b) => b.count - a.count);
+
     // Convert evaluator map to sorted array
+    // Show all evaluators/submitters (remove filter to show all, even with 0 documents)
     const evaluatorList = Array.from(evaluatorMap.values())
-      .filter(e => e.sent > 0) // Only show evaluators who have received documents
-      .sort((a, b) => b.sent - a.sent);
+      .sort((a, b) => {
+        // Sort by sent count first, then by submitted count
+        if (b.sent !== a.sent) return b.sent - a.sent;
+        return b.submitted - a.submitted;
+      });
 
     // Convert department map to sorted array
     const departmentList = Array.from(departmentMap.values())
@@ -375,6 +446,10 @@ const EvaluationDashboard = () => {
       approverList,
       level0ApproverList,
       level0PendingApproverList,
+      level1ApproverList,
+      level2ApproverList,
+      level3ApproverList,
+      level4ApproverList,
       evaluatorList,
       formTypeCounts,
       approvalStatusCounts,
@@ -654,14 +729,14 @@ const EvaluationDashboard = () => {
                 </Paper>
               </Grid>
 
-              {/* Level 0 Approvers Information - Compact */}
+              {/* Level 0 Approvers Information - Detailed */}
               {approvalStats.level0ApproverList.length > 0 && (
-                <Grid item xs={12} sm={6} md={4}>
+                <Grid item xs={12} sm={6} md={3}>
                   <Paper
                     elevation={0}
                     sx={{
                       p: 1.5,
-                      background: `linear-gradient(135deg, ${alpha(theme.palette.grey[500], 0.06)} 0%, ${alpha(theme.palette.grey[500], 0.02)} 100%)`,
+                      background: `linear-gradient(135deg, ${alpha(theme.palette.grey[500], 0.08)} 0%, ${alpha(theme.palette.grey[500], 0.03)} 100%)`,
                       border: `1px solid ${alpha(theme.palette.grey[500], 0.2)}`,
                       borderRadius: 1.5
                     }}
@@ -672,38 +747,17 @@ const EvaluationDashboard = () => {
                         L0 Approvers
                       </Typography>
                     </Box>
-                    <Box display="flex" flexWrap="wrap" gap={0.75}>
-                      {approvalStats.level0ApproverList.slice(0, 6).map((approver, index) => (
-                        <Chip
-                          key={index}
-                          label={`${approver.name}: ${approver.count}`}
-                          size="small"
-                          sx={{
-                            bgcolor: alpha(theme.palette.grey[500], 0.08),
-                            border: `1px solid ${alpha(theme.palette.grey[500], 0.2)}`,
-                            fontWeight: 500,
-                            fontSize: '0.7rem',
-                            height: 24,
-                            '&:hover': {
-                              bgcolor: alpha(theme.palette.grey[500], 0.12),
-                            }
-                          }}
-                          variant="outlined"
-                        />
+                    <Box display="flex" flexDirection="column" gap={0.75} sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {approvalStats.level0ApproverList.map((approver, index) => (
+                        <Box key={index} display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+                            {approver.name}
+                          </Typography>
+                          <Typography variant="caption" fontWeight="bold" sx={{ color: theme.palette.grey[700] }}>
+                            {approver.count}
+                          </Typography>
+                        </Box>
                       ))}
-                      {approvalStats.level0ApproverList.length > 6 && (
-                        <Chip
-                          label={`+${approvalStats.level0ApproverList.length - 6} more`}
-                          size="small"
-                          sx={{
-                            bgcolor: alpha(theme.palette.grey[500], 0.08),
-                            border: `1px solid ${alpha(theme.palette.grey[500], 0.2)}`,
-                            fontSize: '0.7rem',
-                            height: 24
-                          }}
-                          variant="outlined"
-                        />
-                      )}
                     </Box>
                   </Paper>
                 </Grid>
@@ -766,6 +820,142 @@ const EvaluationDashboard = () => {
                 </Grid>
               )}
 
+              {/* Level 1 Approvers Information */}
+              {approvalStats.level1ApproverList.length > 0 && (
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.5,
+                      background: `linear-gradient(135deg, ${alpha(theme.palette.info.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.03)} 100%)`,
+                      border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+                      borderRadius: 1.5
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" mb={1.5}>
+                      <PersonIcon fontSize="small" sx={{ color: theme.palette.info.main, mr: 1 }} />
+                      <Typography variant="body2" fontWeight="600" color="text.primary">
+                        L1 Approvers
+                      </Typography>
+                    </Box>
+                    <Box display="flex" flexDirection="column" gap={0.75} sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {approvalStats.level1ApproverList.map((approver, index) => (
+                        <Box key={index} display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+                            {approver.name}
+                          </Typography>
+                          <Typography variant="caption" fontWeight="bold" color="info.main">
+                            {approver.count}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Paper>
+                </Grid>
+              )}
+
+              {/* Level 2 Approvers Information */}
+              {approvalStats.level2ApproverList.length > 0 && (
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.5,
+                      background: `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.08)} 0%, ${alpha(theme.palette.success.main, 0.03)} 100%)`,
+                      border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`,
+                      borderRadius: 1.5
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" mb={1.5}>
+                      <PersonIcon fontSize="small" sx={{ color: theme.palette.success.main, mr: 1 }} />
+                      <Typography variant="body2" fontWeight="600" color="text.primary">
+                        L2 Approvers
+                      </Typography>
+                    </Box>
+                    <Box display="flex" flexDirection="column" gap={0.75} sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {approvalStats.level2ApproverList.map((approver, index) => (
+                        <Box key={index} display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+                            {approver.name}
+                          </Typography>
+                          <Typography variant="caption" fontWeight="bold" color="success.main">
+                            {approver.count}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Paper>
+                </Grid>
+              )}
+
+              {/* Level 3 Approvers Information */}
+              {approvalStats.level3ApproverList.length > 0 && (
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.5,
+                      background: `linear-gradient(135deg, ${alpha(theme.palette.secondary.main, 0.08)} 0%, ${alpha(theme.palette.secondary.main, 0.03)} 100%)`,
+                      border: `1px solid ${alpha(theme.palette.secondary.main, 0.2)}`,
+                      borderRadius: 1.5
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" mb={1.5}>
+                      <PersonIcon fontSize="small" sx={{ color: theme.palette.secondary.main, mr: 1 }} />
+                      <Typography variant="body2" fontWeight="600" color="text.primary">
+                        L3 Approvers
+                      </Typography>
+                    </Box>
+                    <Box display="flex" flexDirection="column" gap={0.75} sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {approvalStats.level3ApproverList.map((approver, index) => (
+                        <Box key={index} display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+                            {approver.name}
+                          </Typography>
+                          <Typography variant="caption" fontWeight="bold" color="secondary.main">
+                            {approver.count}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Paper>
+                </Grid>
+              )}
+
+              {/* Level 4 Approvers Information */}
+              {approvalStats.level4ApproverList.length > 0 && (
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.5,
+                      background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.primary.main, 0.03)} 100%)`,
+                      border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+                      borderRadius: 1.5
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" mb={1.5}>
+                      <PersonIcon fontSize="small" sx={{ color: theme.palette.primary.main, mr: 1 }} />
+                      <Typography variant="body2" fontWeight="600" color="text.primary">
+                        L4 Approvers
+                      </Typography>
+                    </Box>
+                    <Box display="flex" flexDirection="column" gap={0.75} sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {approvalStats.level4ApproverList.map((approver, index) => (
+                        <Box key={index} display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+                            {approver.name}
+                          </Typography>
+                          <Typography variant="caption" fontWeight="bold" color="primary.main">
+                            {approver.count}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Paper>
+                </Grid>
+              )}
+
               {/* Pending Approvers Information - Compact */}
               {approvalStats.approverList.length > 0 && (
                 <Grid item xs={12} sm={6} md={4}>
@@ -822,7 +1012,7 @@ const EvaluationDashboard = () => {
                 </Grid>
               )}
 
-              {/* Evaluator/Submitter Information - Compact */}
+              {/* Evaluator/Submitter Information - Detailed */}
               {approvalStats.evaluatorList.length > 0 && (
                 <Grid item xs={12}>
                   <Paper
@@ -837,56 +1027,78 @@ const EvaluationDashboard = () => {
                     <Box display="flex" alignItems="center" mb={1.5}>
                       <PersonIcon fontSize="small" sx={{ color: theme.palette.secondary.main, mr: 1 }} />
                       <Typography variant="body2" fontWeight="600" color="text.primary">
-                        Evaluators/Submitters
+                        Evaluators/Submitters ({approvalStats.evaluatorList.length})
                       </Typography>
                     </Box>
-                    <Grid container spacing={1}>
-                      {approvalStats.evaluatorList.slice(0, 6).map((evaluator, index) => (
-                        <Grid item xs={12} sm={6} md={4} key={index}>
-                          <Box
-                            sx={{
-                              p: 1,
-                              borderRadius: 1,
-                              bgcolor: alpha(theme.palette.secondary.main, 0.05),
-                              border: `1px solid ${alpha(theme.palette.secondary.main, 0.15)}`,
-                              transition: 'all 0.2s',
-                              '&:hover': {
-                                bgcolor: alpha(theme.palette.secondary.main, 0.08),
-                              }
-                            }}
-                          >
-                            <Typography variant="caption" fontWeight="600" noWrap sx={{ display: 'block', mb: 0.5 }}>
-                              {evaluator.name}
-                            </Typography>
-                            <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
-                              <Typography variant="caption" color="text.secondary">S:</Typography>
-                              <Typography variant="caption" fontWeight="bold" color="secondary.main">
-                                {evaluator.sent}
+                    <Box 
+                      sx={{ 
+                        maxHeight: 300, 
+                        overflowY: 'auto',
+                        pr: 1
+                      }}
+                    >
+                      <Grid container spacing={1}>
+                        {approvalStats.evaluatorList.map((evaluator, index) => (
+                          <Grid item xs={12} sm={6} md={4} lg={3} key={index}>
+                            <Box
+                              sx={{
+                                p: 1.5,
+                                borderRadius: 1,
+                                bgcolor: alpha(theme.palette.secondary.main, 0.05),
+                                border: `1px solid ${alpha(theme.palette.secondary.main, 0.15)}`,
+                                transition: 'all 0.2s',
+                                '&:hover': {
+                                  bgcolor: alpha(theme.palette.secondary.main, 0.08),
+                                  transform: 'translateY(-2px)',
+                                  boxShadow: `0 2px 8px ${alpha(theme.palette.secondary.main, 0.2)}`
+                                }
+                              }}
+                            >
+                              <Typography 
+                                variant="caption" 
+                                fontWeight="600" 
+                                noWrap 
+                                sx={{ 
+                                  display: 'block', 
+                                  mb: 1,
+                                  fontSize: '0.75rem'
+                                }}
+                              >
+                                {evaluator.name}
                               </Typography>
-                              <Typography variant="caption" color="text.secondary">| Sub:</Typography>
-                              <Typography variant="caption" fontWeight="bold" color="success.main">
-                                {evaluator.submitted}
-                              </Typography>
-                              {evaluator.sent > evaluator.submitted && (
-                                <>
-                                  <Typography variant="caption" color="text.secondary">| P:</Typography>
-                                  <Typography variant="caption" fontWeight="bold" color="warning.main">
-                                    {evaluator.sent - evaluator.submitted}
+                              <Box display="flex" flexDirection="column" gap={0.5}>
+                                <Box display="flex" justifyContent="space-between" alignItems="center">
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                    Received:
                                   </Typography>
-                                </>
-                              )}
+                                  <Typography variant="caption" fontWeight="bold" color="secondary.main" sx={{ fontSize: '0.75rem' }}>
+                                    {evaluator.sent}
+                                  </Typography>
+                                </Box>
+                                <Box display="flex" justifyContent="space-between" alignItems="center">
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                    Submitted:
+                                  </Typography>
+                                  <Typography variant="caption" fontWeight="bold" color="success.main" sx={{ fontSize: '0.75rem' }}>
+                                    {evaluator.submitted}
+                                  </Typography>
+                                </Box>
+                                {evaluator.sent > evaluator.submitted && (
+                                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                      Pending:
+                                    </Typography>
+                                    <Typography variant="caption" fontWeight="bold" color="warning.main" sx={{ fontSize: '0.75rem' }}>
+                                      {evaluator.sent - evaluator.submitted}
+                                    </Typography>
+                                  </Box>
+                                )}
+                              </Box>
                             </Box>
-                          </Box>
-                        </Grid>
-                      ))}
-                      {approvalStats.evaluatorList.length > 6 && (
-                        <Grid item xs={12}>
-                          <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', display: 'block', mt: 0.5 }}>
-                            +{approvalStats.evaluatorList.length - 6} more evaluators
-                          </Typography>
-                        </Grid>
-                      )}
-                    </Grid>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </Box>
                   </Paper>
                 </Grid>
               )}
@@ -1012,6 +1224,7 @@ const EvaluationDashboard = () => {
             onViewDocument={handleViewDocument}
             onDocumentUpdate={handleDocumentUpdate}
             assignedApprovalLevels={assignedApprovalLevels}
+            readOnlyLevels={readOnlyLevels}
             onDeleteDepartment={handleDeleteDepartment}
           />
         ))

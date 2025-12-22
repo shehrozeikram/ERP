@@ -31,6 +31,10 @@ const approvalLevelConfigurationSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  readOnly: {
+    type: Boolean,
+    default: false
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

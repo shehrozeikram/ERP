@@ -38,7 +38,7 @@ import { evaluationDocumentsService } from '../../../../services/evaluationDocum
 import api from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 
-const DepartmentCard = ({ department, project, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [], onDeleteDepartment }) => {
+const DepartmentCard = ({ department, project, hod, documents, onViewDocument, onDocumentUpdate, assignedApprovalLevels = [], readOnlyLevels = [], onDeleteDepartment }) => {
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [approvalDialog, setApprovalDialog] = useState({ open: false, doc: null, action: null });
@@ -400,9 +400,17 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     // BUT: If approvalLevels array is missing or incomplete, still allow if dashboard shows it (trust backend)
     const isUserAssigned = assignedApprovalLevels.length === 0 || assignedApprovalLevels.includes(currentLevel);
     
+    // Check if user has read-only access at this level
+    const isReadOnly = readOnlyLevels.includes(currentLevel);
+    
     // If user is not assigned to Level 1+ and document is at Level 1+, don't show buttons
     // This ensures Level 0-only approvers don't see buttons for Level 1+ documents
     if (assignedApprovalLevels.length > 0 && !isUserAssigned) {
+      return false;
+    }
+    
+    // If user has read-only access, don't show approve/reject buttons
+    if (isReadOnly) {
       return false;
     }
     
@@ -446,7 +454,7 @@ const DepartmentCard = ({ department, project, hod, documents, onViewDocument, o
     }
 
     return true;
-  }, [assignedApprovalLevels, user]);
+  }, [assignedApprovalLevels, readOnlyLevels, user]);
 
   // Get all documents that can be approved in this department
   const approvableDocuments = useMemo(() => {

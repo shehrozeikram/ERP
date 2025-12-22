@@ -309,7 +309,8 @@ router.get('/approval-levels/assigned', async (req, res) => {
     const assignedLevels = levelConfigs.map(config => ({
       level: config.level,
       title: config.title,
-      module: config.module
+      module: config.module,
+      readOnly: config.readOnly || false
     }));
 
     res.json({
@@ -1050,6 +1051,18 @@ const approveDocument = async (documentId, comments, user) => {
     if (!isAssigned) {
       throw new Error(`You are not authorized to approve at level ${currentLevel}`);
     }
+    
+    // Check if user has read-only access
+    const userConfig = await ApprovalLevelConfiguration.findOne({
+      module: 'evaluation_appraisal',
+      level: currentLevel,
+      assignedUser: user._id,
+      isActive: true
+    });
+    
+    if (userConfig && userConfig.readOnly) {
+      throw new Error(`You have read-only access at level ${currentLevel}. You cannot approve or reject documents.`);
+    }
   }
   
   // Approve current level
@@ -1506,6 +1519,22 @@ router.post('/:id/reject', async (req, res) => {
     
     if (levelIndex < 0 || levelIndex >= document.approvalLevels.length) {
       return res.status(400).json({ error: 'Invalid approval level' });
+    }
+    
+    // Check if user has read-only access
+    if (req.user && currentLevel >= 1 && currentLevel <= 4) {
+      const userConfig = await ApprovalLevelConfiguration.findOne({
+        module: 'evaluation_appraisal',
+        level: currentLevel,
+        assignedUser: req.user._id,
+        isActive: true
+      });
+      
+      if (userConfig && userConfig.readOnly) {
+        return res.status(403).json({ 
+          error: `You have read-only access at level ${currentLevel}. You cannot approve or reject documents.` 
+        });
+      }
     }
     
     // Reject at current level
