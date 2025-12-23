@@ -483,15 +483,13 @@ app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activ
 // Public evaluation documents route (token-based access)
 app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 
-// Catch-all route for non-API requests - return 404 for any non-API routes
-app.get('*', (req, res) => {
-  res.status(404).json({ 
-    error: 'API endpoint not found',
-    message: 'This route is not handled by the backend API',
-    availableRoutes: '/api/*'
+// 404 handler (only for API routes) - must be before catch-all routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'API route not found'
   });
 });
-
 
 // Error handling middleware
 app.use(errorHandler);
@@ -501,15 +499,20 @@ if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
   });
-}
-
-// 404 handler (only for API routes)
-app.use('/api/*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'API route not found'
+} else {
+  // Catch-all route for non-API requests in development - return 404 for any non-API routes
+  app.get('*', (req, res, next) => {
+    // Skip API routes - let them be handled by the API 404 handler above
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.status(404).json({ 
+      error: 'API endpoint not found',
+      message: 'This route is not handled by the backend API',
+      availableRoutes: '/api/*'
+    });
   });
-});
+}
 
 const PORT = process.env.PORT || 5001;
 
