@@ -5,10 +5,16 @@ const UserLoginLog = require('../models/general/UserLoginLog');
 const UserActivityLog = require('../models/general/UserActivityLog');
 const { asyncHandler } = require('../middleware/errorHandler');
 
+// Test route to verify routing works (remove after debugging)
+router.get('/test', (req, res) => {
+  res.json({ success: true, message: 'User tracking routes are working', path: req.path, originalUrl: req.originalUrl });
+});
+
 // @route   GET /api/tracking/logins
 // @desc    Get login history with filters
 // @access  Private (Admin/Higher Management)
-router.get('/logins', authMiddleware, authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
+// Note: authMiddleware is already applied at app level, so we only need authorize here
+router.get('/logins', authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
   const {
     userId,
     startDate,
@@ -80,7 +86,8 @@ router.get('/logins', authMiddleware, authorize('super_admin', 'higher_managemen
 // @route   GET /api/tracking/activities
 // @desc    Get user activity history with filters
 // @access  Private (Admin/Higher Management)
-router.get('/activities', authMiddleware, authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
+// Note: authMiddleware is already applied at app level, so we only need authorize here
+router.get('/activities', authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
   const {
     userId,
     module,
@@ -157,7 +164,8 @@ router.get('/activities', authMiddleware, authorize('super_admin', 'higher_manag
 // @route   GET /api/tracking/sessions
 // @desc    Get active sessions
 // @access  Private (Admin/Higher Management)
-router.get('/sessions', authMiddleware, authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
+// Note: authMiddleware is already applied at app level, so we only need authorize here
+router.get('/sessions', authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
   const activeSessions = await UserLoginLog.findActiveSessions();
   
   res.json({
@@ -172,7 +180,8 @@ router.get('/sessions', authMiddleware, authorize('super_admin', 'higher_managem
 // @route   GET /api/tracking/stats
 // @desc    Get tracking statistics
 // @access  Private (Admin/Higher Management)
-router.get('/stats', authMiddleware, authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
+// Note: authMiddleware is already applied at app level, so we only need authorize here
+router.get('/stats', authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.query;
   
   const dateQuery = {};
@@ -218,7 +227,8 @@ router.get('/stats', authMiddleware, authorize('super_admin', 'higher_management
 // @route   GET /api/tracking/user/:userId
 // @desc    Get tracking data for a specific user
 // @access  Private (Admin/Higher Management)
-router.get('/user/:userId', authMiddleware, authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
+// Note: authMiddleware is already applied at app level, so we only need authorize here
+router.get('/user/:userId', authorize('super_admin', 'higher_management', 'admin'), asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const { limit = 50 } = req.query;
 

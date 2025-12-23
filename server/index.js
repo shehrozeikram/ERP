@@ -483,11 +483,15 @@ app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activ
 // Public evaluation documents route (token-based access)
 app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 
-// 404 handler (only for API routes) - must be before catch-all routes
-app.use('/api/*', (req, res) => {
+// 404 handler (only for API routes) - must be after all API routes
+// Use app.all to catch all HTTP methods, but only for unmatched API routes
+app.all('/api/*', (req, res, next) => {
+  // If we reach here, the route wasn't matched by any previous route
   res.status(404).json({
     success: false,
-    message: 'API route not found'
+    message: 'API route not found',
+    path: req.path,
+    method: req.method
   });
 });
 
@@ -496,7 +500,13 @@ app.use(errorHandler);
 
 // Serve React app for client-side routing (must be after API routes)
 if (process.env.NODE_ENV === 'production') {
-  app.get('*', (req, res) => {
+  // Handle all non-API routes - serve React app for client-side routing
+  app.get('*', (req, res, next) => {
+    // Skip API routes - let them be handled by the API 404 handler above
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    // Serve React app for all other routes
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
   });
 } else {
