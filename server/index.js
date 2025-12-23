@@ -311,6 +311,17 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Public test route for tracking (before auth middleware)
+app.get('/api/tracking/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'User tracking routes are working', 
+    path: req.path, 
+    originalUrl: req.originalUrl,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Public route for profile images (must be before authenticated routes)
 app.get('/api/hr/image/:filename(*)', (req, res) => {
   try {
@@ -377,16 +388,6 @@ app.get('/api/hr/image/:filename(*)', (req, res) => {
       message: 'Error serving image'
     });
   }
-});
-
-// Public test route for user tracking (before auth middleware)
-app.get('/api/tracking/test-public', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'User tracking routes are accessible',
-    path: req.path,
-    timestamp: new Date().toISOString()
-  });
 });
 
 // API Routes
@@ -489,9 +490,7 @@ app.use('/api/document-tracking', authMiddleware, activityLogger, documentTracki
 app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationDocumentsRoutes);
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
 app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
-// User tracking routes - must be registered before 404 handler
 app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activityLogger to tracking routes to avoid recursion
-console.log('✅ User tracking routes registered at /api/tracking');
 // Public evaluation documents route (token-based access)
 app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 
@@ -512,13 +511,7 @@ app.use(errorHandler);
 
 // Serve React app for client-side routing (must be after API routes)
 if (process.env.NODE_ENV === 'production') {
-  // Handle all non-API routes - serve React app for client-side routing
-  app.get('*', (req, res, next) => {
-    // Skip API routes - let them be handled by the API 404 handler above
-    if (req.path.startsWith('/api')) {
-      return next();
-    }
-    // Serve React app for all other routes
+  app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
   });
 } else {
