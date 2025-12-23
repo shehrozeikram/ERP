@@ -379,6 +379,16 @@ app.get('/api/hr/image/:filename(*)', (req, res) => {
   }
 });
 
+// Public test route for user tracking (before auth middleware)
+app.get('/api/tracking/test-public', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'User tracking routes are accessible',
+    path: req.path,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hr', authMiddleware, activityLogger, hrRoutes);
