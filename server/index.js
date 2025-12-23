@@ -110,6 +110,8 @@ const documentTrackingRoutes = require('./routes/documentTracking');
 const evaluationDocumentsRoutes = require('./routes/evaluationDocuments');
 const evaluationLevel0AuthoritiesRoutes = require('./routes/evaluationLevel0Authorities');
 const indentsRoutes = require('./routes/indents');
+const userTrackingRoutes = require('./routes/userTracking');
+const activityLogger = require('./middleware/activityLogger');
 
 
 // Import services
@@ -379,33 +381,33 @@ app.get('/api/hr/image/:filename(*)', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/hr', authMiddleware, hrRoutes);
-app.use('/api/payroll', authMiddleware, payrollRoutes);
-app.use('/api/attendance', authMiddleware, attendanceRoutes);
-app.use('/api/biometric', authMiddleware, biometricRoutes);
-app.use('/api/finance', authMiddleware, financeAdvancedRoutes);
-app.use('/api/procurement', authMiddleware, procurementRoutes);
-app.use('/api/sales', authMiddleware, salesRoutes);
-app.use('/api/crm', authMiddleware, crmRoutes);
-app.use('/api/campaigns', authMiddleware, campaignRoutes);
-app.use('/api/reports', authMiddleware, reportsRoutes);
-app.use('/api/positions', authMiddleware, positionRoutes);
-app.use('/api/banks', authMiddleware, bankRoutes);
-app.use('/api/companies', authMiddleware, companyRoutes);
-app.use('/api/projects', authMiddleware, projectRoutes);
-app.use('/api/sections', authMiddleware, sectionRoutes);
-app.use('/api/designations', authMiddleware, designationRoutes);
-app.use('/api/locations', authMiddleware, locationRoutes);
-app.use('/api/cities', authMiddleware, cityRoutes);
-app.use('/api/provinces', authMiddleware, provinceRoutes);
-app.use('/api/countries', authMiddleware, countryRoutes);
-app.use('/api/loans', authMiddleware, loanRoutes);
-app.use('/api/final-settlements', authMiddleware, finalSettlementRoutes);
-app.use('/api/leaves', authMiddleware, require('./routes/leaves'));
-app.use('/api/hr/reports/payroll', authMiddleware, payrollReportsRoutes);
-app.use('/api/hr/reports/attendance', authMiddleware, attendanceReportsRoutes);
-app.use('/api/hr/reports', authMiddleware, hrReportsRoutes);
-app.use('/api/payslips', authMiddleware, payslipRoutes);
+app.use('/api/hr', authMiddleware, activityLogger, hrRoutes);
+app.use('/api/payroll', authMiddleware, activityLogger, payrollRoutes);
+app.use('/api/attendance', authMiddleware, activityLogger, attendanceRoutes);
+app.use('/api/biometric', authMiddleware, activityLogger, biometricRoutes);
+app.use('/api/finance', authMiddleware, activityLogger, financeAdvancedRoutes);
+app.use('/api/procurement', authMiddleware, activityLogger, procurementRoutes);
+app.use('/api/sales', authMiddleware, activityLogger, salesRoutes);
+app.use('/api/crm', authMiddleware, activityLogger, crmRoutes);
+app.use('/api/campaigns', authMiddleware, activityLogger, campaignRoutes);
+app.use('/api/reports', authMiddleware, activityLogger, reportsRoutes);
+app.use('/api/positions', authMiddleware, activityLogger, positionRoutes);
+app.use('/api/banks', authMiddleware, activityLogger, bankRoutes);
+app.use('/api/companies', authMiddleware, activityLogger, companyRoutes);
+app.use('/api/projects', authMiddleware, activityLogger, projectRoutes);
+app.use('/api/sections', authMiddleware, activityLogger, sectionRoutes);
+app.use('/api/designations', authMiddleware, activityLogger, designationRoutes);
+app.use('/api/locations', authMiddleware, activityLogger, locationRoutes);
+app.use('/api/cities', authMiddleware, activityLogger, cityRoutes);
+app.use('/api/provinces', authMiddleware, activityLogger, provinceRoutes);
+app.use('/api/countries', authMiddleware, activityLogger, countryRoutes);
+app.use('/api/loans', authMiddleware, activityLogger, loanRoutes);
+app.use('/api/final-settlements', authMiddleware, activityLogger, finalSettlementRoutes);
+app.use('/api/leaves', authMiddleware, activityLogger, require('./routes/leaves'));
+app.use('/api/hr/reports/payroll', authMiddleware, activityLogger, payrollReportsRoutes);
+app.use('/api/hr/reports/attendance', authMiddleware, activityLogger, attendanceReportsRoutes);
+app.use('/api/hr/reports', authMiddleware, activityLogger, hrReportsRoutes);
+app.use('/api/payslips', authMiddleware, activityLogger, payslipRoutes);
 // Public routes (no authentication required)
 app.use('/api/job-postings/apply', require('./routes/publicJobPostings'));
 app.use('/api/applications/public', require('./routes/publicApplications'));
@@ -415,68 +417,69 @@ app.use('/api/hiring', hiringRoutes); // Hiring system endpoints (includes publi
 app.use('/api/employee-onboarding', employeeOnboardingRoutes); // Employee onboarding endpoints
 
 // Protected routes (authentication required)
-app.use('/api/job-postings', authMiddleware, jobPostingRoutes);
+app.use('/api/job-postings', authMiddleware, activityLogger, jobPostingRoutes);
 // Mount candidate routes with authentication
-app.use('/api/candidates', authMiddleware, candidateRoutes);
+app.use('/api/candidates', authMiddleware, activityLogger, candidateRoutes);
 app.use('/api/public/candidates', require('./routes/publicCandidates')); // Public candidate routes
-app.use('/api/candidate-approvals', authMiddleware, candidateApprovalRoutes);
-app.use('/api/applications', authMiddleware, applicationRoutes);
-app.use('/api/notifications', authMiddleware, notificationRoutes);
-app.use('/api/courses', authMiddleware, courseRoutes);
-app.use('/api/enrollments', authMiddleware, enrollmentRoutes);
-app.use('/api/training-programs', authMiddleware, trainingProgramRoutes);
+app.use('/api/candidate-approvals', authMiddleware, activityLogger, candidateApprovalRoutes);
+app.use('/api/applications', authMiddleware, activityLogger, applicationRoutes);
+app.use('/api/notifications', authMiddleware, activityLogger, notificationRoutes);
+app.use('/api/courses', authMiddleware, activityLogger, courseRoutes);
+app.use('/api/enrollments', authMiddleware, activityLogger, enrollmentRoutes);
+app.use('/api/training-programs', authMiddleware, activityLogger, trainingProgramRoutes);
 app.use('/api/zkteco', zktecoRoutes);
 app.use('/api/zkbio', zkbioTimeRoutes);
 app.use('/api/images', imageProxyRoutes);
-app.use('/api/vehicles', authMiddleware, vehicleRoutes);
-app.use('/api/vehicle-maintenance', authMiddleware, vehicleMaintenanceRoutes);
-app.use('/api/vehicle-logbook', authMiddleware, vehicleLogBookRoutes);
+app.use('/api/vehicles', authMiddleware, activityLogger, vehicleRoutes);
+app.use('/api/vehicle-maintenance', authMiddleware, activityLogger, vehicleMaintenanceRoutes);
+app.use('/api/vehicle-logbook', authMiddleware, activityLogger, vehicleLogBookRoutes);
 app.use('/api/trakker', trakkerRoutes);
-app.use('/api/groceries', authMiddleware, groceryRoutes);
-app.use('/api/suppliers', authMiddleware, supplierRoutes);
-app.use('/api/petty-cash', authMiddleware, pettyCashRoutes);
-app.use('/api/events', authMiddleware, eventRoutes);
-app.use('/api/staff-assignments', authMiddleware, staffAssignmentRoutes);
-app.use('/api/staff-management', authMiddleware, staffManagementRoutes);
+app.use('/api/groceries', authMiddleware, activityLogger, groceryRoutes);
+app.use('/api/suppliers', authMiddleware, activityLogger, supplierRoutes);
+app.use('/api/petty-cash', authMiddleware, activityLogger, pettyCashRoutes);
+app.use('/api/events', authMiddleware, activityLogger, eventRoutes);
+app.use('/api/staff-assignments', authMiddleware, activityLogger, staffAssignmentRoutes);
+app.use('/api/staff-management', authMiddleware, activityLogger, staffManagementRoutes);
 app.use('/api/attendance-proxy', attendanceProxyRoutes);
-app.use('/api/utility-bills', authMiddleware, utilityBillRoutes);
-app.use('/api/hr/arrears', authMiddleware, arrearsRoutes);
-app.use('/api/rental-agreements', authMiddleware, rentalAgreementRoutes);
-app.use('/api/taj-rental-agreements', authMiddleware, tajRentalAgreementRoutes);
-app.use('/api/rental-management', authMiddleware, rentalManagementRoutes);
-app.use('/api/payment-settlements', authMiddleware, paymentSettlementRoutes);
-app.use('/api/it', authMiddleware, itRoutes);
+app.use('/api/utility-bills', authMiddleware, activityLogger, utilityBillRoutes);
+app.use('/api/hr/arrears', authMiddleware, activityLogger, arrearsRoutes);
+app.use('/api/rental-agreements', authMiddleware, activityLogger, rentalAgreementRoutes);
+app.use('/api/taj-rental-agreements', authMiddleware, activityLogger, tajRentalAgreementRoutes);
+app.use('/api/rental-management', authMiddleware, activityLogger, rentalManagementRoutes);
+app.use('/api/payment-settlements', authMiddleware, activityLogger, paymentSettlementRoutes);
+app.use('/api/it', authMiddleware, activityLogger, itRoutes);
 // Audit sub-routes (must come before main audit route)
-app.use('/api/audit/findings', authMiddleware, auditFindingsRoutes);
-app.use('/api/audit/corrective-actions', authMiddleware, require('./routes/correctiveActions'));
-app.use('/api/audit/trail', authMiddleware, auditTrailRoutes);
-app.use('/api/audit/reports', authMiddleware, require('./routes/auditReports'));
-app.use('/api/audit/schedules', authMiddleware, require('./routes/auditSchedules'));
+app.use('/api/audit/findings', authMiddleware, activityLogger, auditFindingsRoutes);
+app.use('/api/audit/corrective-actions', authMiddleware, activityLogger, require('./routes/correctiveActions'));
+app.use('/api/audit/trail', authMiddleware, activityLogger, auditTrailRoutes);
+app.use('/api/audit/reports', authMiddleware, activityLogger, require('./routes/auditReports'));
+app.use('/api/audit/schedules', authMiddleware, activityLogger, require('./routes/auditSchedules'));
 
 // Main audit routes (must come after sub-routes)
-app.use('/api/audit', authMiddleware, auditRoutes);
+app.use('/api/audit', authMiddleware, activityLogger, auditRoutes);
 
 // Sub-role management routes
 app.use('/api/sub-roles', subRoleRoutes);
 app.use('/api/user-sub-roles', userSubRoleRoutes);
-app.use('/api/roles', authMiddleware, require('./routes/roles'));
+app.use('/api/roles', authMiddleware, activityLogger, require('./routes/roles'));
 
 // Taj Residencia routes
-app.use('/api/taj-residencia', authMiddleware, tajResidenciaRoutes);
+app.use('/api/taj-residencia', authMiddleware, activityLogger, tajResidenciaRoutes);
 app.use('/api', tajResidenciaComplaintsRoutes);
-app.use('/api/taj-utilities/rental-management', authMiddleware, tajRentalManagementRoutes);
-app.use('/api/taj-utilities/cam-charges', authMiddleware, camChargesRoutes);
-app.use('/api/taj-utilities/electricity', authMiddleware, electricityRoutes);
-app.use('/api/taj-utilities/properties', authMiddleware, tajPropertiesRoutes);
-app.use('/api/taj-utilities/invoices', authMiddleware, propertyInvoicesRoutes);
-app.use('/api/taj-utilities/receipts', authMiddleware, propertyReceiptsRoutes);
-app.use('/api/taj-utilities/charges-slabs', authMiddleware, chargesSlabsRoutes);
-app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, waterUtilitySlabsRoutes);
-app.use('/api/taj-utilities/residents', authMiddleware, tajResidentsRoutes);
-app.use('/api/document-tracking', authMiddleware, documentTrackingRoutes);
-app.use('/api/evaluation-documents', authMiddleware, evaluationDocumentsRoutes);
-app.use('/api/indents', authMiddleware, indentsRoutes);
-app.use('/api/evaluation-level0-authorities', authMiddleware, evaluationLevel0AuthoritiesRoutes);
+app.use('/api/taj-utilities/rental-management', authMiddleware, activityLogger, tajRentalManagementRoutes);
+app.use('/api/taj-utilities/cam-charges', authMiddleware, activityLogger, camChargesRoutes);
+app.use('/api/taj-utilities/electricity', authMiddleware, activityLogger, electricityRoutes);
+app.use('/api/taj-utilities/properties', authMiddleware, activityLogger, tajPropertiesRoutes);
+app.use('/api/taj-utilities/invoices', authMiddleware, activityLogger, propertyInvoicesRoutes);
+app.use('/api/taj-utilities/receipts', authMiddleware, activityLogger, propertyReceiptsRoutes);
+app.use('/api/taj-utilities/charges-slabs', authMiddleware, activityLogger, chargesSlabsRoutes);
+app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, activityLogger, waterUtilitySlabsRoutes);
+app.use('/api/taj-utilities/residents', authMiddleware, activityLogger, tajResidentsRoutes);
+app.use('/api/document-tracking', authMiddleware, activityLogger, documentTrackingRoutes);
+app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationDocumentsRoutes);
+app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
+app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
+app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activityLogger to tracking routes to avoid recursion
 // Public evaluation documents route (token-based access)
 app.use('/api/public/evaluation-documents', require('./routes/publicEvaluationDocuments'));
 

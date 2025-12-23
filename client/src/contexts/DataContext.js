@@ -99,7 +99,7 @@ export const DataProvider = ({ children }) => {
   
   // Fetch employees
   const fetchEmployees = useCallback(async (force = false) => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) return employees;
     
     if (!force && employees.length > 0 && !isDataStale('employees')) {
       return employees;
@@ -109,17 +109,21 @@ export const DataProvider = ({ children }) => {
       setLoading(prev => ({ ...prev, employees: true }));
       setErrors(prev => ({ ...prev, employees: null }));
       
+      console.log('📡 fetchEmployees: Fetching employees from API...', { force });
       const response = await api.get('/hr/employees?getAll=true');
       const data = response.data.data || [];
       
+      console.log(`✅ fetchEmployees: Fetched ${data.length} employees`);
       setEmployees(data);
       setLastFetched(prev => ({ ...prev, employees: Date.now() }));
       
       return data;
     } catch (error) {
-      console.error('Error fetching employees:', error);
-      setErrors(prev => ({ ...prev, employees: error.message }));
-      return [];
+      console.error('❌ Error fetching employees:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to load employees';
+      setErrors(prev => ({ ...prev, employees: errorMessage }));
+      // Don't set lastFetched on error - allows retry
+      return employees; // Return existing employees if any, or empty array
     } finally {
       setLoading(prev => ({ ...prev, employees: false }));
     }
@@ -488,12 +492,25 @@ export const DataProvider = ({ children }) => {
   // Lazy load data when authenticated - delay preload to improve initial page load
   useEffect(() => {
     let preloadTimer = null;
+    let isMounted = true;
     
-    if (isAuthenticated && !isPreloading && !hasLoadedData.current) {
+    // Allow loading if authenticated, not currently preloading, and haven't successfully loaded yet
+    // Use lastFetched.employees as the source of truth - if it exists, we've loaded (even if array is empty)
+    const hasSuccessfullyFetched = !!lastFetched.employees;
+    const shouldLoad = isAuthenticated && !isPreloading && !hasLoadedData.current && !hasSuccessfullyFetched;
+    
+    if (shouldLoad) {
+      console.log('📦 DataContext: Starting data preload...', { 
+        employeesCount: employees.length, 
+        hasLoadedData: hasLoadedData.current,
+        lastFetchedEmployees: lastFetched.employees 
+      });
       hasLoadedData.current = true;
       
       // Delay preload by 500ms to allow initial page render first (lazy loading)
       preloadTimer = setTimeout(() => {
+        if (!isMounted) return;
+        
         console.log('🚀 Preloading essential HR data...');
         setIsPreloading(true);
         
@@ -512,6 +529,7 @@ export const DataProvider = ({ children }) => {
         // Load employees separately with longer timeout to avoid blocking other data
         const loadData = async () => {
           try {
+            console.log('📡 Fetching HR data from API...');
             // Load non-employee data first (faster)
             const [departmentsRes, positionsRes, banksRes, companiesRes, projectsRes] = await Promise.all([
               api.get('/hr/departments'),
@@ -520,6 +538,8 @@ export const DataProvider = ({ children }) => {
               api.get('/hr/companies'),
               api.get('/projects')
             ]);
+            
+            if (!isMounted) return;
             
             setDepartments(departmentsRes.data.data || []);
             setPositions(positionsRes.data.data || []);
@@ -548,27 +568,37 @@ export const DataProvider = ({ children }) => {
               projects: false
             }));
             
-            console.log('✅ Essential HR data (non-employees) preloaded successfully');
+            console.log(`✅ Essential HR data (non-employees) preloaded successfully: ${departmentsRes.data.data?.length || 0} departments, ${projectsRes.data.data?.length || 0} projects`);
             
             // Load employees separately (may take longer)
             try {
+              console.log('📡 Fetching employees from API...');
               const employeesRes = await api.get('/hr/employees?getAll=true');
-              setEmployees(employeesRes.data.data || []);
+              
+              if (!isMounted) return;
+              
+              const employeesData = employeesRes.data.data || [];
+              setEmployees(employeesData);
               setLastFetched(prev => ({ ...prev, employees: Date.now() }));
               setLoading(prev => ({ ...prev, employees: false }));
               setErrors(prev => ({ ...prev, employees: null }));
-              console.log('✅ Employees preloaded successfully');
+              console.log(`✅ Employees preloaded successfully: ${employeesData.length} employees`);
             } catch (employeeError) {
+              if (!isMounted) return;
+              
               console.error('❌ Error preloading employees:', employeeError);
               setErrors(prev => ({
                 ...prev,
                 employees: employeeError.response?.data?.message || employeeError.message || 'Failed to load employees. Please refresh the page.'
               }));
               setLoading(prev => ({ ...prev, employees: false }));
-              // Don't set employees to empty array, keep existing data if any
+              // Reset hasLoadedData to allow retry
+              hasLoadedData.current = false;
             }
             
           } catch (error) {
+            if (!isMounted) return;
+            
             console.error('❌ Error preloading HR data:', error);
             // Set error states for failed requests
             setErrors(prev => ({
@@ -588,8 +618,12 @@ export const DataProvider = ({ children }) => {
               companies: false,
               projects: false
             }));
+            // Reset hasLoadedData to allow retry
+            hasLoadedData.current = false;
           } finally {
-            setIsPreloading(false);
+            if (isMounted) {
+              setIsPreloading(false);
+            }
           }
         };
         
@@ -602,11 +636,12 @@ export const DataProvider = ({ children }) => {
     
     // Cleanup timeout on unmount
     return () => {
+      isMounted = false;
       if (preloadTimer) {
         clearTimeout(preloadTimer);
       }
     };
-  }, [isAuthenticated, clearData, isPreloading]); // Include all dependencies
+  }, [isAuthenticated, clearData]); // Only depend on auth state - don't cause re-runs on data changes
   
   const contextValue = {
     // Data

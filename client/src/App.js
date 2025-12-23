@@ -175,6 +175,7 @@ import EvaluationDashboard from './pages/HR/EvaluationAppraisal/EvaluationDashbo
 import DocumentsTracking from './pages/HR/DocumentsTracking';
 import DocumentsTrackingDashboard from './pages/DocumentsTracking/DocumentsTrackingDashboard';
 import EvaluationTracking from './pages/DocumentsTracking/EvaluationTracking';
+import UserTracking from './pages/General/UserTracking';
 import IndentsDashboard from './pages/General/Indents/IndentsDashboard';
 import IndentsList from './pages/General/Indents/IndentsList';
 import IndentForm from './pages/General/Indents/IndentForm';
@@ -577,6 +578,10 @@ function App() {
             <Route
               path="/general/indents"
               element={<ProtectedRoute><IndentsList /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/user-tracking"
+              element={<ProtectedRoute><UserTracking /></ProtectedRoute>}
             />
 
             {/* Loan Management Routes */}

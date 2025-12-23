@@ -389,23 +389,27 @@ const RoleManagement = () => {
                       </IconButton>
                     </Tooltip>
                     <Tooltip title="Edit Role">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => handleEditRole(role)}
-                        disabled={role.isSystemRole}
-                      >
-                        <EditIcon />
-                      </IconButton>
+                      <span>
+                        <IconButton 
+                          size="small" 
+                          onClick={() => handleEditRole(role)}
+                          disabled={role.isSystemRole}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                     <Tooltip title="Delete Role">
-                      <IconButton 
-                        size="small" 
-                        color="error"
-                        onClick={() => handleDeleteRole(role)}
-                        disabled={role.isSystemRole}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                      <span>
+                        <IconButton 
+                          size="small" 
+                          color="error"
+                          onClick={() => handleDeleteRole(role)}
+                          disabled={role.isSystemRole}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   </Box>
                 </TableCell>

@@ -11,6 +11,8 @@ const { ROLE_VALUES } = require('../config/permissions');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const UserLoginLog = require('../models/general/UserLoginLog');
+const { getClientIP, getUserAgent } = require('../utils/requestHelpers');
 
 const router = express.Router();
 
@@ -216,7 +218,19 @@ router.post('/login', [
     
     // Generate JWT token
     const token = user.generateAuthToken();
-    console.log('🔐 Login successful for:', email);
+
+    // Log login event asynchronously (don't block response)
+    UserLoginLog.create({
+      userId: user._id,
+      username: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      loginTime: new Date(),
+      ipAddress: getClientIP(req),
+      userAgent: getUserAgent(req),
+      status: 'active'
+    }).catch(() => {
+      // Silently fail - don't block login
+    });
 
     res.json({
       success: true,
@@ -457,8 +471,26 @@ router.post('/forgot-password', [
 // @desc    Logout user (client-side token removal)
 // @access  Private
 router.post('/logout', authMiddleware, asyncHandler(async (req, res) => {
-  // In a stateless JWT system, logout is handled client-side
-  // You could implement a blacklist for tokens if needed
+  // Log logout event asynchronously (don't block response)
+  setImmediate(async () => {
+    try {
+      const activeLogin = await UserLoginLog.findOne({
+        userId: req.user._id,
+        status: 'active'
+      }).sort({ loginTime: -1 });
+      
+      if (activeLogin) {
+        activeLogin.logoutTime = new Date();
+        activeLogin.status = 'logged_out';
+        activeLogin.logoutReason = 'manual';
+        activeLogin.calculateDuration();
+        await activeLogin.save();
+      }
+    } catch (error) {
+      // Silently fail - don't block logout
+    }
+  });
+  
   res.json({
     success: true,
     message: 'Logged out successfully'

@@ -68,7 +68,18 @@ import api from '../../services/authService';
 import { PageLoading, CardsSkeleton } from '../../components/LoadingSpinner';
 
 const HRDashboard = () => {
-  const [stats, setStats] = useState({});
+  const [stats, setStats] = useState({
+    totalEmployees: 0,
+    activeEmployees: 0,
+    totalDepartments: 0,
+    newThisMonth: 0,
+    avgSalary: 0,
+    totalSalary: 0,
+    avgBasicSalary: 0,
+    avgGrossSalary: 0,
+    totalBasicSalary: 0,
+    totalGrossSalary: 0
+  });
   const [recentEmployees, setRecentEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [chartData, setChartData] = useState({
@@ -540,7 +551,7 @@ const HRDashboard = () => {
                     Total Employees
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {stats.totalEmployees}
+                    {stats.totalEmployees ?? 0}
                   </Typography>
                 </Box>
               </Box>
@@ -561,7 +572,7 @@ const HRDashboard = () => {
                     Active Employees
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {stats.activeEmployees}
+                    {stats.activeEmployees ?? 0}
                   </Typography>
                 </Box>
               </Box>
@@ -582,7 +593,7 @@ const HRDashboard = () => {
                     Departments
                   </Typography>
                   <Typography variant="h4" sx={{ color: 'white' }}>
-                    {stats.totalDepartments}
+                    {stats.totalDepartments ?? 0}
                   </Typography>
                 </Box>
               </Box>
@@ -1397,7 +1408,11 @@ const HRDashboard = () => {
                 <Box sx={{ textAlign: 'center' }}>
                   <Typography variant="h3" color="white" sx={{ mb: 2 }}>
                     {chartData.leaveBalanceData.length > 0 ? 
-                      Math.round(chartData.leaveBalanceData.reduce((sum, emp) => sum + emp.total, 0) / chartData.leaveBalanceData.length) : 0}
+                      (() => {
+                        const total = chartData.leaveBalanceData.reduce((sum, emp) => sum + (emp.total || 0), 0);
+                        const avg = total / chartData.leaveBalanceData.length;
+                        return isNaN(avg) ? 0 : Math.round(avg);
+                      })() : 0}
                   </Typography>
                   <Typography variant="h6" color="white" sx={{ opacity: 0.9 }}>
                     Average Leave Days
@@ -1409,7 +1424,11 @@ const HRDashboard = () => {
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="h5" color="white">
                         {chartData.leaveBalanceData.length > 0 ? 
-                          Math.round(chartData.leaveBalanceData.reduce((sum, emp) => sum + emp.annual, 0) / chartData.leaveBalanceData.length) : 0}
+                          (() => {
+                            const total = chartData.leaveBalanceData.reduce((sum, emp) => sum + (emp.annual || 0), 0);
+                            const avg = total / chartData.leaveBalanceData.length;
+                            return isNaN(avg) ? 0 : Math.round(avg);
+                          })() : 0}
                       </Typography>
                       <Typography variant="caption" color="white" sx={{ opacity: 0.8 }}>
                         Annual
@@ -1418,7 +1437,11 @@ const HRDashboard = () => {
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="h5" color="white">
                         {chartData.leaveBalanceData.length > 0 ? 
-                          Math.round(chartData.leaveBalanceData.reduce((sum, emp) => sum + emp.sick, 0) / chartData.leaveBalanceData.length) : 0}
+                          (() => {
+                            const total = chartData.leaveBalanceData.reduce((sum, emp) => sum + (emp.sick || 0), 0);
+                            const avg = total / chartData.leaveBalanceData.length;
+                            return isNaN(avg) ? 0 : Math.round(avg);
+                          })() : 0}
                       </Typography>
                       <Typography variant="caption" color="white" sx={{ opacity: 0.8 }}>
                         Sick
@@ -1427,7 +1450,11 @@ const HRDashboard = () => {
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="h5" color="white">
                         {chartData.leaveBalanceData.length > 0 ? 
-                          Math.round(chartData.leaveBalanceData.reduce((sum, emp) => sum + emp.personal, 0) / chartData.leaveBalanceData.length) : 0}
+                          (() => {
+                            const total = chartData.leaveBalanceData.reduce((sum, emp) => sum + (emp.personal || 0), 0);
+                            const avg = total / chartData.leaveBalanceData.length;
+                            return isNaN(avg) ? 0 : Math.round(avg);
+                          })() : 0}
                       </Typography>
                       <Typography variant="caption" color="white" sx={{ opacity: 0.8 }}>
                         Personal

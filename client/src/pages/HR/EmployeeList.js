@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -37,6 +37,7 @@ import {
   Delete as DeleteIcon,
   Search as SearchIcon,
   Visibility as ViewIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
@@ -45,8 +46,9 @@ import api from '../../services/api';
 import { getImageUrl } from '../../utils/imageService';
 
 const EmployeeList = () => {
-  const { employees, departments, projects, loading: dataLoading, fetchEmployees } = useData();
+  const { employees, departments, projects, loading: dataLoading, fetchEmployees, errors } = useData();
   const [paginationLoading, setPaginationLoading] = useState(false);
+  const fetchAttemptedRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -76,7 +78,19 @@ const EmployeeList = () => {
     }
   }, [location.state]);
 
-  // No need to fetch data - it's provided by DataContext
+  // Fallback: If employees are empty and not loading, try to fetch (in case DataContext didn't load)
+  useEffect(() => {
+    if (employees.length === 0 && !dataLoading.employees && !errors.employees && !fetchAttemptedRef.current) {
+      fetchAttemptedRef.current = true;
+      console.log('🔄 EmployeeList: Employees empty, attempting fetch...');
+      fetchEmployees(true).catch(err => {
+        console.error('Error fetching employees in EmployeeList:', err);
+        fetchAttemptedRef.current = false; // Allow retry on error
+      });
+    } else if (employees.length > 0) {
+      fetchAttemptedRef.current = false; // Reset if we have employees
+    }
+  }, [employees.length, dataLoading.employees, errors.employees, fetchEmployees]);
 
   // Pagination handlers
   const handleChangePage = useCallback((event, newPage) => {
@@ -122,6 +136,24 @@ const EmployeeList = () => {
     setProjectFilter('');
     setPage(0); // Reset to first page when clearing filters
   }, []);
+
+  // Handle manual refresh
+  const handleRefresh = useCallback(async () => {
+    try {
+      await fetchEmployees(true); // Force refresh
+      setSnackbar({
+        open: true,
+        message: 'Employees refreshed successfully',
+        severity: 'success'
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: 'Error refreshing employees',
+        severity: 'error'
+      });
+    }
+  }, [fetchEmployees]);
 
   // No need for useEffect - data is provided by DataContext
 
@@ -300,14 +332,39 @@ const EmployeeList = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Employee Management</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/hr/employees/add')}
-        >
-          Add Employee
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={handleRefresh}
+            disabled={dataLoading.employees}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/hr/employees/add')}
+          >
+            Add Employee
+          </Button>
+        </Box>
       </Box>
+
+      {/* Error Alert */}
+      {errors.employees && (
+        <Alert 
+          severity="error" 
+          sx={{ mb: 3 }}
+          action={
+            <Button color="inherit" size="small" onClick={handleRefresh}>
+              Retry
+            </Button>
+          }
+        >
+          Error loading employees: {errors.employees}
+        </Alert>
+      )}
 
       {/* Statistics Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>

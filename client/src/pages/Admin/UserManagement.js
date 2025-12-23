@@ -345,9 +345,9 @@ const UserManagement = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {users.map((user) => (
+              {users.map((user, index) => (
                 <TableRow 
-                  key={user._id}
+                  key={user._id || `user-${index}`}
                   sx={{
                     opacity: user.isActive ? 1 : 0.6,
                     backgroundColor: user.isActive ? 'inherit' : 'rgba(0, 0, 0, 0.02)'

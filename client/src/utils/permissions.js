@@ -683,6 +683,10 @@ export const MODULES = {
           { name: 'All Indents', path: '/general/indents' },
           { name: 'Create Indent', path: '/general/indents/create' }
         ]
+      },
+      {
+        name: 'User Tracking',
+        path: '/general/user-tracking'
       }
     ]
   }

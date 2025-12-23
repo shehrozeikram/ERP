@@ -204,6 +204,7 @@ const AuditDashboard = () => {
             </Box>
           </Box>
         }
+        secondaryTypographyProps={{ component: 'div' }}
       />
       {activity.isSuspicious && (
         <Chip 
