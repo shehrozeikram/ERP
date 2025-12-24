@@ -105,27 +105,7 @@ const getFileHeaders = (filePath, filename) => {
  */
 const createFileServerRoute = (config) => {
   const { uploadDir, module, submodule } = config;
-  
-  // Use the exact same path construction as upload routes for consistency
-  // Upload routes use: path.join(__dirname, '../uploads/rental-agreements')
-  // Where __dirname is server/routes/
-  // Since fileServer.js is in server/utils/, we need to go: utils -> server -> uploads/...
-  // Use path.join (not path.resolve) to match upload route exactly
   const fullUploadDir = path.join(__dirname, '..', uploadDir);
-  
-  // Also calculate the alternative path (as used in routes) for fallback
-  // This matches: path.join(__dirname, '../uploads/...') from server/routes/
-  const routesDir = path.join(__dirname, '..', 'routes');
-  const alternativeUploadDir = path.join(routesDir, '..', uploadDir);
-  
-  // Ensure directory exists
-  if (!fs.existsSync(fullUploadDir)) {
-    try {
-      fs.mkdirSync(fullUploadDir, { recursive: true });
-    } catch (err) {
-      console.error('Failed to create upload directory:', fullUploadDir, err.message);
-    }
-  }
 
   return async (req, res) => {
     try {
@@ -168,11 +148,11 @@ const createFileServerRoute = (config) => {
         });
       }
 
-      // Build file path - use path.join to match upload route behavior
+      // Build file path
       const filePath = path.join(fullUploadDir, filename);
       
-      // Validate file path is within allowed directory (use resolved paths for security)
-      const pathValidation = validateFilePath(path.resolve(filePath), path.resolve(fullUploadDir));
+      // Validate file path is within allowed directory
+      const pathValidation = validateFilePath(filePath, fullUploadDir);
       if (pathValidation.error) {
         if (isDevelopment) {
           console.log('❌ Path traversal attempt detected');
@@ -183,62 +163,17 @@ const createFileServerRoute = (config) => {
         });
       }
 
-      // Check if file exists - try multiple path resolutions for production compatibility
-      let filePathToUse = path.join(fullUploadDir, filename);
-      let fileExists = fs.existsSync(filePathToUse);
-      
-      // Fallback: Try alternative path (matching exact upload route path construction)
-      if (!fileExists && alternativeUploadDir !== fullUploadDir) {
-        const alternativePath = path.join(alternativeUploadDir, filename);
-        
-        if (fs.existsSync(alternativePath)) {
-          filePathToUse = alternativePath;
-          fileExists = true;
-          console.log('✅ File found using alternative path (matching upload route):', alternativePath);
-        }
-      }
-      
-      if (!fileExists) {
-        // Enhanced logging for production debugging
-        const resolvedDir = path.resolve(fullUploadDir);
-        console.log('❌ File not found');
-        console.log('📄 Requested filename:', filename);
-        console.log('📁 Primary file path:', filePathToUse);
-        console.log('📁 Resolved directory:', resolvedDir);
-        console.log('📁 Directory exists:', fs.existsSync(resolvedDir));
-        console.log('📁 __dirname:', __dirname);
-        console.log('📁 uploadDir config:', uploadDir);
-        
-        // Try to list files for debugging
-        try {
-          if (fs.existsSync(resolvedDir)) {
-            const files = fs.readdirSync(resolvedDir);
-            console.log('📁 Available files in directory:', files.slice(0, 10));
-            console.log('📁 Total files:', files.length);
-            
-            // Check if file exists with different case or similar name
-            const matchingFiles = files.filter(f => 
-              f.toLowerCase() === filename.toLowerCase() || 
-              f.includes(filename.split('-').pop()) // Check if filename matches pattern
-            );
-            if (matchingFiles.length > 0) {
-              console.log('🔍 Similar files found:', matchingFiles);
-            }
-          } else {
-            console.log('❌ Directory does not exist:', resolvedDir);
-            // Try alternative directory
-            const altDir = path.resolve(__dirname, '..', 'routes', '..', uploadDir);
-            console.log('📁 Trying alternative directory:', altDir);
-            console.log('📁 Alternative directory exists:', fs.existsSync(altDir));
-            if (fs.existsSync(altDir)) {
-              const altFiles = fs.readdirSync(altDir);
-              console.log('📁 Files in alternative directory:', altFiles.slice(0, 10));
-            }
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        if (isDevelopment) {
+          console.log('❌ File not found:', filePath);
+          try {
+            const files = fs.readdirSync(fullUploadDir);
+            console.log('📁 Available files:', files.slice(0, 5));
+          } catch (err) {
+            // Ignore directory read errors
           }
-        } catch (err) {
-          console.log('⚠️ Error reading directory:', err.message);
         }
-        
         return res.status(404).json({
           success: false,
           message: 'File not found on server'
@@ -246,17 +181,16 @@ const createFileServerRoute = (config) => {
       }
 
       // Set headers and send file
-      const headers = getFileHeaders(filePathToUse, filename);
+      const headers = getFileHeaders(filePath, filename);
       Object.keys(headers).forEach(key => {
         res.setHeader(key, headers[key]);
       });
 
       if (isDevelopment) {
         console.log('✅ Serving file:', filename);
-        console.log('📁 File path:', filePathToUse);
       }
 
-      res.sendFile(filePathToUse);
+      res.sendFile(filePath);
     } catch (error) {
       console.error('Error serving file:', error);
       res.status(500).json({
