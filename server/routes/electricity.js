@@ -35,7 +35,7 @@ const paymentAttachmentStorage = multer.diskStorage({
 
 const paymentAttachmentUpload = multer({
   storage: paymentAttachmentStorage,
-  limits: { fileSize: 5 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
 const cleanupAttachment = (file) => {
