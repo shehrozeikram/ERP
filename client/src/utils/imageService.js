@@ -33,7 +33,54 @@ export const getImageUrl = (imagePath) => {
     return `${apiUrl}/hr/image/${filename}`;
   }
   
-  // For rental agreements and other uploads
+  // Use API endpoint to serve rental agreement files (both images and PDFs)
+  // This ensures proper authentication and works consistently in dev and production
+  if (filename && imagePath.includes('/uploads/rental-agreements/')) {
+    const apiUrl = process.env.REACT_APP_API_URL || '/api';
+    // Ensure absolute URL to avoid React Router interception
+    let baseUrl;
+    if (apiUrl.startsWith('http')) {
+      baseUrl = apiUrl;
+    } else {
+      // In development, use full backend URL
+      if (process.env.NODE_ENV === 'development') {
+        baseUrl = 'http://localhost:5001/api';
+      } else {
+        baseUrl = window.location.origin + apiUrl;
+      }
+    }
+    // Get token from localStorage for authentication
+    const token = localStorage.getItem('token');
+    const fullUrl = token 
+      ? `${baseUrl}/rental-agreements/file/${filename}?token=${encodeURIComponent(token)}`
+      : `${baseUrl}/rental-agreements/file/${filename}`;
+    console.log('🔗 Rental agreement URL:', fullUrl, 'from path:', imagePath);
+    return fullUrl;
+  }
+  
+  // Use API endpoint to serve Taj rental agreement files (both images and PDFs)
+  if (filename && imagePath.includes('/uploads/taj-rental-agreements/')) {
+    const apiUrl = process.env.REACT_APP_API_URL || '/api';
+    // Ensure absolute URL to avoid React Router interception
+    let baseUrl;
+    if (apiUrl.startsWith('http')) {
+      baseUrl = apiUrl;
+    } else {
+      // In development, use full backend URL
+      if (process.env.NODE_ENV === 'development') {
+        baseUrl = 'http://localhost:5001/api';
+      } else {
+        baseUrl = window.location.origin + apiUrl;
+      }
+    }
+    // Get token from localStorage for authentication
+    const token = localStorage.getItem('token');
+    return token 
+      ? `${baseUrl}/taj-rental-agreements/file/${filename}?token=${encodeURIComponent(token)}`
+      : `${baseUrl}/taj-rental-agreements/file/${filename}`;
+  }
+  
+  // For other uploads (taj rental agreements, documents, etc.)
   // In production: served through nginx proxy at /uploads/ -> Node.js
   // In development: use full backend URL to bypass React Router
   if (imagePath.startsWith('/uploads/')) {

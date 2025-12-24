@@ -53,58 +53,93 @@ const AuditForm = () => {
   const [attachments, setAttachments] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false);
+  const [employeesLoaded, setEmployeesLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Lazy load departments when dropdown is opened
+  const loadDepartments = async () => {
+    if (departmentsLoaded || loadingDepartments) return;
+    
+    try {
+      setLoadingDepartments(true);
+      const deptRes = await api.get('/hr/departments');
+      const deptData = deptRes.data?.data || deptRes.data?.departments || [];
+      setDepartments(deptData);
+      setDepartmentsLoaded(true);
+    } catch (err) {
+      console.error('Failed to load departments', err);
+      setError(err.response?.data?.message || 'Failed to load departments');
+    } finally {
+      setLoadingDepartments(false);
+    }
+  };
+
+  // Lazy load employees when dropdown is opened
+  const loadEmployees = async () => {
+    if (employeesLoaded || loadingEmployees) return;
+    
+    try {
+      setLoadingEmployees(true);
+      // Use lighter endpoint - only fetch active employees with minimal fields
+      const employeeRes = await api.get('/hr/employees?active=true&limit=200');
+      const employeeData = employeeRes.data?.data || [];
+      setEmployees(employeeData);
+      setEmployeesLoaded(true);
+    } catch (err) {
+      console.error('Failed to load employees', err);
+      setError(err.response?.data?.message || 'Failed to load employees');
+    } finally {
+      setLoadingEmployees(false);
+    }
+  };
+
+  const fetchAudit = async () => {
+    try {
+      // Pre-load departments and employees for edit mode so dropdowns work
+      await Promise.all([loadDepartments(), loadEmployees()]);
+      
+      const response = await api.get(`/audit/${auditId}`);
+      const audit = response.data?.data?.audit;
+      if (audit) {
+        setFormData({
+          title: audit.title || '',
+          description: audit.description || '',
+          auditType: audit.auditType || 'internal',
+          category: audit.category || 'General',
+          department: audit.department?._id || '',
+          module: audit.module || 'hr',
+          plannedStartDate: getDateValue(audit.plannedStartDate),
+          plannedEndDate: getDateValue(audit.plannedEndDate),
+          leadAuditor: audit.leadAuditor?._id || '',
+          riskLevel: audit.riskLevel || 'medium'
+        });
+      }
+      setLoading(false);
+    } catch (err) {
+      console.error('Failed to load audit details', err);
+      setError(err.response?.data?.message || 'Failed to load audit details');
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        setLoading(true);
-        const [deptRes, employeeRes] = await Promise.all([
-          api.get('/hr/departments?limit=500'),
-          api.get('/hr/employees?limit=500')
-        ]);
-
-        const deptData = deptRes.data?.data || deptRes.data?.departments || [];
-        const employeeData = employeeRes.data?.data || [];
-
-        setDepartments(deptData);
-        setEmployees(employeeData);
-
+        // Only load audit data if editing, don't block form rendering
         if (isEdit) {
+          setLoading(true);
           await fetchAudit();
         }
       } catch (err) {
-        console.error('Failed to load initial audit form data', err);
-        setError(err.response?.data?.message || 'Failed to load required data');
-      } finally {
+        console.error('Failed to load audit data', err);
+        setError(err.response?.data?.message || 'Failed to load audit data');
         setLoading(false);
-      }
-    };
-
-    const fetchAudit = async () => {
-      try {
-        const response = await api.get(`/audit/${auditId}`);
-        const audit = response.data?.data?.audit;
-        if (audit) {
-          setFormData({
-            title: audit.title || '',
-            description: audit.description || '',
-            auditType: audit.auditType || 'internal',
-            category: audit.category || 'General',
-            department: audit.department?._id || '',
-            module: audit.module || 'hr',
-            plannedStartDate: getDateValue(audit.plannedStartDate),
-            plannedEndDate: getDateValue(audit.plannedEndDate),
-            leadAuditor: audit.leadAuditor?._id || '',
-            riskLevel: audit.riskLevel || 'medium'
-          });
-        }
-      } catch (err) {
-        console.error('Failed to load audit details', err);
-        setError(err.response?.data?.message || 'Failed to load audit details');
       }
     };
 
@@ -336,12 +371,18 @@ const AuditForm = () => {
                   label="Department"
                   value={formData.department}
                   onChange={handleChange('department')}
+                  onOpen={loadDepartments}
+                  disabled={loadingDepartments}
                 >
-                  {departmentOptions.map((dept) => (
-                    <MenuItem key={dept.value} value={dept.value}>
-                      {dept.label}
-                    </MenuItem>
-                  ))}
+                  {loadingDepartments ? (
+                    <MenuItem disabled>Loading departments...</MenuItem>
+                  ) : (
+                    departmentOptions.map((dept) => (
+                      <MenuItem key={dept.value} value={dept.value}>
+                        {dept.label}
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
             </Grid>
@@ -352,12 +393,18 @@ const AuditForm = () => {
                   label="Lead Auditor"
                   value={formData.leadAuditor}
                   onChange={handleChange('leadAuditor')}
+                  onOpen={loadEmployees}
+                  disabled={loadingEmployees}
                 >
-                  {employeeOptions.map((emp) => (
-                    <MenuItem key={emp.value} value={emp.value}>
-                      {emp.label}
-                    </MenuItem>
-                  ))}
+                  {loadingEmployees ? (
+                    <MenuItem disabled>Loading employees...</MenuItem>
+                  ) : (
+                    employeeOptions.map((emp) => (
+                      <MenuItem key={emp.value} value={emp.value}>
+                        {emp.label}
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
             </Grid>

@@ -454,7 +454,10 @@ app.use('/api/staff-management', authMiddleware, activityLogger, staffManagement
 app.use('/api/attendance-proxy', attendanceProxyRoutes);
 app.use('/api/utility-bills', authMiddleware, activityLogger, utilityBillRoutes);
 app.use('/api/hr/arrears', authMiddleware, activityLogger, arrearsRoutes);
+// Register file routes separately (without authMiddleware, handles auth internally with query token)
+app.use('/api/rental-agreements', rentalAgreementRoutes.fileRouter);
 app.use('/api/rental-agreements', authMiddleware, activityLogger, rentalAgreementRoutes);
+app.use('/api/taj-rental-agreements', tajRentalAgreementRoutes.fileRouter);
 app.use('/api/taj-rental-agreements', authMiddleware, activityLogger, tajRentalAgreementRoutes);
 app.use('/api/rental-management', authMiddleware, activityLogger, rentalManagementRoutes);
 app.use('/api/payment-settlements', authMiddleware, activityLogger, paymentSettlementRoutes);

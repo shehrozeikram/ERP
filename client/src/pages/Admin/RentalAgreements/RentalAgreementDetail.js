@@ -541,19 +541,37 @@ const RentalAgreementDetail = ({ onEdit }) => {
                       <Stack direction="row" spacing={2}>
                         <Button
                           variant="outlined"
-                          component="a"
-                          href={getImageUrl(agreement.agreementImage)}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          onClick={() => {
+                            const url = getImageUrl(agreement.agreementImage);
+                            console.log('🔗 Generated URL for viewing:', url);
+                            console.log('📄 Original path:', agreement.agreementImage);
+                            if (url) {
+                              window.open(url, '_blank', 'noopener,noreferrer');
+                            } else {
+                              console.error('❌ No URL generated');
+                            }
+                          }}
                           startIcon={<ImageIcon />}
                         >
                           View PDF
                         </Button>
                         <Button
                           variant="outlined"
-                          component="a"
-                          href={getImageUrl(agreement.agreementImage)}
-                          download={agreement.agreementImage.split('/').pop()}
+                          onClick={() => {
+                            const url = getImageUrl(agreement.agreementImage);
+                            console.log('🔗 Generated URL for download:', url);
+                            console.log('📄 Original path:', agreement.agreementImage);
+                            if (url) {
+                              const link = document.createElement('a');
+                              link.href = url;
+                              link.download = agreement.agreementImage.split('/').pop();
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            } else {
+                              console.error('❌ No URL generated');
+                            }
+                          }}
                           startIcon={<DownloadIcon />}
                         >
                           Download PDF
@@ -667,10 +685,12 @@ const RentalAgreementDetail = ({ onEdit }) => {
               </Typography>
               <Button
                 variant="contained"
-                component="a"
-                href={getImageUrl(agreement.agreementImage)}
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={() => {
+                  const url = getImageUrl(agreement.agreementImage);
+                  if (url) {
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }
+                }}
                 sx={{ mt: 2 }}
               >
                 Open PDF in New Tab

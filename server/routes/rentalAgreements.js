@@ -7,6 +7,10 @@ const RentalAgreement = require('../models/hr/RentalAgreement');
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const { compressPDF } = require('../utils/pdfCompressor');
+const { createFileServerRoute } = require('../utils/fileServer');
+
+// Export file router separately (without auth middleware, handles auth internally)
+const fileRouter = express.Router();
 
 // Configure multer for image and PDF uploads
 const storage = multer.diskStorage({
@@ -54,6 +58,14 @@ router.get('/', authMiddleware, permissions.checkSubRolePermission('admin', 'ren
     res.status(500).json({ message: error.message });
   }
 });
+
+// Serve rental agreement file (must be before /:id route)
+// Uses centralized file server utility for optimized, secure file serving
+fileRouter.get('/file/:filename', createFileServerRoute({
+  uploadDir: 'uploads/rental-agreements',
+  module: 'admin',
+  submodule: 'rental_agreements'
+}));
 
 // Get rental agreement by ID
 router.get('/:id', authMiddleware, permissions.checkSubRolePermission('admin', 'rental_agreements', 'read'), async (req, res) => {
@@ -288,3 +300,4 @@ router.delete('/:id', authMiddleware, permissions.checkSubRolePermission('admin'
 });
 
 module.exports = router;
+module.exports.fileRouter = fileRouter;

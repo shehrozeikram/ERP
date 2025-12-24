@@ -5,6 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const permissions = require('../middleware/permissions');
+const { createFileServerRoute } = require('../utils/fileServer');
+
+// Export file router separately (without auth middleware, handles auth internally)
+const fileRouter = express.Router();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -74,6 +78,14 @@ router.get('/', withPermission('read'), async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+
+// Serve Taj rental agreement file (must be before /:id route)
+// Uses centralized file server utility for optimized, secure file serving
+fileRouter.get('/file/:filename', createFileServerRoute({
+  uploadDir: 'uploads/taj-rental-agreements',
+  module: 'finance',
+  submodule: 'taj_rental_agreements'
+}));
 
 router.get('/:id', withPermission('read'), async (req, res) => {
   try {
@@ -186,5 +198,6 @@ router.delete('/:id', withPermission('delete'), async (req, res) => {
 });
 
 module.exports = router;
+module.exports.fileRouter = fileRouter;
 
 

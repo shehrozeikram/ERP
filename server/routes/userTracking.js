@@ -5,24 +5,9 @@ const UserLoginLog = require('../models/general/UserLoginLog');
 const UserActivityLog = require('../models/general/UserActivityLog');
 const { asyncHandler } = require('../middleware/errorHandler');
 
-// Test route to verify routing works (public for debugging)
+// Test route to verify routing works (remove after debugging)
 router.get('/test', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'User tracking routes are working', 
-    path: req.path, 
-    originalUrl: req.originalUrl,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Health check route (public, no auth required)
-router.get('/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'User tracking routes are healthy',
-    routes: ['/test', '/health', '/stats', '/logins', '/activities', '/sessions', '/user/:userId']
-  });
+  res.json({ success: true, message: 'User tracking routes are working', path: req.path, originalUrl: req.originalUrl });
 });
 
 // @route   GET /api/tracking/logins
