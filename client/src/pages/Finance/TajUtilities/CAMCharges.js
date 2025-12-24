@@ -1091,6 +1091,248 @@ const CAMCharges = () => {
     };
   };
 
+  const generateCAMPaymentReceiptPDF = (invoice, payment, property) => {
+    // Constants
+    const CONSTANTS = {
+      COPIES: ['Bank Copy', 'Office Copy', 'Client Copy'],
+      MARGIN_X: 6,
+      TOP_MARGIN: 10,
+      FOOTER_NOTES: [
+        '1. This receipt confirms payment received for CAM charges as per the property agreement.',
+        '2. Please keep this receipt for your records.',
+        '3. For any queries, please contact TAJ Official WhatsApp No.: 0345 77 68 442.',
+        '4. Late payment surcharges may apply if payment is made after the due date.'
+      ],
+      COLORS: {
+        RED: [178, 34, 34],
+        GREEN: [0, 128, 0],
+        ORANGE: [255, 140, 0],
+        WATERMARK_PAID: [200, 230, 200],
+        WATERMARK_PARTIAL: [255, 220, 180],
+        BLACK: [0, 0, 0]
+      }
+    };
+
+    // Helper functions
+    const formatDate = (value, format = 'D-MMM-YY') => value ? dayjs(value).format(format) : '—';
+    const formatFullDate = (value) => value ? dayjs(value).format('MMMM D, YYYY') : '—';
+    const formatAmount = (value) => {
+      const num = Number(value) || 0;
+      return (num < 0 ? '(' : '') + Math.abs(num).toLocaleString('en-PK', { minimumFractionDigits: 0 }) + (num < 0 ? ')' : '');
+    };
+
+    // Initialize PDF
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const availableWidth = panelWidth - CONSTANTS.MARGIN_X * 2;
+    const panelCenterX = (panelWidth - CONSTANTS.MARGIN_X * 2) / 2;
+
+    // Extract data
+    const camCharge = invoice.charges?.find(c => c.type === 'CAM');
+    const camAmount = camCharge?.amount || 0;
+    const arrears = camCharge?.arrears || 0;
+    
+    // Calculate month label
+    const monthLabel = invoice.periodTo 
+      ? dayjs(invoice.periodTo).format('MMMM-YY').toUpperCase()
+      : dayjs().format('MMMM-YY').toUpperCase();
+
+    // Calculate payment status
+    const totalPaid = invoice.totalPaid || 0;
+    const grandTotal = invoice.grandTotal || (camAmount + arrears);
+    const balance = invoice.balance || (grandTotal - totalPaid);
+    const isPaid = balance <= 0 && totalPaid > 0;
+    const isPartiallyPaid = totalPaid > 0 && balance > 0;
+    const paymentStatus = isPaid ? 'PAID' : isPartiallyPaid ? 'PARTIALLY PAID' : 'UNPAID';
+    const paymentStatusColor = isPaid ? CONSTANTS.COLORS.GREEN : 
+                              isPartiallyPaid ? CONSTANTS.COLORS.ORANGE : CONSTANTS.COLORS.RED;
+
+    // Property data
+    const ownerName = property.ownerName || property.tenantName || '—';
+    const propertyName = property.propertyName || property.plotNumber || '—';
+    const address = property.address || property.fullAddress || '—';
+    const plotNumber = property.plotNumber || '—';
+
+    // Draw vertical dividers
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) pdf.setLineDash([1, 2], 0);
+    pdf.line(panelWidth, CONSTANTS.TOP_MARGIN - 5, panelWidth, pageHeight - 15);
+    pdf.line(panelWidth * 2, CONSTANTS.TOP_MARGIN - 5, panelWidth * 2, pageHeight - 15);
+    if (pdf.setLineDash) pdf.setLineDash([], 0);
+
+    // Reusable drawing functions
+    const setTextStyle = (font = 'helvetica', style = 'normal', size = 10) => {
+      pdf.setFont(font, style);
+      pdf.setFontSize(size);
+    };
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 30) => {
+      const valueWidth = availableWidth - labelWidth;
+      setTextStyle('helvetica', 'bold', 7);
+      pdf.text(label, startX, startY);
+      setTextStyle('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawWatermark = (startX) => {
+      if (!isPaid && !isPartiallyPaid) return;
+      
+      const watermarkText = isPaid ? 'PAID' : 'PARTIAL PAID';
+      const centerX = startX + panelCenterX;
+      const centerY = pageHeight / 2;
+      
+      setTextStyle('helvetica', 'bold', 40);
+      pdf.setTextColor(...(isPaid ? CONSTANTS.COLORS.WATERMARK_PAID : CONSTANTS.COLORS.WATERMARK_PARTIAL));
+      pdf.text(watermarkText, centerX, centerY, { align: 'center', angle: -45 });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+    };
+
+    const drawFooter = (startX, cursorY) => {
+      setTextStyle('helvetica', 'italic', 5.2);
+      const footerWidth = availableWidth;
+      
+      // Pre-calculate wrapped lines and height
+      const wrappedLines = [];
+      let totalFooterHeight = 0;
+      CONSTANTS.FOOTER_NOTES.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, footerWidth);
+        wrappedLines.push(wrapped);
+        totalFooterHeight += wrapped.length * 3.2;
+      });
+      
+      const footerStartY = Math.max(cursorY + 5, pageHeight - totalFooterHeight - 8);
+      let noteY = footerStartY;
+      
+      wrappedLines.forEach((wrapped) => {
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, noteY);
+          noteY += 3.2;
+        });
+      });
+    };
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + CONSTANTS.MARGIN_X;
+      let cursorY = CONSTANTS.TOP_MARGIN;
+
+      // Copy label
+      setTextStyle('helvetica', 'italic', 8);
+      pdf.text(`(${copyLabel})`, startX + panelCenterX, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      // Header
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.setTextColor(...CONSTANTS.COLORS.RED);
+      pdf.text(`Taj CAM Payment Receipt For The Month Of ${monthLabel}`, startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+      cursorY += 5;
+
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.text('CAM Payment Receipt', startX + panelCenterX, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      // Property and Invoice fields
+      const inlineFields = [
+        ['Property Name', propertyName],
+        ['Owner Name', ownerName],
+        ['Plot Number', plotNumber],
+        ['Address', address],
+        ['Period From', formatDate(invoice.periodFrom)],
+        ['Period To', formatDate(invoice.periodTo)],
+        ['Invoice No.', invoice.invoiceNumber || '—'],
+        ['Due Date', formatFullDate(invoice.dueDate)],
+      ];
+      
+      inlineFields.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 2;
+
+      // CAM Charges Summary
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('CAM Charges Summary', startX, cursorY);
+      cursorY += 3;
+
+      const chargesRows = [
+        { label: 'CAM Charges', value: formatAmount(camAmount), bold: false },
+        { label: 'Arrears', value: formatAmount(arrears), bold: false },
+        { label: 'Grand Total', value: formatAmount(grandTotal), bold: true }
+      ];
+
+      const rowHeight = 5;
+      setTextStyle('helvetica', 'normal', 7);
+      
+      chargesRows.forEach((row) => {
+        setTextStyle('helvetica', row.bold ? 'bold' : 'normal', 7);
+        pdf.text(row.label, startX, cursorY + 4);
+        pdf.text(String(row.value), startX + availableWidth, cursorY + 4, { align: 'right' });
+        pdf.line(startX, cursorY + rowHeight, startX + availableWidth, cursorY + rowHeight);
+        cursorY += rowHeight;
+      });
+      cursorY += 4;
+
+      // Payment Information Section
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Payment Information', startX, cursorY);
+      cursorY += 5;
+
+      const paymentInfo = [
+        ['Payment Date:', formatFullDate(payment.paymentDate)],
+        ['Payment Amount:', formatAmount(payment.amount || 0)],
+        ['Arrears Paid:', formatAmount(payment.arrears || 0)],
+        ['Total Paid:', formatAmount(payment.totalAmount || payment.amount || 0)],
+        ['Payment Method:', payment.paymentMethod || '—'],
+        ['Bank:', payment.bankName || '—'],
+        ['Reference:', payment.reference || '—'],
+      ];
+
+      paymentInfo.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+      cursorY += 3;
+
+      // Payment Status
+      setTextStyle('helvetica', 'bold', 9);
+      pdf.setTextColor(...paymentStatusColor);
+      pdf.text(`Status: ${paymentStatus}`, startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.setTextColor(...CONSTANTS.COLORS.BLACK);
+      cursorY += 5;
+
+      // Total Summary
+      setTextStyle('helvetica', 'bold', 7);
+      pdf.text('Grand Total:', startX, cursorY);
+      pdf.text(formatAmount(grandTotal), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 5;
+      pdf.text('Total Paid:', startX, cursorY);
+      pdf.text(formatAmount(totalPaid), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 5;
+      setTextStyle('helvetica', 'bold', 8);
+      pdf.text('Balance:', startX, cursorY);
+      pdf.text(formatAmount(balance), startX + availableWidth, cursorY, { align: 'right' });
+      cursorY += 8;
+
+      // Footer and watermark
+      drawFooter(startX, cursorY);
+      drawWatermark(startX);
+    };
+
+    // Generate all panels
+    CONSTANTS.COPIES.forEach((copy, index) => drawPanel(copy, index));
+
+    // Save PDF
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'cam-property')
+      .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
+    const receiptDate = dayjs(payment.paymentDate).format('YYYY-MM-DD');
+    pdf.save(`CAM_Payment_Receipt_${sanitizedName}_${receiptDate}.pdf`);
+  };
+
   const handleDownloadPDF = () => {
     if (!viewingCharge) return;
 
@@ -1597,6 +1839,7 @@ const CAMCharges = () => {
                                                       <TableCell>Reference</TableCell>
                                                       <TableCell>Notes</TableCell>
                                                       <TableCell>Recorded By</TableCell>
+                                                      <TableCell align="center">Actions</TableCell>
                                                     </TableRow>
                                                   </TableHead>
                                                   <TableBody>
@@ -1616,6 +1859,17 @@ const CAMCharges = () => {
                                                           {payment.recordedBy?.firstName && payment.recordedBy?.lastName
                                                             ? `${payment.recordedBy.firstName} ${payment.recordedBy.lastName}`
                                                             : 'N/A'}
+                                                        </TableCell>
+                                                        <TableCell align="center">
+                                                          <Tooltip title="Download Payment Receipt">
+                                                            <IconButton
+                                                              size="small"
+                                                              color="primary"
+                                                              onClick={() => generateCAMPaymentReceiptPDF(invoice, payment, property)}
+                                                            >
+                                                              <DownloadIcon fontSize="small" />
+                                                            </IconButton>
+                                                          </Tooltip>
                                                         </TableCell>
                                                       </TableRow>
                                                     ))}
