@@ -53,7 +53,7 @@ import {
   addPaymentToPropertyCAM,
   deletePaymentFromCAMCharge
 } from '../../../services/camChargesService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice } from '../../../services/propertyInvoiceService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice } from '../../../services/propertyInvoiceService';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
@@ -375,6 +375,26 @@ const CAMCharges = () => {
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete invoice');
+    }
+  };
+
+  const handleDeleteInvoicePayment = async (invoiceId, paymentId, propertyId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) {
+      return;
+    }
+
+    try {
+      setError('');
+      await deletePaymentFromInvoice(invoiceId, paymentId);
+      setSuccess('Payment deleted successfully');
+      
+      // Refresh invoices for this property
+      if (propertyId) {
+        const invoiceResponse = await fetchInvoicesForProperty(propertyId);
+        setPropertyInvoices(prev => ({ ...prev, [propertyId]: invoiceResponse.data?.data || [] }));
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete payment');
     }
   };
 
@@ -1861,15 +1881,26 @@ const CAMCharges = () => {
                                                             : 'N/A'}
                                                         </TableCell>
                                                         <TableCell align="center">
-                                                          <Tooltip title="Download Payment Receipt">
-                                                            <IconButton
-                                                              size="small"
-                                                              color="primary"
-                                                              onClick={() => generateCAMPaymentReceiptPDF(invoice, payment, property)}
-                                                            >
-                                                              <DownloadIcon fontSize="small" />
-                                                            </IconButton>
-                                                          </Tooltip>
+                                                          <Stack direction="row" spacing={1} justifyContent="center">
+                                                            <Tooltip title="Download Payment Receipt">
+                                                              <IconButton
+                                                                size="small"
+                                                                color="primary"
+                                                                onClick={() => generateCAMPaymentReceiptPDF(invoice, payment, property)}
+                                                              >
+                                                                <DownloadIcon fontSize="small" />
+                                                              </IconButton>
+                                                            </Tooltip>
+                                                            <Tooltip title="Delete Payment">
+                                                              <IconButton
+                                                                size="small"
+                                                                color="error"
+                                                                onClick={() => handleDeleteInvoicePayment(invoice._id, payment._id, property._id)}
+                                                              >
+                                                                <DeleteIcon fontSize="small" />
+                                                              </IconButton>
+                                                            </Tooltip>
+                                                          </Stack>
                                                         </TableCell>
                                                       </TableRow>
                                                     ))}

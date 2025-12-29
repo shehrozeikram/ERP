@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -25,7 +25,10 @@ import {
   Alert,
   Stack,
   Autocomplete,
-  CircularProgress
+  CircularProgress,
+  FormControl,
+  InputLabel,
+  Select
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -37,7 +40,7 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
-import { fetchResidents } from '../../../services/tajResidentsService';
+import { fetchResidents, createResident } from '../../../services/tajResidentsService';
 import { fetchProperties } from '../../../services/tajPropertiesService';
 
 const defaultForm = {
@@ -75,56 +78,75 @@ const RentalAgreements = () => {
   const [properties, setProperties] = useState([]);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [selectedResident, setSelectedResident] = useState(null);
+  
+  // New Resident Dialog State
+  const defaultNewResidentForm = {
+    name: '',
+    accountType: 'Resident',
+    cnic: '',
+    contactNumber: '',
+    email: '',
+    address: '',
+    balance: 0,
+    notes: ''
+  };
+  
+  const [newResidentDialog, setNewResidentDialog] = useState(false);
+  const [newResidentForm, setNewResidentForm] = useState(defaultNewResidentForm);
+  const [savingResident, setSavingResident] = useState(false);
 
-  useEffect(() => {
-    fetchAgreements();
-    fetchResidentsData();
+  const fetchAgreements = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/taj-rental-agreements');
+      setAgreements(response.data || []);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load rental agreements');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const fetchResidentsData = async () => {
+  const fetchResidentsData = useCallback(async () => {
     try {
       setResidentsLoading(true);
       const response = await fetchResidents({ isActive: 'true' });
       const allResidents = response.data.data || [];
       
-      // Deduplicate residents by name to ensure each resident appears only once
-      const uniqueResidents = [];
-      const seenNames = new Set();
-      
+      // Deduplicate residents by name using Map for better performance
+      const uniqueMap = new Map();
       allResidents.forEach((resident) => {
         const residentName = resident.name?.trim().toLowerCase();
-        if (residentName && !seenNames.has(residentName)) {
-          seenNames.add(residentName);
-          uniqueResidents.push(resident);
+        if (residentName && !uniqueMap.has(residentName)) {
+          uniqueMap.set(residentName, resident);
         }
       });
       
-      setResidents(uniqueResidents);
+      setResidents(Array.from(uniqueMap.values()));
     } catch (err) {
       console.error('Failed to load residents:', err);
     } finally {
       setResidentsLoading(false);
     }
-  };
+  }, []);
 
-  const fetchPropertiesForResident = async (resident) => {
+  const fetchPropertiesForResident = useCallback(async (resident) => {
     try {
       setPropertiesLoading(true);
       // Fetch all properties
       const response = await fetchProperties({});
       const allProperties = response.data?.data || [];
       
-      // Filter properties assigned to this resident
+      // Filter properties assigned to this resident using Set for O(1) lookup
       if (resident.properties && Array.isArray(resident.properties) && resident.properties.length > 0) {
-        const residentPropertyIds = resident.properties.map(p => 
-          typeof p === 'object' ? p._id || p : p
+        const residentPropertyIds = new Set(
+          resident.properties.map(p => typeof p === 'object' ? p._id || p : p)
         );
         const filteredProperties = allProperties.filter(property => 
-          residentPropertyIds.includes(property._id)
+          residentPropertyIds.has(property._id)
         );
         setProperties(filteredProperties);
       } else {
-        // If resident has no properties assigned, show empty list
         setProperties([]);
       }
     } catch (err) {
@@ -133,20 +155,14 @@ const RentalAgreements = () => {
     } finally {
       setPropertiesLoading(false);
     }
-  };
+  }, []);
 
-  const fetchAgreements = async () => {
-    try {
-      const response = await api.get('/taj-rental-agreements');
-      setAgreements(response.data || []);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load rental agreements');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    fetchAgreements();
+    fetchResidentsData();
+  }, [fetchAgreements, fetchResidentsData]);
 
-  const handleOpenDialog = async (agreement) => {
+  const handleOpenDialog = useCallback(async (agreement) => {
     if (agreement) {
       setEditingAgreement(agreement);
       const tenantName = agreement.tenantName || agreement.landlordName || '';
@@ -192,9 +208,57 @@ const RentalAgreements = () => {
     setDialogOpen(true);
     setError('');
     setSuccess('');
-  };
+  }, [residents, fetchPropertiesForResident]);
 
-  const handleCloseDialog = () => {
+  const handleSaveNewResident = useCallback(async () => {
+    try {
+      if (!newResidentForm.name.trim()) {
+        setError('Name is required');
+        return;
+      }
+
+      setSavingResident(true);
+      setError('');
+
+      const response = await createResident(newResidentForm);
+      const newResident = response.data?.data;
+
+      if (newResident) {
+        // Reload residents list
+        await fetchResidentsData();
+        
+        // Auto-select the newly created resident
+        setSelectedResident(newResident);
+        setFormData((prev) => ({
+          ...prev,
+          tenantName: newResident.name || '',
+          tenantContact: newResident.contactNumber || prev.tenantContact,
+          tenantIdCard: newResident.cnic || prev.tenantIdCard
+        }));
+
+        // Load properties for this resident
+        await fetchPropertiesForResident(newResident);
+
+        // Close dialog and reset form
+        setNewResidentDialog(false);
+        setNewResidentForm(defaultNewResidentForm);
+        setSuccess('New resident created and selected successfully');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to create resident');
+    } finally {
+      setSavingResident(false);
+    }
+  }, [newResidentForm, fetchResidentsData, fetchPropertiesForResident, defaultNewResidentForm]);
+
+  const handleCloseNewResidentDialog = useCallback(() => {
+    setNewResidentDialog(false);
+    setNewResidentForm(defaultNewResidentForm);
+    setError('');
+  }, []);
+
+
+  const handleCloseDialog = useCallback(() => {
     setDialogOpen(false);
     setEditingAgreement(null);
     setFormData(defaultForm);
@@ -203,14 +267,14 @@ const RentalAgreements = () => {
     setProperties([]);
     setError('');
     setSuccess('');
-  };
+  }, []);
 
-  const handleInputChange = (event) => {
+  const handleInputChange = useCallback((event) => {
     const { name, value } = event.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+  }, []);
 
-  const calculateIncreasedRent = () => {
+  const calculateIncreasedRent = useMemo(() => {
     const monthlyRent = Number(formData.monthlyRent) || 0;
     const increaseValue = Number(formData.annualRentIncreaseValue) || 0;
     
@@ -222,9 +286,9 @@ const RentalAgreements = () => {
       }
     }
     return monthlyRent;
-  };
+  }, [formData.monthlyRent, formData.annualRentIncreaseValue, formData.annualRentIncreaseType]);
 
-  const buildPayload = () => {
+  const buildPayload = useCallback(() => {
     const payload = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
       payload.append(key, value ?? '');
@@ -233,9 +297,9 @@ const RentalAgreements = () => {
       payload.append('agreementImage', selectedFile);
     }
     return payload;
-  };
+  }, [formData, selectedFile]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     try {
       const payload = buildPayload();
       if (editingAgreement) {
@@ -254,9 +318,9 @@ const RentalAgreements = () => {
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to save agreement');
     }
-  };
+  }, [editingAgreement, buildPayload, fetchAgreements]);
 
-  const handleDelete = async (agreementId) => {
+  const handleDelete = useCallback(async (agreementId) => {
     try {
       setDeletingId(agreementId);
       await api.delete(`/taj-rental-agreements/${agreementId}`);
@@ -266,7 +330,7 @@ const RentalAgreements = () => {
     } finally {
       setDeletingId(null);
     }
-  };
+  }, [fetchAgreements]);
 
   const summaryStats = useMemo(() => {
     const totalRent = agreements.reduce((sum, agreement) => sum + (agreement.monthlyRent || 0), 0);
@@ -401,35 +465,25 @@ const RentalAgreements = () => {
               <TextField
                 label="Agreement Number"
                 name="agreementNumber"
-                value={formData.agreementNumber}
+                value={editingAgreement ? formData.agreementNumber : (formData.agreementNumber || 'Auto-generated')}
                 onChange={handleInputChange}
                 fullWidth
+                disabled={!editingAgreement}
+                helperText={!editingAgreement ? "Agreement number will be auto-generated (last + 1)" : ""}
               />
             </Grid>
             <Grid item xs={12} md={6}>
               <Autocomplete
-                options={residents}
+                options={[...residents, { _id: 'ADD_NEW', name: 'Add New Resident...', isAddNew: true }]}
                 getOptionLabel={(option) => {
                   if (typeof option === 'string') return option;
+                  if (option.isAddNew) return option.name;
                   return option.name || '';
                 }}
                 value={residents.find(r => r.name === formData.tenantName) || null}
                 onChange={async (event, newValue) => {
-                  if (newValue) {
-                    setSelectedResident(newValue);
-                    // Auto-fill related fields from resident data
-                    setFormData((prev) => ({
-                      ...prev,
-                      tenantName: newValue.name || '',
-                      tenantContact: newValue.contactNumber || prev.tenantContact,
-                      tenantIdCard: newValue.cnic || prev.tenantIdCard
-                    }));
-                    
-                    // Load properties for this resident
-                    await fetchPropertiesForResident(newValue);
-                  } else {
+                  if (!newValue) {
                     setSelectedResident(null);
-                    // Clear tenant name and properties if resident is deselected
                     setFormData((prev) => ({
                       ...prev,
                       tenantName: '',
@@ -437,20 +491,49 @@ const RentalAgreements = () => {
                       propertyAddress: ''
                     }));
                     setProperties([]);
+                    return;
                   }
+                  
+                  // Check if "Add New" option was selected
+                  if (newValue.isAddNew) {
+                    setNewResidentDialog(true);
+                    return;
+                  }
+                  
+                  setSelectedResident(newValue);
+                  // Auto-fill related fields from resident data
+                  setFormData((prev) => ({
+                    ...prev,
+                    tenantName: newValue.name || '',
+                    tenantContact: newValue.contactNumber || prev.tenantContact,
+                    tenantIdCard: newValue.cnic || prev.tenantIdCard
+                  }));
+                  
+                  // Load properties for this resident
+                  await fetchPropertiesForResident(newValue);
                 }}
                 loading={residentsLoading}
                 filterOptions={(options, params) => {
                   const { inputValue } = params;
-                  if (!inputValue) return options;
-                  
-                  const searchTerm = inputValue.toLowerCase();
-                  return options.filter((resident) => {
+                  const filtered = options.filter((resident) => {
+                    if (resident.isAddNew) return true;
+                    if (!inputValue) return true;
+                    
+                    const searchTerm = inputValue.toLowerCase();
                     const nameMatch = resident.name?.toLowerCase().includes(searchTerm);
                     const contactMatch = resident.contactNumber?.toLowerCase().includes(searchTerm);
                     const cnicMatch = resident.cnic?.toLowerCase().includes(searchTerm);
                     return nameMatch || contactMatch || cnicMatch;
                   });
+                  
+                  // Always show "Add New" at the end
+                  const addNewOption = filtered.find(o => o.isAddNew);
+                  const regularOptions = filtered.filter(o => !o.isAddNew);
+                  return addNewOption ? [...regularOptions, addNewOption] : regularOptions;
+                }}
+                isOptionEqualToValue={(option, value) => {
+                  if (option.isAddNew || value?.isAddNew) return false;
+                  return option._id === value?._id;
                 }}
                 renderInput={(params) => (
                   <TextField
@@ -469,34 +552,56 @@ const RentalAgreements = () => {
                     }}
                   />
                 )}
-                renderOption={(props, resident) => (
-                  <Box component="li" {...props} key={resident._id}>
-                    <Box>
-                      <Typography variant="body1">{resident.name}</Typography>
-                      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                        {resident.accountType && resident.accountType !== 'Resident' && (
-                          <Chip 
-                            label={resident.accountType} 
-                            size="small" 
-                            variant="outlined"
-                            sx={{ height: '20px', fontSize: '0.7rem' }}
-                          />
-                        )}
-                        {resident.contactNumber && (
-                          <Typography variant="caption" color="text.secondary">
-                            {resident.contactNumber}
-                          </Typography>
-                        )}
-                        {resident.cnic && (
-                          <Typography variant="caption" color="text.secondary">
-                            CNIC: {resident.cnic}
-                          </Typography>
-                        )}
-                      </Stack>
+                renderOption={(props, resident) => {
+                  if (resident.isAddNew) {
+                    return (
+                      <Box 
+                        component="li" 
+                        {...props} 
+                        key="ADD_NEW"
+                        sx={{
+                          borderTop: '1px solid #e0e0e0',
+                          backgroundColor: '#f5f5f5',
+                          '&:hover': {
+                            backgroundColor: '#e3f2fd'
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <AddIcon fontSize="small" />
+                          <Typography variant="body1">Add New Resident...</Typography>
+                        </Box>
+                      </Box>
+                    );
+                  }
+                  return (
+                    <Box component="li" {...props} key={resident._id}>
+                      <Box>
+                        <Typography variant="body1">{resident.name}</Typography>
+                        <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                          {resident.accountType && resident.accountType !== 'Resident' && (
+                            <Chip 
+                              label={resident.accountType} 
+                              size="small" 
+                              variant="outlined"
+                              sx={{ height: '20px', fontSize: '0.7rem' }}
+                            />
+                          )}
+                          {resident.contactNumber && (
+                            <Typography variant="caption" color="text.secondary">
+                              {resident.contactNumber}
+                            </Typography>
+                          )}
+                          {resident.cnic && (
+                            <Typography variant="caption" color="text.secondary">
+                              CNIC: {resident.cnic}
+                            </Typography>
+                          )}
+                        </Stack>
+                      </Box>
                     </Box>
-                  </Box>
-                )}
-                isOptionEqualToValue={(option, value) => option._id === value._id}
+                  );
+                }}
                 noOptionsText={residentsLoading ? 'Loading residents...' : 'No residents found'}
               />
             </Grid>
@@ -528,24 +633,24 @@ const RentalAgreements = () => {
                 }}
                 value={properties.find(p => p.propertyName === formData.propertyName || p.plotNumber === formData.propertyName) || null}
                 onChange={(event, newValue) => {
-                  if (newValue) {
-                    // Auto-fill related fields from property data
-                    setFormData((prev) => ({
-                      ...prev,
-                      propertyName: newValue.propertyName || newValue.plotNumber || '',
-                      propertyAddress: newValue.address || newValue.fullAddress || prev.propertyAddress
-                    }));
-                  } else {
-                    // Clear property fields if property is deselected
+                  if (!newValue) {
                     setFormData((prev) => ({
                       ...prev,
                       propertyName: '',
                       propertyAddress: ''
                     }));
+                    return;
                   }
+                  
+                  // Auto-fill related fields from property data
+                  setFormData((prev) => ({
+                    ...prev,
+                    propertyName: newValue.propertyName || newValue.plotNumber || '',
+                    propertyAddress: newValue.address || newValue.fullAddress || prev.propertyAddress
+                  }));
                 }}
                 loading={propertiesLoading}
-                disabled={!selectedResident || properties.length === 0}
+                disabled={!selectedResident}
                 filterOptions={(options, params) => {
                   const { inputValue } = params;
                   if (!inputValue) return options;
@@ -559,11 +664,14 @@ const RentalAgreements = () => {
                     return nameMatch || plotMatch || addressMatch;
                   });
                 }}
+                isOptionEqualToValue={(option, value) => {
+                  return option._id === value?._id;
+                }}
                 renderInput={(params) => (
                   <TextField
                     {...params}
                     label="Property Name"
-                    placeholder={!selectedResident ? "Select tenant first" : properties.length === 0 ? "No properties found for this tenant" : "Search by name, plot, or address"}
+                    placeholder={!selectedResident ? "Select tenant first" : "Search by name, plot, or address"}
                     InputProps={{
                       ...params.InputProps,
                       endAdornment: (
@@ -601,7 +709,6 @@ const RentalAgreements = () => {
                     </Box>
                   </Box>
                 )}
-                isOptionEqualToValue={(option, value) => option._id === value._id}
                 noOptionsText={propertiesLoading ? 'Loading properties...' : !selectedResident ? 'Select a tenant first' : 'No properties found for this tenant'}
               />
             </Grid>
@@ -686,7 +793,7 @@ const RentalAgreements = () => {
             <Grid item xs={12} md={4}>
               <TextField
                 label="Rent After One Year (PKR)"
-                value={calculateIncreasedRent().toLocaleString()}
+                value={calculateIncreasedRent.toLocaleString()}
                 fullWidth
                 disabled
                 sx={{
@@ -759,6 +866,113 @@ const RentalAgreements = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* New Resident Dialog */}
+      <Dialog 
+        open={newResidentDialog} 
+        onClose={handleCloseNewResidentDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Add New Taj Resident</DialogTitle>
+        <DialogContent dividers>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Name"
+                value={newResidentForm.name}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, name: e.target.value })}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Account Type</InputLabel>
+                <Select
+                  value={newResidentForm.accountType}
+                  label="Account Type"
+                  onChange={(e) => setNewResidentForm({ ...newResidentForm, accountType: e.target.value })}
+                >
+                  <MenuItem value="Resident">Resident</MenuItem>
+                  <MenuItem value="Property Dealer">Property Dealer</MenuItem>
+                  <MenuItem value="Other">Other</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="CNIC"
+                value={newResidentForm.cnic}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, cnic: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Contact Number"
+                value={newResidentForm.contactNumber}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, contactNumber: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Email"
+                type="email"
+                value={newResidentForm.email}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, email: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Initial Balance"
+                type="number"
+                value={newResidentForm.balance}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, balance: parseFloat(e.target.value) || 0 })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Address"
+                multiline
+                rows={2}
+                value={newResidentForm.address}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, address: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Notes"
+                multiline
+                rows={2}
+                value={newResidentForm.notes}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, notes: e.target.value })}
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseNewResidentDialog}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSaveNewResident}
+            disabled={savingResident || !newResidentForm.name.trim()}
+          >
+            {savingResident ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Box>
   );
 };

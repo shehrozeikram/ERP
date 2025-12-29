@@ -1,5 +1,7 @@
 const WaterUtilitySlab = require('../models/tajResidencia/WaterUtilitySlab');
 const Electricity = require('../models/tajResidencia/Electricity');
+const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
+const mongoose = require('mongoose');
 
 /**
  * Get electricity slab information based on units consumed
@@ -108,9 +110,10 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
  * Get previous reading from last bill for a property
  * @param {String} meterNo - Meter number
  * @param {String} propertyKey - Property identifier (address, plotNo, or owner)
+ * @param {String|ObjectId} propertyId - Property ID (optional, for checking PropertyInvoice records)
  * @returns {Promise<{prvReading: Number, previousArrears: Number}>}
  */
-const getPreviousReading = async (meterNo, propertyKey) => {
+const getPreviousReading = async (meterNo, propertyKey, propertyId = null) => {
   try {
     // Try to find last bill by meter number first (must match exactly)
     let lastBill = null;
@@ -138,14 +141,59 @@ const getPreviousReading = async (meterNo, propertyKey) => {
       .lean();
     }
 
-    if (lastBill) {
-      return {
-        prvReading: lastBill.curReading || 0,
-        previousArrears: lastBill.arrears || 0
-      };
+    // Get arrears from last Electricity bill
+    const electricityBillArrears = lastBill ? (lastBill.arrears || 0) : 0;
+    
+    // Calculate carry forward arrears from unpaid PropertyInvoice records
+    let carryForwardArrears = 0;
+    if (propertyId && mongoose.Types.ObjectId.isValid(propertyId)) {
+      try {
+        const previousElectricityInvoices = await PropertyInvoice.find({
+          property: propertyId,
+          chargeTypes: { $in: ['ELECTRICITY'] },
+          paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+          balance: { $gt: 0 }
+        })
+        .select('charges grandTotal totalPaid balance')
+        .sort({ invoiceDate: 1 })
+        .lean();
+        
+        // Calculate outstanding Electricity charges from previous invoices
+        previousElectricityInvoices.forEach(inv => {
+          const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+          if (electricityCharges.length > 0) {
+            // Calculate the Electricity portion of the outstanding balance
+            const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
+            if (hasOnlyElectricity) {
+              // If only Electricity in invoice, use the full outstanding balance
+              carryForwardArrears += (inv.balance || 0);
+            } else {
+              // If mixed charges, calculate Electricity portion proportionally
+              const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
+              const invoiceTotal = inv.grandTotal || 0;
+              if (invoiceTotal > 0) {
+                const electricityProportion = electricityTotal / invoiceTotal;
+                carryForwardArrears += (inv.balance || 0) * electricityProportion;
+              }
+            }
+          }
+        });
+        
+        // Round to 2 decimal places
+        carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
+      } catch (err) {
+        console.error('Error calculating carry forward arrears from PropertyInvoice:', err);
+        // Continue with electricityBillArrears only
+      }
     }
 
-    return { prvReading: 0, previousArrears: 0 };
+    // Combine arrears from Electricity bill and carry forward from invoices
+    const totalArrears = electricityBillArrears + carryForwardArrears;
+
+    return {
+      prvReading: lastBill ? (lastBill.curReading || 0) : 0,
+      previousArrears: totalArrears
+    };
   } catch (error) {
     return { prvReading: 0, previousArrears: 0 };
   }

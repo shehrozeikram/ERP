@@ -130,13 +130,40 @@ router.post(
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
+    const initialBalance = parseFloat(req.body.balance) || 0;
+    
+    // Set balance to 0 initially, will be updated if deposit is created
     const residentData = {
       ...req.body,
+      balance: 0, // Start with 0, will be updated by deposit transaction
       createdBy: req.user.id
     };
 
     const resident = new TajResident(residentData);
     await resident.save();
+
+    // If initial balance is provided, create a deposit transaction
+    if (initialBalance > 0) {
+      const balanceBefore = 0;
+      const balanceAfter = initialBalance;
+
+      // Update resident balance
+      resident.balance = balanceAfter;
+      await resident.save();
+
+      // Create deposit transaction (same as deposit endpoint)
+      const transaction = new TajTransaction({
+        resident: resident._id,
+        transactionType: 'deposit',
+        amount: initialBalance,
+        balanceBefore,
+        balanceAfter,
+        description: req.body.notes || 'Initial Balance Deposit',
+        paymentMethod: 'Cash', // Default payment method for initial balance
+        createdBy: req.user.id
+      });
+      await transaction.save();
+    }
 
     await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
     await resident.populate('createdBy', 'firstName lastName');

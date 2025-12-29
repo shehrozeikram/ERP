@@ -179,6 +179,88 @@ const createElectricityBillData = (meter, property, calculatedCharges, { prvRead
   };
 };
 
+// Get rent calculation for property (including carry forward arrears)
+router.get('/property/:propertyId/rent-calculation', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const property = await TajProperty.findById(req.params.propertyId)
+      .populate('rentalAgreement');
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+
+    // Calculate carry forward of Rent arrears from previous unpaid invoices
+    let rentCarryForwardArrears = 0;
+    const previousRentInvoices = await PropertyInvoice.find({
+      property: property._id,
+      chargeTypes: { $in: ['RENT'] },
+      paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+      balance: { $gt: 0 }
+    })
+    .select('charges grandTotal totalPaid balance')
+    .sort({ invoiceDate: 1 })
+    .lean();
+    
+    // Calculate outstanding Rent charges from previous invoices
+    previousRentInvoices.forEach(inv => {
+      const rentCharge = inv.charges?.find(c => c.type === 'RENT');
+      if (rentCharge) {
+        // Calculate the Rent portion of the outstanding balance
+        const hasOnlyRent = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'RENT';
+        if (hasOnlyRent) {
+          // If only Rent in invoice, use the full outstanding balance
+          rentCarryForwardArrears += (inv.balance || 0);
+        } else {
+          // If mixed charges, calculate Rent portion proportionally
+          const rentTotal = (rentCharge.amount || 0) + (rentCharge.arrears || 0);
+          const invoiceTotal = inv.grandTotal || 0;
+          if (invoiceTotal > 0) {
+            const rentProportion = rentTotal / invoiceTotal;
+            rentCarryForwardArrears += (inv.balance || 0) * rentProportion;
+          }
+        }
+      }
+    });
+    
+    // Round to 2 decimal places
+    rentCarryForwardArrears = Math.round(rentCarryForwardArrears * 100) / 100;
+
+    // Get monthly rent from rental agreement or property
+    let monthlyRent = 0;
+    let arrearsFromPayment = 0;
+    
+    // Try to get rent from rental agreement
+    if (property.rentalAgreement?.monthlyRent) {
+      monthlyRent = property.rentalAgreement.monthlyRent || 0;
+    } else if (property.categoryType === 'Personal Rent' && property.rentalPayments?.length > 0) {
+      // Fallback to latest rental payment
+      const latestPayment = [...property.rentalPayments]
+        .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0))[0];
+      if (latestPayment) {
+        monthlyRent = latestPayment.amount || 0;
+        arrearsFromPayment = latestPayment.arrears || 0;
+      }
+    } else if (property.expectedRent) {
+      monthlyRent = property.expectedRent || 0;
+    }
+
+    // Total arrears = arrears from payment + carry forward from invoices
+    const totalArrears = arrearsFromPayment + rentCarryForwardArrears;
+
+    res.json({
+      success: true,
+      data: {
+        monthlyRent,
+        arrearsFromPayment,
+        carryForwardArrears: rentCarryForwardArrears,
+        totalArrears,
+        rentalAgreement: property.rentalAgreement
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get previous reading and calculate charges for property
 router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyncHandler(async (req, res) => {
   try {
@@ -208,8 +290,8 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
     const meterNo = targetMeter.meterNo || '';
     const propertyKey = property.address || property.plotNumber || property.ownerName;
     
-    // Get previous reading
-    const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey);
+    // Get previous reading (pass propertyId for carry forward calculation)
+    const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, req.params.propertyId);
     
     if (currentReading !== undefined && currentReading !== null) {
       const curReading = parseFloat(currentReading) || 0;
@@ -308,6 +390,43 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 
     // Get CAM Charge
     if (includeCAM === true) {
+      // Calculate carry forward of CAM Charges arrears from previous unpaid invoices
+      let carryForwardArrears = 0;
+      const previousCAMInvoices = await PropertyInvoice.find({
+        property: property._id,
+        chargeTypes: { $in: ['CAM'] },
+        paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+        balance: { $gt: 0 }
+      })
+      .select('charges grandTotal totalPaid balance')
+      .sort({ invoiceDate: 1 })
+      .lean();
+      
+      // Calculate outstanding CAM charges from previous invoices
+      previousCAMInvoices.forEach(inv => {
+        const camCharge = inv.charges?.find(c => c.type === 'CAM');
+        if (camCharge) {
+          // Calculate the CAM portion of the outstanding balance
+          // If invoice has only CAM, use full balance; otherwise calculate proportionally
+          const hasOnlyCAM = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM';
+          if (hasOnlyCAM) {
+            // If only CAM in invoice, use the full outstanding balance
+            carryForwardArrears += (inv.balance || 0);
+          } else {
+            // If mixed charges, calculate CAM portion proportionally
+            const camTotal = (camCharge.amount || 0) + (camCharge.arrears || 0);
+            const invoiceTotal = inv.grandTotal || 0;
+            if (invoiceTotal > 0) {
+              const camProportion = camTotal / invoiceTotal;
+              carryForwardArrears += (inv.balance || 0) * camProportion;
+            }
+          }
+        }
+      });
+      
+      // Round to 2 decimal places
+      carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
+      
       // First try to find existing CAM charge in database if we have property identifiers
       if (conditions.length > 0) {
         camCharge = await CAMCharge.findOne({ $or: conditions })
@@ -316,12 +435,19 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       }
       
       if (camCharge) {
+        // Use existing CAM charge amount, but add carry forward arrears
+        const camAmount = camCharge.amount || 0;
+        const existingArrears = camCharge.arrears || 0;
+        const totalArrears = existingArrears + carryForwardArrears;
+        
         charges.push({
           type: 'CAM',
-          description: 'CAM Charges',
-          amount: camCharge.amount || 0,
-          arrears: camCharge.arrears || 0,
-          total: (camCharge.amount || 0) + (camCharge.arrears || 0)
+          description: carryForwardArrears > 0 
+            ? 'CAM Charges (with Carry Forward Arrears)' 
+            : 'CAM Charges',
+          amount: camAmount,
+          arrears: totalArrears,
+          total: camAmount + totalArrears
         });
       } else {
         // If no existing CAM charge found, calculate from charges slab based on zone type and property size
@@ -345,14 +471,19 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           camDescription = `CAM Charges (${propertySize} ${areaUnit})`;
         }
         
+        // Add carry forward arrears description if applicable
+        if (carryForwardArrears > 0) {
+          camDescription += ` + Carry Forward Arrears`;
+        }
+        
         // Always add CAM charge entry when includeCAM is true, even if amount is 0
         // This allows the invoice to be created and the amount can be set manually
         charges.push({
           type: 'CAM',
           description: camDescription,
           amount: camAmount,
-          arrears: 0,
-          total: camAmount
+          arrears: carryForwardArrears,
+          total: camAmount + carryForwardArrears
         });
       }
     }
@@ -360,6 +491,8 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     // Get Electricity Bill - Handle multiple meters
     let hasReadings = false; // Declare at function scope
     if (includeElectricity === true) {
+      // Note: Carry forward arrears are now calculated in getPreviousReading function
+      // which is called when processing meter readings, so no need to calculate separately here
       const { currentReading, meterReadings } = req.body;
       
       // Get active meters from property
@@ -401,8 +534,8 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
             continue; // Skip if no reading for this meter
           }
           
-          // Get previous reading for this specific meter
-          const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey);
+          // Get previous reading for this specific meter (pass propertyId for carry forward calculation)
+          const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, property._id);
           
           // Validate current reading
           if (curReading < prvReading) {
@@ -442,15 +575,21 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           // Store first meter's bill for backward compatibility, or create separate invoices
           if (meterIndex === 0) {
             electricityBill = meterBill;
+            // previousArrears already includes carry forward from getPreviousReading
+            const electricityDescription = metersToProcess.length > 1 
+              ? `Electricity Bill - ${meter.floor || 'Meter 1'}` 
+              : (previousArrears > 0 ? 'Electricity Bill (with Carry Forward Arrears)' : 'Electricity Bill');
+            
             charges.push({
               type: 'ELECTRICITY',
-              description: metersToProcess.length > 1 ? `Electricity Bill - ${meter.floor || 'Meter 1'}` : 'Electricity Bill',
+              description: electricityDescription,
               amount: calculatedCharges.withSurcharge,
               arrears: previousArrears,
               total: calculatedCharges.withSurcharge + previousArrears
             });
           } else {
             // For additional meters, store data to create separate invoices
+            // Note: Carry forward arrears only added to first meter to avoid duplication
             meterBillsData.push({
               bill: meterBill,
               meter: meter,
@@ -501,12 +640,47 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           electricityBill = new Electricity(billData);
           await electricityBill.save();
           
+          // For manual charges, calculate carry forward arrears from PropertyInvoice
+          let manualCarryForwardArrears = 0;
+          const previousElectricityInvoices = await PropertyInvoice.find({
+            property: property._id,
+            chargeTypes: { $in: ['ELECTRICITY'] },
+            paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+            balance: { $gt: 0 }
+          })
+          .select('charges grandTotal totalPaid balance')
+          .sort({ invoiceDate: 1 })
+          .lean();
+          
+          previousElectricityInvoices.forEach(inv => {
+            const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+            if (electricityCharges.length > 0) {
+              const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
+              if (hasOnlyElectricity) {
+                manualCarryForwardArrears += (inv.balance || 0);
+              } else {
+                const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
+                const invoiceTotal = inv.grandTotal || 0;
+                if (invoiceTotal > 0) {
+                  const electricityProportion = electricityTotal / invoiceTotal;
+                  manualCarryForwardArrears += (inv.balance || 0) * electricityProportion;
+                }
+              }
+            }
+          });
+          
+          manualCarryForwardArrears = Math.round(manualCarryForwardArrears * 100) / 100;
+          
+          const totalElectricityArrears = (electricityCharge.arrears || 0) + manualCarryForwardArrears;
+          const electricityDesc = electricityCharge.description || 
+            (manualCarryForwardArrears > 0 ? 'Electricity Bill (with Carry Forward Arrears)' : 'Electricity Bill');
+          
           charges.push({
             type: 'ELECTRICITY',
-            description: electricityCharge.description || 'Electricity Bill',
+            description: electricityDesc,
             amount: electricityCharge.amount || 0,
-            arrears: electricityCharge.arrears || 0,
-            total: (electricityCharge.amount || 0) + (electricityCharge.arrears || 0)
+            arrears: totalElectricityArrears,
+            total: (electricityCharge.amount || 0) + totalElectricityArrears
           });
         }
       } else if (conditions.length > 0) {
@@ -516,12 +690,48 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           .lean();
         
         if (electricityBill) {
+          // For existing bill, calculate carry forward arrears from PropertyInvoice
+          let existingBillCarryForwardArrears = 0;
+          const previousElectricityInvoices = await PropertyInvoice.find({
+            property: property._id,
+            chargeTypes: { $in: ['ELECTRICITY'] },
+            paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+            balance: { $gt: 0 }
+          })
+          .select('charges grandTotal totalPaid balance')
+          .sort({ invoiceDate: 1 })
+          .lean();
+          
+          previousElectricityInvoices.forEach(inv => {
+            const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+            if (electricityCharges.length > 0) {
+              const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
+              if (hasOnlyElectricity) {
+                existingBillCarryForwardArrears += (inv.balance || 0);
+              } else {
+                const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
+                const invoiceTotal = inv.grandTotal || 0;
+                if (invoiceTotal > 0) {
+                  const electricityProportion = electricityTotal / invoiceTotal;
+                  existingBillCarryForwardArrears += (inv.balance || 0) * electricityProportion;
+                }
+              }
+            }
+          });
+          
+          existingBillCarryForwardArrears = Math.round(existingBillCarryForwardArrears * 100) / 100;
+          
+          const totalElectricityArrears = (electricityBill.arrears || 0) + existingBillCarryForwardArrears;
+          const electricityDesc = existingBillCarryForwardArrears > 0 
+            ? 'Electricity Bill (with Carry Forward Arrears)' 
+            : 'Electricity Bill';
+          
           charges.push({
             type: 'ELECTRICITY',
-            description: 'Electricity Bill',
+            description: electricityDesc,
             amount: electricityBill.withSurcharge || electricityBill.totalBill || 0,
-            arrears: electricityBill.arrears || 0,
-            total: (electricityBill.withSurcharge || electricityBill.totalBill || 0) + (electricityBill.arrears || 0)
+            arrears: totalElectricityArrears,
+            total: (electricityBill.withSurcharge || electricityBill.totalBill || 0) + totalElectricityArrears
           });
         }
       }
@@ -529,16 +739,60 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 
     // Get Rent Payment from Rental Agreement (especially for Personal Rent category)
     if (includeRent === true) {
+      // Calculate carry forward of Rent arrears from previous unpaid invoices
+      let rentCarryForwardArrears = 0;
+      const previousRentInvoices = await PropertyInvoice.find({
+        property: property._id,
+        chargeTypes: { $in: ['RENT'] },
+        paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+        balance: { $gt: 0 }
+      })
+      .select('charges grandTotal totalPaid balance')
+      .sort({ invoiceDate: 1 })
+      .lean();
+      
+      // Calculate outstanding Rent charges from previous invoices
+      previousRentInvoices.forEach(inv => {
+        const rentCharge = inv.charges?.find(c => c.type === 'RENT');
+        if (rentCharge) {
+          // Calculate the Rent portion of the outstanding balance
+          // If invoice has only Rent, use full balance; otherwise calculate proportionally
+          const hasOnlyRent = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'RENT';
+          if (hasOnlyRent) {
+            // If only Rent in invoice, use the full outstanding balance
+            rentCarryForwardArrears += (inv.balance || 0);
+          } else {
+            // If mixed charges, calculate Rent portion proportionally
+            const rentTotal = (rentCharge.amount || 0) + (rentCharge.arrears || 0);
+            const invoiceTotal = inv.grandTotal || 0;
+            if (invoiceTotal > 0) {
+              const rentProportion = rentTotal / invoiceTotal;
+              rentCarryForwardArrears += (inv.balance || 0) * rentProportion;
+            }
+          }
+        }
+      });
+      
+      // Round to 2 decimal places
+      rentCarryForwardArrears = Math.round(rentCarryForwardArrears * 100) / 100;
+      
       let agreement = null;
       
       // Helper function to create rent charge object
-      const createRentCharge = (amount, arrears) => ({
-        type: 'RENT',
-        description: 'Rental Charges',
-        amount: amount || 0,
-        arrears: arrears || 0,
-        total: (amount || 0) + (arrears || 0)
-      });
+      const createRentCharge = (amount, arrears) => {
+        const totalRentArrears = (arrears || 0) + rentCarryForwardArrears;
+        const rentDescription = rentCarryForwardArrears > 0 
+          ? 'Rental Charges (with Carry Forward Arrears)' 
+          : 'Rental Charges';
+        
+        return {
+          type: 'RENT',
+          description: rentDescription,
+          amount: amount || 0,
+          arrears: totalRentArrears,
+          total: (amount || 0) + totalRentArrears
+        };
+      };
       
       // Try to get rent from rental agreement (priority for Personal Rent)
       if (property.categoryType === 'Personal Rent' || property.rentalAgreement) {
@@ -571,19 +825,9 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
         if (agreement?.monthlyRent) {
           const monthlyRent = agreement.monthlyRent;
           
-          // Check for previous arrears from unpaid invoices
-          const previousInvoices = await PropertyInvoice.find({
-            property: property._id,
-            chargeTypes: { $in: ['RENT'] },
-            paymentStatus: { $in: ['unpaid', 'partial_paid'] }
-          }).lean();
-          
-          const previousArrears = previousInvoices.reduce((sum, inv) => {
-            const rentCharge = inv.charges?.find(c => c.type === 'RENT');
-            return rentCharge ? sum + (rentCharge.arrears || 0) + (inv.balance || 0) : sum;
-          }, 0);
-          
-          charges.push(createRentCharge(monthlyRent, previousArrears));
+          // Use the carry forward arrears already calculated above
+          // The createRentCharge function will automatically add rentCarryForwardArrears
+          charges.push(createRentCharge(monthlyRent, 0));
           rentChargeAdded = true;
         }
       }
@@ -614,13 +858,19 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           return; // Skip this charge, use the one calculated from agreement
         }
         
-        const chargeData = {
-          type: charge.type,
-          description: charge.description || `${charge.type} Charges`,
-          amount: charge.amount || 0,
-          arrears: charge.arrears || 0,
-          total: (charge.amount || 0) + (charge.arrears || 0)
-        };
+        // For RENT charges, use createRentCharge to include carry-forward arrears
+        let chargeData;
+        if (charge.type === 'RENT' && includeRent === true) {
+          chargeData = createRentCharge(charge.amount || 0, charge.arrears || 0);
+        } else {
+          chargeData = {
+            type: charge.type,
+            description: charge.description || `${charge.type} Charges`,
+            amount: charge.amount || 0,
+            arrears: charge.arrears || 0,
+            total: (charge.amount || 0) + (charge.arrears || 0)
+          };
+        }
         
         const existingIndex = charges.findIndex(c => c.type === charge.type);
         if (existingIndex >= 0) {
@@ -957,11 +1207,66 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     if (paymentStatus) filter.paymentStatus = paymentStatus;
 
     const invoices = await PropertyInvoice.find(filter)
-      .populate('property', 'propertyName plotNumber address ownerName')
+      .populate({
+        path: 'property',
+        select: 'propertyName plotNumber address ownerName resident',
+        populate: {
+          path: 'resident',
+          select: 'name accountType _id'
+        }
+      })
       .sort({ invoiceDate: -1 })
       .limit(100);
 
     res.json({ success: true, data: invoices });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+// Delete payment from invoice
+router.delete('/:invoiceId/payments/:paymentId', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const invoice = await PropertyInvoice.findById(req.params.invoiceId);
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: 'Invoice not found' });
+    }
+
+    const paymentIndex = invoice.payments.findIndex(
+      p => p._id.toString() === req.params.paymentId
+    );
+
+    if (paymentIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    // Remove payment from array
+    invoice.payments.splice(paymentIndex, 1);
+
+    // Recalculate totals
+    const totalPaid = invoice.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+    invoice.totalPaid = totalPaid;
+    invoice.balance = invoice.grandTotal - totalPaid;
+
+    // Update payment status
+    if (invoice.balance <= 0 && totalPaid > 0) {
+      invoice.paymentStatus = 'paid';
+    } else if (totalPaid > 0) {
+      invoice.paymentStatus = 'partial_paid';
+    } else {
+      invoice.paymentStatus = 'unpaid';
+    }
+
+    invoice.updatedBy = req.user.id;
+    invoice.updatedAt = new Date();
+
+    await invoice.save();
+
+    res.json({
+      success: true,
+      message: 'Payment deleted successfully',
+      data: invoice
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

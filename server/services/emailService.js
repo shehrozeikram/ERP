@@ -4,11 +4,11 @@ class EmailService {
   constructor() {
     // SMTP Configuration from environment variables
     const smtpConfig = {
-      host: process.env.SMTP_HOST || 'mail.txy.co',
+      host: process.env.SMTP_HOST || 'mail.sgc.international',
       port: parseInt(process.env.SMTP_PORT) || 465,
       secure: true, // true for 465, false for other ports (SSL/TLS)
       auth: {
-        user: process.env.SMTP_USER || 'shehroze.ikram@txy.co',
+        user: process.env.SMTP_USER || 'hr@sgc.international',
         pass: process.env.SMTP_PASS || ''
       },
       tls: {
@@ -22,7 +22,7 @@ class EmailService {
 
   // Get the from email address from environment or use default
   getFromAddress() {
-    return process.env.SMTP_USER || 'shehroze.ikram@txy.co';
+    return process.env.SMTP_USER || 'hr@sgc.international';
   }
 
   // Send shortlist notification email
@@ -250,7 +250,7 @@ class EmailService {
                           <div class="details">
                 <h4>📞 Contact Information</h4>
                 <p>If you have any questions, please don't hesitate to contact us:</p>
-                <p><strong>Email:</strong> shehroze.ikram@txy.co</p>
+                <p><strong>Email:</strong> hr@sgc.international</p>
                 <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
               </div>
 
@@ -308,7 +308,7 @@ Please ensure your contact information is up to date and be prepared for a phone
 
 CONTACT INFORMATION:
 If you have any questions, please don't hesitate to contact us:
-- Email: shehroze.ikram@txy.co
+- Email: hr@sgc.international
 - Phone: +92-XXX-XXXXXXX
 
 Application ID: ${application.applicationId || application._id}
@@ -1614,7 +1614,7 @@ Please do not reply to this email. For inquiries, contact our HR team.
     try {
       const testEmail = {
         from: `"SGC ERP Test" <${this.getFromAddress()}>`,
-        to: 'shehroze.ikram@txy.co',
+        to: 'hr@sgc.international',
         subject: 'SGC ERP Email Service Test',
         text: 'This is a test email to verify the email service configuration.',
         html: '<h1>Email Service Test</h1><p>This is a test email to verify the email service configuration.</p>'

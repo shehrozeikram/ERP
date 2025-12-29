@@ -39,7 +39,8 @@ import {
   ReceiptLong as ReceiptIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  AttachFile as AttachFileIcon
+  AttachFile as AttachFileIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -50,7 +51,7 @@ import {
   updateElectricity,
   addPaymentToPropertyElectricity
 } from '../../../services/electricityService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, getElectricityCalculation } from '../../../services/propertyInvoiceService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getElectricityCalculation } from '../../../services/propertyInvoiceService';
 import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
@@ -259,6 +260,40 @@ const Electricity = () => {
       newExpanded.add(invoiceId);
     }
     setExpandedInvoices(newExpanded);
+  };
+
+  const handleDeletePayment = async (invoiceId, paymentId, propertyId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) {
+      return;
+    }
+
+    try {
+      await deletePaymentFromInvoice(invoiceId, paymentId);
+      setSuccess('Payment deleted successfully');
+      
+      // Reload invoices for this property
+      const response = await fetchInvoicesForProperty(propertyId);
+      setPropertyInvoices(prev => ({ ...prev, [propertyId]: response.data?.data || [] }));
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete payment');
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceId, propertyId) => {
+    if (!window.confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteInvoice(invoiceId);
+      setSuccess('Invoice deleted successfully');
+      
+      // Reload invoices for this property
+      const response = await fetchInvoicesForProperty(propertyId);
+      setPropertyInvoices(prev => ({ ...prev, [propertyId]: response.data?.data || [] }));
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete invoice');
+    }
   };
 
   const totalPayments = (payments) => {
@@ -859,6 +894,7 @@ const Electricity = () => {
 
     const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
     const clientName = property.ownerName || property.tenantName || '—';
+    const sector = property.sector || '—';
     const address = electricityBill.address || property.address || '—';
     // Fetch floor from meters array based on meterNo
     const matchedMeter = property.meters?.find(m => String(m.meterNo) === String(meterNo) && m.isActive !== false);
@@ -890,18 +926,19 @@ const Electricity = () => {
       pdf.setLineDash([], 0);
     }
 
-    const drawInlineField = (label, value, startX, startY, labelWidth = 30) => {
+    const drawInlineField = (label, value, startX, startY, labelWidth = 30, fontSize = 7) => {
       const valueWidth = panelWidth - marginX * 2 - labelWidth;
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7);
+      pdf.setFontSize(fontSize);
       pdf.text(label, startX, startY);
       pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(fontSize);
       const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
       lines.forEach((line, idx) => {
-        const lineY = startY + idx * 4.5;
+        const lineY = startY + idx * 4;
         pdf.text(line, startX + labelWidth, lineY);
       });
-      return startY + lines.length * 4.5 + 1.5;
+      return startY + lines.length * 4 + 1;
     };
 
     const drawMeterTable = (startX, startY) => {
@@ -1001,6 +1038,7 @@ const Electricity = () => {
       const inlineFields = [
         ['Meter ID', meterNo],
         ['Client', clientName],
+        ['Sector', sector],
         ['Floor', floor],
         ['Address', address],
         ['Period From', periodFrom],
@@ -1009,8 +1047,10 @@ const Electricity = () => {
         ['Reading Date', readingDate],
         ['Due Date', dueDate]
       ];
-      inlineFields.forEach(([label, value]) => {
-        cursorY = drawInlineField(label, value, startX, cursorY);
+      inlineFields.forEach(([label, value], index) => {
+        // Use smaller font for Sector
+        const fontSize = label === 'Sector' ? 6 : 7;
+        cursorY = drawInlineField(label, value, startX, cursorY, 30, fontSize);
       });
       cursorY += 2;
 
@@ -1135,6 +1175,7 @@ const Electricity = () => {
     const invoiceData = {
       meterNo: meterNo,
       clientName: property.ownerName || property.tenantName || '—',
+      sector: property.sector || '—',
       floor: floor,
       address: electricityBill.address || property.address || '—',
       invoiceNumber: invoice.invoiceNumber || '—',
@@ -1179,16 +1220,16 @@ const Electricity = () => {
       pdf.setFontSize(size);
     };
 
-    const drawInlineField = (label, value, startX, startY, labelWidth = 30) => {
+    const drawInlineField = (label, value, startX, startY, labelWidth = 30, fontSize = 7) => {
       const valueWidth = availableWidth - labelWidth;
-      setTextStyle('helvetica', 'bold', 7);
+      setTextStyle('helvetica', 'bold', fontSize);
       pdf.text(label, startX, startY);
-      setTextStyle('helvetica', 'normal');
+      setTextStyle('helvetica', 'normal', fontSize);
       const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
       lines.forEach((line, idx) => {
-        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+        pdf.text(line, startX + labelWidth, startY + idx * 4);
       });
-      return startY + lines.length * 4.5 + 1.5;
+      return startY + lines.length * 4 + 1;
     };
 
     const drawMeterTable = (startX, startY) => {
@@ -1315,6 +1356,7 @@ const Electricity = () => {
       const inlineFields = [
         ['Meter ID', invoiceData.meterNo],
         ['Client', invoiceData.clientName],
+        ['Sector', invoiceData.sector],
         ['Floor', invoiceData.floor],
         ['Address', invoiceData.address],
         ['Period From', invoiceData.periodFrom],
@@ -1325,7 +1367,9 @@ const Electricity = () => {
       ];
       
       inlineFields.forEach(([label, value]) => {
-        cursorY = drawInlineField(label, value, startX, cursorY);
+        // Use smaller font for Sector
+        const fontSize = label === 'Sector' ? 6 : 7;
+        cursorY = drawInlineField(label, value, startX, cursorY, 30, fontSize);
       });
       cursorY += 2;
 
@@ -2342,6 +2386,15 @@ const Electricity = () => {
                                                 <DownloadIcon fontSize="small" />
                                               </IconButton>
                                             </Tooltip>
+                                            <Tooltip title="Delete Invoice">
+                                              <IconButton
+                                                size="small"
+                                                color="error"
+                                                onClick={() => handleDeleteInvoice(invoice._id, property._id)}
+                                              >
+                                                <DeleteIcon fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
                                           </Stack>
                                         </TableCell>
                                       </TableRow>
@@ -2409,6 +2462,15 @@ const Electricity = () => {
                                                                 }}
                                                               >
                                                                 <DownloadIcon fontSize="small" />
+                                                              </IconButton>
+                                                            </Tooltip>
+                                                            <Tooltip title="Delete Payment">
+                                                              <IconButton
+                                                                size="small"
+                                                                color="error"
+                                                                onClick={() => handleDeletePayment(invoice._id, payment._id, property._id)}
+                                                              >
+                                                                <DeleteIcon fontSize="small" />
                                                               </IconButton>
                                                             </Tooltip>
                                                           </Stack>

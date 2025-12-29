@@ -109,8 +109,88 @@ router.post('/', withPermission('create'), upload.single('agreementImage'), asyn
       return res.status(400).json({ message: errors.join(', ') });
     }
 
+    // Auto-generate unique agreement number (last + 1)
+    // Ignore user-provided agreementNumber and always auto-generate
+    let agreementNumber;
+    const lastAgreement = await TajRentalAgreement.findOne()
+      .sort({ createdAt: -1 })
+      .select('agreementNumber');
+    
+    if (lastAgreement && lastAgreement.agreementNumber) {
+      // Try to extract numeric part from last agreement number
+      // Handle formats like: AGR-000001, AGR-1, 1, etc.
+      const match = lastAgreement.agreementNumber.toString().match(/(\d+)$/);
+      if (match) {
+        const lastNumber = parseInt(match[1], 10);
+        agreementNumber = `AGR-${String(lastNumber + 1).padStart(6, '0')}`;
+      } else {
+        // If format doesn't match, check all agreements to find highest number
+        const allAgreements = await TajRentalAgreement.find()
+          .select('agreementNumber')
+          .lean();
+        
+        let maxNumber = 0;
+        allAgreements.forEach(ag => {
+          if (ag.agreementNumber) {
+            const match = ag.agreementNumber.toString().match(/(\d+)$/);
+            if (match) {
+              const num = parseInt(match[1], 10);
+              if (num > maxNumber) maxNumber = num;
+            }
+          }
+        });
+        
+        agreementNumber = `AGR-${String(maxNumber + 1).padStart(6, '0')}`;
+      }
+    } else {
+      // First agreement
+      agreementNumber = 'AGR-000001';
+    }
+    
+    // Ensure uniqueness (in case of race condition or if number already exists)
+    let counter = 1;
+    let maxAttempts = 100;
+    while (await TajRentalAgreement.findOne({ agreementNumber }) && maxAttempts > 0) {
+      const match = agreementNumber.match(/(\d+)$/);
+      if (match) {
+        const currentNumber = parseInt(match[1], 10);
+        agreementNumber = `AGR-${String(currentNumber + counter).padStart(6, '0')}`;
+        counter++;
+      } else {
+        agreementNumber = `AGR-${String(counter).padStart(6, '0')}`;
+        counter++;
+      }
+      maxAttempts--;
+    }
+    
+    if (maxAttempts === 0) {
+      // Fallback: use timestamp-based unique number
+      agreementNumber = `AGR-${Date.now()}`;
+    }
+
+    // Generate unique code if not provided (to handle legacy code field unique index)
+    let uniqueCode = req.body.code;
+    if (!uniqueCode) {
+      const timestamp = Date.now();
+      const random = Math.floor(Math.random() * 1000);
+      uniqueCode = `TRA-${timestamp}-${random}`;
+      
+      // Ensure uniqueness
+      let codeExists = true;
+      while (codeExists) {
+        const existing = await TajRentalAgreement.findOne({ code: uniqueCode });
+        if (!existing) {
+          codeExists = false;
+        } else {
+          uniqueCode = `TRA-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        }
+      }
+    }
+
     const agreementData = {
       ...req.body,
+      agreementNumber: agreementNumber, // Override with auto-generated number
+      code: uniqueCode,
       createdBy: req.user.id
     };
 

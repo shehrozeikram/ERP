@@ -3,6 +3,7 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const CAMCharge = require('../models/tajResidencia/CAMCharge');
 const TajProperty = require('../models/tajResidencia/TajProperty');
+const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 const { authMiddleware } = require('../middleware/auth');
 const { getCAMChargeForProperty, numberToWords } = require('../utils/camChargesHelper');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
@@ -215,7 +216,47 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             }
           }
           
-          const propertyArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+          // Calculate arrears from CAMCharge model
+          const camChargeArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+          
+          // Calculate carry forward arrears from unpaid PropertyInvoice records
+          let carryForwardArrears = 0;
+          try {
+            const previousCamInvoices = await PropertyInvoice.find({
+              property: property._id,
+              chargeTypes: { $in: ['CAM'] },
+              paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+              balance: { $gt: 0 }
+            })
+            .select('charges grandTotal totalPaid balance')
+            .sort({ invoiceDate: 1 })
+            .lean();
+            
+            // Calculate outstanding CAM charges from previous invoices
+            previousCamInvoices.forEach(inv => {
+              const camChargeInPrevInvoice = inv.charges?.find(c => c.type === 'CAM');
+              if (camChargeInPrevInvoice) {
+                // If the previous invoice only has CAM, the entire balance is CAM arrears
+                if (inv.chargeTypes.length === 1 && inv.chargeTypes[0] === 'CAM') {
+                  carryForwardArrears += inv.balance || 0;
+                } else {
+                  // If mixed charges, calculate the proportion of CAM in the original grandTotal
+                  // and apply that proportion to the remaining balance
+                  const camProportion = (camChargeInPrevInvoice.amount + camChargeInPrevInvoice.arrears) / inv.grandTotal;
+                  carryForwardArrears += (inv.balance || 0) * camProportion;
+                }
+              }
+            });
+            
+            // Round to nearest whole number
+            carryForwardArrears = Math.round(carryForwardArrears);
+          } catch (err) {
+            console.error('Error calculating carry forward arrears for property:', property._id, err);
+            // Continue with camChargeArrears only
+          }
+          
+          // Total arrears = CAM charge arrears + carry forward from invoices
+          const propertyArrears = camChargeArrears + carryForwardArrears;
           
           // Get all payments from related charges
           const allPayments = relatedCharges.flatMap(charge => (charge.payments || []).map(payment => ({

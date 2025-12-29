@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 
 const tajRentalAgreementSchema = new mongoose.Schema({
+  code: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows multiple null values but enforces uniqueness for non-null values
+    trim: true
+  },
   agreementNumber: {
     type: String,
     required: true,

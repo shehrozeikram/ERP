@@ -20,6 +20,9 @@ export const updateInvoice = (invoiceId, data) =>
 export const deleteInvoice = (invoiceId) =>
   api.delete(`${base}/${invoiceId}`);
 
+export const deletePaymentFromInvoice = (invoiceId, paymentId) =>
+  api.delete(`${base}/${invoiceId}/payments/${paymentId}`);
+
 export const getElectricityCalculation = (propertyId, currentReading, meterNo) =>
   api.get(`${base}/property/${propertyId}/electricity-calculation`, {
     params: {
@@ -28,13 +31,17 @@ export const getElectricityCalculation = (propertyId, currentReading, meterNo) =
     }
   });
 
+export const getRentCalculation = (propertyId) =>
+  api.get(`${base}/property/${propertyId}/rent-calculation`);
+
 const propertyInvoiceService = {
   createInvoice,
   fetchInvoice,
   fetchInvoicesForProperty,
   fetchAllInvoices,
   updateInvoice,
-  deleteInvoice
+  deleteInvoice,
+  deletePaymentFromInvoice
 };
 
 export default propertyInvoiceService;

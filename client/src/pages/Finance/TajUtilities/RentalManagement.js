@@ -59,7 +59,7 @@ import {
   updatePaymentStatus,
   deletePayment
 } from '../../../services/tajRentalManagementService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice } from '../../../services/propertyInvoiceService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getRentCalculation } from '../../../services/propertyInvoiceService';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
@@ -305,29 +305,41 @@ const RentalManagement = () => {
         'RENT'
       );
       
-      // Calculate rental charges from agreement or property
+      // Fetch rent calculation from backend (includes carry-forward arrears)
       let monthlyRent = 0;
       let arrears = 0;
+      let carryForwardArrears = 0;
       
-      // Try to get rent from rental agreement
-      if (propertyWithAgreement.rentalAgreement?.monthlyRent) {
-        monthlyRent = propertyWithAgreement.rentalAgreement.monthlyRent || 0;
-      } else if (propertyWithAgreement.categoryType === 'Personal Rent' && propertyWithAgreement.rentalPayments?.length > 0) {
-        // Fallback to latest rental payment
-        const latestPayment = [...propertyWithAgreement.rentalPayments]
-          .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0))[0];
-        if (latestPayment) {
-          monthlyRent = latestPayment.amount || 0;
-          arrears = latestPayment.arrears || 0;
+      try {
+        const rentCalculationResponse = await getRentCalculation(propertyWithAgreement._id);
+        const rentData = rentCalculationResponse.data?.data;
+        if (rentData) {
+          monthlyRent = rentData.monthlyRent || 0;
+          arrears = rentData.totalArrears || 0;
+          carryForwardArrears = rentData.carryForwardArrears || 0;
+        }
+      } catch (err) {
+        console.error('Failed to fetch rent calculation:', err);
+        // Fallback to local calculation if API fails
+        if (propertyWithAgreement.rentalAgreement?.monthlyRent) {
+          monthlyRent = propertyWithAgreement.rentalAgreement.monthlyRent || 0;
+        } else if (propertyWithAgreement.categoryType === 'Personal Rent' && propertyWithAgreement.rentalPayments?.length > 0) {
+          const latestPayment = [...propertyWithAgreement.rentalPayments]
+            .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0))[0];
+          if (latestPayment) {
+            monthlyRent = latestPayment.amount || 0;
+            arrears = latestPayment.arrears || 0;
+          }
         }
       }
       
-      // Calculate arrears from existing unpaid invoices (if needed, can be fetched later)
-      // For now, use 0 or from payment if available
+      const rentDescription = carryForwardArrears > 0 
+        ? 'Rental Charges (with Carry Forward Arrears)' 
+        : 'Rental Charges';
       
       const charges = [{
         type: 'RENT',
-        description: 'Rental Charges',
+        description: rentDescription,
         amount: monthlyRent,
         arrears: arrears,
         total: monthlyRent + arrears
@@ -504,6 +516,26 @@ const RentalManagement = () => {
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete invoice');
+    }
+  };
+
+  const handleDeleteInvoicePayment = async (invoiceId, paymentId, propertyId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) {
+      return;
+    }
+
+    try {
+      setError('');
+      await deletePaymentFromInvoice(invoiceId, paymentId);
+      setSuccess('Payment deleted successfully');
+      
+      // Refresh invoices for this property
+      if (propertyId) {
+        const invoiceResponse = await fetchInvoicesForProperty(propertyId);
+        setPropertyInvoices(prev => ({ ...prev, [propertyId]: invoiceResponse.data?.data || [] }));
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete payment');
     }
   };
 
@@ -1846,15 +1878,26 @@ const RentalManagement = () => {
                                                           : 'N/A'}
                                                       </TableCell>
                                                       <TableCell align="center">
-                                                        <Tooltip title="Download Payment Receipt">
-                                                          <IconButton
-                                                            size="small"
-                                                            color="primary"
-                                                            onClick={() => generateRentalPaymentReceiptPDF(invoice, payment, property)}
-                                                          >
-                                                            <DownloadIcon fontSize="small" />
-                                                          </IconButton>
-                                                        </Tooltip>
+                                                        <Stack direction="row" spacing={1} justifyContent="center">
+                                                          <Tooltip title="Download Payment Receipt">
+                                                            <IconButton
+                                                              size="small"
+                                                              color="primary"
+                                                              onClick={() => generateRentalPaymentReceiptPDF(invoice, payment, property)}
+                                                            >
+                                                              <DownloadIcon fontSize="small" />
+                                                            </IconButton>
+                                                          </Tooltip>
+                                                          <Tooltip title="Delete Payment">
+                                                            <IconButton
+                                                              size="small"
+                                                              color="error"
+                                                              onClick={() => handleDeleteInvoicePayment(invoice._id, payment._id, property._id)}
+                                                            >
+                                                              <DeleteIcon fontSize="small" />
+                                                            </IconButton>
+                                                          </Tooltip>
+                                                        </Stack>
                                                       </TableCell>
                                                     </TableRow>
                                                   ))}
