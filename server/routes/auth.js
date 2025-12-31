@@ -267,6 +267,39 @@ router.post('/login', [
   }
 }));
 
+// @route   POST /api/auth/refresh-token
+// @desc    Refresh JWT token (issue new token if current one is valid)
+// @access  Private
+router.post('/refresh-token', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    // User is already authenticated via authMiddleware
+    // Populate sub-roles before generating new token
+    await req.user.populate('subRoles');
+    
+    // Generate new token
+    const newToken = req.user.generateAuthToken();
+    
+    // Update last login (optional - can be removed if you don't want to update on refresh)
+    // req.user.lastLogin = new Date();
+    // await req.user.save();
+    
+    res.json({
+      success: true,
+      message: 'Token refreshed successfully',
+      data: {
+        token: newToken,
+        user: req.user.getProfile()
+      }
+    });
+  } catch (error) {
+    console.error('🔐 Token refresh error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to refresh token'
+    });
+  }
+}));
+
 // @route   GET /api/auth/me
 // @desc    Get current user profile
 // @access  Private

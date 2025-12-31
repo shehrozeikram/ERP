@@ -184,6 +184,9 @@ userSchema.methods.generateAuthToken = function() {
       },
       jwtSecret,
       { 
+        // JWT token expiration - default 24 hours
+        // Set JWT_EXPIRE environment variable to change (e.g., '7d' for 7 days, '24h' for 24 hours)
+        // IMPORTANT: Do not set to less than 1 hour to prevent frequent logouts
         expiresIn: process.env.JWT_EXPIRE || '24h',
         issuer: 'sgc-erp',
         audience: 'sgc-erp-users'

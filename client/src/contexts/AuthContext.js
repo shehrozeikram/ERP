@@ -27,15 +27,52 @@ const getInitialToken = () => {
   }
 };
 
+// Decode JWT token to check expiration (without verification)
+const decodeToken = (token) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (error) {
+    return null;
+  }
+};
+
+// Check if token is expired or will expire soon (within 1 hour)
+const isTokenExpiringSoon = (token) => {
+  if (!token) return true;
+  const decoded = decodeToken(token);
+  if (!decoded || !decoded.exp) return true;
+  
+  const expirationTime = decoded.exp * 1000; // Convert to milliseconds
+  const currentTime = Date.now();
+  const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+  
+  // Return true if token expires within 1 hour
+  return (expirationTime - currentTime) < oneHour;
+};
+
 // Error detection utilities
 const isAuthError = (error) => error.response?.status === 401 || error.response?.status === 403;
+const isRateLimitError = (error) => error.response?.status === 429;
 const isNetworkError = (error) => 
   !error.response || 
   ['ECONNABORTED', 'NETWORK_ERROR', 'ERR_NETWORK'].includes(error.code) ||
   error.message?.includes('timeout') ||
   error.message?.includes('Network Error');
 
-const getErrorMessage = (error, defaultMsg) => error.response?.data?.message || defaultMsg;
+const getErrorMessage = (error, defaultMsg) => {
+  if (isRateLimitError(error)) {
+    return error.response?.data?.message || 'Too many login attempts. Please wait a few minutes before trying again.';
+  }
+  return error.response?.data?.message || defaultMsg;
+};
 
 const AuthContext = createContext();
 
@@ -176,6 +213,47 @@ export const AuthProvider = ({ children }) => {
     return () => { isMounted = false; };
   }, [verifyAuth]);
 
+  // Automatic token refresh - refresh token before it expires
+  useEffect(() => {
+    if (!state.token || !state.user) return;
+
+    const refreshTokenIfNeeded = async () => {
+      try {
+        // Check if token is expiring soon (within 1 hour)
+        if (isTokenExpiringSoon(state.token)) {
+          // Silently refresh token
+          const response = await authService.refreshToken();
+          const { token: newToken, user: updatedUser } = response.data.data;
+          
+          if (newToken) {
+            localStorage.setItem('token', newToken);
+            dispatch({ 
+              type: 'LOGIN_SUCCESS', 
+              payload: { user: updatedUser, token: newToken } 
+            });
+            
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('🔄 Token refreshed automatically');
+            }
+          }
+        }
+      } catch (error) {
+        // If refresh fails, don't log out immediately - let the next API call handle it
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('⚠️ Token refresh failed:', error.message);
+        }
+      }
+    };
+
+    // Check token expiration every 5 minutes
+    const refreshInterval = setInterval(refreshTokenIfNeeded, 5 * 60 * 1000);
+    
+    // Also check immediately
+    refreshTokenIfNeeded();
+
+    return () => clearInterval(refreshInterval);
+  }, [state.token, state.user]);
+
   // Shared auth flow for login/register
   const handleAuthFlow = useCallback(async (authFn, successMsg, errorMsg) => {
     try {
@@ -192,7 +270,17 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       const message = getErrorMessage(error, errorMsg);
       dispatch({ type: 'LOGIN_FAILURE', payload: message });
-      toast.error(message);
+      
+      // For rate limit errors, show a longer toast with more context
+      if (isRateLimitError(error)) {
+        toast.error(message, {
+          duration: 5000, // Show for 5 seconds
+          icon: '⏱️'
+        });
+      } else {
+        toast.error(message);
+      }
+      
       return { success: false, error: message };
     }
   }, [navigate]);

@@ -169,7 +169,8 @@ const getPaymentSettlement = asyncHandler(async (req, res) => {
   try {
     const settlement = await PaymentSettlement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email');
+      .populate('updatedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
 
     if (!settlement) {
       return res.status(404).json({

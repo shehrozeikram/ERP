@@ -135,6 +135,12 @@ const { logRequest } = require('./middleware/auditTrail');
 // Set environment variables
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// Trust proxy for correct IP detection behind reverse proxy/load balancer
+// This is important for rate limiting to work correctly in production
+if (NODE_ENV === 'production') {
+  app.set('trust proxy', 1); // Trust first proxy (nginx/load balancer)
+}
+
 // Check critical environment variables
 console.log('🔧 Environment Check:');
 console.log('   NODE_ENV:', NODE_ENV);
@@ -185,6 +191,37 @@ app.use(compression());
 
 // Rate limiting (disabled for development)
 if (NODE_ENV === 'production') {
+  // Separate, more lenient rate limiter for login endpoint
+  // This allows more login attempts per IP to handle multiple users behind NAT/proxy
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX) || 20, // 20 login attempts per 15 minutes per IP
+    message: {
+      success: false,
+      message: 'Too many login attempts from this IP. Please wait a few minutes before trying again.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false, // Count all attempts, even successful ones
+    keyGenerator: (req) => {
+      // Get IP address - check X-Forwarded-For header first (for proxy/load balancer)
+      // Then fall back to req.ip (set by express) or connection remoteAddress
+      const forwarded = req.headers['x-forwarded-for'];
+      const ip = forwarded 
+        ? forwarded.split(',')[0].trim() 
+        : (req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress);
+      return ip || 'unknown';
+    },
+    // Add handler for when rate limit is exceeded
+    handler: (req, res) => {
+      res.status(429).json({
+        success: false,
+        message: 'Too many login attempts from this IP. Please wait a few minutes before trying again.',
+        retryAfter: Math.ceil(15 * 60 / 1000) // Retry after 15 minutes (in seconds)
+      });
+    }
+  });
+
   // Separate, more lenient rate limiter for file uploads (applied first)
   const uploadLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -201,21 +238,27 @@ if (NODE_ENV === 'production') {
     message: 'Too many requests from this IP, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
-    // Skip rate limiting for file upload endpoints (they have their own limiter)
+    // Skip rate limiting for file upload endpoints, login, and refresh-token (they have their own limiters or are safe)
     skip: (req) => {
       return req.path.includes('/upload-image') ||
              req.path.includes('/upload-file') ||
+             req.path.includes('/api/auth/login') ||
+             req.path.includes('/api/auth/refresh-token') ||
              req.method === 'OPTIONS';
     }
   });
 
-  // Apply upload limiter FIRST to specific upload endpoints
+  // Apply login limiter FIRST to login endpoint
+  app.use('/api/auth/login', loginLimiter);
+  
+  // Apply upload limiter to specific upload endpoints
   app.use('/api/hr/upload-image', uploadLimiter);
   
-  // Then apply general limiter to all API routes (excluding uploads via skip function)
+  // Then apply general limiter to all API routes (excluding uploads and login via skip function)
   app.use('/api/', generalLimiter);
   
   console.log('🔒 Rate limiting enabled for production');
+  console.log('🔐 Login rate limiting: 20 attempts per 15 minutes per IP');
   console.log('📤 File upload rate limiting: 50 uploads per 15 minutes');
   console.log('📊 General API rate limiting: 200 requests per 15 minutes');
 } else {

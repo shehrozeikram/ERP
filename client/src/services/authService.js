@@ -16,6 +16,11 @@ export const authService = {
     return api.get('/auth/me');
   },
 
+  // Refresh JWT token
+  refreshToken: async () => {
+    return api.post('/auth/refresh-token');
+  },
+
   // Update user profile
   updateProfile: async (profileData) => {
     return api.put('/auth/profile', profileData);

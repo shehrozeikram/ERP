@@ -61,13 +61,48 @@ const SKIP_AUTO_REDIRECT_ENDPOINTS = [
   '/zkbio/'
 ];
 
-// Response interceptor to handle auth errors
+// Response interceptor to handle auth errors and rate limiting
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    // Handle rate limiting (429) - don't retry, just reject
+    if (error.response?.status === 429) {
+      // Log rate limit error in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('⏱️ Rate limit exceeded:', error.config?.url);
+      }
+      // Don't retry rate limit errors - return immediately
+      return Promise.reject(error);
+    }
+    
     if (error.response?.status === 401) {
       const url = error.config?.url || '';
       const shouldSkipRedirect = SKIP_AUTO_REDIRECT_ENDPOINTS.some(endpoint => url.includes(endpoint));
+      
+      // Don't try to refresh token for refresh endpoint or login endpoint
+      const isAuthEndpoint = url.includes('/auth/refresh-token') || url.includes('/auth/login') || url.includes('/auth/register');
+      
+      // Try to refresh token if it's not an auth endpoint and we have a token
+      if (!isAuthEndpoint && !shouldSkipRedirect && localStorage.getItem('token')) {
+        // Attempt to refresh token once
+        try {
+          const refreshResponse = await api.post('/auth/refresh-token');
+          const { token: newToken, user: updatedUser } = refreshResponse.data.data;
+          
+          if (newToken) {
+            localStorage.setItem('token', newToken);
+            
+            // Retry the original request with new token
+            error.config.headers.Authorization = `Bearer ${newToken}`;
+            return api.request(error.config);
+          }
+        } catch (refreshError) {
+          // Refresh failed, proceed with normal 401 handling
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('🔐 Token refresh failed, logging out:', refreshError.message);
+          }
+        }
+      }
       
       if (shouldSkipRedirect) {
         // Don't log for /auth/me to reduce console noise

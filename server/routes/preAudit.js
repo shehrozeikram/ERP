@@ -185,13 +185,34 @@ router.get('/',
           // Must be exactly "Send to Audit" status
           else if (workflowStatus === 'Send to Audit') {
             // Check if document has observations in workflow history
-            const hasObservations = doc.workflowHistory && doc.workflowHistory.some(h => 
-              h.comments && (h.comments.toLowerCase().includes('observation') || h.comments.toLowerCase().includes('observation:'))
-            );
-            if (hasObservations) {
-              preAuditStatus = 'under_review';
-            } else {
+            // BUT: If document was previously returned and sent back, check if the last status change was "Send to Audit"
+            // This means it was resubmitted after being returned, so it should be treated as pending (new submission)
+            const workflowHistory = doc.workflowHistory || [];
+            const lastStatusChange = workflowHistory.length > 0 
+              ? workflowHistory[workflowHistory.length - 1]
+              : null;
+            
+            // If the last status change was TO "Send to Audit" (meaning it was just sent/resubmitted),
+            // treat it as pending regardless of previous observations
+            const wasJustResubmitted = lastStatusChange && 
+              lastStatusChange.toStatus === 'Send to Audit' &&
+              (lastStatusChange.fromStatus === 'Returned from Audit' || 
+               lastStatusChange.fromStatus === 'Draft' ||
+               lastStatusChange.fromStatus === 'Rejected (from Send to Audit)');
+            
+            if (wasJustResubmitted) {
+              // Document was just resubmitted after being returned - treat as pending (new submission)
               preAuditStatus = 'pending';
+            } else {
+              // Check if document has observations in workflow history
+              const hasObservations = workflowHistory.some(h => 
+                h.comments && (h.comments.toLowerCase().includes('observation') || h.comments.toLowerCase().includes('observation:'))
+              );
+              if (hasObservations) {
+                preAuditStatus = 'under_review';
+              } else {
+                preAuditStatus = 'pending';
+              }
             }
           }
           // Default to pending for any other status (shouldn't happen for documents sent to audit)

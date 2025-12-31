@@ -50,7 +50,10 @@ import {
   AttachFile as AttachFileIcon,
   ArrowForward as ArrowForwardIcon,
   Close as CloseIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  Warning as WarningIcon,
+  Error as ErrorIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -1240,6 +1243,108 @@ const PaymentSettlementList = () => {
                   </CardContent>
                 </Card>
               )}
+
+              {/* Observations Section */}
+              {(() => {
+                // Extract observations from workflowHistory
+                const observations = viewDialog.settlement.workflowHistory?.filter(entry => 
+                  entry.comments && (
+                    entry.comments.toLowerCase().includes('observation') || 
+                    entry.comments.toLowerCase().includes('returned from pre audit with observations')
+                  )
+                ) || [];
+
+                if (observations.length === 0) return null;
+
+                return (
+                  <Card sx={{ mb: 3, border: '2px solid', borderColor: 'warning.main' }}>
+                    <CardContent>
+                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                        <Avatar sx={{ bgcolor: 'warning.main' }}>
+                          <WarningIcon />
+                        </Avatar>
+                        <Typography variant="h6" fontWeight="bold" color="warning.main">
+                          Observations ({observations.length})
+                        </Typography>
+                      </Stack>
+                      <Stack spacing={2}>
+                        {observations.map((entry, index) => {
+                          // Extract severity and observation text
+                          const observationMatch = entry.comments.match(/Observation\s*\(([^)]+)\):\s*(.+)/i);
+                          const returnedMatch = entry.comments.match(/Returned from Pre Audit with observations:\s*(.+)/i);
+                          
+                          let severity = 'medium';
+                          let observationText = entry.comments;
+                          
+                          if (observationMatch) {
+                            severity = observationMatch[1].toLowerCase();
+                            observationText = observationMatch[2];
+                          } else if (returnedMatch) {
+                            observationText = returnedMatch[1];
+                          }
+
+                          const getSeverityColor = (sev) => {
+                            if (sev.includes('high') || sev.includes('critical')) return 'error';
+                            if (sev.includes('medium')) return 'warning';
+                            return 'info';
+                          };
+
+                          const getSeverityIcon = (sev) => {
+                            if (sev.includes('high') || sev.includes('critical')) return <ErrorIcon />;
+                            if (sev.includes('medium')) return <WarningIcon />;
+                            return <InfoIcon />;
+                          };
+
+                          return (
+                            <Box
+                              key={index}
+                              sx={{
+                                p: 2,
+                                bgcolor: 'warning.50',
+                                borderRadius: 1,
+                                border: '1px solid',
+                                borderColor: 'warning.200'
+                              }}
+                            >
+                              <Stack direction="row" alignItems="flex-start" spacing={2}>
+                                <Avatar 
+                                  sx={{ 
+                                    bgcolor: `${getSeverityColor(severity)}.main`,
+                                    width: 40,
+                                    height: 40
+                                  }}
+                                >
+                                  {getSeverityIcon(severity)}
+                                </Avatar>
+                                <Box sx={{ flex: 1 }}>
+                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                                    <Chip
+                                      label={severity.charAt(0).toUpperCase() + severity.slice(1)}
+                                      color={getSeverityColor(severity)}
+                                      size="small"
+                                    />
+                                    <Typography variant="caption" color="text.secondary">
+                                      {entry.changedAt ? new Date(entry.changedAt).toLocaleString() : 'N/A'}
+                                    </Typography>
+                                    {entry.changedBy && (
+                                      <Typography variant="caption" color="text.secondary">
+                                        • By: {entry.changedBy.firstName} {entry.changedBy.lastName}
+                                      </Typography>
+                                    )}
+                                  </Stack>
+                                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                                    {observationText}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
 
               {/* Document Attachments Section */}
               {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 && (
