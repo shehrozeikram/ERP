@@ -254,36 +254,17 @@ const Sidebar = () => {
         
         // If user has sub-roles, only show modules that match their sub-role modules
         // This ensures users with only HR sub-roles don't see Admin/General modules
+        // BUT: If user has sub-roles for multiple modules (e.g., admin + hr), show all those modules
         if (userSubRoleModules.size > 0 && !userSubRoleModules.has(moduleName)) {
-          return null; // Filter out this module
+          // Check if main role has access to this module (for users with mixed access)
+          const mainRoleHasAccess = baseMenuItems.some(m => m.path === module.path);
+          if (!mainRoleHasAccess) {
+            return null; // Filter out this module
+          }
+          // If main role has access, continue to check sub-role permissions below
         }
         
         if (module.subItems) {
-          // Special handling for HR module: hr_manager should only see Evaluation & Appraisal
-          // BUT only if they don't have HR sub-roles with full access
-          if (module.path === '/hr' && userRole === 'hr_manager') {
-            // Check if user has HR sub-role with full access (not just evaluation_appraisal)
-            const hasHRSubRole = user.subRoles.some(subRole => 
-              subRole && subRole.module === 'hr'
-            );
-            
-            // If user has HR sub-role, show all HR submodules (don't filter to only Evaluation & Appraisal)
-            if (hasHRSubRole) {
-              // Show all subItems for HR module
-              return module;
-            } else {
-              // No HR sub-role, apply the default filter (only Evaluation & Appraisal)
-              const filteredSubItems = module.subItems.filter(subItem => {
-                return subItem.path === '/hr/evaluation-appraisal/dashboard' || 
-                       subItem.path?.startsWith('/hr/evaluation-appraisal');
-              });
-              return {
-                ...module,
-                subItems: filteredSubItems
-              };
-            }
-          }
-          
           // Filter submenu items based on sub-role permissions
           const allowedSubmenuItems = module.subItems.filter(submenuItem => {
             // Get the submodule name from the path
