@@ -46,7 +46,8 @@ import {
   ReceiptLong as ReceiptLongIcon,
   FiberManualRecord as StatusIcon,
   AttachFile as AttachFileIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -273,8 +274,16 @@ const RentalManagement = () => {
     }
   };
 
+  const handleEditInvoice = async (property, invoice) => {
+    setInvoiceProperty(property);
+    setInvoiceData(invoice);
+    setInvoiceError('');
+    setInvoiceDialogOpen(true);
+  };
+
   const handleCreateInvoice = async (property) => {
     setInvoiceProperty(property);
+    setInvoiceData(null); // Reset invoice data for new invoice
     setInvoiceError('');
     setInvoiceDialogOpen(true);
     
@@ -467,7 +476,38 @@ const RentalManagement = () => {
       setInvoiceLoading(true);
       setInvoiceError('');
       
-      // Always create new invoice (like CAM Charges)
+      // If editing existing invoice (has _id), update it
+      if (invoiceData._id) {
+        const response = await updateInvoice(invoiceData._id, {
+          invoiceNumber: invoiceData.invoiceNumber,
+          invoiceDate: invoiceData.invoiceDate,
+          dueDate: invoiceData.dueDate,
+          periodFrom: invoiceData.periodFrom,
+          periodTo: invoiceData.periodTo,
+          charges: invoiceData.charges || [],
+          subtotal: invoiceData.subtotal,
+          totalArrears: invoiceData.totalArrears,
+          grandTotal: invoiceData.grandTotal
+        });
+
+        const savedInvoice = response.data?.data || invoiceData;
+        setInvoiceData(savedInvoice);
+        setSuccess('Invoice updated successfully');
+        
+        // Refresh invoices for this property
+        if (invoiceProperty?._id) {
+          const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
+          setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
+        }
+        
+        // Close dialog after a short delay
+        setTimeout(() => {
+          handleCloseInvoiceDialog();
+        }, 1500);
+        return;
+      }
+      
+      // Create new invoice
       const response = await createInvoice(invoiceProperty._id, {
         includeCAM: false,
         includeElectricity: false,
@@ -493,7 +533,7 @@ const RentalManagement = () => {
         handleCloseInvoiceDialog();
       }, 1500);
     } catch (err) {
-      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
+      setInvoiceError(err.response?.data?.message || 'Failed to save invoice');
     } finally {
       setInvoiceLoading(false);
     }
@@ -1811,6 +1851,15 @@ const RentalManagement = () => {
                                               <VisibilityIcon fontSize="small" />
                                             </IconButton>
                                           </Tooltip>
+                                          <Tooltip title="Edit Invoice">
+                                            <IconButton
+                                              size="small"
+                                              color="primary"
+                                              onClick={() => handleEditInvoice(property, invoice)}
+                                            >
+                                              <EditIcon fontSize="small" />
+                                            </IconButton>
+                                          </Tooltip>
                                           <Tooltip title="Download Invoice">
                                             <IconButton
                                               size="small"
@@ -1934,7 +1983,7 @@ const RentalManagement = () => {
       </Card>
 
       <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Invoice Preview</DialogTitle>
+        <DialogTitle>{invoiceData?._id ? 'Edit Invoice' : 'Create Invoice'}</DialogTitle>
         <DialogContent dividers>{renderInvoicePreview()}</DialogContent>
         <DialogActions>
           <Button onClick={handleCloseInvoiceDialog}>Close</Button>
@@ -1951,7 +2000,7 @@ const RentalManagement = () => {
             onClick={handleSaveInvoice}
             disabled={invoiceLoading || !invoiceData}
           >
-            {invoiceLoading ? 'Creating...' : 'Save Invoice'}
+            {invoiceLoading ? (invoiceData?._id ? 'Updating...' : 'Creating...') : (invoiceData?._id ? 'Update Invoice' : 'Save Invoice')}
           </Button>
         </DialogActions>
       </Dialog>

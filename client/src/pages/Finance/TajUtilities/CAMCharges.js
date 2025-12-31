@@ -41,7 +41,8 @@ import {
   ReceiptLong as ReceiptIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  AttachFile as AttachFileIcon
+  AttachFile as AttachFileIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -249,9 +250,16 @@ const CAMCharges = () => {
   };
 
 
+  const handleEditInvoice = async (property, invoice) => {
+    setInvoiceProperty(property);
+    setInvoiceData(invoice);
+    setInvoiceError('');
+    setInvoiceDialogOpen(true);
+  };
+
   const handleCreateInvoice = async (property) => {
     setInvoiceProperty(property);
-    setInvoiceData(null);
+    setInvoiceData(null); // Reset invoice data for new invoice
     setInvoiceError('');
     setInvoiceDialogOpen(true);
 
@@ -310,7 +318,7 @@ const CAMCharges = () => {
   };
 
   const handleSaveInvoice = async () => {
-    if (!invoiceData || !invoiceData._id) {
+    if (!invoiceData || !invoiceProperty) {
       setInvoiceError('Invoice data is incomplete');
       return;
     }
@@ -319,20 +327,50 @@ const CAMCharges = () => {
       setInvoiceLoading(true);
       setInvoiceError('');
       
-      const response = await updateInvoice(invoiceData._id, {
-        invoiceNumber: invoiceData.invoiceNumber,
-        invoiceDate: invoiceData.invoiceDate,
-        dueDate: invoiceData.dueDate,
+      // If editing existing invoice (has _id), update it
+      if (invoiceData._id) {
+        const response = await updateInvoice(invoiceData._id, {
+          invoiceNumber: invoiceData.invoiceNumber,
+          invoiceDate: invoiceData.invoiceDate,
+          dueDate: invoiceData.dueDate,
+          periodFrom: invoiceData.periodFrom,
+          periodTo: invoiceData.periodTo,
+          charges: invoiceData.charges,
+          subtotal: invoiceData.subtotal,
+          totalArrears: invoiceData.totalArrears,
+          grandTotal: invoiceData.grandTotal
+        });
+
+        setInvoiceData(response.data?.data || invoiceData);
+        setSuccess('Invoice updated successfully');
+        
+        // Refresh invoices for this property
+        if (invoiceProperty?._id) {
+          const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
+          setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
+        }
+        
+        // Close dialog after a short delay
+        setTimeout(() => {
+          handleCloseInvoiceDialog();
+        }, 1500);
+        return;
+      }
+      
+      // Create new invoice
+      const response = await createInvoice(invoiceProperty._id, {
+        includeCAM: true,
+        includeElectricity: false,
+        includeRent: false,
         periodFrom: invoiceData.periodFrom,
         periodTo: invoiceData.periodTo,
-        charges: invoiceData.charges,
-        subtotal: invoiceData.subtotal,
-        totalArrears: invoiceData.totalArrears,
-        grandTotal: invoiceData.grandTotal
+        dueDate: invoiceData.dueDate,
+        charges: invoiceData.charges || []
       });
 
-      setInvoiceData(response.data?.data || invoiceData);
-      setSuccess('Invoice saved successfully');
+      const savedInvoice = response.data?.data || invoiceData;
+      setInvoiceData(savedInvoice);
+      setSuccess('Invoice created successfully');
       
       // Refresh invoices for this property
       if (invoiceProperty?._id) {
@@ -1814,6 +1852,15 @@ const CAMCharges = () => {
                                                 <ViewIcon fontSize="small" />
                                               </IconButton>
                                             </Tooltip>
+                                            <Tooltip title="Edit Invoice">
+                                              <IconButton
+                                                size="small"
+                                                color="primary"
+                                                onClick={() => handleEditInvoice(property, invoice)}
+                                              >
+                                                <EditIcon fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
                                             <Tooltip title="Download Invoice">
                                               <IconButton
                                                 size="small"
@@ -1939,7 +1986,7 @@ const CAMCharges = () => {
       </Card>
 
       <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Invoice Preview</DialogTitle>
+        <DialogTitle>{invoiceData?._id ? 'Edit Invoice' : 'Create Invoice'}</DialogTitle>
         <DialogContent dividers>{renderInvoicePreview()}</DialogContent>
         <DialogActions>
           <Button onClick={handleCloseInvoiceDialog}>Close</Button>
@@ -1956,7 +2003,7 @@ const CAMCharges = () => {
             onClick={handleSaveInvoice}
             disabled={invoiceLoading || !invoiceData || !invoiceData._id}
           >
-            {invoiceLoading ? 'Saving...' : 'Save Invoice'}
+            {invoiceLoading ? (invoiceData?._id ? 'Updating...' : 'Creating...') : (invoiceData?._id ? 'Update Invoice' : 'Save Invoice')}
           </Button>
         </DialogActions>
       </Dialog>

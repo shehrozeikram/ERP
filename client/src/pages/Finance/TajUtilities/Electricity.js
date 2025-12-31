@@ -40,7 +40,8 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   AttachFile as AttachFileIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -300,7 +301,15 @@ const Electricity = () => {
     return payments?.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0) || 0;
   };
 
+  const handleEditInvoice = async (property, invoice) => {
+    setInvoiceProperty(property);
+    setInvoiceData(invoice);
+    setInvoiceError('');
+    setInvoiceDialogOpen(true);
+  };
+
   const handleCreateInvoice = async (property) => {
+    setInvoiceData(null); // Reset invoice data for new invoice
     setInvoiceError('');
     setCurrentReading('');
     setMeterReadings({});
@@ -2371,6 +2380,15 @@ const Electricity = () => {
                                                 <ViewIcon fontSize="small" />
                                               </IconButton>
                                             </Tooltip>
+                                            <Tooltip title="Edit Invoice">
+                                              <IconButton
+                                                size="small"
+                                                color="primary"
+                                                onClick={() => handleEditInvoice(property, invoice)}
+                                              >
+                                                <EditIcon fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
                                             <Tooltip title="Download Invoice">
                                               <IconButton
                                                 size="small"
@@ -2511,7 +2529,7 @@ const Electricity = () => {
       </Card>
 
       <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Invoice Preview</DialogTitle>
+        <DialogTitle>{invoiceData?._id ? 'Edit Invoice' : 'Create Invoice'}</DialogTitle>
         <DialogContent dividers>
           {invoiceLoading && (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>

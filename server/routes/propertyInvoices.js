@@ -82,6 +82,11 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
   const currentYear = now.year();
   const currentMonth = now.month() + 1;
   
+  // Determine the month/year from periodTo (or periodFrom if periodTo is not available)
+  const periodDate = periodTo ? dayjs(periodTo) : (periodFrom ? dayjs(periodFrom) : now);
+  const periodYear = periodDate.year();
+  const periodMonth = periodDate.month() + 1;
+  
   // Check if invoice with this number already exists
   let existingInvoice = await PropertyInvoice.findOne({ invoiceNumber });
   
@@ -93,8 +98,8 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
       : '';
     invoiceData.invoiceNumber = generateInvoiceNumber(
       propertySrNo,
-      currentYear,
-      currentMonth,
+      periodYear,
+      periodMonth,
       invoiceType,
       baseSuffix ? `M${baseSuffix}-${timestamp}` : `-${timestamp}`
     );
@@ -120,8 +125,8 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
           : '';
         invoiceData.invoiceNumber = generateInvoiceNumber(
           propertySrNo,
-          currentYear,
-          currentMonth,
+          periodYear,
+          periodMonth,
           invoiceType,
           baseSuffix ? `M${baseSuffix}-${timestamp}` : `-${timestamp}`
         );
@@ -372,7 +377,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { periodFrom, periodTo, includeCAM, includeElectricity, includeRent, charges: requestCharges } = req.body;
+    const { periodFrom, periodTo, dueDate, includeCAM, includeElectricity, includeRent, charges: requestCharges } = req.body;
 
     // Find latest charges/bills
     const propertyKey = property.address || property.plotNumber || property.ownerName;
@@ -978,6 +983,100 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       const year = now.year();
       const month = now.month() + 1;
       
+      // Check if invoices already exist for this month before creating
+      // Only check for duplicates if periodTo or periodFrom is provided
+      if (periodTo || periodFrom) {
+        const periodDate = periodTo ? dayjs(periodTo) : dayjs(periodFrom);
+        const periodYear = periodDate.year();
+        const periodMonth = periodDate.month() + 1;
+        const monthStart = dayjs(`${periodYear}-${String(periodMonth).padStart(2, '0')}-01`).startOf('month').toDate();
+        const monthEnd = dayjs(`${periodYear}-${String(periodMonth).padStart(2, '0')}-01`).endOf('month').toDate();
+        
+        // Get unique charge types from charges array
+        const chargeTypesArray = [...new Set(charges.map(c => c.type))];
+        
+        // Check for existing invoice for first meter (match by meter number)
+        if (electricityBill && electricityBill.meterNo) {
+          const meterNo = electricityBill.meterNo;
+          const existingFirstInvoices = await PropertyInvoice.aggregate([
+            {
+              $match: {
+                property: property._id,
+                $or: [
+                  { periodTo: { $gte: monthStart, $lte: monthEnd } },
+                  { periodFrom: { $gte: monthStart, $lte: monthEnd } }
+                ],
+                chargeTypes: { 
+                  $all: chargeTypesArray, 
+                  $size: chargeTypesArray.length 
+                }
+              }
+            },
+            {
+              $lookup: {
+                from: 'electricities',
+                localField: 'electricityBill',
+                foreignField: '_id',
+                as: 'electricityBillDoc'
+              }
+            },
+            {
+              $match: {
+                'electricityBillDoc.0.meterNo': meterNo
+              }
+            }
+          ]);
+          
+          if (existingFirstInvoices && existingFirstInvoices.length > 0) {
+            return res.status(400).json({
+              success: false,
+              message: `An invoice already exists for meter ${meterNo} for ${dayjs(monthStart).format('MMMM YYYY')}. Please edit the existing invoice instead.`,
+              data: { existingInvoiceId: existingFirstInvoices[0]._id }
+            });
+          }
+        }
+        
+        // Check for existing invoices for additional meters (match by meter number)
+        for (const { bill: meterBill, meter, meterIndex } of meterBillsData) {
+          const meterNo = meterBill.meterNo || meter.meterNo || '';
+          if (meterNo) {
+            const existingMeterInvoices = await PropertyInvoice.aggregate([
+              {
+                $match: {
+                  property: property._id,
+                  $or: [
+                    { periodTo: { $gte: monthStart, $lte: monthEnd } },
+                    { periodFrom: { $gte: monthStart, $lte: monthEnd } }
+                  ],
+                  chargeTypes: ['ELECTRICITY']
+                }
+              },
+              {
+                $lookup: {
+                  from: 'electricities',
+                  localField: 'electricityBill',
+                  foreignField: '_id',
+                  as: 'electricityBillDoc'
+                }
+              },
+              {
+                $match: {
+                  'electricityBillDoc.meterNo': meterNo
+                }
+              }
+            ]);
+            
+            if (existingMeterInvoices && existingMeterInvoices.length > 0) {
+              return res.status(400).json({
+                success: false,
+                message: `An invoice already exists for meter ${meterNo} for ${dayjs(monthStart).format('MMMM YYYY')}. Please edit the existing invoice instead.`,
+                data: { existingInvoiceId: existingMeterInvoices[0]._id }
+              });
+            }
+          }
+        }
+      }
+      
       // Create invoice for first meter (already processed above)
       const firstInvoiceNumber = generateInvoiceNumber(property.srNo, year, month, invoiceType, activeMeters.length > 1 ? 'M1' : '');
       
@@ -1053,11 +1152,118 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     // Single invoice creation (original logic for non-multiple meters or non-electricity)
     const invoiceNumber = generateInvoiceNumber(property.srNo, now.year(), now.month() + 1, invoiceType);
     
+    // Check if invoice already exists for this month before creating
+    // Only check for duplicates if periodTo or periodFrom is provided
+    if (periodTo || periodFrom) {
+      const periodDate = periodTo ? dayjs(periodTo) : dayjs(periodFrom);
+      const periodYear = periodDate.year();
+      const periodMonth = periodDate.month() + 1;
+      const monthStart = dayjs(`${periodYear}-${String(periodMonth).padStart(2, '0')}-01`).startOf('month').toDate();
+      const monthEnd = dayjs(`${periodYear}-${String(periodMonth).padStart(2, '0')}-01`).endOf('month').toDate();
+      
+      // Get unique charge types from charges array
+      const chargeTypesArray = [...new Set(charges.map(c => c.type))];
+      
+      // Build query to find existing invoice for same month
+      const duplicateQuery = {
+        property: property._id,
+        $or: [
+          { periodTo: { $gte: monthStart, $lte: monthEnd } },
+          { periodFrom: { $gte: monthStart, $lte: monthEnd } }
+        ],
+        chargeTypes: { 
+          $all: chargeTypesArray, 
+          $size: chargeTypesArray.length 
+        }
+      };
+      
+      // For electricity invoices, match by meter number instead of electricityBill._id
+      // (since each invoice creates a new Electricity document)
+      if (chargeTypesArray.includes('ELECTRICITY') && electricityBill) {
+        // Use aggregation to find invoices with matching meter number
+        const meterNo = electricityBill.meterNo || '';
+        if (meterNo) {
+          const existingInvoices = await PropertyInvoice.aggregate([
+            {
+              $match: {
+                property: property._id,
+                $or: [
+                  { periodTo: { $gte: monthStart, $lte: monthEnd } },
+                  { periodFrom: { $gte: monthStart, $lte: monthEnd } }
+                ],
+                chargeTypes: { 
+                  $all: chargeTypesArray, 
+                  $size: chargeTypesArray.length 
+                }
+              }
+            },
+            {
+              $lookup: {
+                from: 'electricities',
+                localField: 'electricityBill',
+                foreignField: '_id',
+                as: 'electricityBillDoc'
+              }
+            },
+            {
+              $unwind: {
+                path: '$electricityBillDoc',
+                preserveNullAndEmptyArrays: false
+              }
+            },
+            {
+              $match: {
+                'electricityBillDoc.meterNo': meterNo
+              }
+            }
+          ]);
+          
+          if (existingInvoices && existingInvoices.length > 0) {
+            return res.status(400).json({
+              success: false,
+              message: `An invoice already exists for meter ${meterNo} for ${dayjs(monthStart).format('MMMM YYYY')}. Please edit the existing invoice instead.`,
+              data: { existingInvoiceId: existingInvoices[0]._id }
+            });
+          }
+        } else {
+          // Fallback: if meterNo is not available, use electricityBill._id (less reliable)
+          duplicateQuery.electricityBill = electricityBill._id;
+        }
+      }
+      
+      // For CAM charges, check for duplicates
+      // If camCharge exists, match by camCharge reference
+      // If camCharge is null, still check for duplicates by charge type and month (same property, same month, CAM charges)
+      if (chargeTypesArray.includes('CAM')) {
+        if (camCharge) {
+          duplicateQuery.camCharge = camCharge._id;
+        } else {
+          // If camCharge is null, we still want to prevent duplicates for the same month
+          // Check for any CAM invoice for this property in this month
+          // The chargeTypes filter above already ensures it's a CAM invoice
+        }
+      }
+      
+      // For RENT charges, match the rentPayment reference if available
+      if (chargeTypesArray.includes('RENT') && rentPayment) {
+        duplicateQuery.rentPayment = rentPayment._id;
+      }
+      
+      const existingInvoice = await PropertyInvoice.findOne(duplicateQuery);
+      if (existingInvoice) {
+        return res.status(400).json({
+          success: false,
+          message: `An invoice already exists for ${dayjs(monthStart).format('MMMM YYYY')}. Please edit the existing invoice instead.`,
+          data: { existingInvoiceId: existingInvoice._id }
+        });
+      }
+    }
+    
     const invoiceData = {
       property: property._id,
       invoiceNumber,
       invoiceDate: new Date(),
-      dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+      dueDate: dueDate ? new Date(dueDate) : (periodTo ? new Date(periodTo) : now.add(30, 'day').toDate()),
       periodFrom: periodFrom ? new Date(periodFrom) : undefined,
       periodTo: periodTo ? new Date(periodTo) : undefined,
       chargeTypes: charges.map(c => c.type),
@@ -1183,6 +1389,110 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
     }
 
     const { invoiceNumber, invoiceDate, dueDate, periodFrom, periodTo, charges, subtotal, totalArrears, grandTotal } = req.body;
+
+    // Check for duplicate invoices if periodTo or periodFrom is being updated
+    const updatedPeriodFrom = periodFrom !== undefined ? (periodFrom ? new Date(periodFrom) : null) : invoice.periodFrom;
+    const updatedPeriodTo = periodTo !== undefined ? (periodTo ? new Date(periodTo) : null) : invoice.periodTo;
+    const updatedCharges = charges !== undefined ? charges : invoice.charges;
+    
+    if (updatedPeriodTo || updatedPeriodFrom) {
+      const periodDate = updatedPeriodTo ? dayjs(updatedPeriodTo) : dayjs(updatedPeriodFrom);
+      const periodYear = periodDate.year();
+      const periodMonth = periodDate.month() + 1;
+      const monthStart = dayjs(`${periodYear}-${String(periodMonth).padStart(2, '0')}-01`).startOf('month').toDate();
+      const monthEnd = dayjs(`${periodYear}-${String(periodMonth).padStart(2, '0')}-01`).endOf('month').toDate();
+      
+      // Get unique charge types from charges array
+      const chargeTypesArray = [...new Set(updatedCharges.map(c => c.type))];
+      
+      // Build query to find existing invoice for same month (excluding current invoice)
+      const duplicateQuery = {
+        _id: { $ne: invoice._id }, // Exclude current invoice
+        property: invoice.property,
+        $or: [
+          { periodTo: { $gte: monthStart, $lte: monthEnd } },
+          { periodFrom: { $gte: monthStart, $lte: monthEnd } }
+        ],
+        chargeTypes: { 
+          $all: chargeTypesArray, 
+          $size: chargeTypesArray.length 
+        }
+      };
+      
+      // For electricity invoices, match by meter number instead of electricityBill._id
+      if (chargeTypesArray.includes('ELECTRICITY') && invoice.electricityBill) {
+        // Populate electricityBill to get meterNo
+        await invoice.populate('electricityBill');
+        const meterNo = invoice.electricityBill?.meterNo || '';
+        if (meterNo) {
+          const existingInvoices = await PropertyInvoice.aggregate([
+            {
+              $match: {
+                _id: { $ne: invoice._id }, // Exclude current invoice
+                property: invoice.property,
+                $or: [
+                  { periodTo: { $gte: monthStart, $lte: monthEnd } },
+                  { periodFrom: { $gte: monthStart, $lte: monthEnd } }
+                ],
+                chargeTypes: { 
+                  $all: chargeTypesArray, 
+                  $size: chargeTypesArray.length 
+                }
+              }
+            },
+            {
+              $lookup: {
+                from: 'electricities',
+                localField: 'electricityBill',
+                foreignField: '_id',
+                as: 'electricityBillDoc'
+              }
+            },
+            {
+              $match: {
+                'electricityBillDoc.0.meterNo': meterNo
+              }
+            }
+          ]);
+          
+          if (existingInvoices && existingInvoices.length > 0) {
+            return res.status(400).json({
+              success: false,
+              message: `An invoice already exists for meter ${meterNo} for ${dayjs(monthStart).format('MMMM YYYY')}. Please edit the existing invoice instead.`,
+              data: { existingInvoiceId: existingInvoices[0]._id }
+            });
+          }
+        } else {
+          // Fallback: if meterNo is not available, use electricityBill._id
+          duplicateQuery.electricityBill = invoice.electricityBill;
+        }
+      }
+      
+      // For CAM charges, check for duplicates
+      // If camCharge exists, match by camCharge reference
+      // If camCharge is null, still check for duplicates by charge type and month
+      if (chargeTypesArray.includes('CAM')) {
+        if (invoice.camCharge) {
+          duplicateQuery.camCharge = invoice.camCharge;
+        }
+        // If camCharge is null, the chargeTypes filter above already ensures it's a CAM invoice
+        // So we'll still catch duplicates for the same property and month
+      }
+      
+      // For RENT charges, match the rentPayment reference if available
+      if (chargeTypesArray.includes('RENT') && invoice.rentPayment) {
+        duplicateQuery.rentPayment = invoice.rentPayment;
+      }
+      
+      const existingInvoice = await PropertyInvoice.findOne(duplicateQuery);
+      if (existingInvoice) {
+        return res.status(400).json({
+          success: false,
+          message: `An invoice already exists for ${dayjs(monthStart).format('MMMM YYYY')}. Please edit the existing invoice instead.`,
+          data: { existingInvoiceId: existingInvoice._id }
+        });
+      }
+    }
 
     // Update invoice fields
     if (invoiceNumber !== undefined) invoice.invoiceNumber = invoiceNumber;
