@@ -942,11 +942,67 @@ const EmployeeForm = () => {
         console.error('❌ Error saving employee:', error);
         console.error('❌ Error response:', error.response);
         console.error('❌ Error data:', error.response?.data);
-        setSnackbar({
-          open: true,
-          message: error.response?.data?.message || 'Error saving employee',
-          severity: 'error'
-        });
+        
+        // Handle validation errors with specific field messages
+        if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
+          const validationErrors = error.response.data.errors;
+          
+          // Set formik field errors for each validation error
+          const formikErrors = {};
+          const touchedFields = {};
+          const errorMessages = [];
+          
+          validationErrors.forEach(err => {
+            const fieldName = err.path || err.param || err.field;
+            const errorMessage = err.msg || err.message || 'Invalid value';
+            
+            if (fieldName) {
+              formikErrors[fieldName] = errorMessage;
+              touchedFields[fieldName] = true;
+              
+              // Build user-friendly error message
+              const fieldLabel = fieldName 
+                .split('.')
+                .map(part => part.charAt(0).toUpperCase() + part.slice(1).replace(/([A-Z])/g, ' $1'))
+                .join(' ')
+                .trim();
+              errorMessages.push(`${fieldLabel}: ${errorMessage}`);
+            }
+          });
+          
+          // Set formik errors and mark fields as touched to show errors
+          if (Object.keys(formikErrors).length > 0) {
+            formik.setErrors(formikErrors);
+            formik.setTouched(touchedFields);
+            
+            // Scroll to first error field
+            const firstErrorField = Object.keys(formikErrors)[0];
+            const fieldElement = document.querySelector(`[name="${firstErrorField}"]`);
+            if (fieldElement) {
+              fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              fieldElement.focus();
+            }
+          }
+          
+          // Show comprehensive error message
+          const errorMessage = errorMessages.length > 0 
+            ? `Please fix the following errors:\n${errorMessages.join('\n')}`
+            : error.response?.data?.message || 'Validation failed. Please check the form fields.';
+          
+          setSnackbar({
+            open: true,
+            message: errorMessage,
+            severity: 'error'
+          });
+        } else {
+          // Handle other types of errors (duplicate email, etc.)
+          const errorMessage = error.response?.data?.message || error.message || 'Error saving employee';
+          setSnackbar({
+            open: true,
+            message: errorMessage,
+            severity: 'error'
+          });
+        }
       } finally {
         setLoading(false);
       }

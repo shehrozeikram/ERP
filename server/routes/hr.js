@@ -795,7 +795,7 @@ router.put('/employees/:id', [
   authorize('super_admin', 'admin', 'hr_manager'),
   body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
   body('lastName').optional().trim(),
-  body('email').optional().isEmail().withMessage('Valid email is required'),
+  body('email').optional().isEmail().withMessage('Please enter a valid email address (e.g., name@example.com)'),
   body('phone').optional().trim().notEmpty().withMessage('Phone cannot be empty'),
   body('dateOfBirth').optional().notEmpty().withMessage('Date of birth is required'),
   body('gender').optional().isIn(['male', 'female', 'other']).withMessage('Valid gender is required'),
@@ -825,9 +825,18 @@ router.put('/employees/:id', [
 ], asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      // Build a more descriptive error message
+      const errorMessages = errors.array().map(err => {
+        const fieldName = err.path || err.param || 'field';
+        const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+        return `${fieldLabel}: ${err.msg}`;
+      });
+      
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
+        message: errorMessages.length === 1 
+          ? errorMessages[0] 
+          : `Validation failed. ${errorMessages.join('; ')}`,
         errors: errors.array()
       });
     }
