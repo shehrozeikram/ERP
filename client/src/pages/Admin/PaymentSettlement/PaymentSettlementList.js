@@ -71,7 +71,6 @@ const PaymentSettlementList = () => {
   
   // Filter state
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [workflowStatusFilter, setWorkflowStatusFilter] = useState('');
   const [parentCompanyFilter, setParentCompanyFilter] = useState('');
   const [subsidiaryFilter, setSubsidiaryFilter] = useState('');
@@ -91,15 +90,6 @@ const PaymentSettlementList = () => {
   
   // Stats state
   const [stats, setStats] = useState(null);
-
-  const statusOptions = [
-    { value: '', label: 'All Statuses' },
-    { value: 'Draft', label: 'Draft' },
-    { value: 'Submitted', label: 'Submitted' },
-    { value: 'Approved', label: 'Approved' },
-    { value: 'Rejected', label: 'Rejected' },
-    { value: 'Paid', label: 'Paid' }
-  ];
 
   const workflowStatusOptions = [
     { value: '', label: 'All Workflow Statuses' },
@@ -125,17 +115,6 @@ const PaymentSettlementList = () => {
     return colors[workflowStatus] || 'default';
   };
 
-  const getStatusColor = (status) => {
-    const colors = {
-      'Draft': 'default',
-      'Submitted': 'info',
-      'Approved': 'success',
-      'Rejected': 'error',
-      'Paid': 'success'
-    };
-    return colors[status] || 'default';
-  };
-
   const loadSettlements = useCallback(async () => {
     try {
       setLoading(true);
@@ -143,7 +122,6 @@ const PaymentSettlementList = () => {
         page: page + 1,
         limit: rowsPerPage,
         search,
-        status: statusFilter,
         workflowStatus: workflowStatusFilter,
         parentCompanyName: parentCompanyFilter,
         subsidiaryName: subsidiaryFilter,
@@ -159,7 +137,7 @@ const PaymentSettlementList = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, statusFilter, workflowStatusFilter, parentCompanyFilter, subsidiaryFilter, departmentFilter]);
+  }, [page, rowsPerPage, search, workflowStatusFilter, parentCompanyFilter, subsidiaryFilter, departmentFilter]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -194,9 +172,6 @@ const PaymentSettlementList = () => {
 
   const handleFilterChange = (filterType, value) => {
     switch (filterType) {
-      case 'status':
-        setStatusFilter(value);
-        break;
       case 'workflowStatus':
         setWorkflowStatusFilter(value);
         break;
@@ -247,34 +222,6 @@ const PaymentSettlementList = () => {
     setDeleteDialog({ open: false, settlement: null });
   };
 
-  const getNextStatus = (currentStatus) => {
-    const statusFlow = {
-      'Draft': 'Submitted',
-      'Submitted': 'Approved',
-      'Approved': 'Paid'
-    };
-    return statusFlow[currentStatus];
-  };
-
-  const handleStatusChange = async (settlementId, currentStatus) => {
-    const nextStatus = getNextStatus(currentStatus);
-    
-    if (!nextStatus) {
-      setError('This settlement is already at the final status');
-      return;
-    }
-
-    if (window.confirm(`Move this settlement from "${currentStatus}" to "${nextStatus}"?`)) {
-      try {
-        await paymentSettlementService.updateSettlementStatus(settlementId, nextStatus);
-        setError(null);
-        loadSettlements(); // Refresh the list
-      } catch (error) {
-        console.error('Error updating status:', error);
-        setError(error.response?.data?.message || 'Failed to update status');
-      }
-    }
-  };
 
 
   const formatPKR = (amount) => {
@@ -482,12 +429,6 @@ const PaymentSettlementList = () => {
             <div class="field-row">
               <div class="field-label">Record ID:</div>
               <div class="field-value"><span class="record-id">${settlement?._id || 'N/A'}</span></div>
-            </div>
-            <div class="field-row">
-              <div class="field-label">Status:</div>
-              <div class="field-value">
-                <span class="status-chip status-${settlement?.status?.toLowerCase() || 'draft'}">${settlement?.status || 'N/A'}</span>
-              </div>
             </div>
             <div class="field-row">
               <div class="field-label">Payment Type:</div>
@@ -765,22 +706,6 @@ const PaymentSettlementList = () => {
               placeholder="Search settlements..."
             />
           </Grid>
-          <Grid item xs={12} md={3}>
-            <FormControl fullWidth>
-              <InputLabel>Status</InputLabel>
-              <Select
-                value={statusFilter}
-                onChange={(e) => handleFilterChange('status', e.target.value)}
-                label="Status"
-              >
-                {statusOptions.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
           {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
@@ -830,7 +755,6 @@ const PaymentSettlementList = () => {
             variant="outlined"
             onClick={() => {
               setSearch('');
-              setStatusFilter('');
               setWorkflowStatusFilter('');
               setParentCompanyFilter('');
               setSubsidiaryFilter('');
@@ -855,23 +779,20 @@ const PaymentSettlementList = () => {
                 <TableCell>To Whom Paid</TableCell>
                 <TableCell>Amount</TableCell>
                 <TableCell>Date</TableCell>
-                <TableCell>Status</TableCell>
-                {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
-                  <TableCell>Workflow Status</TableCell>
-                )}
+                <TableCell>Workflow Status</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') ? 9 : 8} align="center">
+                  <TableCell colSpan={8} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : settlements.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') ? 9 : 8} align="center">
+                  <TableCell colSpan={8} align="center">
                     No payment settlements found
                   </TableCell>
                 </TableRow>
@@ -927,20 +848,11 @@ const PaymentSettlementList = () => {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={settlement.status}
-                        color={getStatusColor(settlement.status)}
+                        label={settlement.workflowStatus || 'Draft'}
+                        color={getWorkflowStatusColor(settlement.workflowStatus || 'Draft')}
                         size="small"
                       />
                     </TableCell>
-                    {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
-                      <TableCell>
-                        <Chip
-                          label={settlement.workflowStatus || 'Draft'}
-                          color={getWorkflowStatusColor(settlement.workflowStatus || 'Draft')}
-                          size="small"
-                        />
-                      </TableCell>
-                    )}
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Tooltip title="View Details">
@@ -964,17 +876,6 @@ const PaymentSettlementList = () => {
                               color="primary"
                             >
                               <ScheduleIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {getNextStatus(settlement.status) && (
-                          <Tooltip title={`Move to ${getNextStatus(settlement.status)}`}>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleStatusChange(settlement._id, settlement.status)}
-                              color="success"
-                            >
-                              <ArrowForwardIcon />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1058,8 +959,8 @@ const PaymentSettlementList = () => {
                     <Grid item xs={12} md={6}>
                       <Stack direction="row" alignItems="center" spacing={2}>
                         <Chip
-                          label={viewDialog.settlement.status}
-                          color={getStatusColor(viewDialog.settlement.status)}
+                          label={viewDialog.settlement.workflowStatus || 'Draft'}
+                          color={getWorkflowStatusColor(viewDialog.settlement.workflowStatus || 'Draft')}
                           size="medium"
                           icon={<CheckCircleIcon />}
                         />

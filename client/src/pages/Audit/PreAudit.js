@@ -38,7 +38,9 @@ import {
   Tab,
   Stack,
   Tooltip,
-  Badge
+  Badge,
+  Avatar,
+  CircularProgress
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -56,13 +58,21 @@ import {
   Schedule as ScheduleIcon,
   AttachFile as AttachFileIcon,
   Download as DownloadIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  Payment as PaymentIcon,
+  AccountBalance as AccountBalanceIcon,
+  Person as PersonIcon,
+  Assignment as AssignmentIcon,
+  AttachMoney as AttachMoneyIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
+import paymentSettlementService from '../../services/paymentSettlementService';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
+import toast from 'react-hot-toast';
 
 const PreAudit = () => {
   const theme = useTheme();
@@ -87,7 +97,8 @@ const PreAudit = () => {
   const [tabValue, setTabValue] = useState(0);
   
   // Dialog states
-  const [viewDialog, setViewDialog] = useState({ open: false, document: null });
+  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false });
+  const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [approveDialog, setApproveDialog] = useState({ open: false, document: null });
   const [observationDialog, setObservationDialog] = useState({ open: false, document: null });
   const [returnDialog, setReturnDialog] = useState({ open: false, document: null });
@@ -287,6 +298,14 @@ const PreAudit = () => {
       critical: 'error'
     };
     return colors[severity] || 'default';
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   return (
@@ -503,7 +522,32 @@ const PreAudit = () => {
                           <Tooltip title="View Details">
                             <IconButton
                               size="small"
-                              onClick={() => setViewDialog({ open: true, document: doc })}
+                              onClick={async () => {
+                                setViewDialog({ open: true, document: doc, fullDocument: null, loading: true });
+                                
+                                // If it's a workflow document, fetch the full document details
+                                if (doc.isWorkflowDocument && doc.workflowSubmodule === 'payment_settlement') {
+                                  try {
+                                    const response = await paymentSettlementService.getPaymentSettlement(doc._id);
+                                    setViewDialog({ 
+                                      open: true, 
+                                      document: doc, 
+                                      fullDocument: response.data?.data || response.data,
+                                      loading: false 
+                                    });
+                                  } catch (error) {
+                                    console.error('Error fetching full document:', error);
+                                    setViewDialog({ 
+                                      open: true, 
+                                      document: doc, 
+                                      fullDocument: doc.originalDocument || null,
+                                      loading: false 
+                                    });
+                                  }
+                                } else {
+                                  setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
+                                }
+                              }}
                             >
                               <ViewIcon fontSize="small" />
                             </IconButton>
@@ -577,83 +621,640 @@ const PreAudit = () => {
       {/* View Document Dialog */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog({ open: false, document: null })}
-        maxWidth="md"
+        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+        maxWidth="lg"
         fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+          }
+        }}
       >
-        <DialogTitle>
-          Document Details - {viewDialog.document?.documentNumber}
-        </DialogTitle>
-        <DialogContent>
-          {viewDialog.document && (
+        <DialogTitle sx={{ 
+          pb: 2, 
+          borderBottom: '1px solid', 
+          borderColor: 'divider',
+          background: viewDialog.document?.isWorkflowDocument 
+            ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+            : 'inherit',
+          color: viewDialog.document?.isWorkflowDocument ? 'white' : 'inherit'
+        }}>
+          <Stack direction="row" alignItems="center" spacing={2}>
+            {viewDialog.document?.isWorkflowDocument && (
+              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                <PaymentIcon />
+              </Avatar>
+            )}
             <Box>
-              <Grid container spacing={2} sx={{ mt: 1 }}>
-                <Grid item xs={12}>
-                  <Typography variant="h6">{viewDialog.document.title}</Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    {viewDialog.document.description}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Department</Typography>
-                  <Typography variant="body2">{viewDialog.document.sourceDepartmentName}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Module</Typography>
-                  <Typography variant="body2">{viewDialog.document.sourceModule}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Document Type</Typography>
-                  <Typography variant="body2">{viewDialog.document.documentType}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" color="text.secondary">Document Date</Typography>
-                  <Typography variant="body2">{formatDate(viewDialog.document.documentDate)}</Typography>
-                </Grid>
-                {viewDialog.document.amount && (
-                  <Grid item xs={6}>
-                    <Typography variant="caption" color="text.secondary">Amount</Typography>
-                    <Typography variant="body2">{formatPKR(viewDialog.document.amount)}</Typography>
-                  </Grid>
-                )}
-                {viewDialog.document.observations && viewDialog.document.observations.length > 0 && (
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Observations</Typography>
-                    {viewDialog.document.observations.map((obs, idx) => (
-                      <Paper key={idx} sx={{ p: 2, mb: 1, bgcolor: alpha(theme.palette.warning.main, 0.1) }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                          <Chip
-                            label={obs.severity}
-                            size="small"
-                            color={getSeverityColor(obs.severity)}
-                          />
-                          <Typography variant="caption" color="text.secondary">
-                            {formatDate(obs.addedAt)}
+              <Typography variant="h5" fontWeight="bold">
+                {viewDialog.document?.isWorkflowDocument ? 'Payment Settlement Details' : 'Document Details'}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                {viewDialog.document?.isWorkflowDocument 
+                  ? (viewDialog.fullDocument?.referenceNumber || viewDialog.document?.documentNumber)
+                  : viewDialog.document?.documentNumber}
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {viewDialog.loading ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <CircularProgress />
+              <Typography variant="body2" sx={{ mt: 2 }}>Loading document details...</Typography>
+            </Box>
+          ) : viewDialog.document && (
+            <Box sx={{ p: 3 }}>
+              {/* Show Payment Settlement details if it's a workflow document */}
+              {viewDialog.document.isWorkflowDocument && viewDialog.fullDocument ? (
+                <>
+                  {/* Header with Status and Amount */}
+                  <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' }}>
+                    <CardContent>
+                      <Grid container spacing={3} alignItems="center">
+                        <Grid item xs={12} md={6}>
+                          <Stack direction="row" alignItems="center" spacing={2}>
+                            <Chip
+                              label={viewDialog.fullDocument.workflowStatus || viewDialog.document.workflowStatus || 'Draft'}
+                              color={getStatusColor(viewDialog.document.status)}
+                              size="medium"
+                              icon={<CheckCircleIcon />}
+                            />
+                            <Chip
+                              label={viewDialog.fullDocument.paymentType}
+                              color={
+                                viewDialog.fullDocument.paymentType === 'Payable' ? 'primary' : 
+                                viewDialog.fullDocument.paymentType === 'Reimbursement' ? 'secondary' : 
+                                viewDialog.fullDocument.paymentType === 'Advance' ? 'success' : 'default'
+                              }
+                              size="medium"
+                              variant="outlined"
+                            />
+                          </Stack>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Stack direction="row" alignItems="center" spacing={2}>
+                            <AttachMoneyIcon color="primary" />
+                            <Box>
+                              <Typography variant="h4" fontWeight="bold" color="primary">
+                                {formatPKR(viewDialog.fullDocument.grandTotal || viewDialog.fullDocument.amount || 0)}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Grand Total
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+
+                  {/* Company Details Section */}
+                  <Card sx={{ mb: 3 }}>
+                    <CardContent>
+                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                        <Avatar sx={{ bgcolor: 'primary.main' }}>
+                          <BusinessIcon />
+                        </Avatar>
+                        <Typography variant="h6" fontWeight="bold">
+                          Company Details
+                        </Typography>
+                      </Stack>
+                      <Grid container spacing={3}>
+                        <Grid item xs={12} md={6}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <BusinessIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Parent Company
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.parentCompanyName}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <AccountBalanceIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Subsidiary
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.subsidiaryName}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+
+                  {/* Payment Details Section */}
+                  <Card sx={{ mb: 3 }}>
+                    <CardContent>
+                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                        <Avatar sx={{ bgcolor: 'success.main' }}>
+                          <PaymentIcon />
+                        </Avatar>
+                        <Typography variant="h6" fontWeight="bold">
+                          Payment Details
+                        </Typography>
+                      </Stack>
+                      <Grid container spacing={3}>
+                        <Grid item xs={12} md={6}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <AssignmentIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Reference Number
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.referenceNumber}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <ScheduleIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Date
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium">
+                              {formatDate(viewDialog.fullDocument.date)}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <AttachMoneyIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Amount
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium" color="primary">
+                              {formatPKR(viewDialog.fullDocument.amount)}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <PersonIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                To Whom Paid
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.toWhomPaid}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                              <AssignmentIcon color="primary" fontSize="small" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                For What
+                              </Typography>
+                            </Stack>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.forWhat}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+
+                  {/* Authorization Details Section */}
+                  <Card sx={{ mb: 3 }}>
+                    <CardContent>
+                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                        <Avatar sx={{ bgcolor: 'warning.main' }}>
+                          <PersonIcon />
+                        </Avatar>
+                        <Typography variant="h6" fontWeight="bold">
+                          Authorization Details
+                        </Typography>
+                      </Stack>
+                      <Grid container spacing={3}>
+                        <Grid item xs={12} md={4}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
+                            <PersonIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
+                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                              Prepared By
+                            </Typography>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.preparedBy}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {viewDialog.fullDocument.preparedByDesignation}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
+                            <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                              Verified By
+                            </Typography>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.verifiedBy}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {viewDialog.fullDocument.verifiedByDesignation}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
+                            <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                              Approved By
+                            </Typography>
+                            <Typography variant="body1" fontWeight="medium">
+                              {viewDialog.fullDocument.approvedBy}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {viewDialog.fullDocument.approvedByDesignation}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+
+                  {/* Additional Details Section */}
+                  {(viewDialog.fullDocument.site || viewDialog.fullDocument.fromDepartment || viewDialog.fullDocument.custodian) && (
+                    <Card sx={{ mb: 3 }}>
+                      <CardContent>
+                        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                          <Avatar sx={{ bgcolor: 'info.main' }}>
+                            <AssignmentIcon />
+                          </Avatar>
+                          <Typography variant="h6" fontWeight="bold">
+                            Additional Details
                           </Typography>
-                        </Box>
-                        <Typography variant="body2">{obs.observation}</Typography>
-                      </Paper>
-                    ))}
-                  </Grid>
-                )}
-                {viewDialog.document.attachments && viewDialog.document.attachments.length > 0 && (
+                        </Stack>
+                        <Grid container spacing={3}>
+                          {viewDialog.fullDocument.site && (
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                                  Site
+                                </Typography>
+                                <Typography variant="body1" fontWeight="medium">
+                                  {viewDialog.fullDocument.site}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )}
+                          {viewDialog.fullDocument.fromDepartment && (
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                                  From Department
+                                </Typography>
+                                <Typography variant="body1" fontWeight="medium">
+                                  {viewDialog.fullDocument.fromDepartment}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )}
+                          {viewDialog.fullDocument.custodian && (
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                                  Custodian
+                                </Typography>
+                                <Typography variant="body1" fontWeight="medium">
+                                  {viewDialog.fullDocument.custodian}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Document Attachments Section */}
+                  {viewDialog.fullDocument.attachments && viewDialog.fullDocument.attachments.length > 0 && (
+                    <Card sx={{ mb: 3 }}>
+                      <CardContent>
+                        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                          <Avatar sx={{ bgcolor: 'secondary.main' }}>
+                            <AttachFileIcon />
+                          </Avatar>
+                          <Typography variant="h6" fontWeight="bold">
+                            Document Attachments ({viewDialog.fullDocument.attachments.length})
+                          </Typography>
+                        </Stack>
+                        <Grid container spacing={2}>
+                          {viewDialog.fullDocument.attachments.map((attachment, index) => {
+                            const attachmentUrl = paymentSettlementService.getAttachmentUrl(viewDialog.fullDocument._id, attachment._id);
+                            const isImage = attachment.mimeType.startsWith('image/');
+                            const isPdf = attachment.mimeType === 'application/pdf';
+                            
+                            return (
+                              <Grid item xs={12} sm={6} md={4} key={attachment._id || index}>
+                                <Box 
+                                  sx={{ 
+                                    p: 2, 
+                                    bgcolor: 'grey.50', 
+                                    borderRadius: 1, 
+                                    border: '1px solid', 
+                                    borderColor: 'grey.200',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease-in-out',
+                                    '&:hover': {
+                                      bgcolor: 'grey.100',
+                                      borderColor: 'primary.main',
+                                      transform: 'translateY(-2px)',
+                                      boxShadow: 2
+                                    }
+                                  }}
+                                  onClick={async () => {
+                                    if (isImage) {
+                                      try {
+                                        const blobUrl = await paymentSettlementService.getAttachmentBlobUrl(viewDialog.fullDocument._id, attachment._id);
+                                        setImageViewer({
+                                          open: true,
+                                          imageUrl: blobUrl,
+                                          imageName: attachment.originalName,
+                                          isBlob: true
+                                        });
+                                      } catch (error) {
+                                        toast.error('Failed to load image');
+                                      }
+                                    } else if (isPdf) {
+                                      window.open(attachmentUrl, '_blank');
+                                    } else {
+                                      const link = document.createElement('a');
+                                      link.href = attachmentUrl;
+                                      link.download = attachment.originalName;
+                                      link.target = '_blank';
+                                      document.body.appendChild(link);
+                                      link.click();
+                                      document.body.removeChild(link);
+                                    }
+                                  }}
+                                >
+                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                                    <AttachFileIcon color="primary" fontSize="small" />
+                                    <Typography variant="body2" fontWeight="medium" noWrap>
+                                      {attachment.originalName}
+                                    </Typography>
+                                  </Stack>
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    Size: {formatFileSize(attachment.fileSize)}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    Type: {attachment.mimeType}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    Uploaded: {new Date(attachment.uploadedAt).toLocaleDateString()}
+                                  </Typography>
+                                  <Typography variant="caption" color="primary" display="block" sx={{ mt: 1, fontWeight: 'medium' }}>
+                                    {isImage ? 'Click to view image' : isPdf ? 'Click to view PDF' : 'Click to download'}
+                                  </Typography>
+                                </Box>
+                              </Grid>
+                            );
+                          })}
+                        </Grid>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Workflow History Section */}
+                  {viewDialog.document.workflowHistory && viewDialog.document.workflowHistory.length > 0 && (
+                    <Card sx={{ mb: 3 }}>
+                      <CardContent>
+                        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                          <Avatar sx={{ bgcolor: 'info.main' }}>
+                            <ScheduleIcon />
+                          </Avatar>
+                          <Typography variant="h6" fontWeight="bold">
+                            Workflow History
+                          </Typography>
+                        </Stack>
+                        <Stack spacing={2}>
+                          {viewDialog.document.workflowHistory.map((history, idx) => (
+                            <Paper key={idx} sx={{ p: 2, bgcolor: 'grey.50' }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {history.fromStatus} → {history.toStatus}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {formatDate(history.changedAt)}
+                                </Typography>
+                              </Box>
+                              {history.comments && (
+                                <Typography variant="body2" color="text.secondary">
+                                  {history.comments}
+                                </Typography>
+                              )}
+                              {history.changedBy && (
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                  By: {history.changedBy.firstName} {history.changedBy.lastName}
+                                </Typography>
+                              )}
+                            </Paper>
+                          ))}
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              ) : (
+                /* Regular Pre Audit Document View */
+                <Grid container spacing={2} sx={{ mt: 1 }}>
                   <Grid item xs={12}>
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>Attachments</Typography>
-                    {viewDialog.document.attachments.map((att, idx) => (
-                      <Box key={idx} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <AttachFileIcon sx={{ mr: 1 }} />
-                        <Typography variant="body2">{att.originalName}</Typography>
-                      </Box>
-                    ))}
+                    <Typography variant="h6">{viewDialog.document.title}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      {viewDialog.document.description}
+                    </Typography>
                   </Grid>
-                )}
-              </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Department</Typography>
+                    <Typography variant="body2">{viewDialog.document.sourceDepartmentName}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Module</Typography>
+                    <Typography variant="body2">{viewDialog.document.sourceModule}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Document Type</Typography>
+                    <Typography variant="body2">{viewDialog.document.documentType}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Document Date</Typography>
+                    <Typography variant="body2">{formatDate(viewDialog.document.documentDate)}</Typography>
+                  </Grid>
+                  {viewDialog.document.amount && (
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Amount</Typography>
+                      <Typography variant="body2">{formatPKR(viewDialog.document.amount)}</Typography>
+                    </Grid>
+                  )}
+                  {viewDialog.document.observations && viewDialog.document.observations.length > 0 && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Observations</Typography>
+                      {viewDialog.document.observations.map((obs, idx) => (
+                        <Paper key={idx} sx={{ p: 2, mb: 1, bgcolor: alpha(theme.palette.warning.main, 0.1) }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Chip
+                              label={obs.severity}
+                              size="small"
+                              color={getSeverityColor(obs.severity)}
+                            />
+                            <Typography variant="caption" color="text.secondary">
+                              {formatDate(obs.addedAt)}
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2">{obs.observation}</Typography>
+                        </Paper>
+                      ))}
+                    </Grid>
+                  )}
+                  {viewDialog.document.attachments && viewDialog.document.attachments.length > 0 && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Attachments</Typography>
+                      {viewDialog.document.attachments.map((att, idx) => (
+                        <Box key={idx} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <AttachFileIcon sx={{ mr: 1 }} />
+                          <Typography variant="body2">{att.originalName}</Typography>
+                        </Box>
+                      ))}
+                    </Grid>
+                  )}
+                </Grid>
+              )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setViewDialog({ open: false, document: null })}>Close</Button>
+        <DialogActions sx={{ p: 3, borderTop: '1px solid', borderColor: 'divider' }}>
+          <Button 
+            onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+            variant="outlined"
+            sx={{ minWidth: 100 }}
+          >
+            Close
+          </Button>
+          {viewDialog.document?.isWorkflowDocument && viewDialog.document?.workflowConfig && (
+            <Button 
+              variant="contained"
+              onClick={() => {
+                setViewDialog({ open: false, document: null, fullDocument: null, loading: false });
+                navigate(`${viewDialog.document.workflowConfig.routePath}/${viewDialog.document._id}`);
+              }}
+              sx={{ minWidth: 120 }}
+            >
+              View Original Document
+            </Button>
+          )}
         </DialogActions>
+      </Dialog>
+
+      {/* Image Viewer Modal */}
+      <Dialog
+        open={imageViewer.open}
+        onClose={() => {
+          if (imageViewer.isBlob && imageViewer.imageUrl) {
+            URL.revokeObjectURL(imageViewer.imageUrl);
+          }
+          setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+        }}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: 'transparent',
+            boxShadow: 'none',
+            maxHeight: '90vh'
+          }
+        }}
+      >
+        <Box
+          sx={{
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '60vh',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            borderRadius: 2,
+            p: 2
+          }}
+        >
+          <IconButton
+            onClick={() => {
+              if (imageViewer.isBlob && imageViewer.imageUrl) {
+                URL.revokeObjectURL(imageViewer.imageUrl);
+              }
+              setImageViewer({ open: false, imageUrl: '', imageName: '', isBlob: false });
+            }}
+            sx={{
+              position: 'absolute',
+              top: 16,
+              right: 16,
+              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.3)'
+              },
+              zIndex: 1
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+          <Box
+            sx={{
+              maxWidth: '100%',
+              maxHeight: '80vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <img
+              src={imageViewer.imageUrl}
+              alt={imageViewer.imageName}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'contain',
+                borderRadius: 8,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+              }}
+            />
+          </Box>
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 16,
+              left: 16,
+              right: 16,
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              borderRadius: 1,
+              p: 2,
+              color: 'white'
+            }}
+          >
+            <Typography variant="subtitle1" fontWeight="bold" noWrap>
+              {imageViewer.imageName}
+            </Typography>
+          </Box>
+        </Box>
       </Dialog>
 
       {/* Approve Dialog */}

@@ -40,11 +40,10 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getModuleMenuItems, getUserAllowedSubmodules } from '../../utils/permissions';
+import { getModuleMenuItems } from '../../utils/permissions';
 import NotificationService from '../../services/notificationService';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
-import api from '../../services/api';
 
 const drawerWidth = 280;
 
@@ -242,47 +241,69 @@ const Sidebar = () => {
     
     // If user has sub-roles, show only items they have permissions for
     if (user?.subRoles && user.subRoles.length > 0) {
+      // Get modules that user has sub-roles for
+      const userSubRoleModules = new Set();
+      user.subRoles.forEach(subRole => {
+        if (subRole && subRole.module) {
+          userSubRoleModules.add(subRole.module);
+        }
+      });
+      
       return baseMenuItems.map(module => {
+        const moduleName = getModuleNameFromPath(module.path);
+        
+        // If user has sub-roles, only show modules that match their sub-role modules
+        // This ensures users with only HR sub-roles don't see Admin/General modules
+        if (userSubRoleModules.size > 0 && !userSubRoleModules.has(moduleName)) {
+          return null; // Filter out this module
+        }
+        
         if (module.subItems) {
-          // Check if main role has access to this module
-          const mainRoleHasAccess = baseMenuItems.some(m => m.path === module.path);
-          
           // Special handling for HR module: hr_manager should only see Evaluation & Appraisal
-          if (mainRoleHasAccess && module.path === '/hr' && userRole === 'hr_manager') {
-            const filteredSubItems = module.subItems.filter(subItem => {
-              // Only show Evaluation & Appraisal submodule
-              return subItem.path === '/hr/evaluation-appraisal/dashboard' || 
-                     subItem.path?.startsWith('/hr/evaluation-appraisal');
-            });
-            return {
-              ...module,
-              subItems: filteredSubItems
-            };
+          // BUT only if they don't have HR sub-roles with full access
+          if (module.path === '/hr' && userRole === 'hr_manager') {
+            // Check if user has HR sub-role with full access (not just evaluation_appraisal)
+            const hasHRSubRole = user.subRoles.some(subRole => 
+              subRole && subRole.module === 'hr'
+            );
+            
+            // If user has HR sub-role, show all HR submodules (don't filter to only Evaluation & Appraisal)
+            if (hasHRSubRole) {
+              // Show all subItems for HR module
+              return module;
+            } else {
+              // No HR sub-role, apply the default filter (only Evaluation & Appraisal)
+              const filteredSubItems = module.subItems.filter(subItem => {
+                return subItem.path === '/hr/evaluation-appraisal/dashboard' || 
+                       subItem.path?.startsWith('/hr/evaluation-appraisal');
+              });
+              return {
+                ...module,
+                subItems: filteredSubItems
+              };
+            }
           }
           
-          // If main role has access to other modules (Admin, General), show all subItems (don't filter by sub-roles)
-          if (mainRoleHasAccess) {
-            return module;
-          }
-          
-          // Otherwise, filter submenu items based on sub-role permissions
+          // Filter submenu items based on sub-role permissions
           const allowedSubmenuItems = module.subItems.filter(submenuItem => {
             // Get the submodule name from the path
             const submoduleName = getSubmoduleFromPath(submenuItem.path);
             
             // Check if user has sub-role permission for this submenu
             const hasPermission = user.subRoles.some(subRole => {
-              const allowedSubmodules = getAllowedSubmodules(subRole);
-              const moduleName = getModuleNameFromPath(submenuItem.path);
-              
-              // If no specific submodule mapping exists, check if user has any sub-role for this module
-              if (!submoduleName) {
-                return subRole.module === moduleName;
+              if (!subRole || subRole.module !== moduleName) {
+                return false;
               }
               
-              // Check if subRole matches the current module and has permission for this submodule
-              return subRole.module === moduleName && 
-                     allowedSubmodules.includes(submoduleName);
+              const allowedSubmodules = getAllowedSubmodules(subRole);
+              
+              // If no specific submodule mapping exists, allow if user has sub-role for this module
+              if (!submoduleName) {
+                return true;
+              }
+              
+              // Check if subRole has permission for this submodule
+              return allowedSubmodules.includes(submoduleName);
             });
             
             return hasPermission;
@@ -295,17 +316,12 @@ const Sidebar = () => {
         }
         return module;
       }).filter(module => {
-        // Don't remove modules that are accessible by main role (e.g., hr_manager has admin access)
-        // Only filter out modules if user has sub-roles AND main role doesn't have access
-        const moduleName = getModuleNameFromPath(module.path);
-        const mainRoleHasAccess = baseMenuItems.some(m => m.path === module.path);
-        
-        // If main role has access, always show the module (even if sub-roles filtered out all subItems)
-        if (mainRoleHasAccess) {
-          return true;
+        // Remove null modules (filtered out)
+        if (!module) {
+          return false;
         }
         
-        // Otherwise, remove modules that have no allowed submenu items
+        // Remove modules that have no allowed submenu items
         if (module.subItems) {
           return module.subItems.length > 0;
         }

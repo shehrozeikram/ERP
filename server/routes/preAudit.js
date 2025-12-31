@@ -129,11 +129,12 @@ router.get('/',
         
         // Map Pre Audit status to workflow statuses
         // Always fetch all relevant workflow statuses, then filter by mapped status
+        // IMPORTANT: Use exact match for "Send to Audit" and "Returned from Audit" to avoid partial matches
         const statusConditions = [
           { [config.workflowStatusField]: 'Send to Audit' },
-          { [config.workflowStatusField]: { $regex: /^Approved \(from Send to Audit\)$/ } },
+          { [config.workflowStatusField]: { $regex: /^Approved \(from Send to Audit\)/ } },
           { [config.workflowStatusField]: 'Returned from Audit' },
-          { [config.workflowStatusField]: { $regex: /^Rejected \(from Send to Audit\)$/ } }
+          { [config.workflowStatusField]: { $regex: /^Rejected \(from Send to Audit\)/ } }
         ];
         
         const workflowQuery = {
@@ -164,21 +165,38 @@ router.get('/',
           const workflowStatus = doc[config.workflowStatusField] || 'Draft';
           
           // Map workflow status to Pre Audit status for tab filtering
+          // IMPORTANT: Order matters - check more specific statuses first
+          // Use strict matching to ensure documents appear in correct tabs
           let preAuditStatus = 'pending';
-          if (workflowStatus === 'Send to Audit') {
-            preAuditStatus = 'pending';
-          } else if (workflowStatus.startsWith('Approved (from Send to Audit)')) {
+          
+          // Check for approved status first (must be explicitly approved from audit)
+          // Must match exactly: "Approved (from Send to Audit)" or start with it
+          if (workflowStatus && 
+              (workflowStatus === 'Approved (from Send to Audit)' || 
+               workflowStatus.startsWith('Approved (from Send to Audit)'))) {
             preAuditStatus = 'approved';
-          } else if (workflowStatus === 'Returned from Audit' || workflowStatus.startsWith('Rejected (from Send to Audit)')) {
+          }
+          // Check for returned/rejected status
+          else if (workflowStatus === 'Returned from Audit' || 
+                   (workflowStatus && workflowStatus.startsWith('Rejected (from Send to Audit)'))) {
             preAuditStatus = 'returned_with_observations';
           }
-          
-          // Check if document is under review (has observations but not yet returned/approved)
-          const hasObservations = doc.workflowHistory && doc.workflowHistory.some(h => 
-            h.comments && (h.comments.includes('Observation') || h.comments.includes('observation'))
-          );
-          if (workflowStatus === 'Send to Audit' && hasObservations && preAuditStatus === 'pending') {
-            preAuditStatus = 'under_review';
+          // Check if document is under review (has observations but still in "Send to Audit" status)
+          // Must be exactly "Send to Audit" status
+          else if (workflowStatus === 'Send to Audit') {
+            // Check if document has observations in workflow history
+            const hasObservations = doc.workflowHistory && doc.workflowHistory.some(h => 
+              h.comments && (h.comments.toLowerCase().includes('observation') || h.comments.toLowerCase().includes('observation:'))
+            );
+            if (hasObservations) {
+              preAuditStatus = 'under_review';
+            } else {
+              preAuditStatus = 'pending';
+            }
+          }
+          // Default to pending for any other status (shouldn't happen for documents sent to audit)
+          else {
+            preAuditStatus = 'pending';
           }
           
           workflowDocs.push({
@@ -220,11 +238,12 @@ router.get('/',
     let filteredDocuments = allDocuments;
     if (status) {
       filteredDocuments = allDocuments.filter(doc => {
-        // For workflow documents, check the mapped status
+        // For workflow documents, check the mapped status (must match exactly)
         if (doc.isWorkflowDocument) {
+          // Ensure status matches exactly - no partial matches
           return doc.status === status;
         }
-        // For regular Pre Audit documents, check the status field
+        // For regular Pre Audit documents, check the status field (must match exactly)
         return doc.status === status;
       });
     }
