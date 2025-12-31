@@ -110,6 +110,7 @@ import RentalManagementDetail from './pages/Admin/RentalManagement/RentalManagem
 import PaymentSettlement from './pages/Admin/PaymentSettlement/PaymentSettlement';
 import SubRoleManagement from './pages/Admin/SubRoleManagement';
 import RoleManagement from './pages/Admin/RoleManagement';
+import AdminDashboard from './pages/Admin/AdminDashboard';
 
 // IT Module Components
 import ITDashboard from './pages/IT/ITDashboard';
@@ -163,6 +164,7 @@ import AuditReports from './pages/Audit/AuditReports';
 import AuditSchedules from './pages/Audit/AuditSchedules';
 import AuditForm from './pages/Audit/AuditForm';
 import CorrectiveActionForm from './pages/Audit/CorrectiveActionForm';
+import PreAudit from './pages/Audit/PreAudit';
 
 import DepartmentManagement from './pages/HR/DepartmentManagement';
 import PositionManagement from './pages/HR/PositionManagement';
@@ -894,7 +896,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-agreements"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <RentalAgreementsFinance />
                 </ProtectedRoute>
               }
@@ -902,7 +904,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-agreements/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <RentalAgreementDetailFinance />
                 </ProtectedRoute>
               }
@@ -926,7 +928,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-residents"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <TajResidents />
                 </ProtectedRoute>
               }
@@ -934,7 +936,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-residents/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <TajResidentDetail />
                 </ProtectedRoute>
               }
@@ -942,7 +944,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-properties"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <TajProperties />
                 </ProtectedRoute>
               }
@@ -950,7 +952,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/taj-properties/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <TajPropertyDetail />
                 </ProtectedRoute>
               }
@@ -1118,205 +1120,209 @@ function App() {
 
             {/* Admin Module */}
             <Route 
+              path="/admin/dashboard" 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "am_admin", "hod_admin", "audit_manager", "finance_manager", "ceo_office", "hr_manager"]}><AdminDashboard /></ProtectedRoute>} 
+            />
+            <Route 
               path="/admin/users" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UserManagement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "appraisal_manager"]}><UserManagement /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/sub-roles" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><SubRoleManagement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><SubRoleManagement /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/roles" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RoleManagement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><RoleManagement /></ProtectedRoute>} 
             />
             {/* Vehicle Management Routes */}
             <Route 
               path="/admin/vehicle-management" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/:id/view" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetailsView /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleDetailsView /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleDetails /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/vehicles/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/location" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLocationList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleLocationList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleMaintenanceList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleMaintenanceList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleMaintenanceForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleMaintenanceForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/maintenance/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleMaintenanceForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleMaintenanceForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleLogBookList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleLogBookForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook/:id/view" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookDetailsView /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleLogBookDetailsView /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/logbook/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleLogBookForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleLogBookForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicle-management/reports" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleReports /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleReports /></ProtectedRoute>} 
             />
             {/* Legacy vehicle routes for backward compatibility */}
             <Route 
               path="/admin/vehicles" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/:id/view" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetailsView /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleDetailsView /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleDetails /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/vehicles/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><VehicleForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><VehicleForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><GroceryForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/groceries/stock-alerts" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StockAlerts /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StockAlerts /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PettyCashDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PettyCashDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/funds/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><FundForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><FundForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/funds/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><FundForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><FundForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/expenses/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><ExpenseForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><ExpenseForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/petty-cash/expenses/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><ExpenseForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><ExpenseForm /></ProtectedRoute>} 
             />
             
             {/* Event Management Routes */}
             <Route 
               path="/admin/events" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/list" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventDetails /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventDetails /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/events/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><EventForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventForm /></ProtectedRoute>} 
             />
             
             {/* Staff Management Routes */}
             <Route 
               path="/admin/staff-management" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffManagementDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffManagementDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/staff-management/assignments/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><StaffAssignmentForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentForm /></ProtectedRoute>} 
             />
             <Route
               path="/admin/staff-management/locations"
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><LocationManagement /></ProtectedRoute>}
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><LocationManagement /></ProtectedRoute>}
             />
 
 
             {/* Utility Bills Management Routes */}
             <Route 
               path="/admin/utility-bills" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/list" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/new" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/:id/edit" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillForm /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/utility-bills/:id" 
@@ -1326,33 +1332,33 @@ function App() {
             {/* Rental Management Routes */}
             <Route 
               path="/admin/rental-agreements" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalAgreementList /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><RentalAgreementList /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/rental-agreements/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalAgreementDetail /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><RentalAgreementDetail /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/rental-management" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalManagementDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><RentalManagementDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/rental-management/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><RentalManagementDetail /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><RentalManagementDetail /></ProtectedRoute>} 
             />
 
             {/* Payment Settlement Routes */}
             <Route 
               path="/admin/payment-settlement/:action/:id" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PaymentSettlement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PaymentSettlement /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/payment-settlement/:action" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PaymentSettlement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PaymentSettlement /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/payment-settlement" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><PaymentSettlement /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PaymentSettlement /></ProtectedRoute>} 
             />
 
             {/* IT Module Routes */}
@@ -1627,6 +1633,10 @@ function App() {
             <Route 
               path="/audit/schedules" 
               element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><AuditSchedules /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/audit/pre-audit" 
+              element={<ProtectedRoute requiredRole={["super_admin", "audit_manager", "auditor"]}><PreAudit /></ProtectedRoute>} 
             />
 
             {/* HR Management Routes */}

@@ -10,6 +10,9 @@ const {
   updatePaymentSettlement,
   deletePaymentSettlement,
   updateSettlementStatus,
+  updateWorkflowStatus,
+  approveDocument,
+  rejectDocument,
   getSettlementStats,
   deleteAttachment,
   upload
@@ -47,6 +50,21 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'payment_settleme
 // @route   PATCH /api/payment-settlements/:id/status
 // @access  Private (Admin)
 router.patch('/:id/status', permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve'), updateSettlementStatus);
+
+// @desc    Update workflow status
+// @route   PATCH /api/payment-settlements/:id/workflow-status
+// @access  Private (Admin)
+router.patch('/:id/workflow-status', permissions.checkSubRolePermission('admin', 'payment_settlement', 'update'), updateWorkflowStatus);
+
+// @desc    Approve document
+// @route   PATCH /api/payment-settlements/:id/approve
+// @access  Private (Admin)
+router.patch('/:id/approve', permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve'), approveDocument);
+
+// @desc    Reject document
+// @route   PATCH /api/payment-settlements/:id/reject
+// @access  Private (Admin)
+router.patch('/:id/reject', permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve'), rejectDocument);
 
 // @desc    Delete payment settlement
 // @route   DELETE /api/payment-settlements/:id

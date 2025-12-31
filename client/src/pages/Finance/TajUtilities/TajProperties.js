@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Box,
   Button,
@@ -42,7 +42,8 @@ import {
   Visibility as VisibilityIcon,
   FilterList as FilterListIcon,
   Clear as ClearIcon,
-  Remove as RemoveIcon
+  Remove as RemoveIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
@@ -213,6 +214,7 @@ const TajProperties = () => {
   });
   const [savingAgreement, setSavingAgreement] = useState(false);
   const [selectedAgreementFile, setSelectedAgreementFile] = useState(null);
+  const agreementFileInputRef = useRef(null);
 
   const loadAgreements = useCallback(async () => {
     try {
@@ -2459,25 +2461,66 @@ const TajProperties = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <Button
-                variant="outlined"
-                component="label"
-                fullWidth
-                startIcon={<AddIcon />}
-              >
-                Upload Agreement Document
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*,.pdf"
-                  onChange={(e) => setSelectedAgreementFile(e.target.files[0])}
-                />
-              </Button>
-              {selectedAgreementFile && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  Selected: {selectedAgreementFile.name}
-                </Typography>
-              )}
+              <Box>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  fullWidth
+                  startIcon={<AddIcon />}
+                  sx={{ mb: selectedAgreementFile ? 1 : 0 }}
+                >
+                  Upload Agreement Document
+                  <input
+                    ref={agreementFileInputRef}
+                    type="file"
+                    hidden
+                    accept="image/*,.pdf,.doc,.docx,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      if (file) {
+                        // Check file size (10MB = 10 * 1024 * 1024 bytes)
+                        const maxSize = 10 * 1024 * 1024;
+                        if (file.size > maxSize) {
+                          setError('File size must be less than 10 MB');
+                          e.target.value = ''; // Clear the input
+                          return;
+                        }
+                        setSelectedAgreementFile(file);
+                        setError(''); // Clear any previous errors
+                      } else {
+                        setSelectedAgreementFile(null);
+                      }
+                    }}
+                  />
+                </Button>
+                {selectedAgreementFile && (
+                  <Box sx={{ mt: 1 }}>
+                    <Chip
+                      label={`${selectedAgreementFile.name} (${(selectedAgreementFile.size / (1024 * 1024)).toFixed(2)} MB)`}
+                      onDelete={() => {
+                        setSelectedAgreementFile(null);
+                        // Clear the file input
+                        if (agreementFileInputRef.current) {
+                          agreementFileInputRef.current.value = '';
+                        }
+                      }}
+                      deleteIcon={<CloseIcon />}
+                      color="primary"
+                      variant="outlined"
+                      sx={{ 
+                        fontSize: '0.875rem',
+                        '& .MuiChip-deleteIcon': {
+                          fontSize: '1.2rem',
+                          color: 'error.main',
+                          '&:hover': {
+                            color: 'error.dark'
+                          }
+                        }
+                      }}
+                    />
+                  </Box>
+                )}
+              </Box>
             </Grid>
           </Grid>
         </DialogContent>

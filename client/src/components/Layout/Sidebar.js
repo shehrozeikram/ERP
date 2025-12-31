@@ -103,6 +103,7 @@ const Sidebar = () => {
   const getSubmoduleFromPath = (path) => {
     const pathToSubmoduleMap = {
       // Admin Module
+      '/admin/dashboard': 'payment_settlement', // Dashboard uses payment_settlement permission
       '/admin/users': 'user_management',
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
@@ -156,6 +157,7 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
       '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
       '/finance/taj-utilities-charges/taj-residents': 'taj_residents',
+      '/finance/taj-utilities-charges/taj-properties': 'taj_properties',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/receipts': 'taj_receipts',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
@@ -188,6 +190,7 @@ const Sidebar = () => {
       '/audit/trail': 'audit_trail',
       '/audit/reports': 'audit_reports',
       '/audit/schedules': 'audit_schedules',
+      '/audit/pre-audit': 'pre_audit',
       
       // IT Module
       '/it/assets': 'asset_management',
@@ -241,7 +244,28 @@ const Sidebar = () => {
     if (user?.subRoles && user.subRoles.length > 0) {
       return baseMenuItems.map(module => {
         if (module.subItems) {
-          // Filter submenu items based on sub-role permissions
+          // Check if main role has access to this module
+          const mainRoleHasAccess = baseMenuItems.some(m => m.path === module.path);
+          
+          // Special handling for HR module: hr_manager should only see Evaluation & Appraisal
+          if (mainRoleHasAccess && module.path === '/hr' && userRole === 'hr_manager') {
+            const filteredSubItems = module.subItems.filter(subItem => {
+              // Only show Evaluation & Appraisal submodule
+              return subItem.path === '/hr/evaluation-appraisal/dashboard' || 
+                     subItem.path?.startsWith('/hr/evaluation-appraisal');
+            });
+            return {
+              ...module,
+              subItems: filteredSubItems
+            };
+          }
+          
+          // If main role has access to other modules (Admin, General), show all subItems (don't filter by sub-roles)
+          if (mainRoleHasAccess) {
+            return module;
+          }
+          
+          // Otherwise, filter submenu items based on sub-role permissions
           const allowedSubmenuItems = module.subItems.filter(submenuItem => {
             // Get the submodule name from the path
             const submoduleName = getSubmoduleFromPath(submenuItem.path);
@@ -271,7 +295,17 @@ const Sidebar = () => {
         }
         return module;
       }).filter(module => {
-        // Remove modules that have no allowed submenu items
+        // Don't remove modules that are accessible by main role (e.g., hr_manager has admin access)
+        // Only filter out modules if user has sub-roles AND main role doesn't have access
+        const moduleName = getModuleNameFromPath(module.path);
+        const mainRoleHasAccess = baseMenuItems.some(m => m.path === module.path);
+        
+        // If main role has access, always show the module (even if sub-roles filtered out all subItems)
+        if (mainRoleHasAccess) {
+          return true;
+        }
+        
+        // Otherwise, remove modules that have no allowed submenu items
         if (module.subItems) {
           return module.subItems.length > 0;
         }
@@ -280,7 +314,21 @@ const Sidebar = () => {
     }
     
     // If user has NO sub-roles, return base menu items (main role permissions)
-    return baseMenuItems;
+    // But filter HR module for hr_manager to only show Evaluation & Appraisal
+    return baseMenuItems.map(module => {
+      if (module.subItems && module.path === '/hr' && userRole === 'hr_manager') {
+        const filteredSubItems = module.subItems.filter(subItem => {
+          // Only show Evaluation & Appraisal submodule
+          return subItem.path === '/hr/evaluation-appraisal/dashboard' || 
+                 subItem.path?.startsWith('/hr/evaluation-appraisal');
+        });
+        return {
+          ...module,
+          subItems: filteredSubItems
+        };
+      }
+      return module;
+    });
   }, [user]);
 
   // Fetch candidate hired notification count for Employee submodule badge
@@ -304,11 +352,15 @@ const Sidebar = () => {
     return () => clearInterval(interval);
   }, [fetchCandidateHiredCount]);
 
-  const handleSubmenuToggle = (text) => {
-    setOpenSubmenu(prev => ({
-      ...prev,
-      [text]: !prev[text]
-    }));
+  const handleSubmenuToggle = (text, subItems) => {
+    setOpenSubmenu(prev => {
+      // If state is undefined, use isSubmenuActive to determine current state
+      const currentState = prev[text] !== undefined ? prev[text] : (subItems ? isSubmenuActive(subItems) : false);
+      return {
+        ...prev,
+        [text]: !currentState
+      };
+    });
   };
 
   const handleNavigation = (path) => {
@@ -484,7 +536,7 @@ const Sidebar = () => {
               <ListItemButton
                 onClick={() => {
                   if (item.subItems) {
-                    handleSubmenuToggle(item.text);
+                    handleSubmenuToggle(item.text, item.subItems);
                   } else {
                     handleNavigation(item.path);
                   }
@@ -509,7 +561,7 @@ const Sidebar = () => {
                 </ListItemIcon>
                 <ListItemText primary={item.text} />
                 {item.subItems && (
-                  isSubmenuActive(item.subItems) ? <ExpandLess /> : <ExpandMore />
+                  (openSubmenu[item.text] !== undefined ? openSubmenu[item.text] : isSubmenuActive(item.subItems)) ? <ExpandLess /> : <ExpandMore />
                 )}
               </ListItemButton>
             </ListItem>
@@ -549,7 +601,7 @@ const Sidebar = () => {
                             
                             // Handle navigation
                             if (subItem.subItems) {
-                              handleSubmenuToggle(subItem.text);
+                              handleSubmenuToggle(subItem.text, subItem.subItems);
                             } else {
                               handleNavigation(subItem.path);
                             }

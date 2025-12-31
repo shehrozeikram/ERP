@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Box,
   Button,
@@ -70,6 +70,7 @@ const RentalAgreements = () => {
   const [formData, setFormData] = useState(defaultForm);
   const [editingAgreement, setEditingAgreement] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const fileInputRef = useRef(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deletingId, setDeletingId] = useState(null);
@@ -301,6 +302,7 @@ const RentalAgreements = () => {
 
   const handleSave = useCallback(async () => {
     try {
+      setError(''); // Clear previous errors
       const payload = buildPayload();
       if (editingAgreement) {
         await api.put(`/taj-rental-agreements/${editingAgreement._id}`, payload, {
@@ -316,9 +318,11 @@ const RentalAgreements = () => {
       handleCloseDialog();
       fetchAgreements();
     } catch (err) {
-      setError(err.response?.data?.message || 'Unable to save agreement');
+      console.error('Error saving agreement:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Unable to save agreement';
+      setError(errorMessage);
     }
-  }, [editingAgreement, buildPayload, fetchAgreements]);
+  }, [editingAgreement, buildPayload, fetchAgreements, handleCloseDialog]);
 
   const handleDelete = useCallback(async (agreementId) => {
     try {
@@ -839,23 +843,60 @@ const RentalAgreements = () => {
               />
             </Grid>
             <Grid item xs={12}>
-              <Button component="label" startIcon={<AddIcon />}>
-                Attach Agreement (optional)
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-                />
-              </Button>
-              {selectedFile && (
-                <Chip
-                  label={selectedFile.name}
-                  onDelete={() => setSelectedFile(null)}
-                  sx={{ ml: 1 }}
-                  deleteIcon={<CloseIcon />}
-                />
-              )}
+              <Box>
+                <Button component="label" startIcon={<AddIcon />} sx={{ mb: selectedFile ? 1 : 0 }}>
+                  Attach Agreement (optional)
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    hidden
+                    accept="image/*,.pdf,.doc,.docx,.txt"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] || null;
+                      if (file) {
+                        // Check file size (10MB = 10 * 1024 * 1024 bytes)
+                        const maxSize = 10 * 1024 * 1024;
+                        if (file.size > maxSize) {
+                          setError('File size must be less than 10 MB');
+                          event.target.value = ''; // Clear the input
+                          return;
+                        }
+                        setSelectedFile(file);
+                        setError(''); // Clear any previous errors
+                      } else {
+                        setSelectedFile(null);
+                      }
+                    }}
+                  />
+                </Button>
+                {selectedFile && (
+                  <Box sx={{ mt: 1 }}>
+                    <Chip
+                      label={`${selectedFile.name} (${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)`}
+                      onDelete={() => {
+                        setSelectedFile(null);
+                        // Clear the file input
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                        }
+                      }}
+                      deleteIcon={<CloseIcon />}
+                      color="primary"
+                      variant="outlined"
+                      sx={{ 
+                        fontSize: '0.875rem',
+                        '& .MuiChip-deleteIcon': {
+                          fontSize: '1.2rem',
+                          color: 'error.main',
+                          '&:hover': {
+                            color: 'error.dark'
+                          }
+                        }
+                      }}
+                    />
+                  </Box>
+                )}
+              </Box>
             </Grid>
           </Grid>
         </DialogContent>

@@ -39,6 +39,7 @@ const VehicleLogBookForm = () => {
   const [success, setSuccess] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [drivers, setDrivers] = useState([]);
 
   const [formData, setFormData] = useState({
     vehicleId: vehicleId || '',
@@ -86,10 +87,35 @@ const VehicleLogBookForm = () => {
   const fetchEmployees = async () => {
     try {
       const response = await employeeService.getEmployees();
-      setEmployees(response.data);
+      const allEmployees = response.data;
+      setEmployees(allEmployees);
+      
+      // Filter employees with Driver designation
+      const driverEmployees = allEmployees.filter(employee => {
+        const designation = typeof employee.placementDesignation === 'object' 
+          ? employee.placementDesignation?.title 
+          : employee.placementDesignation;
+        return designation && designation.toLowerCase().includes('driver');
+      });
+      setDrivers(driverEmployees);
     } catch (err) {
       console.error('Error fetching employees:', err);
     }
+  };
+  
+  // Get drivers list, including current driver if editing
+  const getDriversList = () => {
+    if (!formData.driverId) {
+      return drivers;
+    }
+    
+    // If editing and current driver is not in drivers list, include them
+    const currentDriver = employees.find(emp => emp._id === formData.driverId);
+    if (currentDriver && !drivers.find(d => d._id === formData.driverId)) {
+      return [...drivers, currentDriver];
+    }
+    
+    return drivers;
   };
 
   const fetchLogBookEntry = async () => {
@@ -259,7 +285,7 @@ const VehicleLogBookForm = () => {
                     onChange={handleChange('driverId')}
                     label="Driver"
                   >
-                    {employees.map((employee) => (
+                    {getDriversList().map((employee) => (
                       <MenuItem key={employee._id} value={employee._id}>
                         {employee.firstName} {employee.lastName} ({employee.employeeId})
                       </MenuItem>

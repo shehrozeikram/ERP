@@ -18,6 +18,7 @@ const ROLES = {
   IT_MANAGER: 'it_manager',
   TAJ_RESIDENCIA_MANAGER: 'taj_residencia_manager',
   APPRAISAL_MANAGER: 'appraisal_manager',
+  TCM_MANAGER: 'tcm_manager',
   EMPLOYEE: 'employee'
 };
 
@@ -89,7 +90,8 @@ const SUBMODULES = {
     'taj_rental_agreements',
     'taj_rental_management',
     'taj_receipts',
-    'taj_residents'
+    'taj_residents',
+    'taj_properties'
   ],
   [MODULES.PROCUREMENT]: [
     'purchase_orders',
@@ -117,7 +119,8 @@ const SUBMODULES = {
     'corrective_actions',
     'audit_trail',
     'audit_reports',
-    'audit_schedules'
+    'audit_schedules',
+    'pre_audit'
   ],
   [MODULES.IT]: [
     'asset_management',
@@ -223,8 +226,14 @@ const ROLE_MODULE_ACCESS = {
   
   [ROLES.APPRAISAL_MANAGER]: {
     canAccessAll: false,
-    modules: [MODULES.HR],
-    description: 'Evaluation and Appraisal management'
+    modules: [MODULES.HR, MODULES.ADMIN],
+    description: 'Evaluation and Appraisal management with User Management access'
+  },
+  
+  [ROLES.TCM_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULES.FINANCE],
+    description: 'TCM Manager - Access to Rental Agreements, Taj Residents, and Taj Properties'
   },
   
   [ROLES.EMPLOYEE]: {
@@ -319,71 +328,76 @@ const PERMISSION_MAPPINGS = {
   'it.passwords.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
   // Admin Module Permissions
-  'admin.users.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.users.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.users.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.users.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.APPRAISAL_MANAGER],
+  'admin.users.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.APPRAISAL_MANAGER],
+  'admin.users.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.APPRAISAL_MANAGER],
   'admin.users.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.vehicles.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.vehicles.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.vehicles.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.sub_roles.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.sub_roles.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.sub_roles.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.sub_roles.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  
+  'admin.vehicles.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.vehicles.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.vehicles.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.vehicles.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.groceries.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.groceries.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.groceries.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.groceries.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.groceries.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.groceries.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.groceries.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.suppliers.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.suppliers.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.suppliers.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.suppliers.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.suppliers.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.suppliers.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.suppliers.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.petty_cash.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.petty_cash.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.petty_cash.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.petty_cash.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.petty_cash.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.petty_cash.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.petty_cash.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.petty_cash.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   
   'admin.events.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.events.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.events.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.events.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.staff_assignment.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.staff_assignment.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.staff_assignment.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.staff_assignment.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.staff_assignment.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.staff_assignment.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.staff_assignment.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.locations.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.locations.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.locations.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.locations.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.locations.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.locations.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.locations.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.utility.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.utility.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.utility.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.utility.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.utility.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.utility.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.utility.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.rental.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.rental.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.rental.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.rental.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.rental.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.rental.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.rental.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.rental_agreement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.rental_agreement.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.rental_agreement.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.rental_agreement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.rental_agreement.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.rental_agreement.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.rental_agreement.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.rental_management.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.rental_management.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.rental_management.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.rental_management.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.rental_management.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.rental_management.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.rental_management.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.payment_settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.payment_settlement.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.payment_settlement.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.payment_settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.payment_settlement.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'admin.payment_settlement.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.payment_settlement.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  'admin.payment_settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  'admin.payment_settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   
   // Audit Module Permissions
   'audit.schedule.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER],
@@ -522,7 +536,18 @@ const getUserAllowedSubmodules = async (userId, module) => {
   
   // If user has NO sub-roles, return all submodules for their main role
   if (hasModuleAccess(user.role, module)) {
-    return SUBMODULES[module] || [];
+    const allSubmodules = SUBMODULES[module] || [];
+    
+    // Special handling for TCM_MANAGER - restrict to specific submodules
+    if (user.role === ROLES.TCM_MANAGER && module === MODULES.FINANCE) {
+      return allSubmodules.filter(submodule => 
+        submodule === 'taj_rental_agreements' || 
+        submodule === 'taj_residents' || 
+        submodule === 'taj_properties'
+      );
+    }
+    
+    return allSubmodules;
   }
   
   return [];
@@ -547,7 +572,24 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
   }
   
   // If user has NO sub-roles, check if they have module access
-  return hasModuleAccess(user.role, module);
+  if (hasModuleAccess(user.role, module)) {
+    // Special handling for TCM_MANAGER - restrict to specific submodules
+    if (user.role === ROLES.TCM_MANAGER && module === MODULES.FINANCE) {
+      const allowedSubmodules = ['taj_rental_agreements', 'taj_residents', 'taj_properties'];
+      return allowedSubmodules.includes(submodule);
+    }
+    
+    // Check specific permission mapping (e.g., 'admin.payment_settlement.read')
+    const permissionKey = `${module}.${submodule}.${action}`;
+    if (PERMISSION_MAPPINGS[permissionKey]) {
+      return PERMISSION_MAPPINGS[permissionKey].includes(user.role);
+    }
+    
+    // If no specific permission mapping exists, allow access if user has module access
+    return true;
+  }
+  
+  return false;
 };
 
 module.exports = {

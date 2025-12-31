@@ -21,7 +21,11 @@ import {
   ArrowBack as BackIcon,
   Image as ImageIcon,
   Close as CloseIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  PictureAsPdf as PdfIcon,
+  Description as DocumentIcon,
+  Download as DownloadIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -67,6 +71,46 @@ const RentalAgreementDetail = () => {
       currency: 'PKR',
       minimumFractionDigits: 0
     }).format(amount);
+  };
+
+  // Detect file type from file path/URL
+  const getFileType = (filePath) => {
+    if (!filePath) return 'unknown';
+    const extension = filePath.toLowerCase().split('.').pop();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)) {
+      return 'image';
+    } else if (extension === 'pdf') {
+      return 'pdf';
+    } else if (['doc', 'docx', 'txt', 'rtf'].includes(extension)) {
+      return 'document';
+    }
+    return 'other';
+  };
+
+  const getFileIcon = (fileType) => {
+    switch (fileType) {
+      case 'pdf':
+        return <PdfIcon sx={{ fontSize: 64, color: 'error.main' }} />;
+      case 'document':
+        return <DocumentIcon sx={{ fontSize: 64, color: 'primary.main' }} />;
+      case 'image':
+        return <ImageIcon sx={{ fontSize: 64, color: 'primary.main' }} />;
+      default:
+        return <DocumentIcon sx={{ fontSize: 64, color: 'text.secondary' }} />;
+    }
+  };
+
+  const getFileTypeLabel = (fileType) => {
+    switch (fileType) {
+      case 'pdf':
+        return 'PDF Document';
+      case 'document':
+        return 'Document';
+      case 'image':
+        return 'Image';
+      default:
+        return 'File';
+    }
   };
 
   const handlePrint = () => {
@@ -571,43 +615,127 @@ const RentalAgreementDetail = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom fontWeight={600}>
-                Agreement Image
+                Agreement Document
               </Typography>
               <Divider sx={{ mb: 2 }} />
               
-              {agreement.agreementImage ? (
-                <Box>
-                  <Box
-                    component="img"
-                    src={getImageUrl(agreement.agreementImage)}
-                    alt="Rental Agreement"
-                    sx={{
-                      width: '100%',
-                      height: 200,
-                      objectFit: 'cover',
-                      borderRadius: 1,
-                      mb: 2,
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      cursor: 'pointer'
-                    }}
-                    onClick={() => setImageModalOpen(true)}
-                    onError={(e) => handleImageError(e)}
-                  />
-                  <Button
-                    fullWidth
-                    variant="outlined"
-                    startIcon={<ImageIcon />}
-                    onClick={() => setImageModalOpen(true)}
-                  >
-                    View Full Image
-                  </Button>
-                </Box>
-              ) : (
+              {agreement.agreementImage ? (() => {
+                const fileType = getFileType(agreement.agreementImage);
+                const fileUrl = getImageUrl(agreement.agreementImage);
+                const isPDF = fileType === 'pdf';
+                
+                return (
+                  <Box>
+                    {fileType === 'image' ? (
+                      <Box
+                        component="img"
+                        src={fileUrl}
+                        alt="Rental Agreement"
+                        sx={{
+                          width: '100%',
+                          height: 200,
+                          objectFit: 'cover',
+                          borderRadius: 1,
+                          mb: 2,
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => setImageModalOpen(true)}
+                        onError={(e) => handleImageError(e)}
+                      />
+                    ) : (
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: 200,
+                          borderRadius: 1,
+                          mb: 2,
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          bgcolor: 'grey.50'
+                        }}
+                      >
+                        {getFileIcon(fileType)}
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                          {getFileTypeLabel(fileType)}
+                        </Typography>
+                      </Box>
+                    )}
+                    <Stack spacing={1}>
+                      {isPDF ? (
+                        <>
+                          <Button
+                            fullWidth
+                            variant="outlined"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => {
+                              if (fileUrl) {
+                                window.open(fileUrl, '_blank', 'noopener,noreferrer');
+                              }
+                            }}
+                          >
+                            View PDF
+                          </Button>
+                          <Button
+                            fullWidth
+                            variant="outlined"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => {
+                              if (fileUrl) {
+                                const link = document.createElement('a');
+                                link.href = fileUrl;
+                                link.download = agreement.agreementImage.split('/').pop();
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              }
+                            }}
+                          >
+                            Download PDF
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            fullWidth
+                            variant="outlined"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => setImageModalOpen(true)}
+                          >
+                            View {getFileTypeLabel(fileType)}
+                          </Button>
+                          <Button
+                            fullWidth
+                            variant="outlined"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => {
+                              if (fileUrl) {
+                                const link = document.createElement('a');
+                                link.href = fileUrl;
+                                link.download = agreement.agreementImage.split('/').pop();
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              }
+                            }}
+                          >
+                            Download
+                          </Button>
+                        </>
+                      )}
+                    </Stack>
+                  </Box>
+                );
+              })() : (
                 <Box textAlign="center" py={4}>
                   <ImageIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
                   <Typography variant="body2" color="text.secondary">
-                    No image uploaded
+                    No document uploaded
                   </Typography>
                 </Box>
               )}
@@ -646,62 +774,64 @@ const RentalAgreementDetail = () => {
         </Grid>
       </Grid>
 
-      {/* Image Modal */}
-      <Dialog
-        open={imageModalOpen}
-        onClose={() => setImageModalOpen(false)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            backgroundColor: 'transparent',
-            boxShadow: 'none'
-          }
-        }}
-      >
-        <DialogTitle sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          color: 'white'
-        }}>
-          <Typography variant="h6">Agreement Image</Typography>
-          <IconButton
-            onClick={() => setImageModalOpen(false)}
-            sx={{ color: 'white' }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 0, backgroundColor: 'rgba(0,0,0,0.8)' }}>
-          <Box
-            component="img"
-            src={getImageUrl(agreement?.agreementImage)}
-            alt="Rental Agreement"
-            sx={{
-              width: '100%',
-              height: 'auto',
-              maxHeight: '80vh',
-              objectFit: 'contain',
-              display: 'block'
-            }}
-            onError={(e) => handleImageError(e)}
-          />
-        </DialogContent>
-        <DialogActions sx={{ 
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          justifyContent: 'center'
-        }}>
-          <Button
-            onClick={() => setImageModalOpen(false)}
-            variant="contained"
-            color="primary"
-          >
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Image Modal - Only for images, PDFs open in new tab */}
+      {agreement?.agreementImage && getFileType(agreement.agreementImage) === 'image' && (
+        <Dialog
+          open={imageModalOpen}
+          onClose={() => setImageModalOpen(false)}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: {
+              backgroundColor: 'transparent',
+              boxShadow: 'none'
+            }
+          }}
+        >
+          <DialogTitle sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            color: 'white'
+          }}>
+            Agreement Image
+            <IconButton
+              onClick={() => setImageModalOpen(false)}
+              sx={{ color: 'white' }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ p: 0, backgroundColor: 'rgba(0,0,0,0.8)' }}>
+            <Box
+              component="img"
+              src={getImageUrl(agreement.agreementImage)}
+              alt="Rental Agreement"
+              sx={{
+                width: '100%',
+                height: 'auto',
+                maxHeight: '80vh',
+                objectFit: 'contain',
+                display: 'block'
+              }}
+              onError={(e) => handleImageError(e)}
+            />
+          </DialogContent>
+          <DialogActions sx={{ 
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            justifyContent: 'center'
+          }}>
+            <Button
+              onClick={() => setImageModalOpen(false)}
+              variant="contained"
+              color="primary"
+            >
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </Box>
   );
 };

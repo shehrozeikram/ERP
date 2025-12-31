@@ -386,6 +386,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     let electricityBill = null;
     let rentPayment = null;
     let rentChargeAdded = false; // Track if rent charge was calculated from agreement
+    let rentCarryForwardArrears = 0; // Carry forward arrears from previous invoices
     const meterBillsData = []; // Store data for additional meters
 
     // Get CAM Charge
@@ -740,7 +741,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     // Get Rent Payment from Rental Agreement (especially for Personal Rent category)
     if (includeRent === true) {
       // Calculate carry forward of Rent arrears from previous unpaid invoices
-      let rentCarryForwardArrears = 0;
+      rentCarryForwardArrears = 0;
       const previousRentInvoices = await PropertyInvoice.find({
         property: property._id,
         chargeTypes: { $in: ['RENT'] },
@@ -853,9 +854,30 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     
     if (requestCharges?.length > 0 && !hasCalculatedCharges) {
       requestCharges.forEach(charge => {
-        // Skip RENT charges if backend already calculated them from agreement
+        // For RENT charges, if backend already calculated them from agreement,
+        // update the existing charge with manually entered values (if provided)
         if (charge.type === 'RENT' && hasCalculatedRentCharge) {
-          return; // Skip this charge, use the one calculated from agreement
+          const existingRentIndex = charges.findIndex(c => c.type === 'RENT');
+          if (existingRentIndex >= 0) {
+            const existingCharge = charges[existingRentIndex];
+            // If user manually entered amount or arrears, use those values
+            // This allows users to override values for the first invoice
+            const manualAmount = (charge.amount !== undefined && charge.amount !== null) 
+              ? charge.amount 
+              : existingCharge.amount;
+            const manualArrears = (charge.arrears !== undefined && charge.arrears !== null) 
+              ? charge.arrears 
+              : 0;
+            // Add carry-forward arrears to manually entered arrears
+            const totalArrears = manualArrears + rentCarryForwardArrears;
+            charges[existingRentIndex] = {
+              ...existingCharge,
+              amount: manualAmount || 0,
+              arrears: totalArrears,
+              total: (manualAmount || 0) + totalArrears
+            };
+          }
+          return; // Skip adding new charge, we updated the existing one
         }
         
         // For RENT charges, use createRentCharge to include carry-forward arrears

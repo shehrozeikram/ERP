@@ -27,13 +27,26 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024
+    fileSize: 10 * 1024 * 1024 // 10 MB
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    // Allow images, PDFs, and common document formats
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+    
+    if (allowedMimeTypes.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'), false);
+      cb(new Error('File type not allowed. Allowed types: Images, PDF, Word documents, and text files (max 10MB)'), false);
     }
   }
 });
@@ -44,16 +57,42 @@ const withPermission = (action) =>
 const validateAgreementPayload = (body) => {
   const errors = [];
 
+  // Required fields validation
+  if (!body.propertyName || !body.propertyName.trim()) {
+    errors.push('Property name is required');
+  }
+
+  if (!body.propertyAddress || !body.propertyAddress.trim()) {
+    errors.push('Property address is required');
+  }
+
+  if (!body.tenantName || !body.tenantName.trim()) {
+    errors.push('Tenant name is required');
+  }
+
+  if (!body.tenantContact || !body.tenantContact.trim()) {
+    errors.push('Tenant contact is required');
+  }
+
+  if (!body.monthlyRent || isNaN(body.monthlyRent) || body.monthlyRent <= 0) {
+    errors.push('Monthly rent is required and must be a positive number');
+  }
+
+  if (!body.startDate) {
+    errors.push('Start date is required');
+  }
+
+  if (!body.endDate) {
+    errors.push('End date is required');
+  }
+
+  // Date validation
   if (body.startDate && body.endDate) {
     const startDate = new Date(body.startDate);
     const endDate = new Date(body.endDate);
     if (startDate >= endDate) {
       errors.push('End date must be after start date');
     }
-  }
-
-  if (body.monthlyRent && (isNaN(body.monthlyRent) || body.monthlyRent <= 0)) {
-    errors.push('Monthly rent must be a positive number');
   }
 
   if (body.securityDeposit && (isNaN(body.securityDeposit) || body.securityDeposit < 0)) {
@@ -102,7 +141,19 @@ router.get('/:id', withPermission('read'), async (req, res) => {
   }
 });
 
-router.post('/', withPermission('create'), upload.single('agreementImage'), async (req, res) => {
+router.post('/', withPermission('create'), (req, res, next) => {
+  upload.single('agreementImage')(req, res, (err) => {
+    if (err) {
+      // Handle multer errors (file size, file type, etc.)
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'File size exceeds 10MB limit' });
+      }
+      // Handle other upload errors (file type rejection, etc.)
+      return res.status(400).json({ message: err.message || 'File upload error' });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     const errors = validateAgreementPayload(req.body);
     if (errors.length) {
@@ -204,17 +255,33 @@ router.post('/', withPermission('create'), upload.single('agreementImage'), asyn
 
     res.status(201).json(agreement);
   } catch (error) {
+    console.error('Error creating rental agreement:', error);
     if (req.file) {
       const filePath = path.join(__dirname, '../uploads/taj-rental-agreements', req.file.filename);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
-    res.status(400).json({ message: error.message });
+    // Provide more detailed error message
+    const errorMessage = error.message || 'Failed to create rental agreement';
+    const statusCode = error.name === 'ValidationError' ? 400 : 500;
+    res.status(statusCode).json({ message: errorMessage });
   }
 });
 
-router.put('/:id', withPermission('update'), upload.single('agreementImage'), async (req, res) => {
+router.put('/:id', withPermission('update'), (req, res, next) => {
+  upload.single('agreementImage')(req, res, (err) => {
+    if (err) {
+      // Handle multer errors (file size, file type, etc.)
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'File size exceeds 10MB limit' });
+      }
+      // Handle other upload errors (file type rejection, etc.)
+      return res.status(400).json({ message: err.message || 'File upload error' });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     const agreement = await TajRentalAgreement.findById(req.params.id);
     if (!agreement) {

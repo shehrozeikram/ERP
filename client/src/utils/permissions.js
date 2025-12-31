@@ -15,6 +15,8 @@ export const ROLES = {
   AUDITOR: 'auditor',
   IT_MANAGER: 'it_manager',
   TAJ_RESIDENCIA_MANAGER: 'taj_residencia_manager',
+  APPRAISAL_MANAGER: 'appraisal_manager',
+  TCM_MANAGER: 'tcm_manager',
   EMPLOYEE: 'employee'
 };
 
@@ -117,6 +119,20 @@ export const PERMISSIONS = {
     canAccessAll: false,
     modules: [MODULE_KEYS.TAJ_RESIDENCIA],
     description: 'Taj Residencia module management'
+  },
+  
+  // Appraisal Manager has access to HR and Admin modules
+  [ROLES.APPRAISAL_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.HR, MODULE_KEYS.ADMIN],
+    description: 'Evaluation and Appraisal management with User Management access'
+  },
+  
+  // TCM Manager has access to Finance module (restricted to specific submodules)
+  [ROLES.TCM_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.FINANCE],
+    description: 'TCM Manager - Access to Rental Agreements, Taj Residents, and Taj Properties'
   },
   
   // Employee has limited access
@@ -562,8 +578,12 @@ export const MODULES = {
     path: '/admin',
     icon: 'AdminPanelSettings',
     description: 'System administration',
-    roles: ['super_admin', 'admin', 'hr_manager'],
+    roles: ['super_admin', 'admin', 'hr_manager', 'appraisal_manager'],
     subItems: [
+      { 
+        name: 'Admin Dashboard', 
+        path: '/admin/dashboard'
+      },
       { 
         name: 'User Management', 
         path: '/admin/users',
@@ -605,6 +625,7 @@ export const MODULES = {
     subItems: [
       { name: 'Audit Dashboard', path: '/audit' },
       { name: 'Audit Management', path: '/audit/list' },
+      { name: 'Pre Audit', path: '/audit/pre-audit' },
       { name: 'Audit Findings', path: '/audit/findings' },
       { name: 'Corrective Actions', path: '/audit/corrective-actions' },
       { name: 'Audit Trail', path: '/audit/trail' },
@@ -730,21 +751,57 @@ export const getAccessibleModules = (userRole) => {
 export const getModuleMenuItems = (userRole) => {
   const accessibleModules = getAccessibleModules(userRole);
   
+  // Define allowed submodules for TCM Manager
+  const tcmManagerAllowedSubmodules = [
+    '/finance/taj-utilities-charges/rental-agreements',
+    '/finance/taj-utilities-charges/taj-residents',
+    '/finance/taj-utilities-charges/taj-properties'
+  ];
+  
   return accessibleModules.map(moduleKey => {
     const module = MODULES[moduleKey];
+    
+    // Skip if module doesn't exist
+    if (!module) {
+      console.warn(`Module not found for key: ${moduleKey}`);
+      return null;
+    }
+    
+    // Filter subItems for TCM Manager
+    // Note: For TCM Manager, we only show "Taj Utilities & Charges" and filter its nested subItems
+    let filteredSubItems = module.subItems;
+    if (userRole === ROLES.TCM_MANAGER && moduleKey === MODULE_KEYS.FINANCE && module.subItems) {
+      // For TCM Manager, only show "Taj Utilities & Charges" subItem
+      filteredSubItems = module.subItems.filter(subItem => 
+        subItem.path === '/finance/taj-utilities-charges'
+      );
+    }
+    
     return {
       text: module.name,
       icon: module.icon,
       path: module.path,
-      subItems: module.subItems ? module.subItems.map(subItem => {
+      subItems: filteredSubItems ? filteredSubItems.map(subItem => {
         // Filter sub-items within sub-items (e.g., Authorities in Evaluation & Appraisal)
-        const filteredSubItems = subItem.subItems ? subItem.subItems.filter(subSubItem => {
+        let filteredSubItems = subItem.subItems;
+        
+        // Special handling for TCM Manager - filter Taj Utilities & Charges subItems
+        if (userRole === ROLES.TCM_MANAGER && 
+            moduleKey === MODULE_KEYS.FINANCE && 
+            subItem.path === '/finance/taj-utilities-charges' && 
+            subItem.subItems) {
+          filteredSubItems = subItem.subItems.filter(subSubItem => 
+            tcmManagerAllowedSubmodules.includes(subSubItem.path)
+          );
+        } else if (subItem.subItems) {
           // Hide Authorities for non-super_admin users
-          if (subSubItem.path === '/hr/evaluation-appraisal/authorities' && userRole !== 'super_admin') {
-            return false;
-          }
-          return true;
-        }) : undefined;
+          filteredSubItems = subItem.subItems.filter(subSubItem => {
+            if (subSubItem.path === '/hr/evaluation-appraisal/authorities' && userRole !== 'super_admin') {
+              return false;
+            }
+            return true;
+          });
+        }
         
         return {
           text: subItem.name,
@@ -757,7 +814,13 @@ export const getModuleMenuItems = (userRole) => {
       }) : undefined,
       description: module.description
     };
-  });
+  }).filter(module => {
+    // Remove modules that have no subItems after filtering (for TCM Manager)
+    if (userRole === ROLES.TCM_MANAGER && module.subItems && module.subItems.length === 0) {
+      return false;
+    }
+    return true;
+  }).filter(module => module !== null); // Remove any null modules
 };
 
 export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
@@ -785,6 +848,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
   const getSubmoduleFromPath = (path) => {
     const pathToSubmoduleMap = {
       // Admin Module
+      '/admin/dashboard': 'admin_dashboard',
       '/admin/users': 'user_management',
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
@@ -833,6 +897,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
       '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
       '/finance/taj-utilities-charges/taj-residents': 'taj_residents',
+      '/finance/taj-utilities-charges/taj-properties': 'taj_properties',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/receipts': 'taj_receipts',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
@@ -865,6 +930,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/audit/trail': 'audit_trail',
       '/audit/reports': 'audit_reports',
       '/audit/schedules': 'audit_schedules',
+      '/audit/pre-audit': 'pre_audit',
       
       // IT Module
       '/it/assets': 'asset_management',
@@ -931,17 +997,32 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
   
   // Check if the path matches any module
   for (const [moduleKey, module] of Object.entries(MODULES)) {
-    // If user has sub-roles, check specific sub-role permissions
-    if (userSubRoles && userSubRoles.length > 0) {
-      // Check if user has any sub-role for this module
-      const hasSubRoleForModule = userSubRoles.some(subRole => 
-        subRole.module === moduleKey
-      );
+    // Check both main role AND sub-roles (users can have multiple roles/subroles)
+    const hasMainRoleAccess = hasPermission(userRole, moduleKey);
+    const hasSubRoleAccess = userSubRoles && userSubRoles.length > 0 && 
+      userSubRoles.some(subRole => subRole.module === moduleKey);
+    
+    // If user has access via main role OR sub-role, check path access
+    if (hasMainRoleAccess || hasSubRoleAccess) {
+      // Special handling for TCM_MANAGER - restrict to specific submodules
+      if (userRole === ROLES.TCM_MANAGER && moduleKey === MODULE_KEYS.FINANCE) {
+        const allowedPaths = [
+          '/finance/taj-utilities-charges/rental-agreements',
+          '/finance/taj-utilities-charges/taj-residents',
+          '/finance/taj-utilities-charges/taj-properties'
+        ];
+        
+        // Check if path matches allowed paths or starts with them (for dynamic routes)
+        if (allowedPaths.includes(path) || allowedPaths.some(allowedPath => path.startsWith(allowedPath + '/'))) {
+          return true;
+        }
+        return false;
+      }
       
-      if (hasSubRoleForModule) {
+      // If user has sub-roles, check specific sub-role permissions for the path
+      if (hasSubRoleAccess && userSubRoles && userSubRoles.length > 0) {
         // Check if path matches the module or its sub-items
         if (path === module.path) {
-          // For module root path, allow access if user has any sub-role for this module
           return true;
         }
         
@@ -952,13 +1033,13 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
               const submoduleName = getSubmoduleFromPath(path);
               const moduleName = getModuleNameFromPath(path);
               
-              // If no specific submodule mapping exists, check if user has any sub-role for this module
+              // If no specific submodule mapping exists, allow if user has sub-role for this module
               if (!submoduleName) {
                 return userSubRoles.some(subRole => subRole.module === moduleName);
               }
               
               // Check if user has sub-role permission for this specific submodule
-              const hasSubRoleAccess = userSubRoles.some(subRole => {
+              const hasSpecificSubRoleAccess = userSubRoles.some(subRole => {
                 if (subRole.module === moduleName && subRole.permissions) {
                   return subRole.permissions.some(permission => 
                     permission.submodule === submoduleName
@@ -966,20 +1047,25 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
                 }
                 return false;
               });
-              return hasSubRoleAccess;
+              
+              // If sub-role doesn't have specific permission, fall back to main role check
+              if (!hasSpecificSubRoleAccess && hasMainRoleAccess) {
+                return true;
+              }
+              
+              return hasSpecificSubRoleAccess;
             }
           }
         }
         
         // Check if path starts with module path (for dynamic routes)
         if (path.startsWith(module.path + '/')) {
-          // For dynamic routes, check if user has any sub-role permissions for this module
           return true;
         }
       }
-    } else {
-      // If user has NO sub-roles, check main role permissions
-      if (hasPermission(userRole, moduleKey)) {
+      
+      // If user has main role access (or no sub-roles), check main role permissions
+      if (hasMainRoleAccess) {
         // Check if path matches the module or its sub-items
         if (path === module.path) return true;
         if (module.subItems) {

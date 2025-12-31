@@ -461,6 +461,7 @@ app.use('/api/taj-rental-agreements', tajRentalAgreementRoutes.fileRouter);
 app.use('/api/taj-rental-agreements', authMiddleware, activityLogger, tajRentalAgreementRoutes);
 app.use('/api/rental-management', authMiddleware, activityLogger, rentalManagementRoutes);
 app.use('/api/payment-settlements', authMiddleware, activityLogger, paymentSettlementRoutes);
+app.use('/api/admin/dashboard', authMiddleware, activityLogger, require('./routes/adminDashboard'));
 app.use('/api/it', authMiddleware, activityLogger, itRoutes);
 // Audit sub-routes (must come before main audit route)
 app.use('/api/audit/findings', authMiddleware, activityLogger, auditFindingsRoutes);
@@ -468,6 +469,7 @@ app.use('/api/audit/corrective-actions', authMiddleware, activityLogger, require
 app.use('/api/audit/trail', authMiddleware, activityLogger, auditTrailRoutes);
 app.use('/api/audit/reports', authMiddleware, activityLogger, require('./routes/auditReports'));
 app.use('/api/audit/schedules', authMiddleware, activityLogger, require('./routes/auditSchedules'));
+app.use('/api/pre-audit', authMiddleware, activityLogger, require('./routes/preAudit'));
 
 // Main audit routes (must come after sub-routes)
 app.use('/api/audit', authMiddleware, activityLogger, auditRoutes);

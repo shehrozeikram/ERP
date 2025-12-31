@@ -97,6 +97,19 @@ const paymentSettlementService = {
     }
   },
 
+  // Update workflow status
+  updateWorkflowStatus: async (id, workflowStatus, comments = '') => {
+    try {
+      const response = await api.patch(`/payment-settlements/${id}/workflow-status`, { 
+        workflowStatus,
+        comments 
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
   // Get settlement statistics
   getSettlementStats: async () => {
     try {

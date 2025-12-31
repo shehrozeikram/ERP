@@ -147,7 +147,28 @@ const paymentSettlementSchema = new mongoose.Schema({
     type: String,
     enum: ['Draft', 'Submitted', 'Approved', 'Rejected', 'Paid'],
     default: 'Draft'
-  }
+  },
+  // Workflow Status for role-based routing
+  workflowStatus: {
+    type: String,
+    // Allow dynamic statuses like "Approved (from Send to AM Admin)" or "Rejected (from Send to HOD Admin)"
+    default: 'Draft',
+    index: true
+  },
+  // Workflow history tracking
+  workflowHistory: [{
+    fromStatus: String,
+    toStatus: String,
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now
+    },
+    comments: String
+  }]
 }, {
   timestamps: true
 });
@@ -157,7 +178,9 @@ paymentSettlementSchema.index({ parentCompanyName: 1 });
 paymentSettlementSchema.index({ subsidiaryName: 1 });
 paymentSettlementSchema.index({ referenceNumber: 1 });
 paymentSettlementSchema.index({ status: 1 });
+paymentSettlementSchema.index({ workflowStatus: 1 });
 paymentSettlementSchema.index({ createdAt: -1 });
+paymentSettlementSchema.index({ 'workflowHistory.changedBy': 1 });
 
 // Virtual for formatted amount
 paymentSettlementSchema.virtual('formattedAmount').get(function() {

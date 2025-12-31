@@ -3,6 +3,15 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const {
+  getWorkflowStatusForRole,
+  getWorkflowStatusForUserAndRole,
+  canUserAccessStatus,
+  getAllWorkflowStatuses,
+  isValidStatusTransition,
+  getBaseWorkflowStatus,
+  getSourceStatus
+} = require('../utils/paymentSettlementWorkflow');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -56,6 +65,7 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
       limit = 10,
       search,
       status,
+      workflowStatus,
       parentCompanyName,
       subsidiaryName,
       fromDepartment,
@@ -65,6 +75,20 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
 
     // Build query
     const query = {};
+
+    // User-based workflow status filtering (email takes priority over role)
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
+    
+    // If user is assigned to a specific status, filter by it
+    // Super admin, higher management, and admin can see all
+    if (userWorkflowStatus) {
+      query.workflowStatus = userWorkflowStatus;
+    } else if (workflowStatus) {
+      // Allow explicit workflowStatus filter for admins
+      query.workflowStatus = workflowStatus;
+    }
 
     // Search functionality
     if (search) {
@@ -78,7 +102,7 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
       ];
     }
 
-    // Filter by status
+    // Filter by status (legacy status field)
     if (status) {
       query.status = status;
     }
@@ -109,6 +133,7 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
     const settlements = await PaymentSettlement.find(query)
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -323,7 +348,7 @@ const deletePaymentSettlement = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    Update settlement status
+// @desc    Update settlement status (legacy)
 // @route   PATCH /api/payment-settlements/:id/status
 // @access  Private (Admin)
 const updateSettlementStatus = asyncHandler(async (req, res) => {
@@ -372,6 +397,286 @@ const updateSettlementStatus = asyncHandler(async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update settlement status',
+      error: error.message
+    });
+  }
+});
+
+// @desc    Update workflow status
+// @route   PATCH /api/payment-settlements/:id/workflow-status
+// @access  Private (Admin)
+const updateWorkflowStatus = asyncHandler(async (req, res) => {
+  try {
+    const { workflowStatus, comments } = req.body;
+
+    if (!workflowStatus) {
+      return res.status(400).json({
+        success: false,
+        message: 'Workflow status is required'
+      });
+    }
+
+    // Validate base workflow status (extract base if it's an approved/rejected with source)
+    const baseStatus = getBaseWorkflowStatus(workflowStatus);
+    const validStatuses = getAllWorkflowStatuses();
+    if (!validStatuses.includes(baseStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid workflow status'
+      });
+    }
+
+    const settlement = await PaymentSettlement.findById(req.params.id)
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
+    if (!settlement) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment settlement not found'
+      });
+    }
+
+    // Check if user has permission to change status from current status
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
+    
+    // Extract base status for comparison (handles "Approved (from ...)" format)
+    const currentBaseStatus = getBaseWorkflowStatus(settlement.workflowStatus);
+    const sourceStatus = getSourceStatus(settlement.workflowStatus);
+    
+    // If user is assigned to a specific status, check if they can modify this document
+    if (userWorkflowStatus) {
+      // Allow if:
+      // 1. Document is currently in their assigned status, OR
+      // 2. Document was approved/rejected from their assigned status (source status matches), OR
+      // 3. User approved/rejected it from their assigned status (check workflow history)
+      const isCurrentlyAssigned = currentBaseStatus === userWorkflowStatus;
+      const wasApprovedFromAssigned = sourceStatus === userWorkflowStatus && 
+                                      (currentBaseStatus === 'Approved' || currentBaseStatus === 'Rejected');
+      
+      // Check workflow history to see if user approved/rejected from their assigned status
+      let userProcessedFromAssigned = false;
+      if (settlement.workflowHistory && settlement.workflowHistory.length > 0) {
+        const lastAction = settlement.workflowHistory[settlement.workflowHistory.length - 1];
+        if (lastAction) {
+          const changedByEmail = lastAction.changedBy?.email || 
+                                (typeof lastAction.changedBy === 'string' ? lastAction.changedBy : null);
+          if (changedByEmail?.toLowerCase() === userEmail?.toLowerCase() &&
+              lastAction.fromStatus === userWorkflowStatus &&
+              (lastAction.toStatus === 'Approved' || lastAction.toStatus === 'Rejected')) {
+            userProcessedFromAssigned = true;
+          }
+        }
+      }
+      
+      if (!isCurrentlyAssigned && !wasApprovedFromAssigned && !userProcessedFromAssigned) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only modify documents assigned to you'
+        });
+      }
+    }
+
+    // Validate status transition (use base status for validation)
+    if (settlement.workflowStatus && !isValidStatusTransition(currentBaseStatus, baseStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status transition from ${settlement.workflowStatus} to ${workflowStatus}`
+      });
+    }
+
+    // Add to workflow history
+    const historyEntry = {
+      fromStatus: settlement.workflowStatus || 'Draft',
+      toStatus: workflowStatus,
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: comments || ''
+    };
+
+    // Update settlement
+    settlement.workflowStatus = workflowStatus;
+    settlement.workflowHistory = settlement.workflowHistory || [];
+    settlement.workflowHistory.push(historyEntry);
+    settlement.updatedBy = req.user.id;
+
+    await settlement.save();
+
+    const updatedSettlement = await PaymentSettlement.findById(req.params.id)
+      .populate('createdBy', 'firstName lastName email')
+      .populate('updatedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Workflow status updated successfully',
+      data: updatedSettlement
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update workflow status',
+      error: error.message
+    });
+  }
+});
+
+// @desc    Approve document
+// @route   PATCH /api/payment-settlements/:id/approve
+// @access  Private (Admin)
+const approveDocument = asyncHandler(async (req, res) => {
+  try {
+    const { comments } = req.body;
+
+    const settlement = await PaymentSettlement.findById(req.params.id);
+    if (!settlement) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment settlement not found'
+      });
+    }
+
+    // Check if user has permission to approve
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
+    
+    // If user is assigned to a specific status, they can only approve documents assigned to them
+    if (userWorkflowStatus && settlement.workflowStatus !== userWorkflowStatus) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only approve documents assigned to you'
+      });
+    }
+
+    // Check if document can be approved (must be in a "Send to" status)
+    if (!settlement.workflowStatus || !settlement.workflowStatus.includes('Send to')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document must be in a "Send to" status to be approved'
+      });
+    }
+
+    // Store the source status for display
+    const sourceStatus = settlement.workflowStatus;
+    
+    // Add to workflow history
+    const historyEntry = {
+      fromStatus: sourceStatus,
+      toStatus: 'Approved',
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: comments || 'Document approved'
+    };
+
+    // Update settlement - keep it in approved state but don't change workflowStatus yet
+    // User will forward it after approval, so we'll update workflowStatus then
+    // For now, mark as approved but keep the source status visible
+    settlement.workflowStatus = `Approved (from ${sourceStatus})`;
+    settlement.status = 'Approved'; // Also update legacy status
+    settlement.workflowHistory = settlement.workflowHistory || [];
+    settlement.workflowHistory.push(historyEntry);
+    settlement.updatedBy = req.user.id;
+
+    await settlement.save();
+
+    const updatedSettlement = await PaymentSettlement.findById(req.params.id)
+      .populate('createdBy', 'firstName lastName email')
+      .populate('updatedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Document approved successfully',
+      data: updatedSettlement
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve document',
+      error: error.message
+    });
+  }
+});
+
+// @desc    Reject document
+// @route   PATCH /api/payment-settlements/:id/reject
+// @access  Private (Admin)
+const rejectDocument = asyncHandler(async (req, res) => {
+  try {
+    const { comments } = req.body;
+
+    if (!comments || comments.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Comments are required when rejecting a document'
+      });
+    }
+
+    const settlement = await PaymentSettlement.findById(req.params.id);
+    if (!settlement) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment settlement not found'
+      });
+    }
+
+    // Check if user has permission to reject
+    const userRole = req.user.role;
+    const userEmail = req.user.email;
+    const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
+    
+    // If user is assigned to a specific status, they can only reject documents assigned to them
+    if (userWorkflowStatus && settlement.workflowStatus !== userWorkflowStatus) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only reject documents assigned to you'
+      });
+    }
+
+    // Check if document can be rejected (must be in a "Send to" status)
+    if (!settlement.workflowStatus || !settlement.workflowStatus.includes('Send to')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document must be in a "Send to" status to be rejected'
+      });
+    }
+
+    // Store the source status for display
+    const sourceStatus = settlement.workflowStatus;
+    
+    // Add to workflow history
+    const historyEntry = {
+      fromStatus: sourceStatus,
+      toStatus: 'Rejected',
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: comments || 'Document rejected'
+    };
+
+    // Update settlement with source status included
+    settlement.workflowStatus = `Rejected (from ${sourceStatus})`;
+    settlement.status = 'Rejected'; // Also update legacy status
+    settlement.workflowHistory = settlement.workflowHistory || [];
+    settlement.workflowHistory.push(historyEntry);
+    settlement.updatedBy = req.user.id;
+
+    await settlement.save();
+
+    const updatedSettlement = await PaymentSettlement.findById(req.params.id)
+      .populate('createdBy', 'firstName lastName email')
+      .populate('updatedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Document rejected successfully',
+      data: updatedSettlement
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject document',
       error: error.message
     });
   }
@@ -474,6 +779,9 @@ module.exports = {
   updatePaymentSettlement,
   deletePaymentSettlement,
   updateSettlementStatus,
+  updateWorkflowStatus,
+  approveDocument,
+  rejectDocument,
   getSettlementStats,
   deleteAttachment,
   upload

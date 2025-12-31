@@ -53,11 +53,13 @@ import {
   Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import toast from 'react-hot-toast';
 
 const PaymentSettlementList = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [settlements, setSettlements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -70,9 +72,17 @@ const PaymentSettlementList = () => {
   // Filter state
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [workflowStatusFilter, setWorkflowStatusFilter] = useState('');
   const [parentCompanyFilter, setParentCompanyFilter] = useState('');
   const [subsidiaryFilter, setSubsidiaryFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  
+  // Workflow status dialog
+  const [workflowStatusDialog, setWorkflowStatusDialog] = useState({ 
+    open: false, 
+    settlement: null,
+    comments: ''
+  });
   
   // Dialog state
   const [deleteDialog, setDeleteDialog] = useState({ open: false, settlement: null });
@@ -90,6 +100,30 @@ const PaymentSettlementList = () => {
     { value: 'Rejected', label: 'Rejected' },
     { value: 'Paid', label: 'Paid' }
   ];
+
+  const workflowStatusOptions = [
+    { value: '', label: 'All Workflow Statuses' },
+    { value: 'Draft', label: 'Draft' },
+    { value: 'Active', label: 'Active' },
+    { value: 'Send to AM Admin', label: 'Send to AM Admin' },
+    { value: 'Send to HOD Admin', label: 'Send to HOD Admin' },
+    { value: 'Send to Audit', label: 'Send to Audit' },
+    { value: 'Send to Finance', label: 'Send to Finance' },
+    { value: 'Send to CEO Office', label: 'Send to CEO Office' }
+  ];
+
+  const getWorkflowStatusColor = (workflowStatus) => {
+    const colors = {
+      'Draft': 'default',
+      'Active': 'info',
+      'Send to AM Admin': 'warning',
+      'Send to HOD Admin': 'warning',
+      'Send to Audit': 'info',
+      'Send to Finance': 'primary',
+      'Send to CEO Office': 'success'
+    };
+    return colors[workflowStatus] || 'default';
+  };
 
   const getStatusColor = (status) => {
     const colors = {
@@ -110,6 +144,7 @@ const PaymentSettlementList = () => {
         limit: rowsPerPage,
         search,
         status: statusFilter,
+        workflowStatus: workflowStatusFilter,
         parentCompanyName: parentCompanyFilter,
         subsidiaryName: subsidiaryFilter,
         fromDepartment: departmentFilter
@@ -124,7 +159,7 @@ const PaymentSettlementList = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, statusFilter, parentCompanyFilter, subsidiaryFilter, departmentFilter]);
+  }, [page, rowsPerPage, search, statusFilter, workflowStatusFilter, parentCompanyFilter, subsidiaryFilter, departmentFilter]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -162,6 +197,9 @@ const PaymentSettlementList = () => {
       case 'status':
         setStatusFilter(value);
         break;
+      case 'workflowStatus':
+        setWorkflowStatusFilter(value);
+        break;
       case 'parentCompany':
         setParentCompanyFilter(value);
         break;
@@ -175,6 +213,26 @@ const PaymentSettlementList = () => {
         break;
     }
     setPage(0);
+  };
+
+  const handleWorkflowStatusChange = async () => {
+    if (!workflowStatusDialog.settlement || !workflowStatusDialog.workflowStatus) {
+      return;
+    }
+
+    try {
+      await paymentSettlementService.updateWorkflowStatus(
+        workflowStatusDialog.settlement._id,
+        workflowStatusDialog.workflowStatus,
+        workflowStatusDialog.comments
+      );
+      toast.success('Workflow status updated successfully');
+      setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' });
+      loadSettlements();
+      loadStats();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update workflow status');
+    }
   };
 
   const handleDelete = async (settlement) => {
@@ -723,6 +781,24 @@ const PaymentSettlementList = () => {
               </Select>
             </FormControl>
           </Grid>
+          {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Workflow Status</InputLabel>
+                <Select
+                  value={workflowStatusFilter}
+                  onChange={(e) => handleFilterChange('workflowStatus', e.target.value)}
+                  label="Workflow Status"
+                >
+                  {workflowStatusOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+          )}
           <Grid item xs={12} md={3}>
             <TextField
               fullWidth
@@ -755,6 +831,7 @@ const PaymentSettlementList = () => {
             onClick={() => {
               setSearch('');
               setStatusFilter('');
+              setWorkflowStatusFilter('');
               setParentCompanyFilter('');
               setSubsidiaryFilter('');
               setDepartmentFilter('');
@@ -779,19 +856,22 @@ const PaymentSettlementList = () => {
                 <TableCell>Amount</TableCell>
                 <TableCell>Date</TableCell>
                 <TableCell>Status</TableCell>
+                {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
+                  <TableCell>Workflow Status</TableCell>
+                )}
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') ? 9 : 8} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : settlements.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') ? 9 : 8} align="center">
                     No payment settlements found
                   </TableCell>
                 </TableRow>
@@ -852,6 +932,15 @@ const PaymentSettlementList = () => {
                         size="small"
                       />
                     </TableCell>
+                    {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
+                      <TableCell>
+                        <Chip
+                          label={settlement.workflowStatus || 'Draft'}
+                          color={getWorkflowStatusColor(settlement.workflowStatus || 'Draft')}
+                          size="small"
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Tooltip title="View Details">
@@ -862,6 +951,22 @@ const PaymentSettlementList = () => {
                             <ViewIcon />
                           </IconButton>
                         </Tooltip>
+                        {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'higher_management') && (
+                          <Tooltip title="Change Workflow Status">
+                            <IconButton
+                              size="small"
+                              onClick={() => setWorkflowStatusDialog({ 
+                                open: true, 
+                                settlement,
+                                workflowStatus: settlement.workflowStatus || 'Draft',
+                                comments: ''
+                              })}
+                              color="primary"
+                            >
+                              <ScheduleIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {getNextStatus(settlement.status) && (
                           <Tooltip title={`Move to ${getNextStatus(settlement.status)}`}>
                             <IconButton
@@ -1381,6 +1486,61 @@ const PaymentSettlementList = () => {
             onClick={() => handleDelete(deleteDialog.settlement)}
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Workflow Status Dialog */}
+      <Dialog
+        open={workflowStatusDialog.open}
+        onClose={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Change Workflow Status</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Workflow Status</InputLabel>
+              <Select
+                value={workflowStatusDialog.workflowStatus || ''}
+                onChange={(e) => setWorkflowStatusDialog({ 
+                  ...workflowStatusDialog, 
+                  workflowStatus: e.target.value 
+                })}
+                label="Workflow Status"
+              >
+                {workflowStatusOptions.filter(opt => opt.value !== '').map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              label="Comments (Optional)"
+              value={workflowStatusDialog.comments || ''}
+              onChange={(e) => setWorkflowStatusDialog({ 
+                ...workflowStatusDialog, 
+                comments: e.target.value 
+              })}
+              placeholder="Add any comments about this status change..."
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' })}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleWorkflowStatusChange} 
+            variant="contained"
+            disabled={!workflowStatusDialog.workflowStatus}
+          >
+            Update Status
           </Button>
         </DialogActions>
       </Dialog>

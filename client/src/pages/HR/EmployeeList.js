@@ -46,7 +46,7 @@ import api from '../../services/api';
 import { getImageUrl } from '../../utils/imageService';
 
 const EmployeeList = () => {
-  const { employees, departments, projects, loading: dataLoading, fetchEmployees, errors } = useData();
+  const { employees, departments, projects, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, errors } = useData();
   const [paginationLoading, setPaginationLoading] = useState(false);
   const fetchAttemptedRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -91,6 +91,19 @@ const EmployeeList = () => {
       fetchAttemptedRef.current = false; // Reset if we have employees
     }
   }, [employees.length, dataLoading.employees, errors.employees, fetchEmployees]);
+
+  // Fetch departments and projects if they're empty
+  useEffect(() => {
+    if (departments.length === 0 && !dataLoading.departments) {
+      fetchDepartments();
+    }
+  }, [departments.length, dataLoading.departments, fetchDepartments]);
+
+  useEffect(() => {
+    if (projects.length === 0 && !dataLoading.projects) {
+      fetchProjects();
+    }
+  }, [projects.length, dataLoading.projects, fetchProjects]);
 
   // Pagination handlers
   const handleChangePage = useCallback((event, newPage) => {
