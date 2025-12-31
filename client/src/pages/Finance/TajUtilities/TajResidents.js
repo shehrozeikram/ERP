@@ -1352,7 +1352,7 @@ const TajResidents = () => {
                 label="Email"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value.toLowerCase().trim() })}
               />
             </Grid>
             <Grid item xs={12} md={6}>

@@ -138,6 +138,11 @@ router.post(
       balance: 0, // Start with 0, will be updated by deposit transaction
       createdBy: req.user.id
     };
+    
+    // Normalize email to lowercase
+    if (residentData.email) {
+      residentData.email = residentData.email.toLowerCase().trim();
+    }
 
     const resident = new TajResident(residentData);
     await resident.save();
@@ -181,6 +186,11 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
 
   if (!resident) {
     return res.status(404).json({ success: false, message: 'Resident not found' });
+  }
+
+  // Normalize email to lowercase if provided
+  if (req.body.email) {
+    req.body.email = req.body.email.toLowerCase().trim();
   }
 
   Object.assign(resident, req.body);

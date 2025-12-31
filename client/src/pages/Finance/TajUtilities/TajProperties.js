@@ -55,6 +55,7 @@ import {
 } from '../../../services/tajPropertiesService';
 import { fetchAvailableAgreements } from '../../../services/tajRentalManagementService';
 import { fetchResidents, createResident, assignProperties, unassignProperties } from '../../../services/tajResidentsService';
+import { fetchSectors, createSector } from '../../../services/tajSectorsService';
 import api from '../../../services/api';
 import { updatePropertyStatus } from '../../../services/tajPropertiesService';
 
@@ -170,6 +171,7 @@ const TajProperties = () => {
   const [connectionTypes, setConnectionTypes] = useState(defaultConnectionTypes);
   const [occupiedUnderConstructionOptions, setOccupiedUnderConstructionOptions] = useState(defaultOccupiedUnderConstructionOptions);
   const [sectors, setSectors] = useState([]);
+  const [sectorsLoading, setSectorsLoading] = useState(false);
   
   // Add New Dialog State
   const [addNewDialog, setAddNewDialog] = useState({
@@ -240,6 +242,18 @@ const TajProperties = () => {
     }
   }, []);
 
+  const loadSectors = useCallback(async () => {
+    try {
+      setSectorsLoading(true);
+      const response = await fetchSectors({ isActive: 'true' });
+      setSectors(response.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load sectors:', err);
+    } finally {
+      setSectorsLoading(false);
+    }
+  }, []);
+
   const loadProperties = useCallback(async () => {
     try {
       setLoading(true);
@@ -266,7 +280,8 @@ const TajProperties = () => {
     loadProperties();
     loadAgreements();
     loadResidents();
-  }, [loadProperties, loadAgreements, loadResidents]);
+    loadSectors();
+  }, [loadProperties, loadAgreements, loadResidents, loadSectors]);
 
   const handleOpenDialog = (property) => {
     if (property) {
@@ -432,10 +447,10 @@ const TajProperties = () => {
         setFormData((prev) => ({ ...prev, occupiedUnderConstruction: trimmedValue }));
         break;
       case 'sector':
-        if (!sectors.includes(trimmedValue)) {
-          setSectors([...sectors, trimmedValue]);
+        // This case is now handled by Autocomplete, but keeping for backward compatibility
+        if (trimmedValue) {
+          handleCreateNewSector(trimmedValue);
         }
-        setFormData((prev) => ({ ...prev, sector: trimmedValue }));
         break;
       default:
         break;
@@ -516,6 +531,48 @@ const TajProperties = () => {
       notes: ''
     });
     setError('');
+  };
+
+  const handleCreateNewSector = async (sectorName) => {
+    if (!sectorName || !sectorName.trim()) {
+      return;
+    }
+
+    const trimmedName = sectorName.trim();
+    
+    // Check if sector already exists
+    const existingSector = sectors.find(s => 
+      (s.name || s).toLowerCase() === trimmedName.toLowerCase()
+    );
+    
+    if (existingSector) {
+      // Sector already exists, just set it
+      setFormData((prev) => ({ ...prev, sector: existingSector.name || existingSector }));
+      return;
+    }
+
+    try {
+      // Create new sector
+      const response = await createSector({ name: trimmedName });
+      const newSector = response.data?.data;
+      
+      if (newSector) {
+        // Add to sectors list
+        setSectors((prev) => [...prev, newSector].sort((a, b) => {
+          const nameA = (a.name || a).toLowerCase();
+          const nameB = (b.name || b).toLowerCase();
+          return nameA.localeCompare(nameB);
+        }));
+        
+        // Set in form data
+        setFormData((prev) => ({ ...prev, sector: newSector.name }));
+        setSuccess(`Sector "${trimmedName}" created successfully`);
+      }
+    } catch (err) {
+      const errorMsg = err.response?.data?.message || 'Failed to create sector';
+      setError(errorMsg);
+      console.error('Failed to create sector:', err);
+    }
   };
 
   const handleCreateAgreement = async () => {
@@ -1883,36 +1940,78 @@ const TajProperties = () => {
               />
             </Grid>
             <Grid item xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel>Sector</InputLabel>
-                <Select
-                  label="Sector"
-                  name="sector"
-                  value={formData.sector}
-                  onChange={handleInputChange}
-                >
-                  {sectors.map((sector) => (
-                    <MenuItem key={sector} value={sector}>
-                      {sector}
-                    </MenuItem>
-                  ))}
-                  <MenuItem 
-                    value="add_new" 
-                    sx={{ 
-                      borderTop: sectors.length > 0 ? '1px solid #e0e0e0' : 'none',
-                      backgroundColor: '#f5f5f5',
-                      '&:hover': {
-                        backgroundColor: '#e3f2fd'
+              <Autocomplete
+                freeSolo
+                options={sectors}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') {
+                    return option;
+                  }
+                  return option.name || '';
+                }}
+                value={formData.sector || null}
+                inputValue={formData.sector || ''}
+                onInputChange={(event, newInputValue, reason) => {
+                  // Update form data as user types
+                  if (reason === 'input' || reason === 'clear') {
+                    setFormData({ ...formData, sector: newInputValue });
+                  }
+                }}
+                onChange={async (event, newValue) => {
+                  if (typeof newValue === 'string') {
+                    // User typed a new value - check if it exists, if not create it
+                    const trimmedValue = newValue.trim();
+                    if (trimmedValue) {
+                      const exists = sectors.some(s => 
+                        (s.name || s).toLowerCase() === trimmedValue.toLowerCase()
+                      );
+                      if (!exists) {
+                        // Create new sector
+                        await handleCreateNewSector(trimmedValue);
+                      } else {
+                        setFormData({ ...formData, sector: trimmedValue });
                       }
+                    }
+                  } else if (newValue) {
+                    // User selected an existing sector
+                    setFormData({ ...formData, sector: newValue.name || newValue });
+                  } else {
+                    // Cleared
+                    setFormData({ ...formData, sector: '' });
+                  }
+                }}
+                onBlur={async (event) => {
+                  // When user leaves the field, if value doesn't exist, create it
+                  const inputValue = event.target.value?.trim();
+                  if (inputValue && inputValue !== formData.sector) {
+                    const exists = sectors.some(s => 
+                      (s.name || s).toLowerCase() === inputValue.toLowerCase()
+                    );
+                    if (!exists) {
+                      await handleCreateNewSector(inputValue);
+                    } else {
+                      setFormData({ ...formData, sector: inputValue });
+                    }
+                  }
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Sector"
+                    placeholder="Type to search or add new"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {sectorsLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      )
                     }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <AddIcon fontSize="small" />
-                      Add New
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
+                  />
+                )}
+                loading={sectorsLoading}
+              />
             </Grid>
             <Grid item xs={12} md={4}>
               <TextField
@@ -2157,7 +2256,7 @@ const TajProperties = () => {
                 label="Email"
                 type="email"
                 value={newResidentForm.email}
-                onChange={(e) => setNewResidentForm({ ...newResidentForm, email: e.target.value })}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, email: e.target.value.toLowerCase().trim() })}
               />
             </Grid>
             <Grid item xs={12} md={6}>

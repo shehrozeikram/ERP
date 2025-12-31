@@ -968,7 +968,7 @@ const RentalAgreements = () => {
                 label="Email"
                 type="email"
                 value={newResidentForm.email}
-                onChange={(e) => setNewResidentForm({ ...newResidentForm, email: e.target.value })}
+                onChange={(e) => setNewResidentForm({ ...newResidentForm, email: e.target.value.toLowerCase().trim() })}
               />
             </Grid>
             <Grid item xs={12} md={6}>
