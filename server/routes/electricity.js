@@ -816,8 +816,9 @@ router.post('/bulk-create', authMiddleware, [
           const unitsForDays = calculateUnitsForDays(unitsConsumed, billTotalDays, billTotalDays);
 
           // Calculate all charges
-          const meterRent = property.hasElectricityWater ? 75 : 0;
-          const tvFee = property.hasElectricityWater ? 35 : 0;
+          // Meter Rent, TV Fee, and NJ Surcharge removed from calculation
+          const meterRent = 0;
+          const tvFee = 0;
           const charges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate, meterRent, tvFee);
 
           // Calculate balance and arrears

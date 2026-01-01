@@ -250,7 +250,7 @@ rentalAgreement: {
     },
     occupiedUnderConstruction: {
       type: String,
-      enum: ['Office', 'Occupied', 'Under-Construction'],
+      enum: ['Office', 'Occupied', 'Under-Construction', 'Un-occupied'],
       trim: true
     },
     dateOfOccupation: {
@@ -296,7 +296,16 @@ rentalAgreement: {
         type: Boolean,
         default: true
       }
-    }]
+    }],
+    // Metadata
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
   },
   { timestamps: true }
 );

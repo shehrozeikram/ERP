@@ -75,7 +75,9 @@ router.get('/:id', async (req, res) => {
   try {
     const property = await TajProperty.findById(req.params.id)
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
-      .populate('resident', 'name accountType contactNumber email');
+      .populate('resident', 'name accountType contactNumber email')
+      .populate('createdBy', 'firstName lastName email _id')
+      .populate('updatedBy', 'firstName lastName email _id');
     if (!property) {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
@@ -116,18 +118,25 @@ router.put('/:id', async (req, res) => {
 // Update property status
 router.patch('/:id/status', async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, updatedBy } = req.body;
     if (!status) {
       return res.status(400).json({ success: false, message: 'Status is required' });
     }
 
+    const updateData = { status };
+    // If status is being set to Active and updatedBy is provided, track who activated it
+    if (status === 'Active' && updatedBy) {
+      updateData.updatedBy = updatedBy;
+    }
+
     const property = await TajProperty.findByIdAndUpdate(
       req.params.id,
-      { status },
+      updateData,
       { new: true, runValidators: true }
     )
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
-      .populate('resident', 'name accountType contactNumber email');
+      .populate('resident', 'name accountType contactNumber email')
+      .populate('updatedBy', 'firstName lastName email _id');
 
     if (!property) {
       return res.status(404).json({ success: false, message: 'Property not found' });

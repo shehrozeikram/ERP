@@ -987,11 +987,8 @@ const Electricity = () => {
           value: `${formatRate(electricityBill.iescoUnitPrice || 0)}   ${formatAmount(electricityBill.electricityCost || 0)}`
         },
         { label: 'FC Surcharge', value: formatAmount(electricityBill.fcSurcharge || 0) },
-        { label: 'Meter Rent', value: formatAmount(electricityBill.meterRent || 0) },
-        { label: 'NJ Surcharge', value: formatAmount(electricityBill.njSurcharge || 0) },
         { label: 'Sales Tax', value: formatAmount(electricityBill.gst || 0) },
         { label: 'Electricity Duty', value: formatAmount(electricityBill.electricityDuty || 0) },
-        { label: 'TV Fee', value: formatAmount(electricityBill.tvFee || 0) },
         { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0) },
         { label: 'Charges for the Month', value: formatAmount(totalBill) },
         {
@@ -1276,11 +1273,8 @@ const Electricity = () => {
       const rows = [
         { label: 'Share of IESCO Supply Cost Rate', value: `${formatRate(electricityBill.iescoUnitPrice || 0)}   ${formatAmount(electricityBill.electricityCost || 0)}`, bold: false },
         { label: 'FC Surcharge', value: formatAmount(electricityBill.fcSurcharge || 0), bold: false },
-        { label: 'Meter Rent', value: formatAmount(electricityBill.meterRent || 0), bold: false },
-        { label: 'NJ Surcharge', value: formatAmount(electricityBill.njSurcharge || 0), bold: false },
         { label: 'Sales Tax', value: formatAmount(electricityBill.gst || 0), bold: false },
         { label: 'Electricity Duty', value: formatAmount(electricityBill.electricityDuty || 0), bold: false },
-        { label: 'TV Fee', value: formatAmount(electricityBill.tvFee || 0), bold: false },
         { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0), bold: false },
         { label: 'Charges for the Month', value: formatAmount(totalBill), bold: false },
         { label: `Amount Received in ${monthLabel.replace('-', ' ')}`, value: formatAmount(amountReceived ? -amountReceived : 0), bold: false },
@@ -1682,14 +1676,6 @@ const Electricity = () => {
                 <td style="text-align: right;">${formatCurrency(viewingCharge.fcSurcharge || 0)}</td>
               </tr>
               <tr>
-                <td>Meter Rent</td>
-                <td style="text-align: right;">${formatCurrency(viewingCharge.meterRent || 0)}</td>
-              </tr>
-              <tr>
-                <td>NJ Surcharge (0.10 × Units)</td>
-                <td style="text-align: right;">${formatCurrency(viewingCharge.njSurcharge || 0)}</td>
-              </tr>
-              <tr>
                 <td>Fixed Charges</td>
                 <td style="text-align: right;">${formatCurrency(viewingCharge.fixedCharges || 0)}</td>
               </tr>
@@ -1700,10 +1686,6 @@ const Electricity = () => {
               <tr>
                 <td>Electricity Duty (1.5%)</td>
                 <td style="text-align: right;">${formatCurrency(viewingCharge.electricityDuty || 0)}</td>
-              </tr>
-              <tr>
-                <td>TV Fee</td>
-                <td style="text-align: right;">${formatCurrency(viewingCharge.tvFee || 0)}</td>
               </tr>
               <tr class="total-row">
                 <td><strong>Total Bill</strong></td>
@@ -1904,12 +1886,9 @@ const Electricity = () => {
       ['IESCO Unit Price', formatUnitPrice(viewingCharge.iescoUnitPrice || 0)],
       ['Electricity Cost', formatCurrency(viewingCharge.electricityCost || 0)],
       ['F.C Surcharge (3.2 × Units)', formatCurrency(viewingCharge.fcSurcharge || 0)],
-      ['Meter Rent', formatCurrency(viewingCharge.meterRent || 0)],
-      ['NJ Surcharge (0.10 × Units)', formatCurrency(viewingCharge.njSurcharge || 0)],
       ['Fixed Charges', formatCurrency(viewingCharge.fixedCharges || 0)],
       ['GST (18%)', formatCurrency(viewingCharge.gst || 0)],
-      ['Electricity Duty (1.5%)', formatCurrency(viewingCharge.electricityDuty || 0)],
-      ['TV Fee', formatCurrency(viewingCharge.tvFee || 0)]
+      ['Electricity Duty (1.5%)', formatCurrency(viewingCharge.electricityDuty || 0)]
     ];
     
     charges.forEach(([desc, amount]) => {
@@ -3247,24 +3226,12 @@ const Electricity = () => {
                 <Typography variant="body1">{formatCurrency(viewingCharge.fcSurcharge || 0)}</Typography>
               </Grid>
               <Grid item xs={12} md={4}>
-                <Typography variant="caption" color="text.secondary">Meter Rent</Typography>
-                <Typography variant="body1">{formatCurrency(viewingCharge.meterRent || 0)}</Typography>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="caption" color="text.secondary">NJ Surcharge (0.10 × Units)</Typography>
-                <Typography variant="body1">{formatCurrency(viewingCharge.njSurcharge || 0)}</Typography>
-              </Grid>
-              <Grid item xs={12} md={4}>
                 <Typography variant="caption" color="text.secondary">GST (18%)</Typography>
                 <Typography variant="body1">{formatCurrency(viewingCharge.gst || 0)}</Typography>
               </Grid>
               <Grid item xs={12} md={4}>
                 <Typography variant="caption" color="text.secondary">Electricity Duty (1.5%)</Typography>
                 <Typography variant="body1">{formatCurrency(viewingCharge.electricityDuty || 0)}</Typography>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="caption" color="text.secondary">TV Fee</Typography>
-                <Typography variant="body1">{formatCurrency(viewingCharge.tvFee || 0)}</Typography>
               </Grid>
               <Grid item xs={12} md={4}>
                 <Typography variant="caption" color="text.secondary">Fixed Charges</Typography>

@@ -28,6 +28,7 @@ import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchPropertyById, updatePropertyStatus } from '../../../services/tajPropertiesService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
+import { useAuth } from '../../../contexts/AuthContext';
 import jsPDF from 'jspdf';
 
 const propertyStatuses = ['Pending', 'Active', 'Inactive', 'Under Maintenance', 'Rented', 'Available', 'Reserved'];
@@ -35,6 +36,7 @@ const propertyStatuses = ['Pending', 'Active', 'Inactive', 'Under Maintenance', 
 const TajPropertyDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [property, setProperty] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,7 +65,9 @@ const TajPropertyDetail = () => {
     try {
       setStatusUpdating(true);
       setStatusError('');
-      await updatePropertyStatus(id, newStatus);
+      // If status is being set to Active, send the current user ID to track who activated it
+      const updatedBy = (newStatus === 'Active' && user?._id) ? user._id : null;
+      await updatePropertyStatus(id, newStatus, updatedBy);
       await fetchProperty(); // Refresh property data
     } catch (err) {
       setStatusError(err.response?.data?.message || 'Failed to update status');
@@ -1372,6 +1376,32 @@ const TajPropertyDetail = () => {
                   ? dayjs(property.createdAt).format('DD/MM/YYYY HH:mm')
                   : 'N/A'}
               </Typography>
+              {property.createdBy && (
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  <strong>Created By:</strong>{' '}
+                  {property.createdBy.firstName && property.createdBy.lastName
+                    ? `${property.createdBy.firstName} ${property.createdBy.lastName}`
+                    : property.createdBy.email || 'N/A'}
+                  {property.createdBy._id && (
+                    <span style={{ color: '#666', fontSize: '0.85em', marginLeft: '8px' }}>
+                      (ID: {property.createdBy._id})
+                    </span>
+                  )}
+                </Typography>
+              )}
+              {property.status === 'Active' && property.updatedBy && (
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  <strong>Activated By:</strong>{' '}
+                  {property.updatedBy.firstName && property.updatedBy.lastName
+                    ? `${property.updatedBy.firstName} ${property.updatedBy.lastName}`
+                    : property.updatedBy.email || 'N/A'}
+                  {property.updatedBy._id && (
+                    <span style={{ color: '#666', fontSize: '0.85em', marginLeft: '8px' }}>
+                      (ID: {property.updatedBy._id})
+                    </span>
+                  )}
+                </Typography>
+              )}
               <Typography variant="body2">
                 <strong>Last Updated:</strong>{' '}
                 {property.updatedAt

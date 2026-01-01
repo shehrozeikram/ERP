@@ -114,7 +114,7 @@ const defaultForm = {
 };
 
 const defaultConnectionTypes = ['Single Phase', 'Two Phase', 'Three Phase'];
-const defaultOccupiedUnderConstructionOptions = ['Office', 'Occupied', 'Under-Construction'];
+const defaultOccupiedUnderConstructionOptions = ['Office', 'Occupied', 'Under-Construction', 'Un-occupied'];
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {

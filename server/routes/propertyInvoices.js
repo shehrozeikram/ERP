@@ -318,8 +318,9 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
         });
       }
       
-      const meterRent = property.hasElectricityWater ? 75 : 0;
-      const tvFee = property.hasElectricityWater ? 35 : 0;
+      // Meter Rent, TV Fee, and NJ Surcharge removed from calculation
+      const meterRent = 0;
+      const tvFee = 0;
       const charges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
       
       return res.json({

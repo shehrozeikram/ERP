@@ -173,7 +173,7 @@ const mapRentalPropertyResponse = (property) => {
   return {
     _id: property._id,
     srNo: property.srNo,
-    propertyCode: property.plotNumber || (property.srNo ? `PR-${property.srNo}` : property._id.toString()),
+    propertyCode: property.srNo ? `PR-${property.srNo}` : (property.plotNumber || property._id.toString()),
     propertyType: property.propertyType || 'House',
     propertyName: property.propertyName || property.plotNumber || 'Unnamed',
     ownerName: property.ownerName || '',

@@ -17,8 +17,8 @@ export const updateProperty = (id, data) =>
 export const deleteProperty = (id) =>
   api.delete(`${base}/${id}`);
 
-export const updatePropertyStatus = (id, status) =>
-  api.patch(`${base}/${id}/status`, { status });
+export const updatePropertyStatus = (id, status, updatedBy = null) =>
+  api.patch(`${base}/${id}/status`, { status, updatedBy });
 
 export default {
   fetchProperties,
