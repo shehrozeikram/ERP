@@ -211,6 +211,27 @@ auditTrailSchema.statics.logAction = async function(actionData) {
     auditContext
   } = actionData;
 
+  // Validate required fields before proceeding
+  if (!userId) {
+    console.error('AuditTrail.logAction: userId is required but was not provided', {
+      action,
+      module,
+      userEmail,
+      hasUserId: !!userId
+    });
+    return null; // Return null instead of throwing to prevent breaking the request
+  }
+
+  if (!userEmail) {
+    console.error('AuditTrail.logAction: userEmail is required but was not provided', {
+      action,
+      module,
+      userId,
+      hasUserEmail: !!userEmail
+    });
+    return null;
+  }
+
   // Determine risk level based on action and entity type
   let calculatedRiskLevel = riskLevel || 'low';
   if (!calculatedRiskLevel) {

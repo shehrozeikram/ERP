@@ -55,6 +55,7 @@ import {
   Description as DescriptionIcon,
   Business as BusinessIcon,
   Warning as WarningIcon,
+  Error as ErrorIcon,
   Schedule as ScheduleIcon,
   AttachFile as AttachFileIcon,
   Download as DownloadIcon,
@@ -306,6 +307,21 @@ const PreAudit = () => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Format date to match Payment Settlement style (22-Dec-25)
+  const formatDateForDocument = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      const day = date.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[date.getMonth()];
+      const year = date.getFullYear().toString().slice(-2);
+      return `${day}-${month}-${year}`;
+    } catch {
+      return dateString;
+    }
   };
 
   return (
@@ -622,363 +638,484 @@ const PreAudit = () => {
       <Dialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
-        maxWidth="lg"
+        maxWidth="md"
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+            borderRadius: 0,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            background: '#ffffff'
           }
         }}
       >
         <DialogTitle sx={{ 
-          pb: 2, 
-          borderBottom: '1px solid', 
-          borderColor: 'divider',
-          background: viewDialog.document?.isWorkflowDocument 
-            ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
-            : 'inherit',
-          color: viewDialog.document?.isWorkflowDocument ? 'white' : 'inherit'
+          p: 0,
+          m: 0
         }}>
-          <Stack direction="row" alignItems="center" spacing={2}>
-            {viewDialog.document?.isWorkflowDocument && (
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <PaymentIcon />
-              </Avatar>
-            )}
-            <Box>
-              <Typography variant="h5" fontWeight="bold">
-                {viewDialog.document?.isWorkflowDocument ? 'Payment Settlement Details' : 'Document Details'}
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                {viewDialog.document?.isWorkflowDocument 
-                  ? (viewDialog.fullDocument?.referenceNumber || viewDialog.document?.documentNumber)
-                  : viewDialog.document?.documentNumber}
-              </Typography>
-            </Box>
-          </Stack>
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            p: 2,
+            borderBottom: '1px solid #e0e0e0'
+          }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
+              PAYMENT SETTLEMENT
+            </Typography>
+            <IconButton 
+              size="small" 
+              onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+              sx={{ color: '#666' }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
-        <DialogContent sx={{ p: 0 }}>
+        <DialogContent sx={{ p: 0, background: '#ffffff' }}>
           {viewDialog.loading ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <CircularProgress />
               <Typography variant="body2" sx={{ mt: 2 }}>Loading document details...</Typography>
             </Box>
           ) : viewDialog.document && (
-            <Box sx={{ p: 3 }}>
+            <Box sx={{ 
+              p: 4, 
+              background: '#ffffff',
+              fontFamily: '"Times New Roman", serif'
+            }}>
               {/* Show Payment Settlement details if it's a workflow document */}
               {viewDialog.document.isWorkflowDocument && viewDialog.fullDocument ? (
                 <>
-                  {/* Header with Status and Amount */}
-                  <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' }}>
-                    <CardContent>
-                      <Grid container spacing={3} alignItems="center">
-                        <Grid item xs={12} md={6}>
-                          <Stack direction="row" alignItems="center" spacing={2}>
-                            <Chip
-                              label={viewDialog.fullDocument.workflowStatus || viewDialog.document.workflowStatus || 'Draft'}
-                              color={getStatusColor(viewDialog.document.status)}
-                              size="medium"
-                              icon={<CheckCircleIcon />}
-                            />
-                            <Chip
-                              label={viewDialog.fullDocument.paymentType}
-                              color={
-                                viewDialog.fullDocument.paymentType === 'Payable' ? 'primary' : 
-                                viewDialog.fullDocument.paymentType === 'Reimbursement' ? 'secondary' : 
-                                viewDialog.fullDocument.paymentType === 'Advance' ? 'success' : 'default'
-                              }
-                              size="medium"
-                              variant="outlined"
-                            />
-                          </Stack>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                          <Stack direction="row" alignItems="center" spacing={2}>
-                            <AttachMoneyIcon color="primary" />
-                            <Box>
-                              <Typography variant="h4" fontWeight="bold" color="primary">
-                                {formatPKR(viewDialog.fullDocument.grandTotal || viewDialog.fullDocument.amount || 0)}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Grand Total
-                              </Typography>
-                            </Box>
-                          </Stack>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
-
-                  {/* Company Details Section */}
-                  <Card sx={{ mb: 3 }}>
-                    <CardContent>
-                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                        <Avatar sx={{ bgcolor: 'primary.main' }}>
-                          <BusinessIcon />
-                        </Avatar>
-                        <Typography variant="h6" fontWeight="bold">
-                          Company Details
+                  {/* Document Header */}
+                  <Box sx={{ 
+                    mb: 3, 
+                    borderBottom: '2px solid #000',
+                    pb: 2
+                  }}>
+                    <Typography variant="h5" sx={{ 
+                      fontWeight: 700, 
+                      textAlign: 'center',
+                      mb: 3,
+                      fontSize: '24px',
+                      letterSpacing: '1px'
+                    }}>
+                      {viewDialog.fullDocument.parentCompanyName || 'PAYMENT SETTLEMENT'}
+                    </Typography>
+                    
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          SITE:
                         </Typography>
-                      </Stack>
-                      <Grid container spacing={3}>
-                        <Grid item xs={12} md={6}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <BusinessIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                Parent Company
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.parentCompanyName}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <AccountBalanceIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                Subsidiary
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.subsidiaryName}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
-
-                  {/* Payment Details Section */}
-                  <Card sx={{ mb: 3 }}>
-                    <CardContent>
-                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                        <Avatar sx={{ bgcolor: 'success.main' }}>
-                          <PaymentIcon />
-                        </Avatar>
-                        <Typography variant="h6" fontWeight="bold">
-                          Payment Details
+                        <Typography variant="body2">
+                          {viewDialog.fullDocument.site || 'Head Office'}
                         </Typography>
-                      </Stack>
-                      <Grid container spacing={3}>
-                        <Grid item xs={12} md={6}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <AssignmentIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                Reference Number
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.referenceNumber}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <ScheduleIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                Date
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium">
-                              {formatDate(viewDialog.fullDocument.date)}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <AttachMoneyIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                Amount
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium" color="primary">
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          FROM:
+                        </Typography>
+                        <Typography variant="body2">
+                          {viewDialog.fullDocument.fromDepartment || 'Administration'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          CUSTODIEN:
+                        </Typography>
+                        <Typography variant="body2">
+                          {viewDialog.fullDocument.custodian || 'N/A'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          DATE:
+                        </Typography>
+                        <Typography variant="body2">
+                          {formatDateForDocument(viewDialog.fullDocument.date)}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          DOCUMENT NUMBER:
+                        </Typography>
+                        <Typography variant="body2">
+                          {viewDialog.fullDocument.referenceNumber || viewDialog.document?.documentNumber || 'N/A'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={6}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          NOTE:
+                        </Typography>
+                        <Typography variant="body2">
+                          {viewDialog.fullDocument.attachments && viewDialog.fullDocument.attachments.length > 0 
+                            ? 'All Supportings Attached' 
+                            : 'No Attachments'}
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  </Box>
+
+                  {/* Transaction Details Table */}
+                  <Box sx={{ mb: 3 }}>
+                    <TableContainer component={Paper} sx={{ 
+                      boxShadow: 'none',
+                      border: '1px solid #000'
+                    }}>
+                      <Table>
+                        <TableHead>
+                          <TableRow sx={{ background: '#f5f5f5' }}>
+                            <TableCell sx={{ 
+                              border: '1px solid #000', 
+                              fontWeight: 700,
+                              py: 1.5,
+                              fontSize: '13px'
+                            }}>
+                              Date
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000', 
+                              fontWeight: 700,
+                              py: 1.5,
+                              fontSize: '13px'
+                            }}>
+                              Reference No
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000', 
+                              fontWeight: 700,
+                              py: 1.5,
+                              fontSize: '13px'
+                            }}>
+                              To Whom Paid
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000', 
+                              fontWeight: 700,
+                              py: 1.5,
+                              fontSize: '13px'
+                            }}>
+                              For What
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000', 
+                              fontWeight: 700,
+                              py: 1.5,
+                              fontSize: '13px',
+                              textAlign: 'right'
+                            }}>
+                              Amount
+                            </TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          <TableRow>
+                            <TableCell sx={{ 
+                              border: '1px solid #000',
+                              py: 2,
+                              fontSize: '13px'
+                            }}>
+                              {formatDateForDocument(viewDialog.fullDocument.date)}
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000',
+                              py: 2,
+                              fontSize: '13px'
+                            }}>
+                              {viewDialog.fullDocument.referenceNumber || 'N/A'}
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000',
+                              py: 2,
+                              fontSize: '13px'
+                            }}>
+                              {viewDialog.fullDocument.toWhomPaid || 'N/A'}
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000',
+                              py: 2,
+                              fontSize: '13px',
+                              whiteSpace: 'pre-wrap'
+                            }}>
+                              {viewDialog.fullDocument.forWhat || 'N/A'}
+                            </TableCell>
+                            <TableCell sx={{ 
+                              border: '1px solid #000',
+                              py: 2,
+                              fontSize: '13px',
+                              textAlign: 'right',
+                              fontWeight: 600
+                            }}>
                               {formatPKR(viewDialog.fullDocument.amount)}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <PersonIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                To Whom Paid
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.toWhomPaid}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                              <AssignmentIcon color="primary" fontSize="small" />
-                              <Typography variant="subtitle2" color="text.secondary">
-                                For What
-                              </Typography>
-                            </Stack>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.forWhat}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
+                            </TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
 
-                  {/* Authorization Details Section */}
-                  <Card sx={{ mb: 3 }}>
-                    <CardContent>
-                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                        <Avatar sx={{ bgcolor: 'warning.main' }}>
-                          <PersonIcon />
-                        </Avatar>
-                        <Typography variant="h6" fontWeight="bold">
-                          Authorization Details
-                        </Typography>
-                      </Stack>
-                      <Grid container spacing={3}>
-                        <Grid item xs={12} md={4}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
-                            <PersonIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                              Prepared By
-                            </Typography>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.preparedBy}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {viewDialog.fullDocument.preparedByDesignation}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
-                            <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                              Verified By
-                            </Typography>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.verifiedBy}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {viewDialog.fullDocument.verifiedByDesignation}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
-                            <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                              Approved By
-                            </Typography>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.fullDocument.approvedBy}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {viewDialog.fullDocument.approvedByDesignation}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
+                  {/* Grand Total */}
+                  <Box sx={{ 
+                    mb: 4,
+                    display: 'flex',
+                    justifyContent: 'flex-end'
+                  }}>
+                    <Box sx={{ 
+                      border: '2px solid #000',
+                      p: 2,
+                      minWidth: '250px',
+                      background: '#f9f9f9'
+                    }}>
+                      <Typography variant="h6" sx={{ 
+                        fontWeight: 700,
+                        textAlign: 'right',
+                        fontSize: '18px'
+                      }}>
+                        Grand Total: {formatPKR(viewDialog.fullDocument.grandTotal || viewDialog.fullDocument.amount || 0)}
+                      </Typography>
+                    </Box>
+                  </Box>
 
-                  {/* Additional Details Section */}
-                  {(viewDialog.fullDocument.site || viewDialog.fullDocument.fromDepartment || viewDialog.fullDocument.custodian) && (
-                    <Card sx={{ mb: 3 }}>
-                      <CardContent>
-                        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                          <Avatar sx={{ bgcolor: 'info.main' }}>
-                            <AssignmentIcon />
-                          </Avatar>
-                          <Typography variant="h6" fontWeight="bold">
-                            Additional Details
+                  {/* Approval Section */}
+                  <Box sx={{ 
+                    mt: 4,
+                    borderTop: '1px solid #000',
+                    pt: 3
+                  }}>
+                    <Grid container spacing={4}>
+                      <Grid item xs={4}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 600, 
+                            mb: 2,
+                            fontSize: '13px',
+                            textDecoration: 'underline'
+                          }}>
+                            Prepared By:
                           </Typography>
-                        </Stack>
-                        <Grid container spacing={3}>
-                          {viewDialog.fullDocument.site && (
-                            <Grid item xs={12} md={4}>
-                              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                                  Site
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 600,
+                            mb: 0.5,
+                            fontSize: '13px'
+                          }}>
+                            {viewDialog.fullDocument.preparedBy || 'N/A'}
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            fontSize: '12px',
+                            color: '#666'
+                          }}>
+                            {viewDialog.fullDocument.preparedByDesignation || 'Not specified'}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={4}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 600, 
+                            mb: 2,
+                            fontSize: '13px',
+                            textDecoration: 'underline'
+                          }}>
+                            Verified By:
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 600,
+                            mb: 0.5,
+                            fontSize: '13px'
+                          }}>
+                            {viewDialog.fullDocument.verifiedBy || 'N/A'}
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            fontSize: '12px',
+                            color: '#666'
+                          }}>
+                            {viewDialog.fullDocument.verifiedByDesignation || 'Not specified'}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={4}>
+                        <Box sx={{ textAlign: 'center' }}>
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 600, 
+                            mb: 2,
+                            fontSize: '13px',
+                            textDecoration: 'underline'
+                          }}>
+                            Approved by:
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 600,
+                            mb: 0.5,
+                            fontSize: '13px'
+                          }}>
+                            {viewDialog.fullDocument.approvedBy || 'N/A'}
+                          </Typography>
+                          <Typography variant="body2" sx={{ 
+                            fontSize: '12px',
+                            color: '#666'
+                          }}>
+                            {viewDialog.fullDocument.approvedByDesignation || 'Not specified'}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Box>
+
+                  {/* Observations Section */}
+                  {(() => {
+                    // Extract observations from workflowHistory
+                    const observations = viewDialog.document.workflowHistory?.filter(entry => 
+                      entry.comments && (
+                        entry.comments.toLowerCase().includes('observation') || 
+                        entry.comments.toLowerCase().includes('returned from pre audit with observations')
+                      )
+                    ) || [];
+
+                    if (observations.length === 0) return null;
+
+                    return (
+                      <Box sx={{ 
+                        mt: 4,
+                        borderTop: '2px solid #d32f2f',
+                        pt: 3
+                      }}>
+                        <Box sx={{ 
+                          display: 'flex',
+                          alignItems: 'center',
+                          mb: 2
+                        }}>
+                          <ErrorIcon sx={{ color: '#d32f2f', mr: 1, fontSize: '20px' }} />
+                          <Typography variant="body2" sx={{ 
+                            fontWeight: 700, 
+                            fontSize: '15px',
+                            color: '#d32f2f',
+                            textTransform: 'uppercase'
+                          }}>
+                            CRITICAL OBSERVATIONS:
+                          </Typography>
+                        </Box>
+                        <Box sx={{ 
+                          border: '2px solid #d32f2f',
+                          p: 2.5,
+                          background: '#ffebee',
+                          borderRadius: '4px'
+                        }}>
+                          {observations.map((entry, index) => {
+                            const observationMatch = entry.comments.match(/Observation\s*\(([^)]+)\):\s*(.+)/i);
+                            const returnedMatch = entry.comments.match(/Returned from Pre Audit with observations:\s*(.+)/i);
+                            
+                            let observationText = entry.comments;
+                            let severity = 'medium';
+                            if (observationMatch) {
+                              observationText = observationMatch[2];
+                              severity = observationMatch[1].toLowerCase();
+                            } else if (returnedMatch) {
+                              observationText = returnedMatch[1];
+                            }
+
+                            const isCritical = severity.includes('high') || severity.includes('critical') || severity.includes('urgent');
+
+                            return (
+                              <Box key={index} sx={{ 
+                                mb: index < observations.length - 1 ? 2.5 : 0,
+                                p: 1.5,
+                                background: isCritical ? '#ffcdd2' : '#fff',
+                                border: `1px solid ${isCritical ? '#d32f2f' : '#ef5350'}`,
+                                borderRadius: '4px'
+                              }}>
+                                {isCritical && (
+                                  <Chip
+                                    label="CRITICAL"
+                                    size="small"
+                                    sx={{
+                                      mb: 1,
+                                      background: '#d32f2f',
+                                      color: '#fff',
+                                      fontWeight: 700,
+                                      fontSize: '10px'
+                                    }}
+                                  />
+                                )}
+                                <Typography variant="body2" sx={{ 
+                                  fontSize: '12px',
+                                  whiteSpace: 'pre-wrap',
+                                  lineHeight: 1.7,
+                                  color: '#c62828',
+                                  fontWeight: 500
+                                }}>
+                                  {observationText}
                                 </Typography>
-                                <Typography variant="body1" fontWeight="medium">
-                                  {viewDialog.fullDocument.site}
-                                </Typography>
+                                {entry.changedBy && (
+                                  <Typography variant="caption" sx={{ 
+                                    display: 'block',
+                                    mt: 1,
+                                    color: '#d32f2f',
+                                    fontSize: '11px'
+                                  }}>
+                                    — {entry.changedBy.firstName} {entry.changedBy.lastName}
+                                    {(() => {
+                                      // Extract department from workflowStatus
+                                      let department = '';
+                                      if (entry.toStatus) {
+                                        if (entry.toStatus.includes('AM Admin')) department = 'AM Admin';
+                                        else if (entry.toStatus.includes('HOD Admin')) department = 'HOD Admin';
+                                        else if (entry.toStatus.includes('Audit')) department = 'Audit';
+                                        else if (entry.toStatus.includes('Finance')) department = 'Finance';
+                                        else if (entry.toStatus.includes('CEO Office')) department = 'CEO Office';
+                                        else if (entry.toStatus.includes('Pre Audit')) department = 'Pre Audit';
+                                      }
+                                      return department ? ` (${department})` : '';
+                                    })()}
+                                    {entry.changedAt && ` • ${formatDateForDocument(entry.changedAt)}`}
+                                  </Typography>
+                                )}
+                                {index < observations.length - 1 && (
+                                  <Box sx={{ borderTop: '1px dashed #ef5350', mt: 2, pt: 2 }} />
+                                )}
                               </Box>
-                            </Grid>
-                          )}
-                          {viewDialog.fullDocument.fromDepartment && (
-                            <Grid item xs={12} md={4}>
-                              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                                  From Department
-                                </Typography>
-                                <Typography variant="body1" fontWeight="medium">
-                                  {viewDialog.fullDocument.fromDepartment}
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          )}
-                          {viewDialog.fullDocument.custodian && (
-                            <Grid item xs={12} md={4}>
-                              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                                  Custodian
-                                </Typography>
-                                <Typography variant="body1" fontWeight="medium">
-                                  {viewDialog.fullDocument.custodian}
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          )}
-                        </Grid>
-                      </CardContent>
-                    </Card>
-                  )}
+                            );
+                          })}
+                        </Box>
+                      </Box>
+                    );
+                  })()}
 
                   {/* Document Attachments Section */}
                   {viewDialog.fullDocument.attachments && viewDialog.fullDocument.attachments.length > 0 && (
-                    <Card sx={{ mb: 3 }}>
-                      <CardContent>
-                        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                          <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                            <AttachFileIcon />
-                          </Avatar>
-                          <Typography variant="h6" fontWeight="bold">
-                            Document Attachments ({viewDialog.fullDocument.attachments.length})
-                          </Typography>
-                        </Stack>
-                        <Grid container spacing={2}>
+                    <Box sx={{ 
+                      mt: 4,
+                      borderTop: '1px solid #000',
+                      pt: 3
+                    }}>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 700, 
+                        mb: 2,
+                        fontSize: '14px',
+                        textDecoration: 'underline'
+                      }}>
+                        ATTACHMENTS ({viewDialog.fullDocument.attachments.length}):
+                      </Typography>
+                      <Box sx={{ 
+                        border: '1px solid #000',
+                        p: 2
+                      }}>
+                        <Grid container spacing={1}>
                           {viewDialog.fullDocument.attachments.map((attachment, index) => {
                             const attachmentUrl = paymentSettlementService.getAttachmentUrl(viewDialog.fullDocument._id, attachment._id);
                             const isImage = attachment.mimeType.startsWith('image/');
                             const isPdf = attachment.mimeType === 'application/pdf';
                             
                             return (
-                              <Grid item xs={12} sm={6} md={4} key={attachment._id || index}>
+                              <Grid item xs={12} key={attachment._id || index}>
                                 <Box 
                                   sx={{ 
-                                    p: 2, 
-                                    bgcolor: 'grey.50', 
-                                    borderRadius: 1, 
-                                    border: '1px solid', 
-                                    borderColor: 'grey.200',
+                                    p: 1.5, 
+                                    border: '1px solid #ccc',
                                     cursor: 'pointer',
-                                    transition: 'all 0.2s ease-in-out',
+                                    transition: 'all 0.2s',
                                     '&:hover': {
-                                      bgcolor: 'grey.100',
-                                      borderColor: 'primary.main',
-                                      transform: 'translateY(-2px)',
-                                      boxShadow: 2
+                                      borderColor: '#000',
+                                      background: '#f5f5f5'
                                     }
                                   }}
                                   onClick={async () => {
@@ -1007,71 +1144,19 @@ const PreAudit = () => {
                                     }
                                   }}
                                 >
-                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                                    <AttachFileIcon color="primary" fontSize="small" />
-                                    <Typography variant="body2" fontWeight="medium" noWrap>
-                                      {attachment.originalName}
-                                    </Typography>
-                                  </Stack>
-                                  <Typography variant="caption" color="text.secondary" display="block">
-                                    Size: {formatFileSize(attachment.fileSize)}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary" display="block">
-                                    Type: {attachment.mimeType}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary" display="block">
-                                    Uploaded: {new Date(attachment.uploadedAt).toLocaleDateString()}
-                                  </Typography>
-                                  <Typography variant="caption" color="primary" display="block" sx={{ mt: 1, fontWeight: 'medium' }}>
-                                    {isImage ? 'Click to view image' : isPdf ? 'Click to view PDF' : 'Click to download'}
+                                  <Typography variant="body2" sx={{ 
+                                    fontSize: '12px',
+                                    fontWeight: 500
+                                  }}>
+                                    {index + 1}. {attachment.originalName}
                                   </Typography>
                                 </Box>
                               </Grid>
                             );
                           })}
                         </Grid>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Workflow History Section */}
-                  {viewDialog.document.workflowHistory && viewDialog.document.workflowHistory.length > 0 && (
-                    <Card sx={{ mb: 3 }}>
-                      <CardContent>
-                        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                          <Avatar sx={{ bgcolor: 'info.main' }}>
-                            <ScheduleIcon />
-                          </Avatar>
-                          <Typography variant="h6" fontWeight="bold">
-                            Workflow History
-                          </Typography>
-                        </Stack>
-                        <Stack spacing={2}>
-                          {viewDialog.document.workflowHistory.map((history, idx) => (
-                            <Paper key={idx} sx={{ p: 2, bgcolor: 'grey.50' }}>
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                <Typography variant="body2" fontWeight="medium">
-                                  {history.fromStatus} → {history.toStatus}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {formatDate(history.changedAt)}
-                                </Typography>
-                              </Box>
-                              {history.comments && (
-                                <Typography variant="body2" color="text.secondary">
-                                  {history.comments}
-                                </Typography>
-                              )}
-                              {history.changedBy && (
-                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                                  By: {history.changedBy.firstName} {history.changedBy.lastName}
-                                </Typography>
-                              )}
-                            </Paper>
-                          ))}
-                        </Stack>
-                      </CardContent>
-                    </Card>
+                      </Box>
+                    </Box>
                   )}
                 </>
               ) : (
@@ -1141,26 +1226,50 @@ const PreAudit = () => {
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid', borderColor: 'divider' }}>
-          <Button 
-            onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
-            variant="outlined"
-            sx={{ minWidth: 100 }}
-          >
-            Close
-          </Button>
-          {viewDialog.document?.isWorkflowDocument && viewDialog.document?.workflowConfig && (
+        <DialogActions sx={{ 
+          p: 2, 
+          borderTop: '1px solid #e0e0e0',
+          background: '#f9f9f9',
+          justifyContent: 'space-between'
+        }}>
+          <Box>
+            {viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument && (
+              <>
+                <Chip
+                  label={viewDialog.fullDocument.workflowStatus || viewDialog.document.workflowStatus || 'Draft'}
+                  color={getStatusColor(viewDialog.document.status)}
+                  size="small"
+                  sx={{ mr: 1 }}
+                />
+                <Chip
+                  label={viewDialog.fullDocument.paymentType}
+                  variant="outlined"
+                  size="small"
+                />
+              </>
+            )}
+          </Box>
+          <Box>
             <Button 
-              variant="contained"
-              onClick={() => {
-                setViewDialog({ open: false, document: null, fullDocument: null, loading: false });
-                navigate(`${viewDialog.document.workflowConfig.routePath}/${viewDialog.document._id}`);
-              }}
-              sx={{ minWidth: 120 }}
+              onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+              variant="outlined"
+              sx={{ minWidth: 80, mr: 1 }}
             >
-              View Original Document
+              Close
             </Button>
-          )}
+            {viewDialog.document?.isWorkflowDocument && viewDialog.document?.workflowConfig && (
+              <Button 
+                variant="contained"
+                onClick={() => {
+                  setViewDialog({ open: false, document: null, fullDocument: null, loading: false });
+                  navigate(`${viewDialog.document.workflowConfig.routePath}/${viewDialog.document._id}`);
+                }}
+                sx={{ minWidth: 120 }}
+              >
+                View Original Document
+              </Button>
+            )}
+          </Box>
         </DialogActions>
       </Dialog>
 

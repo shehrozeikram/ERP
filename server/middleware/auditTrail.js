@@ -55,8 +55,8 @@ const logRequest = (req, res, next) => {
 
 // Function to log activity
 const logActivity = async (req, res, responseBody, responseStatus) => {
-  // Only log if user is authenticated
-  if (!req.user) {
+  // Only log if user is authenticated and has _id
+  if (!req.user || !req.user._id) {
     return;
   }
 
@@ -231,10 +231,10 @@ const logActivity = async (req, res, responseBody, responseStatus) => {
   const auditData = {
     action,
     module,
-    userId: req.user._id,
-    userEmail: req.user.email,
-    userRole: req.user.role,
-    userDepartment: req.user.department,
+    userId: req.user._id || req.user.id,
+    userEmail: req.user.email || 'unknown',
+    userRole: req.user.role || 'unknown',
+    userDepartment: req.user.department || null,
     entityType,
     entityId,
     entityName,

@@ -235,7 +235,12 @@ const PaymentSettlementList = () => {
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     try {
-      return new Date(dateString).toLocaleDateString();
+      const date = new Date(dateString);
+      const day = date.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[date.getMonth()];
+      const year = date.getFullYear().toString().slice(-2);
+      return `${day}-${month}-${year}`;
     } catch {
       return dateString;
     }
@@ -922,327 +927,322 @@ const PaymentSettlementList = () => {
       <Dialog
         open={viewDialog.open}
         onClose={() => setViewDialog({ open: false, settlement: null })}
-        maxWidth="lg"
+        maxWidth="md"
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: 2,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+            borderRadius: 0,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            background: '#ffffff'
           }
         }}
       >
         <DialogTitle sx={{ 
-          pb: 2, 
-          borderBottom: '1px solid', 
-          borderColor: 'divider',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white'
+          p: 0,
+          m: 0
         }}>
-          <Stack direction="row" alignItems="center" spacing={2}>
-            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-              <PaymentIcon />
-            </Avatar>
-            <Box>
-              <Typography variant="h5" fontWeight="bold">
-                Payment Settlement Details
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                {viewDialog.settlement?.voucherNumber}
-              </Typography>
-            </Box>
-          </Stack>
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            p: 2,
+            borderBottom: '1px solid #e0e0e0'
+          }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
+              PAYMENT SETTLEMENT
+            </Typography>
+            <IconButton 
+              size="small" 
+              onClick={() => setViewDialog({ open: false, settlement: null })}
+              sx={{ color: '#666' }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
-        <DialogContent sx={{ p: 0 }}>
+        <DialogContent sx={{ p: 0, background: '#ffffff' }}>
           {viewDialog.settlement && (
-            <Box sx={{ p: 3 }}>
-              {/* Header with Status and Amount */}
-              <Card sx={{ mb: 3, background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)' }}>
-                <CardContent>
-                  <Grid container spacing={3} alignItems="center">
-                    <Grid item xs={12} md={6}>
-                      <Stack direction="row" alignItems="center" spacing={2}>
-                        <Chip
-                          label={viewDialog.settlement.workflowStatus || 'Draft'}
-                          color={getWorkflowStatusColor(viewDialog.settlement.workflowStatus || 'Draft')}
-                          size="medium"
-                          icon={<CheckCircleIcon />}
-                        />
-                        <Chip
-                          label={viewDialog.settlement.paymentType}
-                          color={
-                            viewDialog.settlement.paymentType === 'Payable' ? 'primary' : 
-                            viewDialog.settlement.paymentType === 'Reimbursement' ? 'secondary' : 
-                            viewDialog.settlement.paymentType === 'Advance' ? 'success' : 'default'
-                          }
-                          size="medium"
-                          variant="outlined"
-                        />
-                      </Stack>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Stack direction="row" alignItems="center" spacing={2}>
-                        <AttachMoneyIcon color="primary" />
-                        <Box>
-                          <Typography variant="h4" fontWeight="bold" color="primary">
-                            {formatPKR(viewDialog.settlement.grandTotal)}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Grand Total
-                          </Typography>
-                        </Box>
-                      </Stack>
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* Company Details Section */}
-              <Card sx={{ mb: 3 }}>
-                <CardContent>
-                  <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                    <Avatar sx={{ bgcolor: 'primary.main' }}>
-                      <BusinessIcon />
-                    </Avatar>
-                    <Typography variant="h6" fontWeight="bold">
-                      Company Details
+            <Box sx={{ 
+              p: 4, 
+              background: '#ffffff',
+              fontFamily: '"Times New Roman", serif'
+            }}>
+              {/* Document Header */}
+              <Box sx={{ 
+                mb: 3, 
+                borderBottom: '2px solid #000',
+                pb: 2
+              }}>
+                <Typography variant="h5" sx={{ 
+                  fontWeight: 700, 
+                  textAlign: 'center',
+                  mb: 3,
+                  fontSize: '24px',
+                  letterSpacing: '1px'
+                }}>
+                  {viewDialog.settlement.parentCompanyName || 'PAYMENT SETTLEMENT'}
+                </Typography>
+                
+                <Grid container spacing={2} sx={{ mb: 2 }}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      SITE:
                     </Typography>
-                  </Stack>
-                  <Grid container spacing={3}>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <BusinessIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Parent Company
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.parentCompanyName}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <AccountBalanceIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Subsidiary
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.subsidiaryName}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
-
-              {/* Payment Details Section */}
-              <Card sx={{ mb: 3 }}>
-                <CardContent>
-                  <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                    <Avatar sx={{ bgcolor: 'success.main' }}>
-                      <PaymentIcon />
-                    </Avatar>
-                    <Typography variant="h6" fontWeight="bold">
-                      Payment Details
+                    <Typography variant="body2">
+                      {viewDialog.settlement.site || 'Head Office'}
                     </Typography>
-                  </Stack>
-                  <Grid container spacing={3}>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <AssignmentIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Reference Number
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.referenceNumber}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <AssignmentIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Reference Number
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.referenceNumber}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <AttachMoneyIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Amount
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium" color="primary">
-                          {formatPKR(viewDialog.settlement.amount)}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <ScheduleIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Date
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      FROM:
+                    </Typography>
+                    <Typography variant="body2">
+                      {viewDialog.settlement.fromDepartment || 'Administration'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      CUSTODIEN:
+                    </Typography>
+                    <Typography variant="body2">
+                      {viewDialog.settlement.custodian || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      DATE:
+                    </Typography>
+                    <Typography variant="body2">
+                      {formatDate(viewDialog.settlement.date)}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      DOCUMENT NUMBER:
+                    </Typography>
+                    <Typography variant="body2">
+                      {viewDialog.settlement.referenceNumber || viewDialog.settlement.voucherNumber || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      NOTE:
+                    </Typography>
+                    <Typography variant="body2">
+                      {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 
+                        ? 'All Supportings Attached' 
+                        : 'No Attachments'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Transaction Details Table */}
+              <Box sx={{ mb: 3 }}>
+                <TableContainer component={Paper} sx={{ 
+                  boxShadow: 'none',
+                  border: '1px solid #000'
+                }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow sx={{ background: '#f5f5f5' }}>
+                        <TableCell sx={{ 
+                          border: '1px solid #000', 
+                          fontWeight: 700,
+                          py: 1.5,
+                          fontSize: '13px'
+                        }}>
+                          Date
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000', 
+                          fontWeight: 700,
+                          py: 1.5,
+                          fontSize: '13px'
+                        }}>
+                          Reference No
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000', 
+                          fontWeight: 700,
+                          py: 1.5,
+                          fontSize: '13px'
+                        }}>
+                          To Whom Paid
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000', 
+                          fontWeight: 700,
+                          py: 1.5,
+                          fontSize: '13px'
+                        }}>
+                          For What
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000', 
+                          fontWeight: 700,
+                          py: 1.5,
+                          fontSize: '13px',
+                          textAlign: 'right'
+                        }}>
+                          Amount
+                        </TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell sx={{ 
+                          border: '1px solid #000',
+                          py: 2,
+                          fontSize: '13px'
+                        }}>
                           {formatDate(viewDialog.settlement.date)}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <PersonIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            To Whom Paid
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.toWhomPaid}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <AssignmentIcon color="primary" fontSize="small" />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            For What
-                          </Typography>
-                        </Stack>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.forWhat}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000',
+                          py: 2,
+                          fontSize: '13px'
+                        }}>
+                          {viewDialog.settlement.referenceNumber || 'N/A'}
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000',
+                          py: 2,
+                          fontSize: '13px'
+                        }}>
+                          {viewDialog.settlement.toWhomPaid || 'N/A'}
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000',
+                          py: 2,
+                          fontSize: '13px',
+                          whiteSpace: 'pre-wrap'
+                        }}>
+                          {viewDialog.settlement.forWhat || 'N/A'}
+                        </TableCell>
+                        <TableCell sx={{ 
+                          border: '1px solid #000',
+                          py: 2,
+                          fontSize: '13px',
+                          textAlign: 'right',
+                          fontWeight: 600
+                        }}>
+                          {formatPKR(viewDialog.settlement.amount)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
 
-              {/* Authorization Details Section */}
-              <Card sx={{ mb: 3 }}>
-                <CardContent>
-                  <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                    <Avatar sx={{ bgcolor: 'warning.main' }}>
-                      <PersonIcon />
-                    </Avatar>
-                    <Typography variant="h6" fontWeight="bold">
-                      Authorization Details
-                    </Typography>
-                  </Stack>
-                  <Grid container spacing={3}>
-                    <Grid item xs={12} md={4}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
-                        <PersonIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                          Prepared By
-                        </Typography>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.preparedBy}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {viewDialog.settlement.preparedByDesignation}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
-                        <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                          Verified By
-                        </Typography>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.verifiedBy}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {viewDialog.settlement.verifiedByDesignation}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
-                        <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
-                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                          Approved By
-                        </Typography>
-                        <Typography variant="body1" fontWeight="medium">
-                          {viewDialog.settlement.approvedBy}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {viewDialog.settlement.approvedByDesignation}
-                        </Typography>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
+              {/* Grand Total */}
+              <Box sx={{ 
+                mb: 4,
+                display: 'flex',
+                justifyContent: 'flex-end'
+              }}>
+                <Box sx={{ 
+                  border: '2px solid #000',
+                  p: 2,
+                  minWidth: '250px',
+                  background: '#f9f9f9'
+                }}>
+                  <Typography variant="h6" sx={{ 
+                    fontWeight: 700,
+                    textAlign: 'right',
+                    fontSize: '18px'
+                  }}>
+                    Grand Total: {formatPKR(viewDialog.settlement.grandTotal)}
+                  </Typography>
+                </Box>
+              </Box>
 
-              {/* Additional Details Section */}
-              {(viewDialog.settlement.site || viewDialog.settlement.fromDepartment || viewDialog.settlement.custodian) && (
-                <Card sx={{ mb: 3 }}>
-                  <CardContent>
-                    <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                      <Avatar sx={{ bgcolor: 'info.main' }}>
-                        <AssignmentIcon />
-                      </Avatar>
-                      <Typography variant="h6" fontWeight="bold">
-                        Additional Details
+
+              {/* Approval Section */}
+              <Box sx={{ 
+                mt: 4,
+                borderTop: '1px solid #000',
+                pt: 3
+              }}>
+                <Grid container spacing={4}>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 600, 
+                        mb: 2,
+                        fontSize: '13px',
+                        textDecoration: 'underline'
+                      }}>
+                        Prepared By:
                       </Typography>
-                    </Stack>
-                    <Grid container spacing={3}>
-                      {viewDialog.settlement.site && (
-                        <Grid item xs={12} md={4}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                              Site
-                            </Typography>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.settlement.site}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      )}
-                      {viewDialog.settlement.fromDepartment && (
-                        <Grid item xs={12} md={4}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                              From Department
-                            </Typography>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.settlement.fromDepartment}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      )}
-                      {viewDialog.settlement.custodian && (
-                        <Grid item xs={12} md={4}>
-                          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                              Custodian
-                            </Typography>
-                            <Typography variant="body1" fontWeight="medium">
-                              {viewDialog.settlement.custodian}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      )}
-                    </Grid>
-                  </CardContent>
-                </Card>
-              )}
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 600,
+                        mb: 0.5,
+                        fontSize: '13px'
+                      }}>
+                        {viewDialog.settlement.preparedBy || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        fontSize: '12px',
+                        color: '#666'
+                      }}>
+                        {viewDialog.settlement.preparedByDesignation || 'Not specified'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 600, 
+                        mb: 2,
+                        fontSize: '13px',
+                        textDecoration: 'underline'
+                      }}>
+                        Verified By:
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 600,
+                        mb: 0.5,
+                        fontSize: '13px'
+                      }}>
+                        {viewDialog.settlement.verifiedBy || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        fontSize: '12px',
+                        color: '#666'
+                      }}>
+                        {viewDialog.settlement.verifiedByDesignation || 'Not specified'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 600, 
+                        mb: 2,
+                        fontSize: '13px',
+                        textDecoration: 'underline'
+                      }}>
+                        Approved by:
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 600,
+                        mb: 0.5,
+                        fontSize: '13px'
+                      }}>
+                        {viewDialog.settlement.approvedBy || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ 
+                        fontSize: '12px',
+                        color: '#666'
+                      }}>
+                        {viewDialog.settlement.approvedByDesignation || 'Not specified'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Box>
+
 
               {/* Observations Section */}
               {(() => {
@@ -1257,135 +1257,154 @@ const PaymentSettlementList = () => {
                 if (observations.length === 0) return null;
 
                 return (
-                  <Card sx={{ mb: 3, border: '2px solid', borderColor: 'warning.main' }}>
-                    <CardContent>
-                      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                        <Avatar sx={{ bgcolor: 'warning.main' }}>
-                          <WarningIcon />
-                        </Avatar>
-                        <Typography variant="h6" fontWeight="bold" color="warning.main">
-                          Observations ({observations.length})
-                        </Typography>
-                      </Stack>
-                      <Stack spacing={2}>
-                        {observations.map((entry, index) => {
-                          // Extract severity and observation text
-                          const observationMatch = entry.comments.match(/Observation\s*\(([^)]+)\):\s*(.+)/i);
-                          const returnedMatch = entry.comments.match(/Returned from Pre Audit with observations:\s*(.+)/i);
-                          
-                          let severity = 'medium';
-                          let observationText = entry.comments;
-                          
-                          if (observationMatch) {
-                            severity = observationMatch[1].toLowerCase();
-                            observationText = observationMatch[2];
-                          } else if (returnedMatch) {
-                            observationText = returnedMatch[1];
-                          }
+                  <Box sx={{ 
+                    mt: 4,
+                    borderTop: '2px solid #d32f2f',
+                    pt: 3
+                  }}>
+                    <Box sx={{ 
+                      display: 'flex',
+                      alignItems: 'center',
+                      mb: 2
+                    }}>
+                      <ErrorIcon sx={{ color: '#d32f2f', mr: 1, fontSize: '20px' }} />
+                      <Typography variant="body2" sx={{ 
+                        fontWeight: 700, 
+                        fontSize: '15px',
+                        color: '#d32f2f',
+                        textTransform: 'uppercase'
+                      }}>
+                        CRITICAL OBSERVATIONS:
+                      </Typography>
+                    </Box>
+                    <Box sx={{ 
+                      border: '2px solid #d32f2f',
+                      p: 2.5,
+                      background: '#ffebee',
+                      borderRadius: '4px'
+                    }}>
+                      {observations.map((entry, index) => {
+                        const observationMatch = entry.comments.match(/Observation\s*\(([^)]+)\):\s*(.+)/i);
+                        const returnedMatch = entry.comments.match(/Returned from Pre Audit with observations:\s*(.+)/i);
+                        
+                        let observationText = entry.comments;
+                        let severity = 'medium';
+                        if (observationMatch) {
+                          observationText = observationMatch[2];
+                          severity = observationMatch[1].toLowerCase();
+                        } else if (returnedMatch) {
+                          observationText = returnedMatch[1];
+                        }
 
-                          const getSeverityColor = (sev) => {
-                            if (sev.includes('high') || sev.includes('critical')) return 'error';
-                            if (sev.includes('medium')) return 'warning';
-                            return 'info';
-                          };
+                        const isCritical = severity.includes('high') || severity.includes('critical') || severity.includes('urgent');
 
-                          const getSeverityIcon = (sev) => {
-                            if (sev.includes('high') || sev.includes('critical')) return <ErrorIcon />;
-                            if (sev.includes('medium')) return <WarningIcon />;
-                            return <InfoIcon />;
-                          };
-
-                          return (
-                            <Box
-                              key={index}
-                              sx={{
-                                p: 2,
-                                bgcolor: 'warning.50',
-                                borderRadius: 1,
-                                border: '1px solid',
-                                borderColor: 'warning.200'
-                              }}
-                            >
-                              <Stack direction="row" alignItems="flex-start" spacing={2}>
-                                <Avatar 
-                                  sx={{ 
-                                    bgcolor: `${getSeverityColor(severity)}.main`,
-                                    width: 40,
-                                    height: 40
-                                  }}
-                                >
-                                  {getSeverityIcon(severity)}
-                                </Avatar>
-                                <Box sx={{ flex: 1 }}>
-                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                                    <Chip
-                                      label={severity.charAt(0).toUpperCase() + severity.slice(1)}
-                                      color={getSeverityColor(severity)}
-                                      size="small"
-                                    />
-                                    <Typography variant="caption" color="text.secondary">
-                                      {entry.changedAt ? new Date(entry.changedAt).toLocaleString() : 'N/A'}
-                                    </Typography>
-                                    {entry.changedBy && (
-                                      <Typography variant="caption" color="text.secondary">
-                                        • By: {entry.changedBy.firstName} {entry.changedBy.lastName}
-                                      </Typography>
-                                    )}
-                                  </Stack>
-                                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                                    {observationText}
-                                  </Typography>
-                                </Box>
-                              </Stack>
-                            </Box>
-                          );
-                        })}
-                      </Stack>
-                    </CardContent>
-                  </Card>
+                        return (
+                          <Box key={index} sx={{ 
+                            mb: index < observations.length - 1 ? 2.5 : 0,
+                            p: 1.5,
+                            background: isCritical ? '#ffcdd2' : '#fff',
+                            border: `1px solid ${isCritical ? '#d32f2f' : '#ef5350'}`,
+                            borderRadius: '4px'
+                          }}>
+                            {isCritical && (
+                              <Chip
+                                label="CRITICAL"
+                                size="small"
+                                sx={{
+                                  mb: 1,
+                                  background: '#d32f2f',
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  fontSize: '10px'
+                                }}
+                              />
+                            )}
+                            <Typography variant="body2" sx={{ 
+                              fontSize: '12px',
+                              whiteSpace: 'pre-wrap',
+                              lineHeight: 1.7,
+                              color: '#c62828',
+                              fontWeight: 500
+                            }}>
+                              {observationText}
+                            </Typography>
+                            {entry.changedBy && (
+                              <Typography variant="caption" sx={{ 
+                                display: 'block',
+                                mt: 1,
+                                color: '#d32f2f',
+                                fontSize: '11px'
+                              }}>
+                                — {entry.changedBy.firstName} {entry.changedBy.lastName}
+                                {(() => {
+                                  // Extract department from workflowStatus
+                                  let department = '';
+                                  if (entry.toStatus) {
+                                    if (entry.toStatus.includes('AM Admin')) department = 'AM Admin';
+                                    else if (entry.toStatus.includes('HOD Admin')) department = 'HOD Admin';
+                                    else if (entry.toStatus.includes('Audit')) department = 'Audit';
+                                    else if (entry.toStatus.includes('Finance')) department = 'Finance';
+                                    else if (entry.toStatus.includes('CEO Office')) department = 'CEO Office';
+                                    else if (entry.toStatus.includes('Pre Audit')) department = 'Pre Audit';
+                                  }
+                                  return department ? ` (${department})` : '';
+                                })()}
+                                {entry.changedAt && ` • ${formatDate(entry.changedAt)}`}
+                              </Typography>
+                            )}
+                            {index < observations.length - 1 && (
+                              <Box sx={{ borderTop: '1px dashed #ef5350', mt: 2, pt: 2 }} />
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </Box>
                 );
               })()}
 
+
               {/* Document Attachments Section */}
               {viewDialog.settlement.attachments && viewDialog.settlement.attachments.length > 0 && (
-                <Card>
-                  <CardContent>
-                    <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                      <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                        <AttachFileIcon />
-                      </Avatar>
-                      <Typography variant="h6" fontWeight="bold">
-                        Document Attachments ({viewDialog.settlement.attachments.length})
-                      </Typography>
-                    </Stack>
-                    <Grid container spacing={2}>
+                <Box sx={{ 
+                  mt: 4,
+                  borderTop: '1px solid #000',
+                  pt: 3
+                }}>
+                  <Typography variant="body2" sx={{ 
+                    fontWeight: 700, 
+                    mb: 2,
+                    fontSize: '14px',
+                    textDecoration: 'underline'
+                  }}>
+                    ATTACHMENTS ({viewDialog.settlement.attachments.length}):
+                  </Typography>
+                  <Box sx={{ 
+                    border: '1px solid #000',
+                    p: 2
+                  }}>
+                    <Grid container spacing={1}>
                       {viewDialog.settlement.attachments.map((attachment, index) => {
                         const attachmentUrl = paymentSettlementService.getAttachmentUrl(viewDialog.settlement._id, attachment._id);
                         const isImage = attachment.mimeType.startsWith('image/');
                         const isPdf = attachment.mimeType === 'application/pdf';
                         
                         return (
-                          <Grid item xs={12} sm={6} md={4} key={attachment._id || index}>
+                          <Grid item xs={12} key={attachment._id || index}>
                             <Box 
                               sx={{ 
-                                p: 2, 
-                                bgcolor: 'grey.50', 
-                                borderRadius: 1, 
-                                border: '1px solid', 
-                                borderColor: 'grey.200',
+                                p: 1.5, 
+                                border: '1px solid #ccc',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s ease-in-out',
+                                transition: 'all 0.2s',
                                 '&:hover': {
-                                  bgcolor: 'grey.100',
-                                  borderColor: 'primary.main',
-                                  transform: 'translateY(-2px)',
-                                  boxShadow: 2
+                                  borderColor: '#000',
+                                  background: '#f5f5f5'
                                 }
                               }}
                               onClick={async () => {
                                 if (isImage) {
                                   try {
-                                    // Get blob URL for image
                                     const blobUrl = await paymentSettlementService.getAttachmentBlobUrl(viewDialog.settlement._id, attachment._id);
                                     setImageViewer({
                                       open: true,
@@ -1397,10 +1416,8 @@ const PaymentSettlementList = () => {
                                     toast.error('Failed to load image');
                                   }
                                 } else if (isPdf) {
-                                  // Open PDF in new tab
                                   window.open(attachmentUrl, '_blank');
                                 } else {
-                                  // Download for other file types
                                   const link = document.createElement('a');
                                   link.href = attachmentUrl;
                                   link.download = attachment.originalName;
@@ -1411,62 +1428,70 @@ const PaymentSettlementList = () => {
                                 }
                               }}
                             >
-                              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                                <AttachFileIcon color="primary" fontSize="small" />
-                                <Typography variant="body2" fontWeight="medium" noWrap>
-                                  {attachment.originalName}
-                                </Typography>
-                              </Stack>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Size: {formatFileSize(attachment.fileSize)}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Type: {attachment.mimeType}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Uploaded: {new Date(attachment.uploadedAt).toLocaleDateString()}
-                              </Typography>
-                              <Typography variant="caption" color="primary" display="block" sx={{ mt: 1, fontWeight: 'medium' }}>
-                                {isImage ? 'Click to view image' : isPdf ? 'Click to view PDF' : 'Click to download'}
+                              <Typography variant="body2" sx={{ 
+                                fontSize: '12px',
+                                fontWeight: 500
+                              }}>
+                                {index + 1}. {attachment.originalName}
                               </Typography>
                             </Box>
                           </Grid>
                         );
                       })}
                     </Grid>
-                  </CardContent>
-                </Card>
+                  </Box>
+                </Box>
               )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid', borderColor: 'divider' }}>
-          <Button 
-            variant="outlined" 
-            onClick={() => setViewDialog({ open: false, settlement: null })}
-            sx={{ minWidth: 100 }}
-          >
-            Close
-          </Button>
-          <Button 
-            variant="outlined" 
-            startIcon={<PrintIcon />}
-            onClick={handlePrint}
-            sx={{ minWidth: 100, mr: 1 }}
-          >
-            Print
-          </Button>
-          <Button 
-            variant="contained" 
-            startIcon={<EditIcon />}
-            onClick={() => {
-              setViewDialog({ open: false, settlement: null });
-              navigate(`/admin/payment-settlement/edit/${viewDialog.settlement._id}`);
-            }}
-            sx={{ minWidth: 120 }}
-          >
-            Edit
-          </Button>
+        <DialogActions sx={{ 
+          p: 2, 
+          borderTop: '1px solid #e0e0e0',
+          background: '#f9f9f9',
+          justifyContent: 'space-between'
+        }}>
+          <Box>
+            <Chip
+              label={viewDialog.settlement?.workflowStatus || 'Draft'}
+              color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || 'Draft')}
+              size="small"
+              sx={{ mr: 1 }}
+            />
+            <Chip
+              label={viewDialog.settlement?.paymentType}
+              variant="outlined"
+              size="small"
+            />
+          </Box>
+          <Box>
+            <Button 
+              variant="outlined" 
+              onClick={() => setViewDialog({ open: false, settlement: null })}
+              sx={{ minWidth: 80, mr: 1 }}
+            >
+              Close
+            </Button>
+            <Button 
+              variant="outlined" 
+              startIcon={<PrintIcon />}
+              onClick={handlePrint}
+              sx={{ minWidth: 100, mr: 1 }}
+            >
+              Print
+            </Button>
+            <Button 
+              variant="contained" 
+              startIcon={<EditIcon />}
+              onClick={() => {
+                setViewDialog({ open: false, settlement: null });
+                navigate(`/admin/payment-settlement/edit/${viewDialog.settlement._id}`);
+              }}
+              sx={{ minWidth: 100 }}
+            >
+              Edit
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
