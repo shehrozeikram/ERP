@@ -154,117 +154,119 @@ router.post('/', withPermission('create'), (req, res, next) => {
     next();
   });
 }, async (req, res) => {
+  const startTime = Date.now();
+  console.log('📥 POST /taj-rental-agreements - Request received');
+  console.log('📋 Body:', { propertyName: req.body.propertyName, tenantName: req.body.tenantName, hasFile: !!req.file });
+  
   try {
+
     const errors = validateAgreementPayload(req.body);
     if (errors.length) {
       return res.status(400).json({ message: errors.join(', ') });
     }
 
-    // Auto-generate unique agreement number (last + 1)
-    // Ignore user-provided agreementNumber and always auto-generate
+    console.log('🔢 Generating agreement number...');
+    // Auto-generate unique agreement number (optimized - single query)
     let agreementNumber;
-    const lastAgreement = await TajRentalAgreement.findOne()
-      .sort({ createdAt: -1 })
-      .select('agreementNumber');
+    const lastAgreement = await Promise.race([
+      TajRentalAgreement.findOne().sort({ createdAt: -1 }).select('agreementNumber').lean(),
+      new Promise((resolve) => setTimeout(() => resolve(null), 5000))
+    ]);
     
     if (lastAgreement && lastAgreement.agreementNumber) {
       // Try to extract numeric part from last agreement number
-      // Handle formats like: AGR-000001, AGR-1, 1, etc.
       const match = lastAgreement.agreementNumber.toString().match(/(\d+)$/);
       if (match) {
         const lastNumber = parseInt(match[1], 10);
         agreementNumber = `AGR-${String(lastNumber + 1).padStart(6, '0')}`;
       } else {
-        // If format doesn't match, check all agreements to find highest number
-        const allAgreements = await TajRentalAgreement.find()
-          .select('agreementNumber')
-          .lean();
-        
-        let maxNumber = 0;
-        allAgreements.forEach(ag => {
-          if (ag.agreementNumber) {
-            const match = ag.agreementNumber.toString().match(/(\d+)$/);
-            if (match) {
-              const num = parseInt(match[1], 10);
-              if (num > maxNumber) maxNumber = num;
-            }
-          }
-        });
-        
-        agreementNumber = `AGR-${String(maxNumber + 1).padStart(6, '0')}`;
+        agreementNumber = 'AGR-000001';
       }
     } else {
-      // First agreement
+      // First agreement or timeout
       agreementNumber = 'AGR-000001';
     }
     
-    // Ensure uniqueness (in case of race condition or if number already exists)
-    let counter = 1;
-    let maxAttempts = 100;
-    while (await TajRentalAgreement.findOne({ agreementNumber }) && maxAttempts > 0) {
-      const match = agreementNumber.match(/(\d+)$/);
-      if (match) {
-        const currentNumber = parseInt(match[1], 10);
-        agreementNumber = `AGR-${String(currentNumber + counter).padStart(6, '0')}`;
-        counter++;
-      } else {
-        agreementNumber = `AGR-${String(counter).padStart(6, '0')}`;
-        counter++;
-      }
-      maxAttempts--;
-    }
+    // Quick uniqueness check (single attempt, fallback to timestamp if conflict)
+    const exists = await Promise.race([
+      TajRentalAgreement.findOne({ agreementNumber }).select('_id').lean(),
+      new Promise((resolve) => setTimeout(() => resolve(null), 2000))
+    ]);
     
-    if (maxAttempts === 0) {
+    if (exists) {
       // Fallback: use timestamp-based unique number
       agreementNumber = `AGR-${Date.now()}`;
     }
 
-    // Generate unique code if not provided (to handle legacy code field unique index)
+    console.log('🔑 Generating unique code...');
+    // Generate unique code (optimized - single check)
     let uniqueCode = req.body.code;
     if (!uniqueCode) {
-      const timestamp = Date.now();
-      const random = Math.floor(Math.random() * 1000);
-      uniqueCode = `TRA-${timestamp}-${random}`;
+      uniqueCode = `TRA-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       
-      // Ensure uniqueness
-      let codeExists = true;
-      while (codeExists) {
-        const existing = await TajRentalAgreement.findOne({ code: uniqueCode });
-        if (!existing) {
-          codeExists = false;
-        } else {
-          uniqueCode = `TRA-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        }
+      // Single check for uniqueness (fallback if exists)
+      const codeExists = await Promise.race([
+        TajRentalAgreement.findOne({ code: uniqueCode }).select('_id').lean(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 2000))
+      ]);
+      
+      if (codeExists) {
+        uniqueCode = `TRA-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       }
     }
 
     const agreementData = {
       ...req.body,
-      agreementNumber: agreementNumber, // Override with auto-generated number
+      agreementNumber: agreementNumber,
       code: uniqueCode,
       createdBy: req.user.id
     };
 
     if (req.file) {
+      console.log('📎 Processing file upload:', req.file.filename, req.file.mimetype);
       agreementData.agreementImage = `/uploads/taj-rental-agreements/${req.file.filename}`;
+    } else {
+      console.log('ℹ️  No file uploaded');
     }
 
+    console.log('💾 Saving agreement to database...');
     const agreement = new TajRentalAgreement(agreementData);
-    await agreement.save();
-    await agreement.populate('createdBy', 'firstName lastName');
+    
+    // Add timeout to database save operation (30 seconds)
+    await Promise.race([
+      agreement.save(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Database save timeout')), 30000))
+    ]);
+    
+    console.log('✅ Agreement saved, populating createdBy...');
+    await Promise.race([
+      agreement.populate('createdBy', 'firstName lastName'),
+      new Promise((resolve) => setTimeout(() => resolve(), 5000))
+    ]);
 
+    const duration = Date.now() - startTime;
+    console.log(`✅ Request completed in ${duration}ms`);
     res.status(201).json(agreement);
   } catch (error) {
-    console.error('Error creating rental agreement:', error);
+    const duration = Date.now() - startTime;
+    console.error(`❌ Error after ${duration}ms:`, error.message);
+    console.error('Stack:', error.stack);
+    
+    // Delete uploaded file if agreement creation fails
     if (req.file) {
-      const filePath = path.join(__dirname, '../uploads/taj-rental-agreements', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      try {
+        const filePath = path.join(__dirname, '../uploads/taj-rental-agreements', req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up file:', cleanupError.message);
       }
     }
-    // Provide more detailed error message
+    
+    const statusCode = error.message.includes('timeout') ? 504 : 
+                      error.name === 'ValidationError' ? 400 : 500;
     const errorMessage = error.message || 'Failed to create rental agreement';
-    const statusCode = error.name === 'ValidationError' ? 400 : 500;
     res.status(statusCode).json({ message: errorMessage });
   }
 });
