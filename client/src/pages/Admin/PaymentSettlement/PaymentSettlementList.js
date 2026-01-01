@@ -53,12 +53,14 @@ import {
   Print as PrintIcon,
   Warning as WarningIcon,
   Error as ErrorIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import toast from 'react-hot-toast';
+import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
 
 const PaymentSettlementList = () => {
   const navigate = useNavigate();
@@ -90,6 +92,7 @@ const PaymentSettlementList = () => {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, settlement: null });
   const [viewDialog, setViewDialog] = useState({ open: false, settlement: null });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
+  const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, settlement: null });
   
   // Stats state
   const [stats, setStats] = useState(null);
@@ -201,8 +204,10 @@ const PaymentSettlementList = () => {
     try {
       await paymentSettlementService.updateWorkflowStatus(
         workflowStatusDialog.settlement._id,
-        workflowStatusDialog.workflowStatus,
-        workflowStatusDialog.comments
+        {
+          workflowStatus: workflowStatusDialog.workflowStatus,
+          comments: workflowStatusDialog.comments || ''
+        }
       );
       toast.success('Workflow status updated successfully');
       setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' });
@@ -1465,6 +1470,14 @@ const PaymentSettlementList = () => {
             />
           </Box>
           <Box>
+            <Button
+              variant="outlined"
+              startIcon={<HistoryIcon />}
+              onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
+              sx={{ minWidth: 150, mr: 1 }}
+            >
+              See Workflow History
+            </Button>
             <Button 
               variant="outlined" 
               onClick={() => setViewDialog({ open: false, settlement: null })}
@@ -1715,6 +1728,14 @@ const PaymentSettlementList = () => {
           </Box>
         </Box>
       </Dialog>
+
+      {/* Workflow History Dialog */}
+      <WorkflowHistoryDialog
+        open={workflowHistoryDialog.open}
+        onClose={() => setWorkflowHistoryDialog({ open: false, settlement: null })}
+        document={workflowHistoryDialog.settlement}
+        documentType="settlement"
+      />
     </Box>
   );
 };

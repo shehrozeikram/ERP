@@ -147,6 +147,12 @@ const SUBMODULES = {
     'encroachment_dispute',
     'reporting_framework',
     'complains_tickets'
+  ],
+  general: [
+    'document_tracking',
+    'indents',
+    'user_tracking',
+    'payments'
   ]
 };
 

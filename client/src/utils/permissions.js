@@ -712,6 +712,10 @@ export const MODULES = {
       {
         name: 'User Tracking',
         path: '/general/user-tracking'
+      },
+      {
+        name: 'Payments',
+        path: '/general/payments'
       }
     ]
   }

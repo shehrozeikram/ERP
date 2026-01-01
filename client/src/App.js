@@ -183,6 +183,7 @@ import IndentsDashboard from './pages/General/Indents/IndentsDashboard';
 import IndentsList from './pages/General/Indents/IndentsList';
 import IndentForm from './pages/General/Indents/IndentForm';
 import IndentDetail from './pages/General/Indents/IndentDetail';
+import Payments from './pages/General/Payments';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -581,6 +582,10 @@ function App() {
             <Route
               path="/general/indents"
               element={<ProtectedRoute><IndentsList /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/payments"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><Payments /></ProtectedRoute>}
             />
             <Route
               path="/general/user-tracking"

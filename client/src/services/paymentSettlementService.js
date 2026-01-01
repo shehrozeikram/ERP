@@ -98,12 +98,29 @@ const paymentSettlementService = {
   },
 
   // Update workflow status
-  updateWorkflowStatus: async (id, workflowStatus, comments = '') => {
+  updateWorkflowStatus: async (id, data) => {
     try {
-      const response = await api.patch(`/payment-settlements/${id}/workflow-status`, { 
-        workflowStatus,
-        comments 
-      });
+      const response = await api.patch(`/payment-settlements/${id}/workflow-status`, data);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Approve payment settlement
+  approvePayment: async (id, data) => {
+    try {
+      const response = await api.patch(`/payment-settlements/${id}/approve`, data);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // Reject payment settlement
+  rejectPayment: async (id, data) => {
+    try {
+      const response = await api.patch(`/payment-settlements/${id}/reject`, data);
       return response.data;
     } catch (error) {
       throw error;

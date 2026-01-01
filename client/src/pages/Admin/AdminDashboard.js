@@ -47,7 +47,8 @@ import {
   Business as BusinessIcon,
   AttachMoney as AttachMoneyIcon,
   Cancel as RejectIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -55,6 +56,7 @@ import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
+import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 
 const AdminDashboard = () => {
   const theme = useTheme();
@@ -70,6 +72,7 @@ const AdminDashboard = () => {
   const [approveDialog, setApproveDialog] = useState({ open: false, task: null, comments: '' });
   const [rejectDialog, setRejectDialog] = useState({ open: false, task: null, comments: '' });
   const [workflowDialog, setWorkflowDialog] = useState({ open: false, task: null, workflowStatus: '', comments: '' });
+  const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, task: null });
   const [loadingAction, setLoadingAction] = useState(false);
 
   const workflowStatuses = [
@@ -82,7 +85,8 @@ const AdminDashboard = () => {
     'Send to CEO Office',
     'Approved',
     'Rejected',
-    'Returned from Audit'
+    'Returned from Audit',
+    'Returned from CEO Office'
   ];
 
   const getWorkflowStatusColor = (status) => {
@@ -96,6 +100,10 @@ const AdminDashboard = () => {
       return 'error';
     }
     
+    if (status.includes('Returned')) {
+      return 'warning';
+    }
+    
     const colors = {
       'Draft': 'default',
       'Active': 'info',
@@ -103,7 +111,9 @@ const AdminDashboard = () => {
       'Send to HOD Admin': 'warning',
       'Send to Audit': 'info',
       'Send to Finance': 'primary',
-      'Send to CEO Office': 'success'
+      'Send to CEO Office': 'success',
+      'Returned from Audit': 'warning',
+      'Returned from CEO Office': 'warning'
     };
     return colors[status] || 'default';
   };
@@ -144,7 +154,8 @@ const AdminDashboard = () => {
       'Send to CEO Office': [],
       'Approved': ['Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'], // Can forward to any status after approval
       'Rejected': ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'], // Can be sent back to draft or forwarded
-      'Returned from Audit': ['Send to Audit', 'Draft'] // Can resubmit to Pre Audit or go back to Draft
+      'Returned from Audit': ['Send to Audit', 'Draft'], // Can resubmit to Pre Audit or go back to Draft
+      'Returned from CEO Office': ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'] // Can go back to Draft or resubmit to any department including CEO Office
     };
     
     // If status is "Approved (from Send to AM Admin)" or "Rejected (from ...)", allow forwarding to any workflow status
@@ -156,6 +167,11 @@ const AdminDashboard = () => {
     // For "Returned from Audit", allow direct resubmission to Pre Audit
     if (currentStatus === 'Returned from Audit') {
       return statusFlow['Returned from Audit'] || ['Send to Audit', 'Draft'];
+    }
+    
+    // For "Returned from CEO Office", allow going back to Draft or resubmitting to any department including CEO Office
+    if (currentStatus === 'Returned from CEO Office') {
+      return statusFlow['Returned from CEO Office'] || ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'];
     }
     
     // For other statuses, return the next possible statuses
@@ -561,7 +577,7 @@ const AdminDashboard = () => {
                           size="small"
                           color={getWorkflowStatusColor(task.workflowStatus)}
                         />
-                        {task.workflowStatus === 'Returned from Audit' && task.workflowHistory && (
+                        {(task.workflowStatus === 'Returned from Audit' || task.workflowStatus === 'Returned from CEO Office') && task.workflowHistory && (
                           <Tooltip 
                             title={
                               <Box>
@@ -569,12 +585,40 @@ const AdminDashboard = () => {
                                   Rejection/Observations:
                                 </Typography>
                                 {task.workflowHistory
-                                  .filter(h => h.comments && (h.comments.includes('Observation') || h.comments.includes('Rejected') || h.comments.includes('Returned')))
-                                  .map((h, idx) => (
-                                    <Typography key={idx} variant="caption" sx={{ display: 'block', mb: 0.5 }}>
-                                      • {h.comments}
-                                    </Typography>
+                                  .filter(h => h.comments && (
+                                    h.comments.toLowerCase().includes('observation') || 
+                                    h.comments.toLowerCase().includes('rejected') || 
+                                    h.comments.toLowerCase().includes('returned') ||
+                                    h.comments.toLowerCase().includes('returned from payments') ||
+                                    h.comments.toLowerCase().includes('returned from pre audit') ||
+                                    h.comments.toLowerCase().includes('returned from ceo office') ||
+                                    h.comments.toLowerCase().includes('returned from audit')
                                   ))
+                                  .map((h, idx) => {
+                                    // Extract and format observation text for better display
+                                    let displayText = h.comments;
+                                    
+                                    // Match "Observation X (severity): text"
+                                    const observationMatch = h.comments.match(/Observation\s+\d+\s*\(([^)]+)\):\s*(.+?)(?:;|$)/i);
+                                    // Match "Returned from X with observations: text"
+                                    const returnedMatch = h.comments.match(/Returned from (?:Payments|Pre Audit|CEO Office|Audit) with observations:\s*(.+?)(?:\.\s*Observations:|$)/i);
+                                    // Match "Observations: text"
+                                    const observationsMatch = h.comments.match(/Observations:\s*(.+?)(?:\[Digital Signature|$)/i);
+                                    
+                                    if (observationMatch) {
+                                      displayText = `Observation (${observationMatch[1]}): ${observationMatch[2].trim()}`;
+                                    } else if (returnedMatch) {
+                                      displayText = `Returned: ${returnedMatch[1].trim()}`;
+                                    } else if (observationsMatch) {
+                                      displayText = `Observations: ${observationsMatch[1].trim()}`;
+                                    }
+                                    
+                                    return (
+                                      <Typography key={idx} variant="caption" sx={{ display: 'block', mb: 0.5, whiteSpace: 'pre-wrap' }}>
+                                        • {displayText}
+                                      </Typography>
+                                    );
+                                  })
                                 }
                               </Box>
                             }
@@ -602,6 +646,16 @@ const AdminDashboard = () => {
                             <ViewIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
+                        {task.workflowHistory && task.workflowHistory.length > 0 && (
+                          <Tooltip title="See Workflow History">
+                            <IconButton
+                              size="small"
+                              onClick={() => setWorkflowHistoryDialog({ open: true, task })}
+                            >
+                              <HistoryIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {canApproveReject(task) && (
                           <>
                             <Tooltip title="Approve">
@@ -636,10 +690,22 @@ const AdminDashboard = () => {
                             </IconButton>
                           </Tooltip>
                         )}
+                        {/* Show forward button for documents returned from CEO Office */}
+                        {task.workflowStatus === 'Returned from CEO Office' && (
+                          <Tooltip title="Resubmit to Workflow">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => setWorkflowDialog({ open: true, task, workflowStatus: '', comments: 'Resubmitted after corrections' })}
+                            >
+                              <SendIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {/* Show forward button if:
                             1. User can approve/reject (document in their status, not processed) - allows forward before approval
                             2. User has approved and can forward after approval */}
-                        {(canApproveReject(task) || canForwardAfterApproval(task)) && task.workflowStatus !== 'Returned from Audit' && (
+                        {(canApproveReject(task) || canForwardAfterApproval(task)) && task.workflowStatus !== 'Returned from Audit' && task.workflowStatus !== 'Returned from CEO Office' && (
                           <Tooltip title="Forward to Next Step">
                             <IconButton
                               size="small"
@@ -928,6 +994,14 @@ const AdminDashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Workflow History Dialog */}
+      <WorkflowHistoryDialog
+        open={workflowHistoryDialog.open}
+        onClose={() => setWorkflowHistoryDialog({ open: false, task: null })}
+        document={workflowHistoryDialog.task}
+        documentType="settlement"
+      />
     </Box>
   );
 };

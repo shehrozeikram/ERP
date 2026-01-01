@@ -3,6 +3,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { checkSubRoleAccess } = require('../config/permissions');
 const {
   getWorkflowStatusForRole,
   getWorkflowStatusForUserAndRole,
@@ -76,17 +77,28 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
     // Build query
     const query = {};
 
+    // Check if user has access to payment_settlement submodule
+    // If they have access, they can see all records regardless of workflow status
+    const hasPaymentSettlementAccess = await checkSubRoleAccess(
+      req.user.id,
+      'admin',
+      'payment_settlement',
+      'read'
+    );
+
     // User-based workflow status filtering (email takes priority over role)
+    // Only apply workflow status filtering if user doesn't have full payment settlement access
     const userRole = req.user.role;
     const userEmail = req.user.email;
     const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
     
-    // If user is assigned to a specific status, filter by it
+    // If user has payment settlement access, they can see all records
+    // Otherwise, filter by their assigned workflow status
     // Super admin, higher management, and admin can see all
-    if (userWorkflowStatus) {
+    if (!hasPaymentSettlementAccess && userWorkflowStatus) {
       query.workflowStatus = userWorkflowStatus;
     } else if (workflowStatus) {
-      // Allow explicit workflowStatus filter for admins
+      // Allow explicit workflowStatus filter if provided
       query.workflowStatus = workflowStatus;
     }
 
@@ -408,7 +420,7 @@ const updateSettlementStatus = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const updateWorkflowStatus = asyncHandler(async (req, res) => {
   try {
-    const { workflowStatus, comments } = req.body;
+    const { workflowStatus, comments, digitalSignature, observations } = req.body;
 
     if (!workflowStatus) {
       return res.status(400).json({
@@ -486,13 +498,26 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
       });
     }
 
+    // Build final comments with observations and digital signature if provided
+    let finalComments = comments || '';
+    if (observations && Array.isArray(observations) && observations.length > 0) {
+      const observationTexts = observations.map((obs, idx) => 
+        `Observation ${idx + 1} (${obs.severity || 'medium'}): ${obs.observation}`
+      ).join('; ');
+      finalComments = finalComments ? `${finalComments}. Observations: ${observationTexts}` : `Observations: ${observationTexts}`;
+    }
+    if (digitalSignature) {
+      finalComments = finalComments ? `${finalComments} [Digital Signature: ${digitalSignature}]` : `[Digital Signature: ${digitalSignature}]`;
+    }
+    
     // Add to workflow history
     const historyEntry = {
       fromStatus: settlement.workflowStatus || 'Draft',
       toStatus: workflowStatus,
       changedBy: req.user.id,
       changedAt: new Date(),
-      comments: comments || ''
+      comments: finalComments || '',
+      digitalSignature: digitalSignature || undefined
     };
 
     // Update settlement
@@ -527,7 +552,7 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const approveDocument = asyncHandler(async (req, res) => {
   try {
-    const { comments } = req.body;
+    const { comments, digitalSignature } = req.body;
 
     const settlement = await PaymentSettlement.findById(req.params.id);
     if (!settlement) {
@@ -567,7 +592,8 @@ const approveDocument = asyncHandler(async (req, res) => {
       toStatus: 'Approved',
       changedBy: req.user.id,
       changedAt: new Date(),
-      comments: comments || 'Document approved'
+      comments: comments || (digitalSignature ? `Document approved with digital signature: ${digitalSignature}` : 'Document approved'),
+      digitalSignature: digitalSignature || undefined
     };
 
     // Update settlement - keep it in approved state but don't change workflowStatus yet
@@ -605,7 +631,7 @@ const approveDocument = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const rejectDocument = asyncHandler(async (req, res) => {
   try {
-    const { comments } = req.body;
+    const { comments, digitalSignature, observations } = req.body;
 
     if (!comments || comments.trim() === '') {
       return res.status(400).json({
@@ -646,13 +672,26 @@ const rejectDocument = asyncHandler(async (req, res) => {
     // Store the source status for display
     const sourceStatus = settlement.workflowStatus;
     
+    // Build comments with observations if provided
+    let finalComments = comments || 'Document rejected';
+    if (observations && Array.isArray(observations) && observations.length > 0) {
+      const observationTexts = observations.map((obs, idx) => 
+        `Observation ${idx + 1} (${obs.severity || 'medium'}): ${obs.observation}`
+      ).join('; ');
+      finalComments = `${finalComments}. Observations: ${observationTexts}`;
+    }
+    if (digitalSignature) {
+      finalComments = `${finalComments} [Digital Signature: ${digitalSignature}]`;
+    }
+    
     // Add to workflow history
     const historyEntry = {
       fromStatus: sourceStatus,
       toStatus: 'Rejected',
       changedBy: req.user.id,
       changedAt: new Date(),
-      comments: comments || 'Document rejected'
+      comments: finalComments,
+      digitalSignature: digitalSignature || undefined
     };
 
     // Update settlement with source status included

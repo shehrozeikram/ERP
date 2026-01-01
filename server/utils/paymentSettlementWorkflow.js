@@ -73,7 +73,8 @@ const getAllWorkflowStatuses = () => {
     'Send to CEO Office',
     'Approved',
     'Rejected',
-    'Returned from Audit'
+    'Returned from Audit',
+    'Returned from CEO Office'
   ];
 };
 
@@ -141,10 +142,11 @@ const getNextPossibleStatuses = (currentStatus) => {
     'Send to HOD Admin': ['Send to Audit', 'Send to Finance', 'Send to CEO Office', 'Approved', 'Rejected'],
     'Send to Audit': ['Send to Finance', 'Send to CEO Office', 'Approved', 'Rejected'],
     'Send to Finance': ['Send to CEO Office', 'Approved', 'Rejected'],
-    'Send to CEO Office': ['Approved', 'Rejected'], // Final approval step
+    'Send to CEO Office': ['Approved', 'Rejected', 'Returned from CEO Office'], // Final approval step
     'Approved': ['Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'], // Can forward to any status after approval
     'Rejected': ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'], // Can be sent back to draft or forwarded
-    'Returned from Audit': ['Send to Audit', 'Draft'] // Can resubmit to Pre Audit or go back to Draft
+    'Returned from Audit': ['Send to Audit', 'Draft'], // Can resubmit to Pre Audit or go back to Draft
+    'Returned from CEO Office': ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'] // Can go back to Draft or resubmit to any department including CEO Office
   };
 
   return statusFlow[baseStatus] || [];
@@ -160,6 +162,14 @@ const isValidStatusTransition = (fromStatus, toStatus) => {
   // Allow "Returned from Audit" to go directly to "Send to Audit"
   if (fromStatus === 'Returned from Audit' && toStatus === 'Send to Audit') {
     return true;
+  }
+
+  // Allow "Returned from CEO Office" to go back to Draft or any department including CEO Office
+  if (fromStatus === 'Returned from CEO Office') {
+    const allowedStatuses = ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'];
+    if (allowedStatuses.includes(toStatus)) {
+      return true;
+    }
   }
 
   // If fromStatus is Approved or Rejected (base status), allow transition to any "Send to..." status

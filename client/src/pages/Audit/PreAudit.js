@@ -40,7 +40,10 @@ import {
   Tooltip,
   Badge,
   Avatar,
-  CircularProgress
+  CircularProgress,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -65,7 +68,9 @@ import {
   Person as PersonIcon,
   Assignment as AssignmentIcon,
   AttachMoney as AttachMoneyIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  ExpandMore as ExpandMoreIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -74,6 +79,7 @@ import paymentSettlementService from '../../services/paymentSettlementService';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
+import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 
 const PreAudit = () => {
   const theme = useTheme();
@@ -104,6 +110,7 @@ const PreAudit = () => {
   const [observationDialog, setObservationDialog] = useState({ open: false, document: null });
   const [returnDialog, setReturnDialog] = useState({ open: false, document: null });
   const [rejectDialog, setRejectDialog] = useState({ open: false, document: null });
+  const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [approvalComments, setApprovalComments] = useState('');
   const [observation, setObservation] = useState({ text: '', severity: 'medium' });
   const [returnComments, setReturnComments] = useState('');
@@ -454,170 +461,240 @@ const PreAudit = () => {
                 No documents found
               </Typography>
             </Box>
-          ) : (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Document #</TableCell>
-                    <TableCell>Title</TableCell>
-                    <TableCell>Department</TableCell>
-                    <TableCell>Module</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Date</TableCell>
-                    <TableCell>Priority</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {documents.map((doc) => (
-                    <TableRow key={doc._id} hover>
-                      <TableCell>{doc.documentNumber}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" fontWeight="medium">
-                            {doc.title}
+          ) : (() => {
+            // Group documents by department, then month + year
+            const groupedData = documents.reduce((acc, doc) => {
+              const dept = doc.sourceDepartmentName || 'Other';
+              const date = new Date(doc.documentDate || doc.createdAt || doc.date);
+              const year = date.getFullYear();
+              const month = date.toLocaleString('default', { month: 'long' }); // e.g., "January"
+              const monthNum = date.getMonth(); // 0-11 for sorting
+              const monthYearKey = `${month} ${year}`; // e.g., "December 2025"
+              const sortKey = `${year}-${String(monthNum).padStart(2, '0')}`; // For sorting: "2025-11"
+              
+              if (!acc[dept]) {
+                acc[dept] = {};
+              }
+              if (!acc[dept][monthYearKey]) {
+                acc[dept][monthYearKey] = { sortKey, documents: [] };
+              }
+              acc[dept][monthYearKey].documents.push(doc);
+              return acc;
+            }, {});
+
+            return (
+              <Box>
+                {Object.entries(groupedData).map(([department, monthYears]) => {
+                  const totalDocuments = Object.values(monthYears).reduce((sum, m) => sum + m.documents.length, 0);
+
+                  return (
+                    <Accordion key={department} defaultExpanded sx={{ mb: 2 }}>
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        sx={{
+                          backgroundColor: '#f5f5f5',
+                          '&:hover': {
+                            backgroundColor: '#eeeeee'
+                          }
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                          <BusinessIcon color="primary" />
+                          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                            {department}
                           </Typography>
-                          {doc.isWorkflowDocument && (
-                            <Chip
-                              label="Workflow"
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                            />
-                          )}
-                        </Box>
-                        {doc.description && (
-                          <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
-                            {doc.description}
-                          </Typography>
-                        )}
-                        {doc.isWorkflowDocument && doc.workflowConfig && (
-                          <Button
+                          <Chip
+                            label={`${totalDocuments} document${totalDocuments !== 1 ? 's' : ''}`}
                             size="small"
-                            variant="text"
-                            onClick={() => navigate(`${doc.workflowConfig.routePath}/${doc._id}`)}
-                            sx={{ mt: 0.5, fontSize: '0.75rem' }}
-                          >
-                            View Original Document
-                          </Button>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          icon={<BusinessIcon />}
-                          label={doc.sourceDepartmentName || 'N/A'}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={doc.sourceModule} size="small" variant="outlined" />
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={doc.documentType} size="small" />
-                      </TableCell>
-                      <TableCell>{formatDate(doc.documentDate)}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={doc.priority}
-                          size="small"
-                          color={getPriorityColor(doc.priority)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={doc.status.replace('_', ' ')}
-                          size="small"
-                          color={getStatusColor(doc.status)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          <Tooltip title="View Details">
-                            <IconButton
-                              size="small"
-                              onClick={async () => {
-                                setViewDialog({ open: true, document: doc, fullDocument: null, loading: true });
-                                
-                                // If it's a workflow document, fetch the full document details
-                                if (doc.isWorkflowDocument && doc.workflowSubmodule === 'payment_settlement') {
-                                  try {
-                                    const response = await paymentSettlementService.getPaymentSettlement(doc._id);
-                                    setViewDialog({ 
-                                      open: true, 
-                                      document: doc, 
-                                      fullDocument: response.data?.data || response.data,
-                                      loading: false 
-                                    });
-                                  } catch (error) {
-                                    console.error('Error fetching full document:', error);
-                                    setViewDialog({ 
-                                      open: true, 
-                                      document: doc, 
-                                      fullDocument: doc.originalDocument || null,
-                                      loading: false 
-                                    });
-                                  }
-                                } else {
-                                  setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
-                                }
-                              }}
-                            >
-                              <ViewIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          {doc.status === 'pending' || doc.status === 'under_review' ? (
-                            <>
-                              <Tooltip title="Approve">
-                                <IconButton
-                                  size="small"
-                                  color="success"
-                                  onClick={() => setApproveDialog({ open: true, document: doc })}
+                            color="primary"
+                            sx={{ ml: 'auto' }}
+                          />
+                        </Box>
+                      </AccordionSummary>
+                      <AccordionDetails sx={{ p: 0 }}>
+                        <Box>
+                          {Object.entries(monthYears)
+                            .sort(([, a], [, b]) => b.sortKey.localeCompare(a.sortKey)) // Sort by year-month descending (newest first)
+                            .map(([monthYear, { documents: monthDocuments }]) => (
+                              <Accordion key={`${department}-${monthYear}`} defaultExpanded sx={{ mb: 1, boxShadow: 'none', border: '1px solid #e0e0e0' }}>
+                                <AccordionSummary
+                                  expandIcon={<ExpandMoreIcon />}
+                                  sx={{
+                                    backgroundColor: '#fafafa',
+                                    '&:hover': {
+                                      backgroundColor: '#f5f5f5'
+                                    },
+                                    pl: 3
+                                  }}
                                 >
-                                  <CheckCircleIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Add Observation">
-                                <IconButton
-                                  size="small"
-                                  color="info"
-                                  onClick={() => setObservationDialog({ open: true, document: doc })}
-                                >
-                                  <CommentIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Reject with Observation">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => setRejectDialog({ open: true, document: doc })}
-                                >
-                                  <CancelIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              {doc.observations && doc.observations.length > 0 && (
-                                <Tooltip title="Return to Department">
-                                  <IconButton
-                                    size="small"
-                                    color="warning"
-                                    onClick={() => setReturnDialog({ open: true, document: doc })}
-                                  >
-                                    <SendIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              )}
-                            </>
-                          ) : null}
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                                    <ScheduleIcon color="secondary" />
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                      {monthYear}
+                                    </Typography>
+                                    <Chip
+                                      label={`${monthDocuments.length} document${monthDocuments.length !== 1 ? 's' : ''}`}
+                                      size="small"
+                                      color="secondary"
+                                      sx={{ ml: 'auto' }}
+                                    />
+                                  </Box>
+                                </AccordionSummary>
+                                <AccordionDetails sx={{ p: 0 }}>
+                                  <TableContainer component={Paper} variant="outlined">
+                                    <Table>
+                                      <TableHead>
+                                        <TableRow sx={{ background: '#fafafa' }}>
+                                          <TableCell>Document #</TableCell>
+                                          <TableCell>Title</TableCell>
+                                          <TableCell>Module</TableCell>
+                                          <TableCell>Type</TableCell>
+                                          <TableCell>Date</TableCell>
+                                          <TableCell>Priority</TableCell>
+                                          <TableCell>Status</TableCell>
+                                          <TableCell>Actions</TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {monthDocuments.map((doc) => (
+                                          <TableRow key={doc._id} hover>
+                                            <TableCell>{doc.documentNumber}</TableCell>
+                                            <TableCell>
+                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <Typography variant="body2" fontWeight="medium">
+                                                  {doc.title}
+                                                </Typography>
+                                                {doc.isWorkflowDocument && (
+                                                  <Chip
+                                                    label="Workflow"
+                                                    size="small"
+                                                    color="primary"
+                                                    variant="outlined"
+                                                  />
+                                                )}
+                                              </Box>
+                                              {doc.description && (
+                                                <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
+                                                  {doc.description}
+                                                </Typography>
+                                              )}
+                                            </TableCell>
+                                            <TableCell>
+                                              <Chip label={doc.sourceModule} size="small" variant="outlined" />
+                                            </TableCell>
+                                            <TableCell>
+                                              <Chip label={doc.documentType} size="small" />
+                                            </TableCell>
+                                            <TableCell>{formatDate(doc.documentDate)}</TableCell>
+                                            <TableCell>
+                                              <Chip
+                                                label={doc.priority}
+                                                size="small"
+                                                color={getPriorityColor(doc.priority)}
+                                              />
+                                            </TableCell>
+                                            <TableCell>
+                                              <Chip
+                                                label={doc.status.replace('_', ' ')}
+                                                size="small"
+                                                color={getStatusColor(doc.status)}
+                                              />
+                                            </TableCell>
+                                            <TableCell>
+                                              <Stack direction="row" spacing={1}>
+                                                <Tooltip title="View Details">
+                                                  <IconButton
+                                                    size="small"
+                                                    onClick={async () => {
+                                                      setViewDialog({ open: true, document: doc, fullDocument: null, loading: true });
+                                                      
+                                                      // If it's a workflow document, fetch the full document details
+                                                      if (doc.isWorkflowDocument && doc.workflowSubmodule === 'payment_settlement') {
+                                                        try {
+                                                          const response = await paymentSettlementService.getPaymentSettlement(doc._id);
+                                                          setViewDialog({ 
+                                                            open: true, 
+                                                            document: doc, 
+                                                            fullDocument: response.data?.data || response.data,
+                                                            loading: false 
+                                                          });
+                                                        } catch (error) {
+                                                          console.error('Error fetching full document:', error);
+                                                          setViewDialog({ 
+                                                            open: true, 
+                                                            document: doc, 
+                                                            fullDocument: doc.originalDocument || null,
+                                                            loading: false 
+                                                          });
+                                                        }
+                                                      } else {
+                                                        setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
+                                                      }
+                                                    }}
+                                                  >
+                                                    <ViewIcon fontSize="small" />
+                                                  </IconButton>
+                                                </Tooltip>
+                                                {doc.status === 'pending' || doc.status === 'under_review' ? (
+                                                  <>
+                                                    <Tooltip title="Approve">
+                                                      <IconButton
+                                                        size="small"
+                                                        color="success"
+                                                        onClick={() => setApproveDialog({ open: true, document: doc })}
+                                                      >
+                                                        <CheckCircleIcon fontSize="small" />
+                                                      </IconButton>
+                                                    </Tooltip>
+                                                    <Tooltip title="Add Observation">
+                                                      <IconButton
+                                                        size="small"
+                                                        color="info"
+                                                        onClick={() => setObservationDialog({ open: true, document: doc })}
+                                                      >
+                                                        <CommentIcon fontSize="small" />
+                                                      </IconButton>
+                                                    </Tooltip>
+                                                    <Tooltip title="Reject with Observation">
+                                                      <IconButton
+                                                        size="small"
+                                                        color="error"
+                                                        onClick={() => setRejectDialog({ open: true, document: doc })}
+                                                      >
+                                                        <CancelIcon fontSize="small" />
+                                                      </IconButton>
+                                                    </Tooltip>
+                                                    {doc.observations && doc.observations.length > 0 && (
+                                                      <Tooltip title="Return to Department">
+                                                        <IconButton
+                                                          size="small"
+                                                          color="warning"
+                                                          onClick={() => setReturnDialog({ open: true, document: doc })}
+                                                        >
+                                                          <SendIcon fontSize="small" />
+                                                        </IconButton>
+                                                      </Tooltip>
+                                                    )}
+                                                  </>
+                                                ) : null}
+                                              </Stack>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                </AccordionDetails>
+                              </Accordion>
+                            ))}
+                        </Box>
+                      </AccordionDetails>
+                    </Accordion>
+                  );
+                })}
+              </Box>
+            );
+          })()}
 
           <TablePagination
             component="div"
@@ -1250,28 +1327,34 @@ const PreAudit = () => {
             )}
           </Box>
           <Box>
+            {viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument && (
+              <Button
+                variant="outlined"
+                startIcon={<HistoryIcon />}
+                onClick={() => setWorkflowHistoryDialog({ open: true, document: viewDialog.fullDocument })}
+                sx={{ minWidth: 150, mr: 1 }}
+              >
+                See Workflow History
+              </Button>
+            )}
             <Button 
               onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
               variant="outlined"
-              sx={{ minWidth: 80, mr: 1 }}
+              sx={{ minWidth: 80 }}
             >
               Close
             </Button>
-            {viewDialog.document?.isWorkflowDocument && viewDialog.document?.workflowConfig && (
-              <Button 
-                variant="contained"
-                onClick={() => {
-                  setViewDialog({ open: false, document: null, fullDocument: null, loading: false });
-                  navigate(`${viewDialog.document.workflowConfig.routePath}/${viewDialog.document._id}`);
-                }}
-                sx={{ minWidth: 120 }}
-              >
-                View Original Document
-              </Button>
-            )}
           </Box>
         </DialogActions>
       </Dialog>
+
+      {/* Workflow History Dialog */}
+      <WorkflowHistoryDialog
+        open={workflowHistoryDialog.open}
+        onClose={() => setWorkflowHistoryDialog({ open: false, document: null })}
+        document={workflowHistoryDialog.document}
+        documentType="preAudit"
+      />
 
       {/* Image Viewer Modal */}
       <Dialog
