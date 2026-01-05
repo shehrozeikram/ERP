@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { usePagination } from '../../../hooks/usePagination';
+import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
   Box,
   Button,
@@ -32,7 +34,8 @@ import {
   Checkbox,
   FormControlLabel,
   Autocomplete,
-  CircularProgress
+  CircularProgress,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -151,7 +154,18 @@ const TajProperties = () => {
   const [residents, setResidents] = useState([]);
   const [residentsLoading, setResidentsLoading] = useState(false);
   
-  // Filter states
+  // Filter states (simplified to match CAM Charges style)
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  
+  // Pagination
+  const pagination = usePagination({
+    defaultRowsPerPage: 50,
+    resetDependencies: [search, statusFilter, sectorFilter, categoryFilter]
+  });
+  
+  // Legacy filter states (kept for backward compatibility)
   const [filters, setFilters] = useState({
     status: '',
     propertyType: '',
@@ -258,7 +272,11 @@ const TajProperties = () => {
     try {
       setLoading(true);
       setError('');
-      const params = { search };
+      const params = {
+        page: pagination.page + 1,
+        limit: pagination.rowsPerPage
+      };
+      if (search) params.search = search;
       
       // Add filters to params
       Object.keys(filters).forEach(key => {
@@ -269,19 +287,27 @@ const TajProperties = () => {
       
       const response = await fetchProperties(params);
       setProperties(response.data?.data || []);
+      if (response.data?.pagination) {
+        pagination.setTotal(response.data.pagination.total);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load Taj properties');
     } finally {
       setLoading(false);
     }
-  }, [search, filters]);
+  }, [search, filters, pagination.page, pagination.rowsPerPage]);
 
   useEffect(() => {
     loadProperties();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, pagination.rowsPerPage, search, filters]);
+
+  useEffect(() => {
     loadAgreements();
     loadResidents();
     loadSectors();
-  }, [loadProperties, loadAgreements, loadResidents, loadSectors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpenDialog = (property) => {
     if (property) {
@@ -973,11 +999,41 @@ const TajProperties = () => {
     }
   };
 
+  // Filter properties based on search and filters (similar to CAM Charges)
   const filteredProperties = useMemo(() => {
-    // Since filters are applied on the backend, we just return properties
-    // Client-side search is also handled by backend, so we return all properties
-    return properties;
-  }, [properties]);
+    return properties.filter((property) => {
+      // Search filter
+      const searchLower = search.toLowerCase();
+      const matchesSearch = !search || 
+        (property.propertyName || '').toLowerCase().includes(searchLower) ||
+        (property.ownerName || '').toLowerCase().includes(searchLower) ||
+        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
+        (property.address || property.fullAddress || '').toLowerCase().includes(searchLower) ||
+        (property.sector || '').toLowerCase().includes(searchLower) ||
+        (property.propertyCode || '').toLowerCase().includes(searchLower);
+
+      // Status filter
+      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
+
+      // Sector filter
+      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
+
+      // Category filter
+      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
+
+      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
+    });
+  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
+
+  // Calculate dynamic property type counts
+  const propertyTypeCounts = useMemo(() => {
+    const counts = {};
+    filteredProperties.forEach(property => {
+      const type = property.propertyType || 'Other';
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    return counts;
+  }, [filteredProperties]);
   
   const handleFilterChange = (name, value) => {
     setFilters(prev => ({
@@ -996,12 +1052,15 @@ const TajProperties = () => {
       resident: '',
       hasElectricityWater: ''
     });
+    setStatusFilter('');
+    setSectorFilter('');
+    setCategoryFilter('');
     setSearch('');
   };
   
   const hasActiveFilters = useMemo(() => {
-    return Object.values(filters).some(value => value !== '') || search !== '';
-  }, [filters, search]);
+    return Object.values(filters).some(value => value !== '') || search !== '' || statusFilter !== '' || sectorFilter !== '' || categoryFilter !== '';
+  }, [filters, search, statusFilter, sectorFilter, categoryFilter]);
   
   // Get unique values for filter dropdowns
   const uniqueProjects = useMemo(() => {
@@ -1070,6 +1129,20 @@ const TajProperties = () => {
         </Alert>
       )}
 
+      {/* Statistics Cards - Dynamic Property Type Counts */}
+      <Box sx={{ mb: 3 }}>
+        <Grid container spacing={2}>
+          <Grid item xs={6} sm={4} md={2}>
+            <StatCard title="Total Properties" value={properties.length} />
+          </Grid>
+          {Object.entries(propertyTypeCounts).map(([type, count]) => (
+            <Grid item xs={6} sm={4} md={2} key={type}>
+              <StatCard title={type} value={count} />
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+
       {/* Filters Section */}
       <Card sx={{ mb: 2 }}>
         <CardContent>
@@ -1106,15 +1179,15 @@ const TajProperties = () => {
           
           <Collapse in={showFilters}>
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid item xs={12} sm={6} md={4}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Status</InputLabel>
                   <Select
                     label="Status"
-                    value={filters.status}
-                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
                   >
-                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="">All Status</MenuItem>
                     {uniqueStatuses.map((status) => (
                       <MenuItem key={status} value={status}>
                         {status}
@@ -1124,56 +1197,34 @@ const TajProperties = () => {
                 </FormControl>
               </Grid>
               
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid item xs={12} sm={6} md={4}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Property Type</InputLabel>
+                  <InputLabel>Sector</InputLabel>
                   <Select
-                    label="Property Type"
-                    value={filters.propertyType}
-                    onChange={(e) => handleFilterChange('propertyType', e.target.value)}
+                    label="Sector"
+                    value={sectorFilter}
+                    onChange={(e) => setSectorFilter(e.target.value)}
                   >
-                    <MenuItem value="">All</MenuItem>
-                    {propertyTypes.map((type) => (
-                      <MenuItem key={type} value={type}>
-                        {type}
-                      </MenuItem>
+                    <MenuItem value="">All Sectors</MenuItem>
+                    {[...new Set(properties.map(p => p.sector).filter(Boolean))].sort().map((sector) => (
+                      <MenuItem key={sector} value={sector}>{sector}</MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
               
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid item xs={12} sm={6} md={4}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Zone Type</InputLabel>
+                  <InputLabel>Category</InputLabel>
                   <Select
-                    label="Zone Type"
-                    value={filters.zoneType}
-                    onChange={(e) => handleFilterChange('zoneType', e.target.value)}
+                    label="Category"
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
                   >
-                    <MenuItem value="">All</MenuItem>
-                    {zoneTypes.map((zone) => (
-                      <MenuItem key={zone} value={zone}>
-                        {zone}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              <Grid item xs={12} sm={6} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Category Type</InputLabel>
-                  <Select
-                    label="Category Type"
-                    value={filters.categoryType}
-                    onChange={(e) => handleFilterChange('categoryType', e.target.value)}
-                  >
-                    <MenuItem value="">All</MenuItem>
-                    {categoryTypes.map((category) => (
-                      <MenuItem key={category} value={category}>
-                        {category}
-                      </MenuItem>
-                    ))}
+                    <MenuItem value="">All Categories</MenuItem>
+                    <MenuItem value="Personal">Personal</MenuItem>
+                    <MenuItem value="Private">Private</MenuItem>
+                    <MenuItem value="Personal Rent">Personal Rent</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -1265,7 +1316,33 @@ const TajProperties = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredProperties.map((property) => (
+                {loading ? (
+                  // Skeleton loading rows
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell><Skeleton variant="text" width={40} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width="80%" height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={80} />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="70%" />
+                        <Skeleton variant="text" width="90%" height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="rectangular" width={80} height={24} /></TableCell>
+                      <TableCell align="right"><Skeleton variant="circular" width={32} height={32} /></TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  filteredProperties.map((property) => (
                   <TableRow key={property._id} hover>
                     <TableCell>{property.srNo || '—'}</TableCell>
                     <TableCell>
@@ -1359,7 +1436,8 @@ const TajProperties = () => {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))}
+                  ))
+                )}
                 {!filteredProperties.length && !loading && (
                   <TableRow>
                     <TableCell colSpan={7} align="center">
@@ -1370,6 +1448,13 @@ const TajProperties = () => {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePaginationWrapper
+            page={pagination.page}
+            rowsPerPage={pagination.rowsPerPage}
+            total={pagination.total}
+            onPageChange={pagination.handleChangePage}
+            onRowsPerPageChange={pagination.handleChangeRowsPerPage}
+          />
         </CardContent>
       </Card>
 
@@ -2637,6 +2722,18 @@ const TajProperties = () => {
     </Box>
   );
 };
+
+// StatCard component for displaying statistics
+const StatCard = ({ title, value }) => (
+  <Paper sx={{ width: '100%', p: 2, borderRadius: 3 }} elevation={0}>
+    <Typography variant="body2" color="text.secondary">
+      {title}
+    </Typography>
+    <Typography variant="h5" fontWeight={700}>
+      {value}
+    </Typography>
+  </Paper>
+);
 
 export default TajProperties;
 

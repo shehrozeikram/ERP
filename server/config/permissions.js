@@ -89,7 +89,6 @@ const SUBMODULES = {
     'taj_electricity_bills',
     'taj_rental_agreements',
     'taj_rental_management',
-    'taj_receipts',
     'taj_residents',
     'taj_properties'
   ],

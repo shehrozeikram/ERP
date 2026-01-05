@@ -17,6 +17,18 @@ const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const {
+  getCached,
+  setCached,
+  clearCached,
+  fetchProperties,
+  preCalculateAddresses,
+  collectPropertyIdentifiers,
+  buildPropertyQueryConditions,
+  calculatePropertyStats,
+  calculatePayments,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
 if (!fs.existsSync(attachmentsDir)) {
@@ -86,75 +98,67 @@ router.get('/', authMiddleware, async (req, res) => {
 // NOTE: This route MUST be defined before /:id route to avoid route matching conflicts
 router.get('/current-overview', authMiddleware, async (req, res) => {
   try {
-    console.log('📋 Fetching current Electricity overview...');
+    // Extract pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
     
-    // Get all properties
-    let properties;
-    try {
-      properties = await TajProperty.find({})
-        .sort({ srNo: 1 })
-        .lean();
-      console.log(`✅ Found ${properties.length} properties`);
-      
-      if (properties.length > 0) {
-        console.log('Sample property fields:', Object.keys(properties[0]));
+    // Only use cache if no pagination is requested (page 1, default limit)
+    const isDefaultPagination = page === 1 && limit === 50;
+    if (isDefaultPagination) {
+      const cached = getCached(CACHE_KEYS.ELECTRICITY_OVERVIEW);
+      if (cached) {
+        console.log('📋 Returning cached Electricity overview');
+        return res.json(cached);
       }
-    } catch (propertyError) {
-      console.error('❌ Error fetching properties:', propertyError);
-      console.error('Error details:', {
-        name: propertyError.name,
-        message: propertyError.message,
-        stack: propertyError.stack
-      });
-      throw new Error(`Failed to fetch properties: ${propertyError.message}`);
     }
+    
+    console.log(`📋 Fetching current Electricity overview (page: ${page}, limit: ${limit})...`);
+    
+    // OPTIMIZATION: Select only needed fields from properties
+    const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType electricityWaterMeterNo meters';
+    
+    // OPTIMIZATION: Fetch properties with optimized field selection
+    const allProperties = await fetchProperties(propertyFields);
+      console.log(`✅ Found ${allProperties.length} total properties`);
 
-    if (properties.length === 0) {
-      return res.json({
+    if (allProperties.length === 0) {
+      const emptyResponse = {
         success: true,
         data: {
           totalProperties: 0,
           totalActiveProperties: 0,
           totalPendingProperties: 0,
           totalCompletedProperties: 0,
-          properties: []
+          properties: [],
+          pagination: {
+            page: 1,
+            limit,
+            total: 0,
+            totalPages: 0
+          }
         }
-      });
+      };
+      if (isDefaultPagination) {
+        setCached(CACHE_KEYS.ELECTRICITY_OVERVIEW, emptyResponse);
+      }
+      return res.json(emptyResponse);
     }
 
-    // Calculate statistics
-    const totalProperties = properties.length;
-    const totalActiveProperties = properties.filter(p => p.status === 'Active' || p.status === 'active').length;
-    const totalPendingProperties = properties.filter(p => p.status === 'Pending' || p.status === 'pending').length;
-    const totalCompletedProperties = properties.filter(p => p.status === 'Completed' || p.status === 'completed').length;
+    // OPTIMIZATION: Calculate statistics using centralized utility (on all properties)
+    const stats = calculatePropertyStats(allProperties);
+    const { totalProperties, totalActiveProperties, totalPendingProperties, totalCompletedProperties } = stats;
+    
+    // Apply pagination - only process the slice we need
+    const totalPages = Math.ceil(allProperties.length / limit);
+    const properties = allProperties.slice(skip, skip + limit);
+    
+    console.log(`📄 Processing page ${page} of ${totalPages} (${properties.length} properties)`);
 
-    // Get Electricity charges for each property to calculate totals
-    const propertyAddresses = properties
-      .map(p => {
-        const addr = p.address || `${p.plotNumber || ''} ${p.street || ''} ${p.sector || ''}`.trim();
-        return addr && addr.length > 0 ? addr : null;
-      })
-      .filter(addr => addr && addr.length > 0);
-    
-    const plotNumbers = properties
-      .map(p => p.plotNumber)
-      .filter(plot => plot && typeof plot === 'string' && plot.trim().length > 0);
-    
-    const ownerNames = properties
-      .map(p => p.ownerName)
-      .filter(owner => owner && typeof owner === 'string' && owner.trim().length > 0);
-    
-    // Build query conditions - only add conditions if arrays are not empty
-    const queryConditions = [];
-    if (propertyAddresses.length > 0) {
-      queryConditions.push({ address: { $in: propertyAddresses } });
-    }
-    if (plotNumbers.length > 0) {
-      queryConditions.push({ plotNo: { $in: plotNumbers } });
-    }
-    if (ownerNames.length > 0) {
-      queryConditions.push({ owner: { $in: ownerNames } });
-    }
+    // OPTIMIZATION: Pre-calculate addresses and collect identifiers using centralized utilities
+    const propertyAddressMap = preCalculateAddresses(properties);
+    const identifiers = collectPropertyIdentifiers(properties, propertyAddressMap);
+    const queryConditions = buildPropertyQueryConditions(identifiers);
     
     // Match Electricity charges by address, plot number, or owner name
     let electricityCharges = [];
@@ -170,8 +174,6 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         console.log(`✅ Found ${electricityCharges.length} Electricity charges`);
       } catch (queryError) {
         console.error('❌ Error querying Electricity charges:', queryError);
-        console.error('Query conditions:', JSON.stringify(queryConditions, null, 2));
-        // Continue with empty array if query fails
         electricityCharges = [];
       }
     } else {
@@ -212,6 +214,34 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       }
     });
 
+    // Fetch PropertyInvoices with ELECTRICITY charge type to determine which electricity bills should be shown
+    const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
+    const propertyIds = properties.map(p => p._id);
+    const electricityInvoices = await PropertyInvoice.find({
+      property: { $in: propertyIds },
+      chargeTypes: { $in: ['ELECTRICITY'] }
+    })
+      .select('property electricityBill')
+      .lean();
+    
+    // Create a set of electricityBill IDs that have PropertyInvoices
+    const electricityBillIdsWithInvoices = new Set();
+    electricityInvoices.forEach(invoice => {
+      const elecBillId = invoice.electricityBill?.toString() || invoice.electricityBill;
+      if (elecBillId) {
+        electricityBillIdsWithInvoices.add(elecBillId);
+      }
+    });
+    
+    // Create a map of propertyId -> hasInvoice (boolean) for quick lookup
+    const propertyHasInvoiceMap = new Map();
+    electricityInvoices.forEach(invoice => {
+      const propId = invoice.property?.toString() || invoice.property;
+      if (propId) {
+        propertyHasInvoiceMap.set(propId, true);
+      }
+    });
+
     // Calculate totals and prepare property details
     let totalAmount = 0;
     let totalArrears = 0;
@@ -220,35 +250,49 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     try {
       propertyDetails = properties.map(property => {
         try {
-          const propertyKey = property.address || property.plotNumber || property.ownerName;
+          // OPTIMIZATION: Use pre-calculated address
+          const propertyKey = propertyAddressMap.get(property._id.toString()) || property.plotNumber || property.ownerName;
           const relatedCharges = chargesMap.get(propertyKey) || [];
           
+          // Only show electricity amounts if property has at least one PropertyInvoice with ELECTRICITY charge type
+          const propertyIdStr = property._id.toString();
+          const hasInvoice = propertyHasInvoiceMap.get(propertyIdStr) || false;
+          
+          // Filter charges to only include those that are referenced by PropertyInvoices
+          const filteredCharges = hasInvoice 
+            ? relatedCharges.filter(charge => {
+                const billId = charge._id?.toString();
+                return billId && electricityBillIdsWithInvoices.has(billId);
+              })
+            : [];
+          
           // Use totalBill if available, otherwise use amount
-          const propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.totalBill || charge.amount || 0), 0);
-          const propertyArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+          const propertyAmount = filteredCharges.reduce((sum, charge) => sum + (charge.totalBill || charge.amount || 0), 0);
+          const propertyArrears = filteredCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
           
-          // Get all payments from related charges
-          const allPayments = relatedCharges.flatMap(charge => (charge.payments || []).map(payment => ({
-            ...payment,
-            chargeId: charge._id,
-            chargeInvoiceNumber: charge.invoiceNumber
-          })));
+          // OPTIMIZATION: Calculate payments using centralized utility (only for filtered charges)
+          const paymentData = calculatePayments(
+            filteredCharges,
+            (c) => c.totalBill || c.amount || 0,
+            (c) => c.arrears || 0
+          );
+          const { allPayments } = paymentData;
           
-          // Calculate payment status based on total payments vs total electricity amount
+          // Recalculate payment status based on total electricity amount
           const totalElectricityAmount = propertyAmount + propertyArrears;
-          const totalPaid = allPayments.reduce((sum, payment) => sum + (payment.totalAmount || payment.amount || 0), 0);
-          
-          let paymentStatus = 'unpaid';
-          if (totalPaid >= totalElectricityAmount && totalElectricityAmount > 0) {
-            paymentStatus = 'paid';
-          } else if (totalPaid > 0) {
-            paymentStatus = 'partial_paid';
+          let finalPaymentStatus = 'unpaid';
+          if (paymentData.totalPaid >= totalElectricityAmount && totalElectricityAmount > 0) {
+            finalPaymentStatus = 'paid';
+          } else if (paymentData.totalPaid > 0) {
+            finalPaymentStatus = 'partial_paid';
           }
           
-          // Update all payments with the calculated status
+          // Update payment status on all payments
+          if (allPayments.length > 0) {
           allPayments.forEach(payment => {
-            payment.status = paymentStatus;
+              payment.status = finalPaymentStatus;
           });
+          }
           
           totalAmount += propertyAmount;
           totalArrears += propertyArrears;
@@ -269,26 +313,26 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             street: property.street || null,
             sector: property.sector || null,
             categoryType: property.categoryType || null,
-            address: property.address || property.fullAddress || `${property.plotNumber || ''} ${property.street || ''} ${property.sector || ''}`.trim() || null,
+            address: propertyAddressMap.get(property._id.toString()) || null,
             project: property.project || null,
             ownerName: property.ownerName || null,
             contactNumber: property.contactNumber || null,
             status: property.status || 'Pending',
-            fileSubmissionDate: property.fileSubmissionDate ? new Date(property.fileSubmissionDate).toISOString() : null,
-            demarcationDate: property.demarcationDate ? new Date(property.demarcationDate).toISOString() : null,
-            constructionDate: property.constructionDate ? new Date(property.constructionDate).toISOString() : null,
+            fileSubmissionDate: property.fileSubmissionDate || null,
+            demarcationDate: property.demarcationDate || null,
+            constructionDate: property.constructionDate || null,
             familyStatus: property.familyStatus || null,
             areaValue: property.areaValue || 0,
             areaUnit: property.areaUnit || null,
             electricityWaterMeterNo: property.electricityWaterMeterNo || null,
             meters: property.meters || [], // Include meters array
-            // Electricity related fields
+            // Electricity related fields (only show if there's a PropertyInvoice)
             electricityAmount: propertyAmount || 0,
             electricityArrears: propertyArrears || 0,
-            hasElectricity: relatedCharges.length > 0,
+            hasElectricity: filteredCharges.length > 0,
             electricityLastReading: lastReading,
             payments: allPayments || [],
-            paymentStatus: paymentStatus
+            paymentStatus: finalPaymentStatus
           };
         } catch (propError) {
           console.error('❌ Error processing property:', property._id, propError);
@@ -322,13 +366,26 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       totalCompletedProperties,
       totalAmount: Math.round(totalAmount),
       totalArrears: Math.round(totalArrears),
-      properties: propertyDetails
+      properties: propertyDetails,
+      pagination: {
+        page,
+        limit,
+        total: allProperties.length,
+        totalPages
+      }
     };
     
-    res.json({
+    const response = {
       success: true,
       data: responseData
-    });
+    };
+    
+    // OPTIMIZATION: Cache the response only for default pagination
+    if (isDefaultPagination) {
+      setCached(CACHE_KEYS.ELECTRICITY_OVERVIEW, response);
+    }
+    
+    res.json(response);
   } catch (error) {
     console.error('❌ Error in current-overview:', error);
     console.error('Error name:', error.name);
@@ -455,6 +512,7 @@ router.post('/property/:propertyId/payments', authMiddleware, paymentAttachmentU
     }
 
     await bill.save();
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on payment update
     res.json({ success: true, data: bill });
   } catch (error) {
     cleanupAttachment(req.file);
@@ -508,6 +566,7 @@ router.post('/:id/payments', authMiddleware, paymentAttachmentUpload.single('att
     }
 
     await bill.save();
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on payment update
     res.json({ success: true, data: bill });
   } catch (error) {
     cleanupAttachment(req.file);
@@ -545,6 +604,7 @@ router.delete('/property/:propertyId/payments', authMiddleware, async (req, res)
       await bill.save();
     }
 
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on payment deletion
     res.json({ 
       success: true, 
       message: `Removed all payments from ${bills.length} Electricity bill(s)`,
@@ -567,6 +627,7 @@ router.delete('/:id/payments', authMiddleware, async (req, res) => {
     bill.paymentStatus = 'unpaid';
     await bill.save();
 
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on payment deletion
     res.json({ 
       success: true, 
       message: 'All payments removed from Electricity bill',
@@ -609,6 +670,7 @@ router.delete('/:billId/payments/:paymentId', authMiddleware, async (req, res) =
 
     await bill.save();
 
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on payment deletion
     res.json({ 
       success: true, 
       message: 'Payment removed successfully',
@@ -648,6 +710,7 @@ router.post('/', authMiddleware, async (req, res) => {
     await charge.save();
     await charge.populate('createdBy', 'firstName lastName');
 
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on bill creation
     res.status(201).json({ success: true, data: charge });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -689,6 +752,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Electricity not found' });
     }
 
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on bill deletion
     res.json({ success: true, message: 'Electricity deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -885,6 +949,7 @@ router.post('/bulk-create', authMiddleware, [
       }));
     }
 
+    clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW); // Invalidate cache on bulk creation
     res.json({
       success: true,
       message: `Bulk electricity bills creation completed`,

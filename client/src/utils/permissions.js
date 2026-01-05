@@ -515,10 +515,6 @@ export const MODULES = {
             path: '/finance/taj-utilities-charges/charges-slabs'
           },
           {
-            name: 'Receipts',
-            path: '/finance/taj-utilities-charges/receipts'
-          },
-          {
             name: 'Invoices',
             path: '/finance/taj-utilities-charges/invoices'
           }
@@ -903,7 +899,6 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/taj-utilities-charges/taj-residents': 'taj_residents',
       '/finance/taj-utilities-charges/taj-properties': 'taj_properties',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
-      '/finance/taj-utilities-charges/receipts': 'taj_receipts',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
       '/finance/reports': 'financial_reports',
       

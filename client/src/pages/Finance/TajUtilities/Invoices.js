@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { usePagination } from '../../../hooks/usePagination';
+import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
   Box,
   Card,
@@ -76,12 +78,21 @@ const Invoices = () => {
   const [propertyFilter, setPropertyFilter] = useState('');
   const [residentFilter, setResidentFilter] = useState('');
   const [expandedMonths, setExpandedMonths] = useState([]);
+  
+  // Pagination
+  const pagination = usePagination({
+    defaultRowsPerPage: 50,
+    resetDependencies: [statusFilter, paymentStatusFilter, propertyFilter, residentFilter]
+  });
 
   const loadInvoices = async () => {
     try {
       setLoading(true);
       setError('');
-      const params = {};
+      const params = {
+        page: pagination.page + 1,
+        limit: pagination.rowsPerPage
+      };
       if (statusFilter !== 'all') params.status = statusFilter;
       if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
       if (propertyFilter) params.propertyId = propertyFilter;
@@ -89,7 +100,7 @@ const Invoices = () => {
       const response = await fetchAllInvoices(params);
       let invoicesData = response.data?.data || [];
       
-      // Filter by resident if selected
+      // Filter by resident if selected (client-side filter for resident)
       if (residentFilter) {
         invoicesData = invoicesData.filter(invoice => {
           const propertyResident = invoice.property?.resident;
@@ -108,6 +119,9 @@ const Invoices = () => {
       }
       
       setInvoices(invoicesData);
+      if (response.data?.pagination) {
+        pagination.setTotal(response.data.pagination.total);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load invoices');
     } finally {
@@ -141,7 +155,8 @@ const Invoices = () => {
 
   useEffect(() => {
     loadInvoices();
-  }, [statusFilter, paymentStatusFilter, propertyFilter, residentFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter]);
 
   useEffect(() => {
     loadProperties();
@@ -356,6 +371,42 @@ const Invoices = () => {
         </Alert>
       )}
 
+      {/* Statistics */}
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
+        <Card sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">Total Invoices</Typography>
+            <Typography variant="h5" fontWeight={600}>
+              {pagination.total || invoices.length}
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">Current Page</Typography>
+            <Typography variant="h5" fontWeight={600}>
+              {invoices.length} of {pagination.total || invoices.length}
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">Total Amount</Typography>
+            <Typography variant="h5" fontWeight={600}>
+              {formatCurrency(invoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0))}
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card sx={{ flex: 1 }}>
+          <CardContent>
+            <Typography variant="caption" color="text.secondary">Total Balance</Typography>
+            <Typography variant="h5" fontWeight={600} color="error.main">
+              {formatCurrency(invoices.reduce((sum, inv) => sum + (inv.balance || 0), 0))}
+            </Typography>
+          </CardContent>
+        </Card>
+      </Stack>
+
       <Card>
         <CardContent>
           {loading ? (
@@ -555,6 +606,17 @@ const Invoices = () => {
                 </Collapse>
               </Box>
             ))
+          )}
+          {!loading && invoicesByMonth.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <TablePaginationWrapper
+                page={pagination.page}
+                rowsPerPage={pagination.rowsPerPage}
+                total={pagination.total}
+                onPageChange={pagination.handleChangePage}
+                onRowsPerPageChange={pagination.handleChangeRowsPerPage}
+              />
+            </Box>
           )}
         </CardContent>
       </Card>

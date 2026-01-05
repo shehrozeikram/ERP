@@ -7,6 +7,12 @@ const fs = require('fs');
 const TajProperty = require('../models/tajResidencia/TajProperty');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const { authMiddleware } = require('../middleware/auth');
+const {
+  getCached,
+  setCached,
+  clearCached,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
 if (!fs.existsSync(attachmentsDir)) {
@@ -230,7 +236,9 @@ const fetchPersonalRentProperties = async ({ status, search }) => {
     ];
   }
 
+  // OPTIMIZATION: Select only needed fields and use lean
   const properties = await TajProperty.find(filters)
+    .select('_id srNo propertyType propertyName plotNumber rdaNumber street sector block floor unit categoryType address fullAddress project ownerName contactNumber status expectedRent securityDeposit areaValue areaUnit rentalAgreement resident createdAt updatedAt')
     .populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard annualRentIncreaseType annualRentIncreaseValue increasedRent')
     .sort({ srNo: 1 })
     .lean();
@@ -245,14 +253,33 @@ const fetchPersonalRentProperties = async ({ status, search }) => {
 // General rental properties sourced from TajProperty master data
 router.get('/general-properties', authMiddleware, async (req, res) => {
   try {
+    // OPTIMIZATION: Check cache first (only if no filters/search)
+    const hasFilters = req.query.status || req.query.search;
+    const cacheKey = hasFilters ? null : CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES;
+    
+    if (cacheKey) {
+      const cached = getCached(cacheKey);
+      if (cached) {
+        console.log('📋 Returning cached rental management properties');
+        return res.json(cached);
+      }
+    }
+    
     const { mapped, summary } = await fetchPersonalRentProperties(req.query || {});
-    res.json({
+    const response = {
       success: true,
       data: {
         summary,
         properties: mapped
       }
-    });
+    };
+    
+    // OPTIMIZATION: Cache response if no filters
+    if (cacheKey) {
+      setCached(cacheKey, response);
+    }
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -265,8 +292,27 @@ router.get('/general-properties', authMiddleware, async (req, res) => {
 // Get personal rent properties (primary listing)
 router.get('/properties', authMiddleware, async (req, res) => {
   try {
+    // OPTIMIZATION: Check cache first (only if no filters/search)
+    const hasFilters = req.query.status || req.query.search;
+    const cacheKey = hasFilters ? null : CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES;
+    
+    if (cacheKey) {
+      const cached = getCached(cacheKey);
+      if (cached) {
+        console.log('📋 Returning cached rental properties');
+        return res.json(cached);
+      }
+    }
+    
     const { mapped, summary } = await fetchPersonalRentProperties(req.query || {});
-    res.json({ success: true, data: mapped, summary });
+    const response = { success: true, data: mapped, summary };
+    
+    // OPTIMIZATION: Cache response if no filters
+    if (cacheKey) {
+      setCached(cacheKey, response);
+    }
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch properties', error: error.message });
   }
@@ -353,6 +399,7 @@ router.post('/properties/:id/payments', authMiddleware, paymentAttachmentUpload.
 
     await property.save();
     await property.populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard');
+    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES); // Invalidate cache on payment update
     res.json({ success: true, data: mapRentalPropertyResponse(property.toObject()) });
   } catch (error) {
     cleanupAttachment(req.file);

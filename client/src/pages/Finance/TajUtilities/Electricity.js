@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { usePagination } from '../../../hooks/usePagination';
+import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
   Box,
   Button,
@@ -28,7 +30,8 @@ import {
   InputLabel,
   Select,
   CircularProgress,
-  Collapse
+  Collapse,
+  Skeleton
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -160,11 +163,22 @@ const Electricity = () => {
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  
   // Properties state
   const [properties, setProperties] = useState([]);
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [expandedInvoices, setExpandedInvoices] = useState(new Set());
+  
+  // Pagination
+  const pagination = usePagination({
+    defaultRowsPerPage: 50,
+    resetDependencies: [search, statusFilter, sectorFilter, categoryFilter]
+  });
   
   // Payment state
   const [paymentDialog, setPaymentDialog] = useState(false);
@@ -211,15 +225,24 @@ const Electricity = () => {
 
   useEffect(() => {
     loadCharges();
-    loadProperties();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    // Load properties when component mounts or pagination changes
+    loadProperties();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, pagination.rowsPerPage]);
 
   const loadProperties = async () => {
     try {
       setCurrentOverviewLoading(true);
-      const response = await api.get('/taj-utilities/electricity/current-overview');
+      const params = pagination.getApiParams();
+      const response = await api.get('/taj-utilities/electricity/current-overview', { params });
       setProperties(response.data.data?.properties || []);
+      if (response.data.data?.pagination) {
+        pagination.setTotal(response.data.data.pagination.total);
+      }
     } catch (error) {
       console.error('Error fetching properties:', error);
       setError('Failed to load properties');
@@ -252,6 +275,31 @@ const Electricity = () => {
     }
     setExpandedRows(newExpanded);
   };
+
+  // Filter properties based on search and filters
+  const filteredProperties = useMemo(() => {
+    return properties.filter((property) => {
+      // Search filter
+      const searchLower = search.toLowerCase();
+      const matchesSearch = !search || 
+        (property.propertyName || '').toLowerCase().includes(searchLower) ||
+        (property.ownerName || '').toLowerCase().includes(searchLower) ||
+        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
+        (property.address || '').toLowerCase().includes(searchLower) ||
+        (property.sector || '').toLowerCase().includes(searchLower);
+
+      // Status filter
+      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
+
+      // Sector filter
+      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
+
+      // Category filter
+      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
+
+      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
+    });
+  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
 
   const toggleInvoiceExpansion = (invoiceId) => {
     const newExpanded = new Set(expandedInvoices);
@@ -2102,6 +2150,68 @@ const Electricity = () => {
         </Alert>
       )}
 
+      {/* Statistics Cards */}
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
+        <StatCard title="Total Properties" value={pagination.total || properties.length} />
+        <StatCard title="Current Page" value={`${properties.length} of ${pagination.total || properties.length}`} />
+        <StatCard title="Total Electricity Amount" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.electricityAmount || 0), 0))} />
+        <StatCard title="Total Arrears" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.electricityArrears || 0), 0))} />
+      </Stack>
+
+      {/* Filters */}
+      <Card sx={{ mb: 2 }}>
+        <CardContent>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={statusFilter}
+                  label="Status"
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <MenuItem value="">All Status</MenuItem>
+                  <MenuItem value="Active">Active</MenuItem>
+                  <MenuItem value="Pending">Pending</MenuItem>
+                  <MenuItem value="Completed">Completed</MenuItem>
+                  <MenuItem value="Cancelled">Cancelled</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Sector</InputLabel>
+                <Select
+                  value={sectorFilter}
+                  label="Sector"
+                  onChange={(e) => setSectorFilter(e.target.value)}
+                >
+                  <MenuItem value="">All Sectors</MenuItem>
+                  {[...new Set(properties.map(p => p.sector).filter(Boolean))].sort().map((sector) => (
+                    <MenuItem key={sector} value={sector}>{sector}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Category</InputLabel>
+                <Select
+                  value={categoryFilter}
+                  label="Category"
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <MenuItem value="">All Categories</MenuItem>
+                  <MenuItem value="Personal">Personal</MenuItem>
+                  <MenuItem value="Private">Private</MenuItem>
+                  <MenuItem value="Personal Rent">Personal Rent</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent>
           <TableContainer component={Paper}>
@@ -2121,19 +2231,43 @@ const Electricity = () => {
               </TableHead>
               <TableBody>
                 {currentOverviewLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
-                      <CircularProgress />
+                  // Skeleton loading rows
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell><Skeleton variant="circular" width={32} height={32} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={40} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width="80%" height={20} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="rectangular" width={60} height={24} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="70%" />
+                        <Skeleton variant="text" width="90%" height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="rectangular" width={80} height={24} /></TableCell>
+                      <TableCell align="right">
+                        <Skeleton variant="text" width={80} />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} sx={{ ml: 1 }} />
                     </TableCell>
                   </TableRow>
-                ) : properties.length === 0 ? (
+                  ))
+                ) : filteredProperties.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                       <Typography color="text.secondary">No properties found</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  properties.map((property) => (
+                  filteredProperties.map((property) => (
                     <React.Fragment key={property._id}>
                       <TableRow hover>
                         <TableCell>
@@ -2245,7 +2379,7 @@ const Electricity = () => {
                                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
                                   <CircularProgress size={20} />
                                 </Box>
-                              ) : propertyInvoices[property._id] && propertyInvoices[property._id].length > 0 ? (
+                              ) : propertyInvoices[property._id] && propertyInvoices[property._id].filter(inv => inv.chargeTypes?.includes('ELECTRICITY')).length > 0 ? (
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
@@ -2490,9 +2624,14 @@ const Electricity = () => {
                                   </TableBody>
                                 </Table>
                               ) : (
-                                <Typography variant="body2" color="text.secondary">
-                                  No invoices found. Create an invoice using the "Create Invoice" button.
-                                </Typography>
+                                <Box sx={{ py: 3, textAlign: 'center' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    No invoice found
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                    Create an invoice using the "Create Invoice" button above
+                                  </Typography>
+                                </Box>
                               )}
                             </Box>
                           </Collapse>
@@ -2504,6 +2643,14 @@ const Electricity = () => {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePaginationWrapper
+            page={pagination.page}
+            rowsPerPage={pagination.rowsPerPage}
+            total={pagination.total}
+            onPageChange={pagination.handleChangePage}
+            onRowsPerPageChange={pagination.handleChangeRowsPerPage}
+            onResetExpanded={() => setExpandedRows(new Set())}
+          />
         </CardContent>
       </Card>
 
@@ -3575,6 +3722,18 @@ const Electricity = () => {
     </Box>
   );
 };
+
+// StatCard component for displaying statistics
+const StatCard = ({ title, value }) => (
+  <Paper sx={{ flex: 1, p: 2, borderRadius: 3 }} elevation={0}>
+    <Typography variant="body2" color="text.secondary">
+      {title}
+    </Typography>
+    <Typography variant="h5" fontWeight={700}>
+      {value}
+    </Typography>
+  </Paper>
+);
 
 export default Electricity;
 

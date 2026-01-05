@@ -28,7 +28,8 @@ import {
   CircularProgress,
   FormControl,
   InputLabel,
-  Select
+  Select,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -391,7 +392,35 @@ const RentalAgreements = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {!loading &&
+                {loading ? (
+                  // Skeleton loading rows
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell>
+                        <Skeleton variant="text" width={120} />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width="80%" height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="text" width={80} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={120} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="rectangular" width={80} height={24} /></TableCell>
+                      <TableCell align="right">
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} sx={{ ml: 1 }} />
+                        <Skeleton variant="circular" width={32} height={32} sx={{ ml: 1 }} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
                   agreements.map((agreement) => (
                     <TableRow key={agreement._id} hover>
                       <TableCell>
@@ -449,7 +478,8 @@ const RentalAgreements = () => {
                         </IconButton>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ))
+                )}
               </TableBody>
             </Table>
             {!agreements.length && !loading && (

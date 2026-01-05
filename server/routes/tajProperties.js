@@ -3,10 +3,36 @@ const router = express.Router();
 const TajProperty = require('../models/tajResidencia/TajProperty');
 const CAMCharge = require('../models/tajResidencia/CAMCharge');
 const Electricity = require('../models/tajResidencia/Electricity');
+const {
+  getCached,
+  setCached,
+  clearCached,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 // List properties
 router.get('/', async (req, res) => {
   try {
+    // Extract pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    
+    // OPTIMIZATION: Check cache first (only if no filters/search and default pagination)
+    const hasFilters = req.query.search || req.query.status || req.query.propertyType || 
+                      req.query.zoneType || req.query.categoryType || req.query.project || 
+                      req.query.resident || req.query.hasElectricityWater !== undefined;
+    const isDefaultPagination = page === 1 && limit === 50;
+    const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.PROPERTIES_LIST;
+    
+    if (cacheKey) {
+      const cached = getCached(cacheKey);
+      if (cached) {
+        console.log('📋 Returning cached properties list');
+        return res.json(cached);
+      }
+    }
+    
     const { 
       search, 
       status, 
@@ -60,11 +86,36 @@ router.get('/', async (req, res) => {
       ];
     }
 
+    // Get total count for pagination
+    const total = await TajProperty.countDocuments(filters);
+
+    // OPTIMIZATION: Use lean for better performance with pagination
     const properties = await TajProperty.find(filters)
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
       .populate('resident', 'name accountType contactNumber email')
-      .sort({ srNo: 1 });
-    res.json({ success: true, data: properties });
+      .sort({ srNo: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    
+    const totalPages = Math.ceil(total / limit);
+    const response = { 
+      success: true, 
+      data: properties,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages
+      }
+    };
+    
+    // OPTIMIZATION: Cache response if no filters and default pagination
+    if (cacheKey) {
+      setCached(cacheKey, response);
+    }
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -91,6 +142,8 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const property = await TajProperty.create(req.body);
+    clearCached(CACHE_KEYS.PROPERTIES_LIST); // Invalidate cache on creation
+    clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
     res.status(201).json({ success: true, data: property });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -109,6 +162,8 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
+    clearCached(CACHE_KEYS.PROPERTIES_LIST); // Invalidate cache on update
+    clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
     res.json({ success: true, data: property });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -142,6 +197,8 @@ router.patch('/:id/status', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
+    clearCached(CACHE_KEYS.PROPERTIES_LIST); // Invalidate cache on status update
+    clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
     res.json({ success: true, data: property });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -194,6 +251,8 @@ router.delete('/:id', async (req, res) => {
     // Delete the property
     await TajProperty.findByIdAndDelete(req.params.id);
 
+    clearCached(CACHE_KEYS.PROPERTIES_LIST); // Invalidate cache on deletion
+    clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
     res.json({ success: true, message: 'Property deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

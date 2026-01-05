@@ -15,7 +15,7 @@ const generateReceiptNumber = () => {
   return `REC-${year}-${month}-${random}`;
 };
 
-// Get invoices for property (for allocation)
+// Get invoices for property (for allocation) - ESSENTIAL ENDPOINT
 router.get('/property/:propertyId/invoices', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const invoices = await PropertyInvoice.find({
@@ -46,7 +46,7 @@ router.get('/property/:propertyId/invoices', authMiddleware, asyncHandler(async 
   }
 }));
 
-// Create receipt
+// Create receipt with allocations
 router.post('/', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const { property, receiptDate, amount, bankName, bankReference, description, paymentMethod, allocations } = req.body;

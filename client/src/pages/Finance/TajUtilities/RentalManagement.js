@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Box,
   Button,
@@ -29,7 +29,8 @@ import {
   Collapse,
   CircularProgress,
   Tooltip,
-  Menu
+  Menu,
+  Skeleton
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -47,7 +48,8 @@ import {
   FiberManualRecord as StatusIcon,
   AttachFile as AttachFileIcon,
   Delete as DeleteIcon,
-  Edit as EditIcon
+  Edit as EditIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -134,9 +136,15 @@ const RentalManagement = () => {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [expandedInvoices, setExpandedInvoices] = useState(new Set());
-  const [, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [search, setSearch] = useState('');
   const [paymentInvoiceData, setPaymentInvoiceData] = useState(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState(null);
   const [statusMenuContext, setStatusMenuContext] = useState(null);
@@ -962,7 +970,7 @@ const RentalManagement = () => {
     };
 
     const footnotes = [
-      '1. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0317). Bank Account No.: PK58ABPA0015030024702289.',
+      '1. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0917). Bank Account No.: PK68ABPA0010035700420129.',
       '2. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
       '3. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
     ];
@@ -1488,6 +1496,32 @@ const RentalManagement = () => {
     setExpandedRows(newExpanded);
   };
 
+  // Filter properties based on search and filters
+  const filteredProperties = useMemo(() => {
+    return properties.filter((property) => {
+      // Search filter
+      const searchLower = search.toLowerCase();
+      const matchesSearch = !search || 
+        (property.propertyName || '').toLowerCase().includes(searchLower) ||
+        (property.ownerName || property.tenantName || '').toLowerCase().includes(searchLower) ||
+        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
+        (property.fullAddress || property.address || '').toLowerCase().includes(searchLower) ||
+        (property.sector || '').toLowerCase().includes(searchLower) ||
+        (property.propertyCode || '').toLowerCase().includes(searchLower);
+
+      // Status filter
+      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
+
+      // Sector filter
+      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
+
+      // Category filter (categoryType)
+      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
+
+      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
+    });
+  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
+
   const toggleInvoiceExpansion = (invoiceId) => {
     const newExpanded = new Set(expandedInvoices);
     if (newExpanded.has(invoiceId)) {
@@ -1601,7 +1635,7 @@ const RentalManagement = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={3}>
+      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={2} mb={3}>
         <Box>
           <Typography variant="h4" fontWeight={700}>
             Rental Management
@@ -1610,6 +1644,19 @@ const RentalManagement = () => {
             Manage your rental properties, agreements, and payments
           </Typography>
         </Box>
+        <Stack direction="row" spacing={1}>
+          <TextField
+            size="small"
+            placeholder="Search properties"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Tooltip title="Refresh">
+            <IconButton onClick={loadData} disabled={loading}>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </Stack>
       </Stack>
 
       {error && (
@@ -1624,23 +1671,67 @@ const RentalManagement = () => {
         </Alert>
       )}
 
-      <Card sx={{ mb: 3 }}>
+      {/* Statistics Cards */}
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
+        <StatCard title="Total Properties" value={properties.length} />
+        <StatCard title="Filtered Properties" value={filteredProperties.length} />
+        <StatCard title="Total Expected Rent" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.expectedRent || p.rentalAgreement?.monthlyRent || 0), 0))} />
+        <StatCard title="Avg Monthly Rent" value={formatCurrency(filteredProperties.length > 0 ? filteredProperties.reduce((sum, p) => sum + (p.expectedRent || p.rentalAgreement?.monthlyRent || 0), 0) / filteredProperties.length : 0)} />
+      </Stack>
+
+      {/* Filters */}
+      <Card sx={{ mb: 2 }}>
         <CardContent>
-          <Typography variant="h6" fontWeight={600}>
-            Personal Rent Overview
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Live snapshot of Taj properties marked as Personal Rent.
-          </Typography>
-          <Stack direction="row" spacing={1} flexWrap="wrap" mt={2}>
-            <Chip label={`Total: ${rentalSummary.totalProperties}`} color="primary" />
-            <Chip label={`Available: ${rentalSummary.statusBreakdown?.available || 0}`} color="success" />
-            <Chip label={`Rented: ${rentalSummary.statusBreakdown?.rented || 0}`} color="error" />
-            <Chip label={`Reserved: ${rentalSummary.statusBreakdown?.reserved || 0}`} color="warning" />
-            <Chip label={`Under Maintenance: ${rentalSummary.statusBreakdown?.underMaintenance || 0}`} />
-            <Chip label={`Expected Rent: ${formatCurrency(rentalSummary.rent?.expectedTotal || 0)}`} />
-            <Chip label={`Avg Rent: ${formatCurrency(rentalSummary.rent?.expectedAverage || 0)}`} />
-          </Stack>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={statusFilter}
+                  label="Status"
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <MenuItem value="">All Status</MenuItem>
+                  <MenuItem value="Active">Active</MenuItem>
+                  <MenuItem value="Pending">Pending</MenuItem>
+                  <MenuItem value="Available">Available</MenuItem>
+                  <MenuItem value="Rented">Rented</MenuItem>
+                  <MenuItem value="Reserved">Reserved</MenuItem>
+                  <MenuItem value="Under Maintenance">Under Maintenance</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Sector</InputLabel>
+                <Select
+                  value={sectorFilter}
+                  label="Sector"
+                  onChange={(e) => setSectorFilter(e.target.value)}
+                >
+                  <MenuItem value="">All Sectors</MenuItem>
+                  {[...new Set(properties.map(p => p.sector).filter(Boolean))].sort().map((sector) => (
+                    <MenuItem key={sector} value={sector}>{sector}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Category</InputLabel>
+                <Select
+                  value={categoryFilter}
+                  label="Category"
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                >
+                  <MenuItem value="">All Categories</MenuItem>
+                  <MenuItem value="Personal">Personal</MenuItem>
+                  <MenuItem value="Private">Private</MenuItem>
+                  <MenuItem value="Personal Rent">Personal Rent</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
         </CardContent>
       </Card>
 
@@ -1662,7 +1753,43 @@ const RentalManagement = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {properties.map((property) => (
+                {loading ? (
+                  // Skeleton loading rows
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell><Skeleton variant="circular" width={32} height={32} /></TableCell>
+                      <TableCell><Skeleton variant="text" width={100} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width="80%" height={20} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="70%" />
+                        <Skeleton variant="text" width="90%" height={20} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="text" width={120} /></TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width="60%" />
+                        <Skeleton variant="text" width={100} height={20} />
+                      </TableCell>
+                      <TableCell><Skeleton variant="text" width={80} /></TableCell>
+                      <TableCell><Skeleton variant="rectangular" width={80} height={24} /></TableCell>
+                      <TableCell align="right">
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} sx={{ ml: 1 }} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : filteredProperties.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No properties found matching your filters.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredProperties.map((property) => (
                   <React.Fragment key={property._id}>
                     <TableRow hover>
                       <TableCell>
@@ -1975,7 +2102,8 @@ const RentalManagement = () => {
                       </TableCell>
                     </TableRow>
                   </React.Fragment>
-                ))}
+                  ))
+                )}
               </TableBody>
             </Table>
           </TableContainer>
@@ -2906,5 +3034,17 @@ const RentalManagement = () => {
     </Box>
   );
 };
+
+// StatCard component for displaying statistics
+const StatCard = ({ title, value }) => (
+  <Paper sx={{ flex: 1, p: 2, borderRadius: 3 }} elevation={0}>
+    <Typography variant="body2" color="text.secondary">
+      {title}
+    </Typography>
+    <Typography variant="h5" fontWeight={700}>
+      {value}
+    </Typography>
+  </Paper>
+);
 
 export default RentalManagement;

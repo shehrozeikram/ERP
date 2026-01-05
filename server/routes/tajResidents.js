@@ -7,9 +7,33 @@ const TajProperty = require('../models/tajResidencia/TajProperty');
 const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 const { authMiddleware } = require('../middleware/auth');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
+const {
+  getCached,
+  setCached,
+  clearCached,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 // Get all residents
 router.get('/', authMiddleware, asyncHandler(async (req, res) => {
+  // Extract pagination parameters
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 50;
+  const skip = (page - 1) * limit;
+  
+  // OPTIMIZATION: Check cache first (only if no filters/search and default pagination)
+  const hasFilters = req.query.search || req.query.accountType || req.query.isActive !== undefined;
+  const isDefaultPagination = page === 1 && limit === 50;
+  const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.RESIDENTS_LIST;
+  
+  if (cacheKey) {
+    const cached = getCached(cacheKey);
+    if (cached) {
+      console.log('📋 Returning cached residents list');
+      return res.json(cached);
+    }
+  }
+  
   const { search, accountType, isActive } = req.query;
   const query = {};
 
@@ -25,24 +49,60 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   if (accountType) query.accountType = accountType;
   if (isActive !== undefined) query.isActive = isActive === 'true';
 
+  // Get total count for pagination
+  const total = await TajResident.countDocuments(query);
+
+  // OPTIMIZATION: Select only needed fields and use lean with pagination
   const residents = await TajResident.find(query)
+    .select('_id name cnic contactNumber email accountType isActive properties createdBy updatedBy createdAt updatedAt')
     .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName meters')
     .populate('createdBy', 'firstName lastName')
     .populate('updatedBy', 'firstName lastName')
-    .sort({ name: 1 });
+    .sort({ name: 1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
 
   // Calculate property count for each resident
   const residentsWithCount = residents.map(resident => {
-    const residentObj = resident.toObject();
-    residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
-    return residentObj;
+    resident.propertyCount = resident.properties ? resident.properties.length : 0;
+    return resident;
   });
 
-  res.json({ success: true, data: residentsWithCount });
+  const totalPages = Math.ceil(total / limit);
+  const response = { 
+    success: true, 
+    data: residentsWithCount,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages
+    }
+  };
+  
+  // OPTIMIZATION: Cache response if no filters and default pagination
+  if (cacheKey) {
+    setCached(cacheKey, response);
+  }
+  
+  res.json(response);
 }));
 
 // Get unassigned properties (MUST come before /:id route)
 router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, res) => {
+  // OPTIMIZATION: Check cache first (only if no filters/search)
+  const hasFilters = req.query.search || req.query.includeAssigned === 'true';
+  const cacheKey = hasFilters ? null : CACHE_KEYS.UNASSIGNED_PROPERTIES;
+  
+  if (cacheKey) {
+    const cached = getCached(cacheKey);
+    if (cached) {
+      console.log('📋 Returning cached unassigned properties');
+      return res.json(cached);
+    }
+  }
+  
   const { search, includeAssigned } = req.query;
   const query = {};
 
@@ -89,13 +149,22 @@ router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, re
     }
   }
 
+  // OPTIMIZATION: Use lean for better performance
   const properties = await TajProperty.find(query)
     .select('propertyName plotNumber sector block fullAddress ownerName contactNumber rdaNumber street project srNo resident meters')
     .populate('resident', 'name')
     .sort({ propertyName: 1 })
-    .limit(200);
+    .limit(200)
+    .lean();
 
-  res.json({ success: true, data: properties });
+  const response = { success: true, data: properties };
+  
+  // OPTIMIZATION: Cache response if no filters
+  if (cacheKey) {
+    setCached(cacheKey, response);
+  }
+  
+  res.json(response);
 }));
 
 // Get resident by ID
@@ -170,6 +239,9 @@ router.post(
       await transaction.save();
     }
 
+    clearCached(CACHE_KEYS.RESIDENTS_LIST); // Invalidate cache on creation
+    clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
+
     await resident.populate('properties', 'propertyName plotNumber sector block fullAddress ownerName');
     await resident.populate('createdBy', 'firstName lastName');
 
@@ -203,6 +275,8 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
   const residentObj = resident.toObject();
   residentObj.propertyCount = resident.properties ? resident.properties.length : 0;
 
+  clearCached(CACHE_KEYS.RESIDENTS_LIST); // Invalidate cache on update
+  clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
   res.json({ success: true, data: residentObj });
 }));
 
@@ -218,6 +292,8 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
   resident.updatedBy = req.user.id;
   await resident.save();
 
+  clearCached(CACHE_KEYS.RESIDENTS_LIST); // Invalidate cache on deletion
+  clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
   res.json({ success: true, message: 'Resident deactivated successfully' });
 }));
 

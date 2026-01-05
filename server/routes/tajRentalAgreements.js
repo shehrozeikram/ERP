@@ -6,6 +6,12 @@ const fs = require('fs');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const permissions = require('../middleware/permissions');
 const { createFileServerRoute } = require('../utils/fileServer');
+const {
+  getCached,
+  setCached,
+  clearCached,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 // Export file router separately (without auth middleware, handles auth internally)
 const fileRouter = express.Router();
@@ -108,11 +114,26 @@ const validateAgreementPayload = (body) => {
 
 router.get('/', withPermission('read'), async (req, res) => {
   try {
+    // OPTIMIZATION: Check cache first
+    const cached = getCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST);
+    if (cached) {
+      console.log('📋 Returning cached rental agreements list');
+      return res.json(cached);
+    }
+    
+    // OPTIMIZATION: Select only needed fields and use lean
     const agreements = await TajRentalAgreement.find()
+      .select('_id agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdBy createdAt updatedAt')
       .populate('createdBy', 'firstName lastName')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.json(agreements);
+    const response = agreements;
+    
+    // OPTIMIZATION: Cache the response
+    setCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST, response);
+
+    res.json(response);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -135,6 +156,7 @@ router.get('/:id', withPermission('read'), async (req, res) => {
       return res.status(404).json({ message: 'Rental agreement not found' });
     }
 
+    clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST); // Invalidate cache on update
     res.json(agreement);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -246,6 +268,7 @@ router.post('/', withPermission('create'), (req, res, next) => {
 
     const duration = Date.now() - startTime;
     console.log(`✅ Request completed in ${duration}ms`);
+    clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST); // Invalidate cache on creation
     res.status(201).json(agreement);
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -313,6 +336,7 @@ router.put('/:id', withPermission('update'), (req, res, next) => {
       { new: true, runValidators: true }
     ).populate('createdBy', 'firstName lastName');
 
+    clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST); // Invalidate cache on update
     res.json(updatedAgreement);
   } catch (error) {
     if (req.file) {
@@ -340,6 +364,7 @@ router.delete('/:id', withPermission('delete'), async (req, res) => {
     }
 
     await TajRentalAgreement.findByIdAndDelete(req.params.id);
+    clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST); // Invalidate cache on deletion
     res.json({ message: 'Rental agreement deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });

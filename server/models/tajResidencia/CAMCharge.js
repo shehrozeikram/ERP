@@ -165,6 +165,7 @@ const camChargeSchema = new mongoose.Schema({
 // Indexes
 camChargeSchema.index({ invoiceNumber: 1 });
 camChargeSchema.index({ plotNo: 1 });
+camChargeSchema.index({ address: 1 }); // For overview query optimization
 camChargeSchema.index({ sector: 1 });
 camChargeSchema.index({ status: 1 });
 camChargeSchema.index({ owner: 1 });

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { usePagination } from '../../../hooks/usePagination';
+import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
   Box,
   Button,
@@ -30,7 +32,8 @@ import {
   CircularProgress,
   Divider,
   Checkbox,
-  Autocomplete
+  Autocomplete,
+  Skeleton
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -143,6 +146,12 @@ const TajResidents = () => {
   const [search, setSearch] = useState('');
   const [accountTypeFilter, setAccountTypeFilter] = useState('');
   
+  // Pagination
+  const pagination = usePagination({
+    defaultRowsPerPage: 50,
+    resetDependencies: [search, accountTypeFilter]
+  });
+  
   // Dialogs
   const [formDialog, setFormDialog] = useState(false);
   const [depositDialog, setDepositDialog] = useState(false);
@@ -237,17 +246,23 @@ const TajResidents = () => {
     try {
       setLoading(true);
       setError('');
-      const params = {};
+      const params = {
+        page: pagination.page + 1,
+        limit: pagination.rowsPerPage
+      };
       if (search) params.search = search;
       if (accountTypeFilter) params.accountType = accountTypeFilter;
       const response = await fetchResidents(params);
       setResidents(response.data.data || []);
+      if (response.data.pagination) {
+        pagination.setTotal(response.data.pagination.total);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load residents');
     } finally {
       setLoading(false);
     }
-  }, [search, accountTypeFilter]);
+  }, [search, accountTypeFilter, pagination.page, pagination.rowsPerPage]);
 
   const loadUnassignedProperties = useCallback(async (searchTerm = '') => {
     try {
@@ -270,7 +285,8 @@ const TajResidents = () => {
   // Effects
   useEffect(() => {
     loadResidents();
-  }, [loadResidents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, pagination.rowsPerPage, search, accountTypeFilter]);
 
   useEffect(() => {
     if (propertiesDialog && propertySearch) {
@@ -1190,11 +1206,6 @@ const TajResidents = () => {
         </CardContent>
       </Card>
 
-      {loading && !residents.length ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
         <TableContainer component={Paper}>
           <Table>
             <TableHead>
@@ -1208,7 +1219,40 @@ const TajResidents = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredResidents.map((resident) => (
+              {loading ? (
+                // Skeleton loading rows
+                Array.from({ length: 5 }).map((_, index) => (
+                  <TableRow key={`skeleton-${index}`}>
+                    <TableCell>
+                      <Skeleton variant="text" width="60%" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="rectangular" width={100} height={24} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={40} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={80} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={120} />
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1}>
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} />
+                        <Skeleton variant="circular" width={32} height={32} />
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                filteredResidents.map((resident) => (
                 <TableRow key={resident._id}>
                   <TableCell>{resident.name}</TableCell>
                   <TableCell>
@@ -1292,11 +1336,18 @@ const TajResidents = () => {
                     </Stack>
                   </TableCell>
                 </TableRow>
-              ))}
+                ))
+              )}
             </TableBody>
           </Table>
         </TableContainer>
-      )}
+        <TablePaginationWrapper
+          page={pagination.page}
+          rowsPerPage={pagination.rowsPerPage}
+          total={pagination.total}
+          onPageChange={pagination.handleChangePage}
+          onRowsPerPageChange={pagination.handleChangeRowsPerPage}
+        />
 
       {/* Create/Edit Form Dialog */}
       <Dialog open={formDialog} onClose={() => setFormDialog(false)} maxWidth="md" fullWidth>

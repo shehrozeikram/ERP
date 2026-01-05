@@ -174,6 +174,8 @@ const propertyInvoiceSchema = new mongoose.Schema({
 propertyInvoiceSchema.index({ property: 1, invoiceDate: -1 });
 propertyInvoiceSchema.index({ invoiceNumber: 1 });
 propertyInvoiceSchema.index({ status: 1 });
+// Compound index for CAM charges overview query optimization
+propertyInvoiceSchema.index({ property: 1, chargeTypes: 1, paymentStatus: 1, balance: 1 });
 
 // Calculate payment status before save
 propertyInvoiceSchema.pre('save', function(next) {

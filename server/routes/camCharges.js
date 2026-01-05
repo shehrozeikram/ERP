@@ -10,6 +10,18 @@ const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const {
+  getCached,
+  setCached,
+  clearCached,
+  fetchProperties,
+  preCalculateAddresses,
+  collectPropertyIdentifiers,
+  buildPropertyQueryConditions,
+  calculatePropertyStats,
+  calculatePayments,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 const attachmentsDir = path.join(__dirname, '../uploads/payment-attachments');
 if (!fs.existsSync(attachmentsDir)) {
@@ -41,6 +53,8 @@ const cleanupAttachment = (file) => {
     });
   }
 };
+
+// Using centralized cache from tajUtilitiesOptimizer
 
 // Get all CAM Charges with search and filters
 router.get('/', authMiddleware, async (req, res) => {
@@ -79,99 +93,122 @@ router.get('/', authMiddleware, async (req, res) => {
 // NOTE: This route MUST be defined before /:id route to avoid route matching conflicts
 router.get('/current-overview', authMiddleware, async (req, res) => {
   try {
-    console.log('📋 Fetching current CAM charges overview...');
+    // Extract pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
     
-    // Get all properties - use find without select first to test
-    let properties;
-    try {
-      properties = await TajProperty.find({})
-        .sort({ srNo: 1 })
-        .lean();
-      console.log(`✅ Found ${properties.length} properties`);
-      
-      if (properties.length > 0) {
-        console.log('Sample property fields:', Object.keys(properties[0]));
+    // Only use cache if no pagination is requested (page 1, default limit)
+    const isDefaultPagination = page === 1 && limit === 50;
+    if (isDefaultPagination) {
+      const cached = getCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW);
+      if (cached) {
+        console.log('📋 Returning cached CAM charges overview');
+        return res.json(cached);
       }
-    } catch (propertyError) {
-      console.error('❌ Error fetching properties:', propertyError);
-      console.error('Error details:', {
-        name: propertyError.name,
-        message: propertyError.message,
-        stack: propertyError.stack
-      });
-      throw new Error(`Failed to fetch properties: ${propertyError.message}`);
     }
+    
+    console.log(`📋 Fetching current CAM charges overview (page: ${page}, limit: ${limit})...`);
+    
+    // OPTIMIZATION: Select only needed fields from properties
+    const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType';
+    
+    // OPTIMIZATION: Run all initial queries in parallel
+    const [propertiesResult, activeSlabsResult] = await Promise.all([
+      fetchProperties(propertyFields),
+      (async () => {
+        try {
+          const ChargesSlab = require('../models/tajResidencia/ChargesSlab');
+          return await ChargesSlab.getActiveSlabs();
+        } catch (err) {
+          console.error('❌ Error fetching active slabs:', err);
+          return null;
+        }
+      })()
+    ]);
+    
+    const allProperties = propertiesResult;
+    const activeSlabs = activeSlabsResult;
+    
+    console.log(`✅ Found ${allProperties.length} total properties`);
 
-    if (properties.length === 0) {
-      return res.json({
+    if (allProperties.length === 0) {
+      const emptyResponse = {
         success: true,
         data: {
           totalProperties: 0,
           totalActiveProperties: 0,
           totalPendingProperties: 0,
           totalCompletedProperties: 0,
-          properties: []
+          properties: [],
+          pagination: {
+            page: 1,
+            limit,
+            total: 0,
+            totalPages: 0
+          }
         }
-      });
-    }
-
-    // Calculate statistics
-    const totalProperties = properties.length;
-    const totalActiveProperties = properties.filter(p => p.status === 'Active' || p.status === 'active').length;
-    const totalPendingProperties = properties.filter(p => p.status === 'Pending' || p.status === 'pending').length;
-    const totalCompletedProperties = properties.filter(p => p.status === 'Completed' || p.status === 'completed').length;
-
-    // Get CAM charges for each property to calculate totals
-    // Filter out empty/null values and ensure we have valid strings
-    const propertyAddresses = properties
-      .map(p => {
-        const addr = p.address || `${p.plotNumber || ''} ${p.street || ''} ${p.sector || ''}`.trim();
-        return addr && addr.length > 0 ? addr : null;
-      })
-      .filter(addr => addr && addr.length > 0);
-    
-    const plotNumbers = properties
-      .map(p => p.plotNumber)
-      .filter(plot => plot && typeof plot === 'string' && plot.trim().length > 0);
-    
-    const ownerNames = properties
-      .map(p => p.ownerName)
-      .filter(owner => owner && typeof owner === 'string' && owner.trim().length > 0);
-    
-    // Build query conditions - only add conditions if arrays are not empty
-    const queryConditions = [];
-    if (propertyAddresses.length > 0) {
-      queryConditions.push({ address: { $in: propertyAddresses } });
-    }
-    if (plotNumbers.length > 0) {
-      queryConditions.push({ plotNo: { $in: plotNumbers } });
-    }
-    if (ownerNames.length > 0) {
-      queryConditions.push({ owner: { $in: ownerNames } });
-    }
-    
-    // Match CAM charges by address, plot number, or owner name
-    let camCharges = [];
-    if (queryConditions.length > 0) {
-      try {
-        console.log(`🔍 Querying CAM charges with ${queryConditions.length} conditions...`);
-        camCharges = await CAMCharge.find({
-          $or: queryConditions
-        })
-          .select('address plotNo owner amount arrears status payments paymentStatus')
-          .lean();
-        console.log(`✅ Found ${camCharges.length} CAM charges`);
-      } catch (queryError) {
-        console.error('❌ Error querying CAM charges:', queryError);
-        console.error('Query conditions:', JSON.stringify(queryConditions, null, 2));
-        // Continue with empty array if query fails
-        camCharges = [];
+      };
+      if (isDefaultPagination) {
+        setCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW, emptyResponse);
       }
-    } else {
-      console.log('⚠️ No query conditions, skipping CAM charges query');
+      return res.json(emptyResponse);
     }
 
-    // Create a map of charges by property identifier
+    // OPTIMIZATION: Calculate statistics using centralized utility (on all properties)
+    const stats = calculatePropertyStats(allProperties);
+    const { totalProperties, totalActiveProperties, totalPendingProperties, totalCompletedProperties } = stats;
+    
+    // Apply pagination - only process the slice we need
+    const totalPages = Math.ceil(allProperties.length / limit);
+    const properties = allProperties.slice(skip, skip + limit);
+    
+    console.log(`📄 Processing page ${page} of ${totalPages} (${properties.length} properties)`);
+
+    // OPTIMIZATION: Pre-calculate addresses and collect identifiers using centralized utilities
+    const propertyAddressMap = preCalculateAddresses(properties);
+    const identifiers = collectPropertyIdentifiers(properties, propertyAddressMap);
+    const queryConditions = buildPropertyQueryConditions(identifiers);
+    
+    // OPTIMIZATION: Fetch all PropertyInvoice records in parallel with CAM charges query
+    const propertyIds = properties.map(p => p._id);
+    
+    // OPTIMIZATION: Run invoices and CAM charges queries in parallel
+    const [allInvoices, camCharges] = await Promise.all([
+      PropertyInvoice.find({
+        property: { $in: propertyIds },
+        chargeTypes: { $in: ['CAM'] },
+        paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+        balance: { $gt: 0 }
+      })
+      .select('property charges grandTotal totalPaid balance chargeTypes')
+      .lean()
+      .catch(err => {
+        console.error('❌ Error fetching invoices:', err);
+        return [];
+      }),
+      queryConditions.length > 0
+        ? CAMCharge.find({ $or: queryConditions })
+          .select('address plotNo owner amount arrears status payments paymentStatus')
+          .lean()
+          .catch(err => {
+            console.error('❌ Error querying CAM charges:', err);
+            return [];
+          })
+        : Promise.resolve([])
+    ]);
+    
+    // Group invoices by property ID (optimized)
+    const invoicesByProperty = new Map();
+    allInvoices.forEach(inv => {
+      const propId = inv.property.toString();
+      if (!invoicesByProperty.has(propId)) {
+        invoicesByProperty.set(propId, []);
+      }
+      invoicesByProperty.get(propId).push(inv);
+    });
+
+    // Create a map of charges by property identifier (optimized)
     const chargesMap = new Map();
     camCharges.forEach(charge => {
       const key = charge.address || charge.plotNo || charge.owner;
@@ -182,6 +219,53 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         chargesMap.get(key).push(charge);
       }
     });
+    
+    console.log(`✅ Found ${camCharges.length} CAM charges and ${allInvoices.length} invoices`);
+
+    // activeSlabs already loaded in parallel above
+
+    // Helper function to get CAM charge amount (using cached slabs)
+    const getCAMAmount = (propertySize, areaUnit, zoneType) => {
+      if (!activeSlabs) return 0;
+      
+      if (zoneType && zoneType.toLowerCase() === 'commercial') {
+        return activeSlabs?.commercialCamCharges || 2000;
+      }
+      
+      if (!activeSlabs.slabs || activeSlabs.slabs.length === 0) {
+        return 0;
+      }
+
+      const sizeToMatch = areaUnit.toLowerCase().includes('marla') 
+        ? `${propertySize}M` 
+        : `${propertySize}M`;
+
+      const matchingSlab = activeSlabs.slabs.find(slab => {
+        const slabSize = slab.size?.toUpperCase().trim();
+        const matchSize = sizeToMatch.toUpperCase().trim();
+        return slabSize === matchSize;
+      });
+
+      if (matchingSlab) {
+        return matchingSlab.camCharges || 0;
+      }
+
+      // Try numeric comparison
+      const numericSize = parseFloat(propertySize);
+      if (!isNaN(numericSize)) {
+        const numericMatch = activeSlabs.slabs.find(slab => {
+          const slabSizeStr = slab.size?.replace(/[^0-9.]/g, '');
+          const slabSizeNum = parseFloat(slabSizeStr);
+          return !isNaN(slabSizeNum) && slabSizeNum === numericSize;
+        });
+
+        if (numericMatch) {
+          return numericMatch.camCharges || 0;
+        }
+      }
+
+      return 0;
+    };
 
     // Calculate totals and prepare property details
     let totalAmount = 0;
@@ -189,9 +273,10 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     let propertyDetails = [];
     
     try {
-      propertyDetails = await Promise.all(properties.map(async (property) => {
+      propertyDetails = properties.map((property) => {
         try {
-          const propertyKey = property.address || property.plotNumber || property.ownerName;
+          // OPTIMIZATION: Use pre-calculated address
+          const propertyKey = propertyAddressMap.get(property._id.toString()) || property.plotNumber || property.ownerName;
           const relatedCharges = chargesMap.get(propertyKey) || [];
           
           // Calculate CAM amount from property size if no charges found, otherwise use charges
@@ -200,7 +285,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             // Use the latest charge amount or sum all charges
             propertyAmount = relatedCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
           } else {
-            // Calculate CAM amount based on zone type and property size using charges slab
+            // Calculate CAM amount based on zone type and property size using cached slabs
             const propertySize = property.areaValue || 0;
             const areaUnit = property.areaUnit || 'Marla';
             const zoneType = property.zoneType || 'Residential';
@@ -208,42 +293,36 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             // For Commercial zone, use commercial CAM charges
             // For Residential zone, calculate based on property size
             if (zoneType === 'Commercial') {
-              const camChargeInfo = await getCAMChargeForProperty(0, areaUnit, zoneType);
-              propertyAmount = camChargeInfo.amount || 0;
+              propertyAmount = getCAMAmount(0, areaUnit, zoneType);
             } else if (propertySize > 0) {
-              const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
-              propertyAmount = camChargeInfo.amount || 0;
+              propertyAmount = getCAMAmount(propertySize, areaUnit, zoneType);
             }
           }
           
           // Calculate arrears from CAMCharge model
           const camChargeArrears = relatedCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
           
-          // Calculate carry forward arrears from unpaid PropertyInvoice records
+          // Calculate carry forward arrears from unpaid PropertyInvoice records (using pre-fetched data)
           let carryForwardArrears = 0;
           try {
-            const previousCamInvoices = await PropertyInvoice.find({
-              property: property._id,
-              chargeTypes: { $in: ['CAM'] },
-              paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-              balance: { $gt: 0 }
-            })
-            .select('charges grandTotal totalPaid balance')
-            .sort({ invoiceDate: 1 })
-            .lean();
+            const previousCamInvoices = invoicesByProperty.get(property._id.toString()) || [];
             
             // Calculate outstanding CAM charges from previous invoices
             previousCamInvoices.forEach(inv => {
               const camChargeInPrevInvoice = inv.charges?.find(c => c.type === 'CAM');
               if (camChargeInPrevInvoice) {
-                // If the previous invoice only has CAM, the entire balance is CAM arrears
-                if (inv.chargeTypes.length === 1 && inv.chargeTypes[0] === 'CAM') {
+                // Fix: Check if chargeTypes exists and has length
+                const chargeTypes = inv.chargeTypes || [];
+                if (chargeTypes.length === 1 && chargeTypes[0] === 'CAM') {
                   carryForwardArrears += inv.balance || 0;
                 } else {
                   // If mixed charges, calculate the proportion of CAM in the original grandTotal
                   // and apply that proportion to the remaining balance
-                  const camProportion = (camChargeInPrevInvoice.amount + camChargeInPrevInvoice.arrears) / inv.grandTotal;
+                  const grandTotal = inv.grandTotal || 0;
+                  if (grandTotal > 0) {
+                    const camProportion = (camChargeInPrevInvoice.amount + camChargeInPrevInvoice.arrears) / grandTotal;
                   carryForwardArrears += (inv.balance || 0) * camProportion;
+                  }
                 }
               }
             });
@@ -258,28 +337,25 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           // Total arrears = CAM charge arrears + carry forward from invoices
           const propertyArrears = camChargeArrears + carryForwardArrears;
           
-          // Get all payments from related charges
-          const allPayments = relatedCharges.flatMap(charge => (charge.payments || []).map(payment => ({
-            ...payment,
-            chargeId: charge._id,
-            chargeInvoiceNumber: charge.invoiceNumber
-          })));
+          // OPTIMIZATION: Calculate payments using centralized utility
+          const paymentData = calculatePayments(relatedCharges);
+          const { allPayments, paymentStatus } = paymentData;
           
-          // Calculate payment status based on total payments vs total CAM amount
+          // Recalculate payment status based on total CAM amount (propertyAmount + propertyArrears)
           const totalCAMAmount = propertyAmount + propertyArrears;
-          const totalPaid = allPayments.reduce((sum, payment) => sum + (payment.totalAmount || payment.amount || 0), 0);
-          
-          let paymentStatus = 'unpaid';
-          if (totalPaid >= totalCAMAmount && totalCAMAmount > 0) {
-            paymentStatus = 'paid';
-          } else if (totalPaid > 0) {
-            paymentStatus = 'partial_paid';
+          let finalPaymentStatus = 'unpaid';
+          if (paymentData.totalPaid >= totalCAMAmount && totalCAMAmount > 0) {
+            finalPaymentStatus = 'paid';
+          } else if (paymentData.totalPaid > 0) {
+            finalPaymentStatus = 'partial_paid';
           }
           
-          // Update all payments with the calculated status
+          // Update payment status on all payments
+          if (allPayments.length > 0) {
           allPayments.forEach(payment => {
-            payment.status = paymentStatus;
+              payment.status = finalPaymentStatus;
           });
+          }
 
           // Safely extract all fields with defaults
           return {
@@ -292,14 +368,14 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             street: property.street || null,
             sector: property.sector || null,
             categoryType: property.categoryType || null,
-            address: property.address || property.fullAddress || `${property.plotNumber || ''} ${property.street || ''} ${property.sector || ''}`.trim() || null,
+            address: propertyAddressMap.get(property._id.toString()) || null,
             project: property.project || null,
             ownerName: property.ownerName || null,
             contactNumber: property.contactNumber || null,
             status: property.status || 'Pending',
-            fileSubmissionDate: property.fileSubmissionDate ? new Date(property.fileSubmissionDate).toISOString() : null,
-            demarcationDate: property.demarcationDate ? new Date(property.demarcationDate).toISOString() : null,
-            constructionDate: property.constructionDate ? new Date(property.constructionDate).toISOString() : null,
+            fileSubmissionDate: property.fileSubmissionDate || null,
+            demarcationDate: property.demarcationDate || null,
+            constructionDate: property.constructionDate || null,
             familyStatus: property.familyStatus || null,
             areaValue: property.areaValue || 0,
             areaUnit: property.areaUnit || null,
@@ -308,7 +384,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             camArrears: propertyArrears || 0,
             hasCAMCharge: relatedCharges.length > 0,
             payments: allPayments || [],
-            paymentStatus: paymentStatus
+            paymentStatus: finalPaymentStatus
           };
         } catch (propError) {
           console.error('❌ Error processing property:', property._id, propError);
@@ -325,7 +401,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             hasCAMCharge: false
           };
         }
-      }));
+      });
       
       // Calculate totals after all properties are processed
       totalAmount = propertyDetails.reduce((sum, prop) => sum + (prop.camAmount || 0), 0);
@@ -346,13 +422,26 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       totalCompletedProperties,
       totalAmount: Math.round(totalAmount),
       totalArrears: Math.round(totalArrears),
-      properties: propertyDetails
+      properties: propertyDetails,
+      pagination: {
+        page,
+        limit,
+        total: allProperties.length,
+        totalPages
+      }
     };
     
-    res.json({
+    const response = {
       success: true,
       data: responseData
-    });
+    };
+    
+    // OPTIMIZATION: Cache the response only for default pagination
+    if (isDefaultPagination) {
+      setCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW, response);
+    }
+    
+    res.json(response);
   } catch (error) {
     console.error('❌ Error in current-overview:', error);
     console.error('Error name:', error.name);
@@ -476,6 +565,7 @@ router.post('/property/:propertyId/payments', authMiddleware, paymentAttachmentU
     }
 
     await charge.save();
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on payment update
     res.json({ success: true, data: charge });
   } catch (error) {
     cleanupAttachment(req.file);
@@ -529,6 +619,7 @@ router.post('/:id/payments', authMiddleware, paymentAttachmentUpload.single('att
     }
 
     await charge.save();
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on payment update
     res.json({ success: true, data: charge });
   } catch (error) {
     cleanupAttachment(req.file);
@@ -566,6 +657,7 @@ router.delete('/property/:propertyId/payments', authMiddleware, async (req, res)
       await charge.save();
     }
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on payment deletion
     res.json({ 
       success: true, 
       message: `Removed all payments from ${charges.length} CAM charge(s)`,
@@ -588,6 +680,7 @@ router.delete('/:id/payments', authMiddleware, async (req, res) => {
     charge.paymentStatus = 'unpaid';
     await charge.save();
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on payment deletion
     res.json({ 
       success: true, 
       message: 'All payments removed from CAM charge',
@@ -630,6 +723,7 @@ router.delete('/:chargeId/payments/:paymentId', authMiddleware, async (req, res)
 
     await charge.save();
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on payment deletion
     res.json({ 
       success: true, 
       message: 'Payment removed successfully',
@@ -669,6 +763,7 @@ router.post('/', authMiddleware, async (req, res) => {
     await charge.save();
     await charge.populate('createdBy', 'firstName lastName');
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on charge creation
     res.status(201).json({ success: true, data: charge });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -695,6 +790,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'CAM Charge not found' });
     }
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on charge update
     res.json({ success: true, data: charge });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -710,6 +806,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ success: false, message: 'CAM Charge not found' });
     }
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on charge deletion
     res.json({ success: true, message: 'CAM Charge deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -865,6 +962,7 @@ router.post('/bulk-create', authMiddleware, [
       }));
     }
 
+    clearCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW); // Invalidate cache on bulk creation
     res.json({
       success: true,
       message: `Bulk CAM charges creation completed`,

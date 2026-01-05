@@ -11,6 +11,12 @@ const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesH
 const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges } = require('../utils/electricityBillHelper');
 const dayjs = require('dayjs');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
+const {
+  getCached,
+  setCached,
+  clearCached,
+  CACHE_KEYS
+} = require('../utils/tajUtilitiesOptimizer');
 
 // Generate invoice number with type prefix
 const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuffix = '') => {
@@ -1143,6 +1149,10 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
         createdInvoices.push(meterInvoice.toObject());
       }
       
+      // OPTIMIZATION: Invalidate caches on bulk invoice creation
+      clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
+      clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${property._id}`);
+      
       return res.status(201).json({
         success: true,
         message: `Invoices created successfully for ${createdInvoices.length} meter(s)`,
@@ -1288,6 +1298,11 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     await populateInvoiceReferences(invoice, { camCharge, electricityBill });
     
     const invoiceObj = invoice.toObject();
+    
+    // OPTIMIZATION: Invalidate caches on invoice creation
+    clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
+    clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${property._id}`);
+    
     res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
@@ -1321,23 +1336,52 @@ router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
 // Get invoices for a property
 router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res) => {
   try {
+    // OPTIMIZATION: Check cache first
+    const cacheKey = `${CACHE_KEYS.INVOICES_OVERVIEW}_property_${req.params.propertyId}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      console.log('📋 Returning cached invoices for property');
+      return res.json(cached);
+    }
+    
+    // OPTIMIZATION: Select only needed fields and use lean
     const invoices = await PropertyInvoice.find({ property: req.params.propertyId })
-      .populate('camCharge')
-      .populate('electricityBill')
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge electricityBill rentPayment property createdAt updatedAt')
+      .populate('camCharge', 'invoiceNumber amount arrears')
+      .populate('electricityBill', 'invoiceNumber totalBill arrears meterNo')
       .populate('payments.recordedBy', 'firstName lastName')
-      .sort({ invoiceDate: -1 });
+      .sort({ invoiceDate: -1 })
+      .lean();
 
-    // Enhance payments with bank information from transactions
-    const invoicesWithBankInfo = await Promise.all(invoices.map(async (invoice) => {
-      const invoiceObj = invoice.toObject();
-      
-      // Find transactions that reference this invoice
-      const transactions = await TajTransaction.find({
-        referenceId: invoice._id,
+    // OPTIMIZATION: Fetch all transactions for all invoices in one query
+    const invoiceIds = invoices.map(inv => inv._id);
+    const allTransactions = await TajTransaction.find({
+      referenceId: { $in: invoiceIds },
         transactionType: 'bill_payment'
       })
-        .populate('depositUsages.depositId')
-        .sort({ createdAt: -1 });
+      .select('referenceId amount createdAt bank depositUsages')
+      .populate('depositUsages.depositId', 'bank')
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    // Group transactions by invoice ID
+    const transactionsByInvoice = new Map();
+    allTransactions.forEach(txn => {
+      const invoiceId = txn.referenceId?.toString();
+      if (invoiceId) {
+        if (!transactionsByInvoice.has(invoiceId)) {
+          transactionsByInvoice.set(invoiceId, []);
+        }
+        transactionsByInvoice.get(invoiceId).push(txn);
+      }
+    });
+
+    // Enhance payments with bank information from transactions
+    const invoicesWithBankInfo = invoices.map((invoice) => {
+      const invoiceObj = { ...invoice };
+      
+      // Get transactions for this invoice from the pre-fetched map
+      const transactions = transactionsByInvoice.get(invoice._id.toString()) || [];
       
       // Match payments to transactions and enhance with bank info
       if (invoiceObj.payments && Array.isArray(invoiceObj.payments)) {
@@ -1373,9 +1417,14 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
       }
       
       return invoiceObj;
-    }));
+    });
 
-    res.json({ success: true, data: invoicesWithBankInfo });
+    const response = { success: true, data: invoicesWithBankInfo };
+    
+    // OPTIMIZATION: Cache the response
+    setCached(cacheKey, response);
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1514,6 +1563,12 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
 
     await invoice.save();
 
+    // OPTIMIZATION: Invalidate caches on invoice update
+    clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
+    if (invoice.property) {
+      clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${invoice.property}`);
+    }
+
     // Populate references
     await invoice.populate('property');
     await invoice.populate('camCharge');
@@ -1532,6 +1587,24 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
 // Get all invoices
 router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   try {
+    // Extract pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    
+    // OPTIMIZATION: Check cache first (only if no filters and default pagination)
+    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus;
+    const isDefaultPagination = page === 1 && limit === 50;
+    const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.INVOICES_OVERVIEW;
+    
+    if (cacheKey) {
+      const cached = getCached(cacheKey);
+      if (cached) {
+        console.log('📋 Returning cached invoices list');
+        return res.json(cached);
+      }
+    }
+    
     const { propertyId, status, paymentStatus } = req.query;
     const filter = {};
     
@@ -1539,7 +1612,12 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     if (status) filter.status = status;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
 
+    // Get total count for pagination
+    const total = await PropertyInvoice.countDocuments(filter);
+
+    // OPTIMIZATION: Select only needed fields and use lean with pagination
     const invoices = await PropertyInvoice.find(filter)
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName resident',
@@ -1549,9 +1627,28 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
         }
       })
       .sort({ invoiceDate: -1 })
-      .limit(100);
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
-    res.json({ success: true, data: invoices });
+    const totalPages = Math.ceil(total / limit);
+    const response = { 
+      success: true, 
+      data: invoices,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages
+      }
+    };
+    
+    // OPTIMIZATION: Cache response if no filters and default pagination
+    if (cacheKey) {
+      setCached(cacheKey, response);
+    }
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1595,6 +1692,12 @@ router.delete('/:invoiceId/payments/:paymentId', authMiddleware, asyncHandler(as
 
     await invoice.save();
 
+    // OPTIMIZATION: Invalidate caches on payment deletion
+    clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
+    if (invoice.property) {
+      clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${invoice.property}`);
+    }
+
     res.json({
       success: true,
       message: 'Payment deleted successfully',
@@ -1608,12 +1711,29 @@ router.delete('/:invoiceId/payments/:paymentId', authMiddleware, asyncHandler(as
 // Delete invoice
 router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {
-    const invoice = await PropertyInvoice.findById(req.params.id);
+    const invoice = await PropertyInvoice.findById(req.params.id).populate('electricityBill');
     if (!invoice) {
       return res.status(404).json({ success: false, message: 'Invoice not found' });
     }
 
+    const propertyId = invoice.property?.toString() || invoice.property;
+    
+    // If invoice has ELECTRICITY charge type and references an electricity bill, delete it
+    if (invoice.chargeTypes?.includes('ELECTRICITY') && invoice.electricityBill) {
+      const electricityBillId = invoice.electricityBill._id || invoice.electricityBill;
+      await Electricity.findByIdAndDelete(electricityBillId);
+      
+      // Invalidate electricity overview cache
+      clearCached(CACHE_KEYS.ELECTRICITY_OVERVIEW);
+    }
+    
     await PropertyInvoice.findByIdAndDelete(req.params.id);
+
+    // OPTIMIZATION: Invalidate caches on invoice deletion
+    clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
+    if (propertyId) {
+      clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${propertyId}`);
+    }
 
     res.json({
       success: true,
