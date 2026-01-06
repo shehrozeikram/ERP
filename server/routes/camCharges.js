@@ -101,10 +101,10 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     // Only use cache if no pagination is requested (page 1, default limit)
     const isDefaultPagination = page === 1 && limit === 50;
     if (isDefaultPagination) {
-      const cached = getCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW);
-      if (cached) {
-        console.log('📋 Returning cached CAM charges overview');
-        return res.json(cached);
+    const cached = getCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW);
+    if (cached) {
+      console.log('📋 Returning cached CAM charges overview');
+      return res.json(cached);
       }
     }
     
@@ -150,7 +150,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         }
       };
       if (isDefaultPagination) {
-        setCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW, emptyResponse);
+      setCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW, emptyResponse);
       }
       return res.json(emptyResponse);
     }
@@ -438,7 +438,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     
     // OPTIMIZATION: Cache the response only for default pagination
     if (isDefaultPagination) {
-      setCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW, response);
+    setCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW, response);
     }
     
     res.json(response);

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const PropertyCounter = require('./PropertyCounter');
 
 const tajPropertySchema = new mongoose.Schema(
   {
@@ -289,8 +290,12 @@ rentalAgreement: {
       },
       occupiedUnderConstruction: {
         type: String,
-        enum: ['Office', 'Occupied', 'Under-Construction'],
-        trim: true
+        enum: {
+          values: ['Office', 'Occupied', 'Under-Construction', 'Un-occupied', ''],
+          message: '`{VALUE}` is not a valid enum value for path `{PATH}`'
+        },
+        trim: true,
+        default: ''
       },
       isActive: {
         type: Boolean,
@@ -314,18 +319,70 @@ tajPropertySchema.index({ srNo: 1 }, { unique: true });
 tajPropertySchema.index({ ownerName: 1 });
 tajPropertySchema.index({ resident: 1 });
 
-// Auto-increment srNo starting from 1001
+// Auto-increment srNo starting from 1001 using atomic counter
 tajPropertySchema.pre('save', async function(next) {
   if (!this.isNew || (this.srNo !== undefined && this.srNo !== null)) {
     return next();
   }
 
   try {
-    const lastRecord = await this.constructor.findOne({}, {}, { sort: { srNo: -1 } });
-    this.srNo = lastRecord && lastRecord.srNo >= 1000 ? lastRecord.srNo + 1 : 1001;
+    // Step 1: Sync counter with actual max srNo in database (only if counter exists)
+    const lastRecord = await this.constructor.findOne({}, {}, { sort: { srNo: -1 } }).lean();
+    const maxSrNo = lastRecord && lastRecord.srNo >= 1000 ? lastRecord.srNo : 1000;
+    const minSrNo = Math.max(maxSrNo, 1000);
+    
+    // Step 2: Get or create counter and sync if needed
+    let counter = await PropertyCounter.findOne({ _id: 'propertySrNo' }).lean();
+    
+    if (!counter) {
+      // Create counter initialized to minSrNo
+      counter = await PropertyCounter.create({ _id: 'propertySrNo', sequence: minSrNo });
+    } else if (counter.sequence < minSrNo) {
+      // Sync counter if it's behind
+      await PropertyCounter.findOneAndUpdate(
+        { _id: 'propertySrNo' },
+        { $set: { sequence: minSrNo } }
+      );
+      counter.sequence = minSrNo;
+    }
+    
+    // Step 3: Ensure minimum is 1001
+    if (counter.sequence < 1001) {
+      await PropertyCounter.findOneAndUpdate(
+        { _id: 'propertySrNo' },
+        { $set: { sequence: 1001 } }
+      );
+      counter.sequence = 1001;
+    }
+    
+    // Step 4: Atomically increment counter - THIS IS THE CRITICAL ATOMIC OPERATION
+    // MongoDB's $inc is atomic, so only ONE request will get each number
+    const updatedCounter = await PropertyCounter.findOneAndUpdate(
+      { _id: 'propertySrNo' },
+      { $inc: { sequence: 1 } },
+      { new: true }
+    );
+    
+    this.srNo = updatedCounter.sequence;
     next();
   } catch (error) {
-    next(error);
+    console.error('Error generating Property ID (srNo):', error);
+    // Fallback: get max and add 1, then update counter
+    try {
+      const lastRecord = await this.constructor.findOne({}, {}, { sort: { srNo: -1 } }).lean();
+      this.srNo = lastRecord && lastRecord.srNo >= 1000 ? lastRecord.srNo + 1 : 1001;
+      // Update counter to match
+      await PropertyCounter.findOneAndUpdate(
+        { _id: 'propertySrNo' },
+        { $set: { sequence: this.srNo } },
+        { upsert: true }
+      );
+      next();
+    } catch (fallbackError) {
+      // Last resort: timestamp-based unique number
+      this.srNo = 10000 + (Date.now() % 9000);
+      next();
+    }
   }
 });
 

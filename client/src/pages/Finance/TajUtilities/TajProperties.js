@@ -247,7 +247,8 @@ const TajProperties = () => {
   const loadResidents = useCallback(async () => {
     try {
       setResidentsLoading(true);
-      const response = await fetchResidents({ isActive: 'true' });
+      // Load only active residents
+      const response = await fetchResidents({ isActive: 'true', limit: 1000 });
       setResidents(response.data?.data || []);
     } catch (err) {
       console.error('Failed to load residents:', err);
@@ -1306,7 +1307,7 @@ const TajProperties = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Sr. No</TableCell>
+                  <TableCell>Property ID</TableCell>
                   <TableCell>Property</TableCell>
                   <TableCell>Zone / Category</TableCell>
                   <TableCell>Location</TableCell>
@@ -1464,7 +1465,7 @@ const TajProperties = () => {
           <Grid container spacing={2}>
             <Grid item xs={12} md={3}>
               <TextField
-                label="Sr. No"
+                label="Property ID"
                 value={formData.srNo || nextSrNo}
                 fullWidth
                 InputProps={{ readOnly: true }}

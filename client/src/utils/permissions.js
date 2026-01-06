@@ -517,6 +517,10 @@ export const MODULES = {
           {
             name: 'Invoices',
             path: '/finance/taj-utilities-charges/invoices'
+          },
+          {
+            name: 'Deposits',
+            path: '/finance/taj-utilities-charges/deposits'
           }
         ]
       },

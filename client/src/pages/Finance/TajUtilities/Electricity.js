@@ -910,11 +910,11 @@ const Electricity = () => {
     setMeterReadings({});
   };
 
-  const generateElectricityVoucherPDF = () => {
-    if (!invoiceProperty || !invoiceData) return;
-
-    const property = invoiceProperty;
-    const invoice = invoiceData;
+  const generateElectricityVoucherPDF = (propertyParam = null, invoiceParam = null) => {
+    const property = propertyParam || invoiceProperty;
+    const invoice = invoiceParam || invoiceData;
+    
+    if (!property || !invoice) return;
     
     // Get electricity charge from invoice
     const electricityCharge = invoice.charges?.find(c => c.type === 'ELECTRICITY');
@@ -2219,7 +2219,7 @@ const Electricity = () => {
               <TableHead>
                 <TableRow>
                   <TableCell width={50}></TableCell>
-                  <TableCell>Sr. No</TableCell>
+                  <TableCell>Property ID</TableCell>
                   <TableCell>Property</TableCell>
                   <TableCell>Meters</TableCell>
                   <TableCell>Location</TableCell>
@@ -2506,13 +2506,7 @@ const Electricity = () => {
                                               <IconButton
                                                 size="small"
                                                 color="primary"
-                                                onClick={() => {
-                                                  setInvoiceProperty(property);
-                                                  setInvoiceData(invoice);
-                                                  setTimeout(() => {
-                                                    generateElectricityVoucherPDF();
-                                                  }, 100);
-                                                }}
+                                                onClick={() => generateElectricityVoucherPDF(property, invoice)}
                                               >
                                                 <DownloadIcon fontSize="small" />
                                               </IconButton>

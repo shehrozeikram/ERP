@@ -141,7 +141,38 @@ router.get('/:id', async (req, res) => {
 // Create property
 router.post('/', async (req, res) => {
   try {
-    const property = await TajProperty.create(req.body);
+    // Always remove srNo from body - let the pre-save hook generate it atomically
+    delete req.body.srNo;
+    
+    let attempts = 0;
+    const maxAttempts = 3;
+    let property;
+    
+    while (attempts < maxAttempts) {
+      try {
+        property = await TajProperty.create(req.body);
+        break; // Success
+      } catch (error) {
+        // If duplicate key error for srNo, retry
+        if (error.code === 11000 && error.keyPattern?.srNo) {
+          attempts++;
+          if (attempts >= maxAttempts) {
+            return res.status(400).json({ 
+              success: false, 
+              message: 'Failed to generate unique Property ID after multiple attempts. Please try again.' 
+            });
+          }
+          // Small delay before retry
+          await new Promise(resolve => setTimeout(resolve, 100 * attempts));
+          // Ensure srNo is removed for retry
+          delete req.body.srNo;
+        } else {
+          // Other errors, throw immediately
+          throw error;
+        }
+      }
+    }
+    
     clearCached(CACHE_KEYS.PROPERTIES_LIST); // Invalidate cache on creation
     clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES); // Also invalidate unassigned properties cache
     res.status(201).json({ success: true, data: property });

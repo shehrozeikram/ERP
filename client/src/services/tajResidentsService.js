@@ -23,6 +23,12 @@ export const fetchResidentTransactions = (id, params = {}) =>
 export const depositMoney = (id, data) =>
   api.post(`${base}/${id}/deposit`, data);
 
+export const updateDeposit = (residentId, transactionId, data) =>
+  api.put(`${base}/${residentId}/transactions/${transactionId}`, data);
+
+export const deleteDeposit = (residentId, transactionId) =>
+  api.delete(`${base}/${residentId}/transactions/${transactionId}`);
+
 export const transferMoney = (id, data) =>
   api.post(`${base}/${id}/transfer`, data);
 
@@ -40,4 +46,7 @@ export const autoMatchProperties = (id) =>
 
 export const getUnassignedProperties = (params = {}) =>
   api.get(`${base}/unassigned-properties`, { params });
+
+export const fetchAllDeposits = (params = {}) =>
+  api.get(`${base}/deposits/all`, { params });
 

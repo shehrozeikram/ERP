@@ -40,6 +40,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchAllInvoices, deleteInvoice } from '../../../services/propertyInvoiceService';
 import { fetchProperties } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
+import { fetchSectors } from '../../../services/tajSectorsService';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -68,8 +69,10 @@ const Invoices = () => {
   const [invoices, setInvoices] = useState([]);
   const [properties, setProperties] = useState([]);
   const [residents, setResidents] = useState([]);
+  const [sectors, setSectors] = useState([]);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [residentsLoading, setResidentsLoading] = useState(false);
+  const [sectorsLoading, setSectorsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
@@ -77,12 +80,14 @@ const Invoices = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
   const [propertyFilter, setPropertyFilter] = useState('');
   const [residentFilter, setResidentFilter] = useState('');
+  const [chargeTypeFilter, setChargeTypeFilter] = useState('all');
+  const [sectorFilter, setSectorFilter] = useState('');
   const [expandedMonths, setExpandedMonths] = useState([]);
   
   // Pagination
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [statusFilter, paymentStatusFilter, propertyFilter, residentFilter]
+    resetDependencies: [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]
   });
 
   const loadInvoices = async () => {
@@ -115,6 +120,27 @@ const Invoices = () => {
           }
           
           return String(residentId) === String(residentFilter);
+        });
+      }
+      
+      // Filter by charge type if selected (client-side filter)
+      if (chargeTypeFilter !== 'all') {
+        invoicesData = invoicesData.filter(invoice => {
+          const chargeTypes = invoice.chargeTypes || [];
+          return chargeTypes.includes(chargeTypeFilter);
+        });
+      }
+      
+      // Filter by sector if selected (client-side filter)
+      if (sectorFilter) {
+        invoicesData = invoicesData.filter(invoice => {
+          const propertySector = invoice.property?.sector;
+          if (!propertySector) return false;
+          // Handle both string sector and sector object
+          const sectorValue = typeof propertySector === 'object' && propertySector !== null
+            ? (propertySector.name || propertySector.sectorName || String(propertySector))
+            : String(propertySector);
+          return sectorValue.toLowerCase() === String(sectorFilter).toLowerCase();
         });
       }
       
@@ -153,14 +179,27 @@ const Invoices = () => {
     }
   };
 
+  const loadSectors = async () => {
+    try {
+      setSectorsLoading(true);
+      const response = await fetchSectors({ isActive: 'true' });
+      setSectors(response.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load sectors:', err);
+    } finally {
+      setSectorsLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter]);
+  }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]);
 
   useEffect(() => {
     loadProperties();
     loadResidents();
+    loadSectors();
   }, []);
 
   const handleDeleteInvoice = async (invoiceId) => {
@@ -178,21 +217,13 @@ const Invoices = () => {
   };
 
   const handleViewInvoice = (invoice) => {
-    // Determine which page to navigate to based on charge types
-    if (invoice.chargeTypes?.includes('ELECTRICITY')) {
-      // Find the property and navigate to electricity page
-      if (invoice.property?._id) {
-        navigate(`/finance/taj-utilities-charges/electricity-bills`);
-      }
-    } else if (invoice.chargeTypes?.includes('CAM')) {
-      navigate(`/finance/taj-utilities-charges/cam-charges`);
-    } else if (invoice.chargeTypes?.includes('RENT')) {
-      navigate(`/finance/taj-utilities-charges/rental-management`);
+    // Navigate to property detail page where invoice can be viewed
+    // Pass invoice ID as query parameter to highlight/show the invoice
+    if (invoice.property?._id) {
+      navigate(`/finance/taj-utilities-charges/taj-properties/${invoice.property._id}?invoiceId=${invoice._id}`);
     } else {
-      // Default to properties page
-      if (invoice.property?._id) {
-        navigate(`/finance/taj-utilities-charges/taj-properties/${invoice.property._id}`);
-      }
+      // If no property, show error
+      setError('Property information not available for this invoice');
     }
   };
 
@@ -209,13 +240,20 @@ const Invoices = () => {
     return matchesSearch;
   });
 
-  // Group invoices by month
+  // Group invoices by month based on period dates
   const invoicesByMonth = useMemo(() => {
     const grouped = {};
     filteredInvoices.forEach((invoice) => {
-      const invoiceDate = invoice.invoiceDate ? dayjs(invoice.invoiceDate) : dayjs();
-      const monthKey = invoiceDate.format('YYYY-MM');
-      const monthLabel = invoiceDate.format('MMMM YYYY');
+      // Use periodTo if available, otherwise periodFrom, otherwise invoiceDate as fallback
+      const periodDate = invoice.periodTo 
+        ? dayjs(invoice.periodTo) 
+        : invoice.periodFrom 
+        ? dayjs(invoice.periodFrom) 
+        : invoice.invoiceDate 
+        ? dayjs(invoice.invoiceDate) 
+        : dayjs();
+      const monthKey = periodDate.format('YYYY-MM');
+      const monthLabel = periodDate.format('MMMM YYYY');
       
       if (!grouped[monthKey]) {
         grouped[monthKey] = {
@@ -352,6 +390,45 @@ const Invoices = () => {
               <MenuItem value="unpaid">Unpaid</MenuItem>
             </Select>
           </FormControl>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Charge Type</InputLabel>
+            <Select
+              value={chargeTypeFilter}
+              label="Charge Type"
+              onChange={(e) => setChargeTypeFilter(e.target.value)}
+            >
+              <MenuItem value="all">All Types</MenuItem>
+              <MenuItem value="ELECTRICITY">Electricity</MenuItem>
+              <MenuItem value="CAM">CAM</MenuItem>
+              <MenuItem value="RENT">Rent</MenuItem>
+            </Select>
+          </FormControl>
+          <Autocomplete
+            size="small"
+            options={sectors}
+            getOptionLabel={(option) => option.name || option.sectorName || String(option)}
+            value={sectors.find(s => {
+              const sectorName = s.name || s.sectorName || String(s);
+              return String(sectorName).toLowerCase() === String(sectorFilter).toLowerCase();
+            }) || null}
+            onChange={(event, newValue) => {
+              if (newValue) {
+                const sectorName = newValue.name || newValue.sectorName || String(newValue);
+                setSectorFilter(sectorName);
+              } else {
+                setSectorFilter('');
+              }
+            }}
+            loading={sectorsLoading}
+            sx={{ minWidth: 200 }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Sector"
+                placeholder="Select sector"
+              />
+            )}
+          />
           <Tooltip title="Refresh">
             <IconButton onClick={loadInvoices} disabled={loading}>
               <RefreshIcon />
@@ -495,13 +572,15 @@ const Invoices = () => {
                           <TableCell>Property</TableCell>
                           <TableCell>Owner</TableCell>
                           <TableCell>Charge Types</TableCell>
-                          <TableCell>Invoice Date</TableCell>
+                          <TableCell>Period From</TableCell>
+                          <TableCell>Period To</TableCell>
                           <TableCell>Due Date</TableCell>
                           <TableCell align="right">Grand Total</TableCell>
                           <TableCell align="right">Paid</TableCell>
                           <TableCell align="right">Balance</TableCell>
                           <TableCell>Payment Status</TableCell>
                           <TableCell>Status</TableCell>
+                          <TableCell>Recorded By</TableCell>
                           <TableCell align="right">Actions</TableCell>
                         </TableRow>
                       </TableHead>
@@ -532,7 +611,10 @@ const Invoices = () => {
                               </Typography>
                             </TableCell>
                             <TableCell>
-                              {invoice.invoiceDate ? dayjs(invoice.invoiceDate).format('MMM D, YYYY') : 'N/A'}
+                              {invoice.periodFrom ? dayjs(invoice.periodFrom).format('MMM D, YYYY') : '—'}
+                            </TableCell>
+                            <TableCell>
+                              {invoice.periodTo ? dayjs(invoice.periodTo).format('MMM D, YYYY') : '—'}
                             </TableCell>
                             <TableCell>
                               {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
@@ -575,6 +657,13 @@ const Invoices = () => {
                                   invoice.status === 'Cancelled' ? 'error' : 'default'
                                 }
                               />
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">
+                                {invoice.createdBy 
+                                  ? `${invoice.createdBy.firstName || ''} ${invoice.createdBy.lastName || ''}`.trim() || 'N/A'
+                                  : 'N/A'}
+                              </Typography>
                             </TableCell>
                             <TableCell align="right">
                               <Stack direction="row" spacing={1} justifyContent="flex-end">

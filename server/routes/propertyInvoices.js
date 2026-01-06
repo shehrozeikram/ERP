@@ -1617,7 +1617,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
 
     // OPTIMIZATION: Select only needed fields and use lean with pagination
     const invoices = await PropertyInvoice.find(filter)
-      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property')
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName resident',
@@ -1626,6 +1626,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
           select: 'name accountType _id'
         }
       })
+      .populate('createdBy', 'firstName lastName')
       .sort({ invoiceDate: -1 })
       .skip(skip)
       .limit(limit)

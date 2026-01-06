@@ -160,6 +160,7 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges/taj-properties': 'taj_properties',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
+      '/finance/taj-utilities-charges/deposits': 'taj_deposits',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module

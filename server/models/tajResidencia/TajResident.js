@@ -2,6 +2,12 @@ const mongoose = require('mongoose');
 
 const tajResidentSchema = new mongoose.Schema(
   {
+    // Resident ID
+    residentId: {
+      type: String,
+      unique: true,
+      trim: true
+    },
     // Basic Information
     name: {
       type: String,
@@ -74,6 +80,34 @@ const tajResidentSchema = new mongoose.Schema(
 tajResidentSchema.index({ name: 1 });
 tajResidentSchema.index({ cnic: 1 });
 tajResidentSchema.index({ isActive: 1 });
+tajResidentSchema.index({ residentId: 1 });
+
+// Pre-save middleware to auto-generate Resident ID
+tajResidentSchema.pre('save', async function(next) {
+  if (!this.residentId) {
+    try {
+      const allResidents = await this.constructor.find({}, { residentId: 1 }).lean();
+      
+      let highestId = 0;
+      
+      allResidents.forEach(res => {
+        if (res.residentId) {
+          const numericId = parseInt(res.residentId.replace(/^0+/, ''));
+          if (!isNaN(numericId) && numericId > highestId) {
+            highestId = numericId;
+          }
+        }
+      });
+      
+      const nextId = highestId + 1;
+      this.residentId = nextId.toString().padStart(5, '0');
+    } catch (error) {
+      console.error('Error generating Resident ID:', error);
+      this.residentId = Date.now().toString().slice(-6);
+    }
+  }
+  next();
+});
 
 module.exports = mongoose.model('TajResident', tajResidentSchema);
 

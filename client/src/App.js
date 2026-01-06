@@ -51,6 +51,7 @@ import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
 import Invoices from './pages/Finance/TajUtilities/Invoices';
 import TajResidents from './pages/Finance/TajUtilities/TajResidents';
+import Deposits from './pages/Finance/TajUtilities/Deposits';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
@@ -974,6 +975,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
                   <Invoices />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/deposits"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <Deposits />
                 </ProtectedRoute>
               }
             />

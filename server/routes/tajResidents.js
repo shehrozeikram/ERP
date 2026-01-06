@@ -53,8 +53,8 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   const total = await TajResident.countDocuments(query);
 
   // OPTIMIZATION: Select only needed fields and use lean with pagination
-  const residents = await TajResident.find(query)
-    .select('_id name cnic contactNumber email accountType isActive properties createdBy updatedBy createdAt updatedAt')
+  let residents = await TajResident.find(query)
+    .select('_id residentId name cnic contactNumber email accountType isActive properties balance createdBy updatedBy createdAt updatedAt')
     .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName meters')
     .populate('createdBy', 'firstName lastName')
     .populate('updatedBy', 'firstName lastName')
@@ -63,9 +63,83 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     .limit(limit)
     .lean();
 
-  // Calculate property count for each resident
+  // Lightweight: Populate missing residentIds for existing records
+  const residentsWithoutId = residents.filter(r => !r.residentId);
+  if (residentsWithoutId.length > 0) {
+    const allResidents = await TajResident.find({}, { residentId: 1 }).lean();
+    let highestId = 0;
+    allResidents.forEach(res => {
+      if (res.residentId) {
+        const numericId = parseInt(res.residentId.replace(/^0+/, ''));
+        if (!isNaN(numericId) && numericId > highestId) {
+          highestId = numericId;
+        }
+      }
+    });
+    
+    // Update missing IDs synchronously for current response
+    for (const resident of residentsWithoutId) {
+      try {
+        highestId++;
+        const residentId = highestId.toString().padStart(5, '0');
+        await TajResident.findByIdAndUpdate(resident._id, { residentId }, { new: false });
+        resident.residentId = residentId;
+      } catch (error) {
+        console.error(`Error updating resident ID for ${resident._id}:`, error);
+      }
+    }
+  }
+
+  // Calculate property count and total remaining deposits for each resident
+  const residentIds = residents.map(r => r._id);
+  
+  // Get all deposits for these residents
+  const allDeposits = await TajTransaction.find({
+    resident: { $in: residentIds },
+    transactionType: 'deposit'
+  }).select('resident amount _id').lean();
+  
+  // Get all deposit usages from bill_payment transactions
+  const depositIds = allDeposits.map(d => d._id);
+  const depositUsageMap = {};
+  
+  if (depositIds.length > 0) {
+    const usedInPayments = await TajTransaction.find({
+      'depositUsages.depositId': { $in: depositIds },
+      transactionType: 'bill_payment'
+    }).select('depositUsages').lean();
+    
+    usedInPayments.forEach(payment => {
+      if (payment.depositUsages && Array.isArray(payment.depositUsages)) {
+        payment.depositUsages.forEach(usage => {
+          const depositId = usage.depositId?.toString();
+          if (depositId) {
+            depositUsageMap[depositId] = (depositUsageMap[depositId] || 0) + (usage.amount || 0);
+          }
+        });
+      }
+    });
+  }
+  
+  // Calculate remaining deposits per resident
+  const remainingDepositsByResident = {};
+  allDeposits.forEach(deposit => {
+    const residentId = deposit.resident.toString();
+    const depositId = deposit._id.toString();
+    const totalUsed = depositUsageMap[depositId] || 0;
+    const remaining = Math.max(0, (deposit.amount || 0) - totalUsed);
+    
+    if (!remainingDepositsByResident[residentId]) {
+      remainingDepositsByResident[residentId] = 0;
+    }
+    remainingDepositsByResident[residentId] += remaining;
+  });
+  
+  // Calculate property count and add remaining deposits balance
   const residentsWithCount = residents.map(resident => {
     resident.propertyCount = resident.properties ? resident.properties.length : 0;
+    // Add total remaining deposits as the balance
+    resident.totalRemainingDeposits = remainingDepositsByResident[resident._id.toString()] || 0;
     return resident;
   });
 
@@ -427,7 +501,7 @@ router.post(
     body('amount').isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
     body('description').optional().trim(),
     body('paymentMethod').optional().isIn(['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other']),
-    body('referenceNumberExternal').optional().trim()
+    body('referenceNumberExternal').notEmpty().withMessage('Transaction Number is required').trim()
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -483,6 +557,168 @@ router.post(
       data: {
         transaction,
         newBalance: balanceAfter
+      }
+    });
+  })
+);
+
+// Update deposit transaction
+router.put(
+  '/:id/transactions/:transactionId',
+  authMiddleware,
+  [
+    body('amount').optional().isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
+    body('description').optional().trim(),
+    body('paymentMethod').optional().isIn(['Cash', 'Bank Transfer', 'Cheque', 'Online', 'Other']),
+    body('referenceNumberExternal').optional().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    const transaction = await TajTransaction.findById(req.params.transactionId);
+    if (!transaction) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    // Only allow editing deposit transactions
+    if (transaction.transactionType !== 'deposit') {
+      return res.status(400).json({ success: false, message: 'Only deposit transactions can be edited' });
+    }
+
+    // Check if transaction belongs to this resident
+    if (transaction.resident.toString() !== req.params.id) {
+      return res.status(403).json({ success: false, message: 'Transaction does not belong to this resident' });
+    }
+
+    const { amount, description, paymentMethod, bank, referenceNumberExternal } = req.body;
+    const oldAmount = transaction.amount;
+    const amountChanged = amount !== undefined && parseFloat(amount) !== oldAmount;
+
+    // If amount is being changed, check if deposit has been used
+    if (amountChanged) {
+      const newAmount = parseFloat(amount) || 0;
+      if (newAmount <= 0) {
+        return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+      }
+
+      // Check if this deposit has been used in any payments
+      const usedInPayments = await TajTransaction.find({
+        'depositUsages.depositId': transaction._id
+      });
+
+      if (usedInPayments.length > 0) {
+        // Calculate total amount used from this deposit
+        const totalUsed = usedInPayments.reduce((sum, payment) => {
+          const depositUsage = payment.depositUsages.find(du => du.depositId.toString() === transaction._id.toString());
+          return sum + (depositUsage ? depositUsage.amount : 0);
+        }, 0);
+
+        // If reducing amount, ensure new amount is at least equal to total used
+        if (newAmount < totalUsed) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot reduce deposit amount below total used amount (${totalUsed.toFixed(2)}). Deposit has been used in ${usedInPayments.length} payment(s).`
+          });
+        }
+      }
+
+      // Recalculate resident balance
+      const balanceDifference = newAmount - oldAmount;
+      resident.balance = (resident.balance || 0) + balanceDifference;
+      resident.updatedBy = req.user.id;
+      await resident.save();
+
+      // Update transaction amount and balance
+      transaction.amount = newAmount;
+      transaction.balanceAfter = resident.balance;
+    }
+
+    // Update other fields
+    if (description !== undefined) transaction.description = description;
+    if (paymentMethod !== undefined) transaction.paymentMethod = paymentMethod;
+    if (bank !== undefined) transaction.bank = bank;
+    if (referenceNumberExternal !== undefined) transaction.referenceNumberExternal = referenceNumberExternal;
+
+    // Validate bank is provided for bank-related payment methods
+    if ((transaction.paymentMethod === 'Bank Transfer' || transaction.paymentMethod === 'Cheque' || transaction.paymentMethod === 'Online') && !transaction.bank) {
+      return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
+    }
+
+    await transaction.save();
+
+    await transaction.populate('resident', 'name accountType');
+    await transaction.populate('createdBy', 'firstName lastName');
+
+    res.json({
+      success: true,
+      message: 'Deposit updated successfully',
+      data: {
+        transaction,
+        newBalance: resident.balance
+      }
+    });
+  })
+);
+
+// Delete deposit transaction
+router.delete(
+  '/:id/transactions/:transactionId',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const resident = await TajResident.findById(req.params.id);
+    if (!resident) {
+      return res.status(404).json({ success: false, message: 'Resident not found' });
+    }
+
+    const transaction = await TajTransaction.findById(req.params.transactionId);
+    if (!transaction) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    // Only allow deleting deposit transactions
+    if (transaction.transactionType !== 'deposit') {
+      return res.status(400).json({ success: false, message: 'Only deposit transactions can be deleted' });
+    }
+
+    // Check if transaction belongs to this resident
+    if (transaction.resident.toString() !== req.params.id) {
+      return res.status(403).json({ success: false, message: 'Transaction does not belong to this resident' });
+    }
+
+    // Check if this deposit has been used in any payments
+    const usedInPayments = await TajTransaction.find({
+      'depositUsages.depositId': transaction._id
+    });
+
+    if (usedInPayments.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete deposit that has been used in ${usedInPayments.length} payment(s). Please remove the payments first.`
+      });
+    }
+
+    // Recalculate resident balance (subtract the deposit amount)
+    const depositAmount = transaction.amount || 0;
+    resident.balance = Math.max(0, (resident.balance || 0) - depositAmount);
+    resident.updatedBy = req.user.id;
+    await resident.save();
+
+    // Delete the transaction
+    await TajTransaction.findByIdAndDelete(transaction._id);
+
+    res.json({
+      success: true,
+      message: 'Deposit deleted successfully',
+      data: {
+        newBalance: resident.balance
       }
     });
   })
@@ -938,6 +1174,101 @@ router.post(
     });
   })
 );
+
+// Get all deposits across all residents (for Deposits page)
+router.get('/deposits/all', authMiddleware, asyncHandler(async (req, res) => {
+  const { page = 1, limit = 50, search, startDate, endDate } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  // Build query
+  const query = { transactionType: 'deposit' };
+
+  // Date filter
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) query.createdAt.$gte = new Date(startDate);
+    if (endDate) query.createdAt.$lte = new Date(endDate);
+  }
+
+  // Search filter (by resident name, transaction number, or description)
+  if (search) {
+    const residents = await TajResident.find({
+      $or: [
+        { name: { $regex: search, $options: 'i' } },
+        { residentId: { $regex: search, $options: 'i' } }
+      ]
+    }).select('_id').lean();
+    const residentIds = residents.map(r => r._id);
+    
+    query.$or = [
+      { referenceNumberExternal: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } },
+      { resident: { $in: residentIds } }
+    ];
+  }
+
+  // Get total count
+  const total = await TajTransaction.countDocuments(query);
+
+  // Get deposits with pagination
+  const deposits = await TajTransaction.find(query)
+    .select('_id amount description paymentMethod bank referenceNumberExternal createdAt balanceBefore balanceAfter')
+    .populate('resident', 'name residentId accountType')
+    .populate('createdBy', 'firstName lastName')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit))
+    .lean();
+
+  // Calculate remaining amounts for deposits (optimized)
+  const depositIds = deposits.map(d => d._id);
+  if (depositIds.length > 0) {
+    const depositUsageMap = {};
+    const usedInPayments = await TajTransaction.find({
+      'depositUsages.depositId': { $in: depositIds },
+      transactionType: 'bill_payment'
+    }).select('depositUsages').lean();
+
+    usedInPayments.forEach(payment => {
+      if (payment.depositUsages && Array.isArray(payment.depositUsages)) {
+        payment.depositUsages.forEach(usage => {
+          const depositId = usage.depositId?.toString();
+          if (depositId && depositIds.some(id => id.toString() === depositId)) {
+            depositUsageMap[depositId] = (depositUsageMap[depositId] || 0) + (usage.amount || 0);
+          }
+        });
+      }
+    });
+
+    // Add remaining amount to each deposit
+    deposits.forEach(deposit => {
+      const depositId = deposit._id.toString();
+      const totalUsed = depositUsageMap[depositId] || 0;
+      deposit.remainingAmount = Math.max(0, (deposit.amount || 0) - totalUsed);
+      deposit.totalUsed = totalUsed;
+    });
+  } else {
+    deposits.forEach(deposit => {
+      deposit.remainingAmount = deposit.amount || 0;
+      deposit.totalUsed = 0;
+    });
+  }
+
+  res.json({
+    success: true,
+    data: {
+      deposits,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        total,
+        hasNextPage: page < Math.ceil(total / parseInt(limit)),
+        hasPrevPage: page > 1,
+        limit: parseInt(limit)
+      }
+    }
+  });
+}));
 
 module.exports = router;
 

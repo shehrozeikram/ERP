@@ -854,11 +854,11 @@ const RentalManagement = () => {
     pdf.save(`Rent-Invoice-${paymentInvoiceData.invoiceNumber || 'INV'}.pdf`);
   };
 
-  const generateRentInvoicePDF = () => {
-    if (!invoiceProperty || !invoiceData) return;
-
-    const property = invoiceProperty;
-    const invoice = invoiceData;
+  const generateRentInvoicePDF = (propertyParam = null, invoiceParam = null) => {
+    const property = propertyParam || invoiceProperty;
+    const invoice = invoiceParam || invoiceData;
+    
+    if (!property || !invoice) return;
     
     // Get rent charge from invoice
     const rentCharge = invoice.charges?.find(c => c.type === 'RENT');
@@ -1991,13 +1991,7 @@ const RentalManagement = () => {
                                             <IconButton
                                               size="small"
                                               color="primary"
-                                              onClick={() => {
-                                                setInvoiceProperty(property);
-                                                setInvoiceData(invoice);
-                                                setTimeout(() => {
-                                                  generateRentInvoicePDF();
-                                                }, 100);
-                                              }}
+                                              onClick={() => generateRentInvoicePDF(property, invoice)}
                                             >
                                               <DownloadIcon fontSize="small" />
                                             </IconButton>

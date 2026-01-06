@@ -471,11 +471,11 @@ const CAMCharges = () => {
     }
   };
 
-  const generateInvoicePDF = () => {
-    if (!invoiceProperty || !invoiceData) return;
-
-    const property = invoiceProperty;
-    const invoice = invoiceData;
+  const generateInvoicePDF = (propertyParam = null, invoiceParam = null) => {
+    const property = propertyParam || invoiceProperty;
+    const invoice = invoiceParam || invoiceData;
+    
+    if (!property || !invoice) return;
     
     // Get CAM charge from invoice
     const camCharge = invoice.charges?.find(c => c.type === 'CAM');
@@ -1756,7 +1756,7 @@ const CAMCharges = () => {
               <TableHead>
                 <TableRow>
                   <TableCell width={50}></TableCell>
-                  <TableCell>Sr. No</TableCell>
+                  <TableCell>Property ID</TableCell>
                   <TableCell>Property</TableCell>
                   <TableCell>Location</TableCell>
                   <TableCell>Owner</TableCell>
@@ -1983,13 +1983,7 @@ const CAMCharges = () => {
                                               <IconButton
                                                 size="small"
                                                 color="primary"
-                                                onClick={() => {
-                                                  setInvoiceProperty(property);
-                                                  setInvoiceData(invoice);
-                                                  setTimeout(() => {
-                                                    generateInvoicePDF();
-                                                  }, 100);
-                                                }}
+                                                onClick={() => generateInvoicePDF(property, invoice)}
                                               >
                                                 <DownloadIcon fontSize="small" />
                                               </IconButton>

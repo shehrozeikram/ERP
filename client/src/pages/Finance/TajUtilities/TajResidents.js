@@ -57,6 +57,7 @@ import {
   updateResident,
   deleteResident,
   depositMoney,
+  updateDeposit,
   payBill,
   fetchResidentTransactions,
   assignProperties,
@@ -164,6 +165,7 @@ const TajResidents = () => {
   const [selectedResident, setSelectedResident] = useState(null);
   const [formData, setFormData] = useState(defaultFormData);
   const [depositForm, setDepositForm] = useState(defaultTransactionForm);
+  const [editingDeposit, setEditingDeposit] = useState(null);
   const [payForm, setPayForm] = useState(defaultPayForm);
   
   // Invoice payment state
@@ -381,6 +383,7 @@ const TajResidents = () => {
 
   const handleDeposit = useCallback((resident) => {
     setSelectedResident(resident);
+    setEditingDeposit(null);
     resetTransactionForm();
     setDepositDialog(true);
   }, [resetTransactionForm]);
@@ -924,9 +927,59 @@ const TajResidents = () => {
     }
   }, [selectedResident, loadResidents, showSuccess, handleError]);
 
-  const submitDeposit = useCallback(() => {
-    submitTransaction('Deposit', depositForm, depositMoney);
-  }, [depositForm, submitTransaction]);
+  const handleEditDeposit = useCallback((deposit) => {
+    setEditingDeposit(deposit);
+    setDepositForm({
+      amount: deposit.amount || '',
+      paymentMethod: deposit.paymentMethod || 'Cash',
+      bank: deposit.bank || '',
+      referenceNumberExternal: deposit.referenceNumberExternal || '',
+      description: deposit.description || '',
+      depositDate: dayjs(deposit.createdAt).format('YYYY-MM-DD')
+    });
+    setDepositDialog(true);
+  }, []);
+
+  const submitDeposit = useCallback(async () => {
+    if (editingDeposit) {
+      // Update existing deposit
+      try {
+        setLoading(true);
+        setError('');
+        await updateDeposit(selectedResident._id, editingDeposit._id, depositForm);
+        showSuccess('Deposit updated successfully');
+        setDepositDialog(false);
+        setEditingDeposit(null);
+        setDepositForm(defaultTransactionForm);
+        loadResidents();
+        // Reload deposits if deposits dialog is open
+        if (depositsDialog) {
+          setDepositsLoading(true);
+          try {
+            const response = await fetchResidentTransactions(selectedResident._id, {
+              transactionType: 'deposit',
+              limit: 1000
+            });
+            const allDeposits = (response.data.data.transactions || []).filter(
+              txn => txn.transactionType === 'deposit'
+            );
+            setDeposits(allDeposits);
+          } catch (err) {
+            console.error('Error reloading deposits:', err);
+          } finally {
+            setDepositsLoading(false);
+          }
+        }
+      } catch (err) {
+        handleError(err, 'Failed to update deposit');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Create new deposit
+      submitTransaction('Deposit', depositForm, depositMoney);
+    }
+  }, [editingDeposit, depositForm, selectedResident, updateDeposit, submitTransaction, depositMoney, loadResidents, depositsDialog, fetchResidentTransactions, showSuccess, handleError]);
 
   const submitPay = useCallback(async () => {
     if (!selectedProperty) {
@@ -1210,7 +1263,8 @@ const TajResidents = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell><strong>Name</strong></TableCell>
+                <TableCell><strong>Resident ID</strong></TableCell>
+                <TableCell><strong>Resident Name</strong></TableCell>
                 <TableCell><strong>Account Type</strong></TableCell>
                 <TableCell><strong>Properties</strong></TableCell>
                 <TableCell><strong>Balance</strong></TableCell>
@@ -1223,6 +1277,9 @@ const TajResidents = () => {
                 // Skeleton loading rows
                 Array.from({ length: 5 }).map((_, index) => (
                   <TableRow key={`skeleton-${index}`}>
+                    <TableCell>
+                      <Skeleton variant="text" width={60} />
+                    </TableCell>
                     <TableCell>
                       <Skeleton variant="text" width="60%" />
                     </TableCell>
@@ -1254,6 +1311,7 @@ const TajResidents = () => {
               ) : (
                 filteredResidents.map((resident) => (
                 <TableRow key={resident._id}>
+                  <TableCell>{resident.residentId || '-'}</TableCell>
                   <TableCell>{resident.name}</TableCell>
                   <TableCell>
                     <Chip
@@ -1265,7 +1323,7 @@ const TajResidents = () => {
                   <TableCell>{resident.propertyCount || 0}</TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold" color="primary">
-                      {formatCurrency(resident.balance)}
+                      {formatCurrency(resident.totalRemainingDeposits ?? resident.balance ?? 0)}
                     </Typography>
                   </TableCell>
                   <TableCell>{resident.contactNumber || '-'}</TableCell>
@@ -1446,9 +1504,13 @@ const TajResidents = () => {
       </Dialog>
 
       {/* Deposit Dialog */}
-      <Dialog open={depositDialog} onClose={() => setDepositDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={depositDialog} onClose={() => {
+        setDepositDialog(false);
+        setEditingDeposit(null);
+        setDepositForm(defaultTransactionForm);
+      }} maxWidth="sm" fullWidth>
         <DialogTitle>
-          Deposit Money - {selectedResident?.name}
+          {editingDeposit ? 'Edit Deposit' : 'Deposit Money'} - {selectedResident?.name}
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -1501,6 +1563,7 @@ const TajResidents = () => {
                 label="Transaction Number"
                 value={depositForm.referenceNumberExternal}
                 onChange={(e) => setDepositForm({ ...depositForm, referenceNumberExternal: e.target.value })}
+                required
               />
             </Grid>
             <Grid item xs={12}>
@@ -1516,9 +1579,13 @@ const TajResidents = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDepositDialog(false)}>Cancel</Button>
-          <Button onClick={submitDeposit} variant="contained" disabled={loading || !depositForm.amount}>
-            Deposit
+          <Button onClick={() => {
+            setDepositDialog(false);
+            setEditingDeposit(null);
+            setDepositForm(defaultTransactionForm);
+          }}>Cancel</Button>
+          <Button onClick={submitDeposit} variant="contained" disabled={loading || !depositForm.amount || !depositForm.referenceNumberExternal}>
+            {editingDeposit ? 'Update' : 'Deposit'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1878,15 +1945,26 @@ const TajResidents = () => {
                         <TableCell>{txn.bank || '-'}</TableCell>
                         <TableCell>{txn.description || '-'}</TableCell>
                         <TableCell>
-                          <Tooltip title="Pay Invoice">
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={() => handlePayFromDeposit([txn])}
-                            >
-                              <PaymentIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          <Stack direction="row" spacing={1}>
+                            <Tooltip title="Edit Deposit">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleEditDeposit(txn)}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Pay Invoice">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handlePayFromDeposit([txn])}
+                              >
+                                <PaymentIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
                         </TableCell>
                       </TableRow>
                     ))
