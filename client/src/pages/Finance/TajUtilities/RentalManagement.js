@@ -901,10 +901,11 @@ const RentalManagement = () => {
     const propertyAddress =
       property.fullAddress ||
       property.address ||
-      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street, property.sector]
+      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street]
         .filter(Boolean)
         .join(', ') ||
       '—';
+    const propertySector = property.sector || '—';
 
     const payableWithinDue = invoice?.grandTotal || (rentAmount + arrears);
     const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
@@ -1004,6 +1005,7 @@ const RentalManagement = () => {
       const inlineRows = [
         ['Tenant Name', tenantName],
         ['Address', propertyAddress],
+        ['Sector', propertySector],
         ['Period From', periodFrom],
         ['Period To', periodTo],
         ['Invoice No.', invoiceNumber],

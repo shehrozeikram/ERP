@@ -377,7 +377,7 @@ const Payments = () => {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Payment Settlement Record - ${settlement?.referenceNumber || 'N/A'}</title>
+          <title>Payment Settlement Record - ${settlement?.referenceNumber?.trim() || settlement?._id || 'N/A'}</title>
           <style>
             body { font-family: 'Times New Roman', serif; padding: 20px; }
             .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px; }
@@ -393,7 +393,7 @@ const Payments = () => {
         <body>
           <div class="header">
             <h1>PAYMENT SETTLEMENT</h1>
-            <div class="subtitle">Reference Number: ${settlement?.referenceNumber || 'N/A'}</div>
+            <div class="subtitle">Reference Number: ${settlement?.referenceNumber?.trim() || settlement?._id || 'N/A'}</div>
           </div>
           <div class="section">
             <table>
@@ -406,7 +406,7 @@ const Payments = () => {
               </tr>
               <tr>
                 <td>${formatDateForDocument(settlement?.date)}</td>
-                <td>${settlement?.referenceNumber || 'N/A'}</td>
+                <td>${settlement?.referenceNumber?.trim() || settlement?._id || 'N/A'}</td>
                 <td>${settlement?.toWhomPaid || 'N/A'}</td>
                 <td>${settlement?.forWhat || 'N/A'}</td>
                 <td class="total">${formatPKR(settlement?.amount)}</td>
@@ -613,7 +613,7 @@ const Payments = () => {
                                       <TableBody>
                                         {monthSettlements.map((settlement) => (
                                           <TableRow key={settlement._id} hover>
-                                            <TableCell>{settlement.referenceNumber || 'N/A'}</TableCell>
+                                            <TableCell>{settlement.referenceNumber?.trim() || settlement._id || 'N/A'}</TableCell>
                                             <TableCell>{settlement.toWhomPaid || 'N/A'}</TableCell>
                                             <TableCell sx={{ fontWeight: 600 }}>
                                               {formatPKR(settlement.grandTotal || settlement.amount)}
@@ -794,7 +794,7 @@ const Payments = () => {
                       DOCUMENT NUMBER:
                     </Typography>
                     <Typography variant="body2">
-                      {viewDialog.settlement.referenceNumber || 'N/A'}
+                      {viewDialog.settlement.referenceNumber?.trim() || viewDialog.settlement._id || 'N/A'}
                     </Typography>
                   </Grid>
                   <Grid item xs={6}>
@@ -876,7 +876,7 @@ const Payments = () => {
                           py: 2,
                           fontSize: '13px'
                         }}>
-                          {viewDialog.settlement.referenceNumber || 'N/A'}
+                          {viewDialog.settlement.referenceNumber?.trim() || viewDialog.settlement._id || 'N/A'}
                         </TableCell>
                         <TableCell sx={{ 
                           border: '1px solid #000',

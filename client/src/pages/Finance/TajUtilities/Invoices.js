@@ -37,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
+import jsPDF from 'jspdf';
 import { fetchAllInvoices, deleteInvoice } from '../../../services/propertyInvoiceService';
 import { fetchProperties } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
@@ -224,6 +225,267 @@ const Invoices = () => {
     } else {
       // If no property, show error
       setError('Property information not available for this invoice');
+    }
+  };
+
+  const generateInvoicePDF = (invoice) => {
+    if (!invoice || !invoice.property) {
+      setError('Invoice or property data is missing');
+      return;
+    }
+
+    const property = invoice.property;
+    const chargeTypes = invoice.chargeTypes || [];
+    
+    // Determine invoice type based on charge types
+    const isElectricity = chargeTypes.includes('ELECTRICITY');
+    const isCAM = chargeTypes.includes('CAM');
+    const isRent = chargeTypes.includes('RENT');
+
+    const pdf = new jsPDF('landscape', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const panelWidth = pageWidth / 3;
+    const marginX = 6;
+    const topMargin = 10;
+    const contentWidth = panelWidth - 2 * marginX;
+
+    const formatDate = (value, pattern = 'DD-MMM-YY') =>
+      value ? dayjs(value).format(pattern) : '—';
+
+    const formatFullDate = (value) =>
+      value ? dayjs(value).format('MMMM D, YYYY') : '—';
+
+    const formatMoney = (value) =>
+      (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
+
+    const periodFromRaw = invoice?.periodFrom || null;
+    const periodToRaw = invoice?.periodTo || null;
+    const periodFrom = formatDate(periodFromRaw);
+    const periodTo = formatDate(periodToRaw);
+    const invoiceNumber = invoice?.invoiceNumber || '—';
+    const invoicingDate = formatFullDate(invoice?.invoiceDate || invoice?.createdAt);
+    const computedDueDate = invoice?.dueDate || (periodToRaw ? dayjs(periodToRaw).add(30, 'day').toDate() : null);
+    const dueDate = formatFullDate(computedDueDate);
+    const monthLabel = (periodToRaw
+      ? dayjs(periodToRaw)
+      : invoice?.invoiceDate
+      ? dayjs(invoice.invoiceDate)
+      : dayjs()
+    ).format('MMM-YY').toUpperCase();
+
+    const residentName = property.tenantName || property.ownerName || '—';
+    const propertyAddress =
+      property.address ||
+      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street]
+        .filter(Boolean)
+        .join(', ') ||
+      '—';
+    const propertySector = property.sector || '—';
+    const propertySize = property.areaValue
+      ? `${property.areaValue} ${property.areaUnit || ''}`.trim()
+      : '—';
+
+    // Draw fold lines
+    pdf.setDrawColor(170);
+    pdf.setLineWidth(0.3);
+    if (pdf.setLineDash) {
+      pdf.setLineDash([1, 2], 0);
+    }
+    [panelWidth, panelWidth * 2].forEach((xPos) => {
+      pdf.line(xPos, topMargin - 5, xPos, pageHeight - 15);
+    });
+    if (pdf.setLineDash) {
+      pdf.setLineDash([], 0);
+    }
+
+    const drawInlineField = (label, value, startX, startY, labelWidth = 34) => {
+      const valueWidth = contentWidth - labelWidth;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7);
+      pdf.text(label, startX, startY);
+      pdf.setFont('helvetica', 'normal');
+      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+      lines.forEach((line, idx) => {
+        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+      });
+      return startY + lines.length * 4.5 + 1.5;
+    };
+
+    const drawChargeDetails = (startX, startY) => {
+      const width = contentWidth;
+      let y = startY;
+      pdf.setFillColor(242, 242, 242);
+      pdf.rect(startX, y, width, 7, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(8);
+      pdf.setTextColor(178, 34, 34);
+      
+      let title = 'INVOICE DETAILS';
+      if (isElectricity && !isCAM && !isRent) {
+        title = 'ELECTRICITY CHARGES DETAILS';
+      } else if (isCAM && !isElectricity && !isRent) {
+        title = 'CAM CHARGES DETAILS';
+      } else if (isRent && !isElectricity && !isCAM) {
+        title = 'RENT CHARGES DETAILS';
+      }
+      
+      pdf.text(title, startX + width / 2, y + 4.5, { align: 'center' });
+      pdf.setTextColor(0, 0, 0);
+      y += 13;
+
+      // Get charges from invoice
+      const charges = invoice.charges || [];
+      let totalAmount = 0;
+      let totalArrears = 0;
+
+      charges.forEach((charge) => {
+        const amount = Number(charge.amount || 0);
+        const arrears = Number(charge.arrears || 0);
+        totalAmount += amount;
+        totalArrears += arrears;
+      });
+
+      const payableWithinDue = invoice?.grandTotal || totalAmount + totalArrears;
+      const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
+      const payableAfterDue = payableWithinDue + lateSurcharge;
+
+      const rows = [];
+      
+      if (isElectricity) {
+        const elecCharge = charges.find(c => c.type === 'ELECTRICITY');
+        if (elecCharge) {
+          rows.push(['Electricity Charges', formatMoney(elecCharge.amount || 0)]);
+        }
+      }
+      
+      if (isCAM) {
+        const camCharge = charges.find(c => c.type === 'CAM');
+        if (camCharge) {
+          rows.push(['CAM Charges', formatMoney(camCharge.amount || 0)]);
+        }
+      }
+      
+      if (isRent) {
+        const rentCharge = charges.find(c => c.type === 'RENT');
+        if (rentCharge) {
+          rows.push(['Rent Charges', formatMoney(rentCharge.amount || 0)]);
+        }
+      }
+
+      if (totalArrears > 0) {
+        rows.push(['Arrears', formatMoney(totalArrears)]);
+      }
+      
+      rows.push(['Payable Within Due Date', formatMoney(payableWithinDue)]);
+      rows.push(['Payable After Due Date', formatMoney(payableAfterDue)]);
+
+      rows.forEach((row) => {
+        pdf.setDrawColor(210);
+        pdf.rect(startX, y - 5, width, 7);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(7);
+        pdf.text(row[0], startX + 2, y - 1);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(row[1], startX + width - 2, y - 1, { align: 'right' });
+        y += 7;
+      });
+
+      return y + 2;
+    };
+
+    const footnotes = [
+      '1. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch.',
+      '2. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
+      '3. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
+    ];
+
+    const drawPanel = (copyLabel, columnIndex) => {
+      const startX = columnIndex * panelWidth + marginX;
+      let cursorY = topMargin;
+
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'italic');
+      pdf.text(`(${copyLabel})`, startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 5;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(11);
+      pdf.setTextColor(178, 34, 34);
+      
+      let invoiceTitle = 'Taj Invoice';
+      if (isElectricity && !isCAM && !isRent) {
+        invoiceTitle = `Taj Electricity Invoice For The Month Of ${monthLabel}`;
+      } else if (isCAM && !isElectricity && !isRent) {
+        invoiceTitle = `Taj CAM Charges Invoice For The Month Of ${monthLabel}`;
+      } else if (isRent && !isElectricity && !isCAM) {
+        invoiceTitle = `Taj Rent Invoice For The Month Of ${monthLabel}`;
+      } else {
+        invoiceTitle = `Taj Invoice For The Month Of ${monthLabel}`;
+      }
+      
+      pdf.text(invoiceTitle, startX + contentWidth / 2, cursorY, { align: 'center' });
+      pdf.setTextColor(0, 0, 0);
+      cursorY += 6;
+
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.text('Statement of Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+      cursorY += 6;
+
+      const inlineRows = [
+        ['Residents Name', residentName],
+        ['Address', propertyAddress],
+        ['Sector', propertySector],
+        ['Size', propertySize],
+        ['Period From', periodFrom],
+        ['Period To', periodTo],
+        ['Invoice No.', invoiceNumber],
+        ['Invoicing Date', invoicingDate],
+        ['Due Date', dueDate]
+      ];
+
+      inlineRows.forEach(([label, value]) => {
+        cursorY = drawInlineField(label, value, startX, cursorY);
+      });
+
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(6.5);
+      pdf.text('(In Rupees)', startX + contentWidth, cursorY, { align: 'right' });
+      cursorY += 4;
+
+      cursorY = drawChargeDetails(startX, cursorY);
+
+      let footY = cursorY + 2;
+      pdf.setFont('helvetica', 'italic');
+      pdf.setFontSize(5.2);
+      footnotes.forEach((line) => {
+        const wrapped = pdf.splitTextToSize(line, contentWidth);
+        wrapped.forEach((wrappedLine) => {
+          pdf.text(wrappedLine, startX, footY);
+          footY += 3.2;
+        });
+      });
+    };
+
+    const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
+    copies.forEach((copy, index) => drawPanel(copy, index));
+
+    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'invoice')
+      .toString()
+      .replace(/[^a-z0-9-_ ]/gi, '')
+      .trim()
+      .replace(/\s+/g, '_');
+
+    pdf.save(`Invoice_${sanitizedName || invoice._id}.pdf`);
+  };
+
+  const handleDownloadInvoice = (invoice) => {
+    try {
+      generateInvoicePDF(invoice);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      setError('Failed to generate invoice PDF');
     }
   };
 
@@ -667,6 +929,15 @@ const Invoices = () => {
                             </TableCell>
                             <TableCell align="right">
                               <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                <Tooltip title="Download Invoice PDF">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => handleDownloadInvoice(invoice)}
+                                  >
+                                    <DownloadIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                                 <Tooltip title="View Invoice">
                                   <IconButton
                                     size="small"

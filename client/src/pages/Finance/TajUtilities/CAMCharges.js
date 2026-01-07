@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -45,7 +45,8 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   AttachFile as AttachFileIcon,
-  Edit as EditIcon
+  Edit as EditIcon,
+  Add as AddIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -152,6 +153,18 @@ const CAMCharges = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [sectorFilter, setSectorFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  
+  // Bulk download state
+  const [bulkDownloadMonth, setBulkDownloadMonth] = useState(dayjs().format('MM'));
+  const [bulkDownloadYear, setBulkDownloadYear] = useState(dayjs().format('YYYY'));
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const [matchingInvoiceCount, setMatchingInvoiceCount] = useState(0);
+  const [countingInvoices, setCountingInvoices] = useState(false);
+  
+  // Bulk create state
+  const [bulkCreateMonth, setBulkCreateMonth] = useState(dayjs().format('MM'));
+  const [bulkCreateYear, setBulkCreateYear] = useState(dayjs().format('YYYY'));
+  const [bulkCreating, setBulkCreating] = useState(false);
   
   // Properties state
   const [properties, setProperties] = useState([]);
@@ -518,10 +531,11 @@ const CAMCharges = () => {
     const residentName = property.tenantName || property.ownerName || '—';
     const propertyAddress =
       property.address ||
-      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street, property.sector]
+      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street]
         .filter(Boolean)
         .join(', ') ||
       '—';
+    const propertySector = property.sector || '—';
     const propertySize = property.areaValue
       ? `${property.areaValue} ${property.areaUnit || ''}`.trim()
       : '—';
@@ -625,6 +639,7 @@ const CAMCharges = () => {
       const inlineRows = [
         ['Residents Name', residentName],
         ['Address', propertyAddress],
+        ['Sector', propertySector],
         ['Size', propertySize],
         ['Period From', periodFrom],
         ['Period To', periodTo],
@@ -671,6 +686,311 @@ const CAMCharges = () => {
   const handleDownloadInvoice = () => {
     if (!invoiceProperty || !invoiceData) return;
     generateInvoicePDF();
+  };
+
+  // Helper function to check if invoice matches month/year
+  const invoiceMatchesMonthYear = useCallback((invoice, month, year) => {
+    if (!invoice.chargeTypes?.includes('CAM')) return false;
+    
+    const periodTo = invoice.periodTo ? dayjs(invoice.periodTo) : null;
+    const periodFrom = invoice.periodFrom ? dayjs(invoice.periodFrom) : null;
+    const invoiceDate = invoice.invoiceDate ? dayjs(invoice.invoiceDate) : null;
+    const dateToCheck = periodTo || periodFrom || invoiceDate;
+    
+    if (!dateToCheck) return false;
+    
+    const invoiceMonth = dateToCheck.format('MM');
+    const invoiceYear = dateToCheck.format('YYYY');
+    return invoiceMonth === month && invoiceYear === year;
+  }, []);
+
+  // Function to load invoices and update count
+  const loadInvoicesAndUpdateCount = useCallback(async () => {
+    if (!bulkDownloadMonth || !bulkDownloadYear) {
+      setMatchingInvoiceCount(0);
+      return;
+    }
+
+    try {
+      setCountingInvoices(true);
+      
+      // Load invoices for all properties that don't have them loaded yet
+      const propertiesToLoad = properties.filter(
+        property => !propertyInvoices[property._id]
+      );
+
+      let updatedInvoices = { ...propertyInvoices };
+
+      if (propertiesToLoad.length > 0) {
+        // Load invoices for properties in batches
+        const batchSize = 10;
+        for (let i = 0; i < propertiesToLoad.length; i += batchSize) {
+          const batch = propertiesToLoad.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (property) => {
+              try {
+                const response = await fetchInvoicesForProperty(property._id);
+                updatedInvoices[property._id] = response.data?.data || [];
+              } catch (err) {
+                console.error(`Error loading invoices for property ${property._id}:`, err);
+                updatedInvoices[property._id] = [];
+              }
+            })
+          );
+          
+          // Small delay between batches
+          if (i + batchSize < propertiesToLoad.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        // Update state with all loaded invoices
+        setPropertyInvoices(updatedInvoices);
+      }
+
+      // Calculate count from all invoices (both already loaded and newly loaded)
+      const allInvoices = propertiesToLoad.length > 0 ? updatedInvoices : propertyInvoices;
+      let count = 0;
+      
+      properties.forEach((property) => {
+        const invoices = allInvoices[property._id] || [];
+        invoices.forEach((invoice) => {
+          if (invoiceMatchesMonthYear(invoice, bulkDownloadMonth, bulkDownloadYear)) {
+            count++;
+          }
+        });
+      });
+
+      setMatchingInvoiceCount(count);
+    } catch (err) {
+      console.error('Error counting invoices:', err);
+      setMatchingInvoiceCount(0);
+    } finally {
+      setCountingInvoices(false);
+    }
+  }, [bulkDownloadMonth, bulkDownloadYear, properties, propertyInvoices, invoiceMatchesMonthYear]);
+
+  // Load invoices when month/year changes to get accurate count
+  useEffect(() => {
+    if (bulkDownloadMonth && bulkDownloadYear) {
+      loadInvoicesAndUpdateCount();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkDownloadMonth, bulkDownloadYear]);
+
+  const handleBulkDownloadInvoices = async () => {
+    if (!bulkDownloadMonth || !bulkDownloadYear) {
+      setError('Please select both month and year');
+      return;
+    }
+
+    try {
+      setBulkDownloading(true);
+      setError('');
+      setSuccess('Loading invoices...');
+
+      // Load invoices for all properties that don't have them loaded yet
+      const propertiesToLoad = properties.filter(
+        property => !propertyInvoices[property._id]
+      );
+
+      if (propertiesToLoad.length > 0) {
+        setSuccess(`Loading invoices for ${propertiesToLoad.length} property(ies)...`);
+        
+        // Load invoices for properties in batches to avoid overwhelming the server
+        const batchSize = 10;
+        for (let i = 0; i < propertiesToLoad.length; i += batchSize) {
+          const batch = propertiesToLoad.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (property) => {
+              try {
+                const response = await fetchInvoicesForProperty(property._id);
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: response.data?.data || []
+                }));
+              } catch (err) {
+                console.error(`Error loading invoices for property ${property._id}:`, err);
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: []
+                }));
+              }
+            })
+          );
+          
+          // Small delay between batches
+          if (i + batchSize < propertiesToLoad.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
+      }
+
+      // Collect all invoices from all properties that match the month/year
+      const matchingInvoices = [];
+      
+      properties.forEach((property) => {
+        const invoices = propertyInvoices[property._id] || [];
+        invoices.forEach((invoice) => {
+          if (invoiceMatchesMonthYear(invoice, bulkDownloadMonth, bulkDownloadYear)) {
+            matchingInvoices.push({ property, invoice });
+          }
+        });
+      });
+
+      if (matchingInvoices.length === 0) {
+        setError(`No CAM invoices found for ${months.find(m => m.value === bulkDownloadMonth)?.label || bulkDownloadMonth} ${bulkDownloadYear}`);
+        setBulkDownloading(false);
+        return;
+      }
+
+      setSuccess(`Downloading ${matchingInvoices.length} invoice(s)...`);
+
+      // Download invoices sequentially with a small delay to avoid browser blocking
+      for (let i = 0; i < matchingInvoices.length; i++) {
+        const { property, invoice } = matchingInvoices[i];
+        
+        // Generate and download PDF
+        generateInvoicePDF(property, invoice);
+        
+        // Small delay between downloads to prevent browser blocking
+        if (i < matchingInvoices.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      setSuccess(`Successfully downloaded ${matchingInvoices.length} invoice(s)`);
+    } catch (err) {
+      console.error('Bulk download error:', err);
+      setError('Failed to download invoices. Please try again.');
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
+  const handleBulkCreateInvoices = async () => {
+    if (!bulkCreateMonth || !bulkCreateYear) {
+      setError('Please select both month and year');
+      return;
+    }
+
+    try {
+      setBulkCreating(true);
+      setError('');
+      setSuccess('');
+
+      // Calculate period dates for the selected month/year
+      const periodFrom = dayjs(`${bulkCreateYear}-${bulkCreateMonth}-01`).startOf('month').toDate();
+      const periodTo = dayjs(`${bulkCreateYear}-${bulkCreateMonth}-01`).endOf('month').toDate();
+      const dueDate = dayjs(periodTo).add(30, 'day').toDate();
+
+      // Get all active properties (or filtered properties)
+      const propertiesToProcess = filteredProperties.length > 0 ? filteredProperties : properties;
+      
+      if (propertiesToProcess.length === 0) {
+        setError('No properties found to create invoices for');
+        setBulkCreating(false);
+        return;
+      }
+
+      setSuccess(`Creating invoices for ${propertiesToProcess.length} property(ies)...`);
+
+      let createdCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
+
+      // Process properties in batches
+      const batchSize = 10;
+      for (let i = 0; i < propertiesToProcess.length; i += batchSize) {
+        const batch = propertiesToProcess.slice(i, i + batchSize);
+        
+        await Promise.all(
+          batch.map(async (property) => {
+            try {
+              // Load invoices for this property if not already loaded
+              let invoices = propertyInvoices[property._id];
+              if (!invoices) {
+                try {
+                  const response = await fetchInvoicesForProperty(property._id);
+                  invoices = response.data?.data || [];
+                  setPropertyInvoices(prev => ({
+                    ...prev,
+                    [property._id]: invoices
+                  }));
+                } catch (err) {
+                  console.error(`Error loading invoices for property ${property._id}:`, err);
+                  invoices = [];
+                }
+              }
+
+              // Check if invoice already exists for this month/year
+              const invoiceExists = invoices.some((invoice) => 
+                invoiceMatchesMonthYear(invoice, bulkCreateMonth, bulkCreateYear)
+              );
+
+              if (invoiceExists) {
+                skippedCount++;
+                return;
+              }
+
+              // Create invoice for this property
+              await createInvoice(property._id, {
+                includeCAM: true,
+                includeElectricity: false,
+                includeRent: false,
+                periodFrom: periodFrom,
+                periodTo: periodTo,
+                dueDate: dueDate
+              });
+
+              createdCount++;
+              
+              // Refresh invoices for this property
+              try {
+                const invoiceResponse = await fetchInvoicesForProperty(property._id);
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: invoiceResponse.data?.data || []
+                }));
+              } catch (err) {
+                console.error(`Error refreshing invoices for property ${property._id}:`, err);
+              }
+            } catch (err) {
+              errorCount++;
+              console.error(`Error creating invoice for property ${property._id}:`, err);
+            }
+          })
+        );
+
+        // Small delay between batches
+        if (i + batchSize < propertiesToProcess.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        // Update progress
+        setSuccess(`Creating invoices... ${Math.min(i + batch.length, propertiesToProcess.length)} of ${propertiesToProcess.length} processed`);
+      }
+
+      // Show results
+      let resultMessage = `Successfully created ${createdCount} invoice(s)`;
+      if (skippedCount > 0) {
+        resultMessage += `, skipped ${skippedCount} (already exist)`;
+      }
+      if (errorCount > 0) {
+        resultMessage += `, ${errorCount} failed`;
+      }
+      setSuccess(resultMessage);
+
+      // Refresh invoice counts if same month/year as download
+      if (bulkDownloadMonth === bulkCreateMonth && bulkDownloadYear === bulkCreateYear) {
+        loadInvoicesAndUpdateCount();
+      }
+    } catch (err) {
+      console.error('Bulk create error:', err);
+      setError('Failed to create invoices. Please try again.');
+    } finally {
+      setBulkCreating(false);
+    }
   };
 
   const renderInvoicePreview = () => {
@@ -1744,6 +2064,116 @@ const CAMCharges = () => {
                   <MenuItem value="Personal Rent">Personal Rent</MenuItem>
                 </Select>
               </FormControl>
+            </Grid>
+          </Grid>
+          <Divider sx={{ my: 2 }} />
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                Bulk Create Invoices
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Month</InputLabel>
+                <Select
+                  value={bulkCreateMonth}
+                  label="Month"
+                  onChange={(e) => setBulkCreateMonth(e.target.value)}
+                >
+                  {months.map((month) => (
+                    <MenuItem key={month.value} value={month.value}>
+                      {month.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={bulkCreateYear}
+                  label="Year"
+                  onChange={(e) => setBulkCreateYear(e.target.value)}
+                >
+                  {Array.from({ length: 10 }, (_, i) => {
+                    const year = dayjs().year() - 5 + i;
+                    return (
+                      <MenuItem key={year} value={String(year)}>
+                        {year}
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={12} md={6}>
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<AddIcon />}
+                onClick={handleBulkCreateInvoices}
+                disabled={bulkCreating || !bulkCreateMonth || !bulkCreateYear}
+                sx={{ minWidth: 200 }}
+              >
+                {bulkCreating ? 'Creating Invoices...' : `Create Invoices for ${filteredProperties.length > 0 ? filteredProperties.length : properties.length} Properties`}
+              </Button>
+            </Grid>
+          </Grid>
+          <Divider sx={{ my: 2 }} />
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                Bulk Download Invoices
+              </Typography>
+            </Grid>
+            <Grid item xs={12} sm={4} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Month</InputLabel>
+                <Select
+                  value={bulkDownloadMonth}
+                  label="Month"
+                  onChange={(e) => setBulkDownloadMonth(e.target.value)}
+                >
+                  {months.map((month) => (
+                    <MenuItem key={month.value} value={month.value}>
+                      {month.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={4} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={bulkDownloadYear}
+                  label="Year"
+                  onChange={(e) => setBulkDownloadYear(e.target.value)}
+                >
+                  {Array.from({ length: 10 }, (_, i) => {
+                    const year = dayjs().year() - 5 + i;
+                    return (
+                      <MenuItem key={year} value={String(year)}>
+                        {year}
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={12} md={6}>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<DownloadIcon />}
+                onClick={handleBulkDownloadInvoices}
+                disabled={bulkDownloading || !bulkDownloadMonth || !bulkDownloadYear || matchingInvoiceCount === 0 || countingInvoices}
+                sx={{ minWidth: 200 }}
+              >
+                {bulkDownloading ? `Downloading ${matchingInvoiceCount}...` : `Download ${matchingInvoiceCount} Invoice${matchingInvoiceCount !== 1 ? 's' : ''}`}
+              </Button>
             </Grid>
           </Grid>
         </CardContent>
