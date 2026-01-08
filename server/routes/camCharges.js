@@ -111,11 +111,30 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     console.log(`📋 Fetching current CAM charges overview (page: ${page}, limit: ${limit})...`);
     
     // OPTIMIZATION: Select only needed fields from properties
-    const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType';
+    const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType resident';
     
     // OPTIMIZATION: Run all initial queries in parallel
     const [propertiesResult, activeSlabsResult] = await Promise.all([
-      fetchProperties(propertyFields),
+      fetchProperties(propertyFields).then(async (properties) => {
+        // Populate resident with residentId
+        const TajResident = require('../models/tajResidencia/TajResident');
+        const residentIds = properties.map(p => p.resident).filter(Boolean);
+        if (residentIds.length > 0) {
+          const residents = await TajResident.find({ _id: { $in: residentIds } })
+            .select('_id residentId')
+            .lean();
+          const residentMap = new Map(residents.map(r => [r._id.toString(), r]));
+          properties.forEach(property => {
+            if (property.resident) {
+              const resident = residentMap.get(property.resident.toString());
+              if (resident) {
+                property.resident = { _id: resident._id, residentId: resident.residentId };
+              }
+            }
+          });
+        }
+        return properties;
+      }),
       (async () => {
         try {
           const ChargesSlab = require('../models/tajResidencia/ChargesSlab');
@@ -379,6 +398,9 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             familyStatus: property.familyStatus || null,
             areaValue: property.areaValue || 0,
             areaUnit: property.areaUnit || null,
+            tenantName: property.tenantName || null,
+            // Include resident data if available
+            resident: property.resident || null,
             // CAM Charge related fields
             camAmount: propertyAmount || 0,
             camArrears: propertyArrears || 0,
@@ -403,7 +425,7 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         }
       });
       
-      // Calculate totals after all properties are processed
+      // Calculate totals after all properties are processed (for current page only)
       totalAmount = propertyDetails.reduce((sum, prop) => sum + (prop.camAmount || 0), 0);
       totalArrears = propertyDetails.reduce((sum, prop) => sum + (prop.camArrears || 0), 0);
       
@@ -411,6 +433,56 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     } catch (mappingError) {
       console.error('❌ Error mapping properties:', mappingError);
       throw new Error(`Failed to process property details: ${mappingError.message}`);
+    }
+
+    // Calculate totals across ALL invoices (all pages) for counts
+    // Sum all PropertyInvoices with CAM charge type
+    let totalAmountAllPages = 0;
+    let totalArrearsAllPages = 0;
+    try {
+      // Get all PropertyInvoices with CAM charge type (across all properties, all pages)
+      const allCamInvoices = await PropertyInvoice.find({
+        chargeTypes: { $in: ['CAM'] }
+      })
+      .select('grandTotal balance charges chargeTypes')
+      .lean()
+      .catch(() => []);
+      
+      // Calculate total amount from all invoices (grandTotal)
+      totalAmountAllPages = allCamInvoices.reduce((sum, invoice) => {
+        return sum + (invoice.grandTotal || 0);
+      }, 0);
+      
+      // Calculate total arrears (unpaid balance) from all invoices
+      totalArrearsAllPages = allCamInvoices.reduce((sum, invoice) => {
+        // For mixed invoices, calculate CAM portion of balance
+        const camCharges = invoice.charges?.filter(c => c.type === 'CAM') || [];
+        if (camCharges.length > 0) {
+          const hasOnlyCAM = invoice.chargeTypes?.length === 1 && invoice.chargeTypes[0] === 'CAM';
+          if (hasOnlyCAM) {
+            // If only CAM, use full balance
+            return sum + (invoice.balance || 0);
+          } else {
+            // If mixed charges, calculate CAM portion proportionally
+            const camTotal = camCharges.reduce((s, c) => s + (c.amount || 0) + (c.arrears || 0), 0);
+            const invoiceTotal = invoice.grandTotal || 0;
+            if (invoiceTotal > 0) {
+              const camProportion = camTotal / invoiceTotal;
+              return sum + ((invoice.balance || 0) * camProportion);
+            }
+          }
+        }
+        return sum;
+      }, 0);
+      
+      // Round to 2 decimal places
+      totalAmountAllPages = Math.round(totalAmountAllPages * 100) / 100;
+      totalArrearsAllPages = Math.round(totalArrearsAllPages * 100) / 100;
+    } catch (totalsError) {
+      console.error('❌ Error calculating totals from invoices:', totalsError);
+      // Use current page totals as fallback
+      totalAmountAllPages = totalAmount;
+      totalArrearsAllPages = totalArrears;
     }
 
     console.log('✅ Sending response with', propertyDetails.length, 'properties');
@@ -422,6 +494,8 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       totalCompletedProperties,
       totalAmount: Math.round(totalAmount),
       totalArrears: Math.round(totalArrears),
+      totalAmountAllPages: Math.round(totalAmountAllPages),
+      totalArrearsAllPages: Math.round(totalArrearsAllPages),
       properties: propertyDetails,
       pagination: {
         page,

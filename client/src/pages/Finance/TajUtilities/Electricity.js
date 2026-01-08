@@ -170,6 +170,7 @@ const Electricity = () => {
   
   // Properties state
   const [properties, setProperties] = useState([]);
+  const [totalCounts, setTotalCounts] = useState({ totalProperties: 0, totalAmount: 0, totalArrears: 0 });
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [expandedInvoices, setExpandedInvoices] = useState(new Set());
@@ -242,6 +243,13 @@ const Electricity = () => {
       setProperties(response.data.data?.properties || []);
       if (response.data.data?.pagination) {
         pagination.setTotal(response.data.data.pagination.total);
+      }
+      if (response.data.data) {
+        setTotalCounts({
+          totalProperties: response.data.data.totalProperties || 0,
+          totalAmount: response.data.data.totalAmountAllPages || response.data.data.totalAmount || 0,
+          totalArrears: response.data.data.totalArrearsAllPages || response.data.data.totalArrears || 0
+        });
       }
     } catch (error) {
       console.error('Error fetching properties:', error);
@@ -448,7 +456,7 @@ const Electricity = () => {
       setInvoiceData({
         invoiceNumber,
         invoiceDate: new Date(),
-        dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+        dueDate: dayjs(periodTo).add(15, 'day').toDate(),
         periodFrom,
         periodTo,
         chargeTypes: ['ELECTRICITY'],
@@ -492,7 +500,7 @@ const Electricity = () => {
       setInvoiceData({
         invoiceNumber,
         invoiceDate: new Date(),
-        dueDate: now.add(30, 'day').toDate(),
+        dueDate: now.endOf('month').add(15, 'day').toDate(),
         periodFrom: now.startOf('month').toDate(),
         periodTo: now.endOf('month').toDate(),
         chargeTypes: ['ELECTRICITY'],
@@ -779,7 +787,7 @@ const Electricity = () => {
         
         const response = await updateInvoice(invoiceData._id, {
           invoiceNumber: invoiceData.invoiceNumber,
-          invoiceDate: invoiceData.invoiceDate,
+          invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
           dueDate: invoiceData.dueDate,
           periodFrom: invoiceData.periodFrom,
           periodTo: invoiceData.periodTo,
@@ -864,6 +872,7 @@ const Electricity = () => {
         includeCAM: false,
         includeElectricity: true,
         includeRent: false,
+        invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
         currentReading: hasMultipleMeters ? undefined : (currentReading ? parseFloat(currentReading) : undefined),
         meterReadings: hasMultipleMeters && Object.keys(meterReadingsPayload).length > 0 ? meterReadingsPayload : undefined,
         periodFrom: invoiceData.periodFrom,
@@ -2152,10 +2161,9 @@ const Electricity = () => {
 
       {/* Statistics Cards */}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
-        <StatCard title="Total Properties" value={pagination.total || properties.length} />
-        <StatCard title="Current Page" value={`${properties.length} of ${pagination.total || properties.length}`} />
-        <StatCard title="Total Electricity Amount" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.electricityAmount || 0), 0))} />
-        <StatCard title="Total Arrears" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.electricityArrears || 0), 0))} />
+        <StatCard title="Total Properties" value={totalCounts.totalProperties || pagination.total || 0} />
+        <StatCard title="Total Electricity Amount" value={formatCurrency(totalCounts.totalAmount)} />
+        <StatCard title="Total Arrears" value={formatCurrency(totalCounts.totalArrears)} />
       </Stack>
 
       {/* Filters */}
@@ -2691,6 +2699,17 @@ const Electricity = () => {
                     InputProps={{ readOnly: true }}
                   />
                 </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Invoice Date"
+                    type="date"
+                    value={invoiceData.invoiceDate ? dayjs(invoiceData.invoiceDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')}
+                    onChange={(e) => handleInvoiceFieldChange('invoiceDate', e.target.value)}
+                    fullWidth
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
                 {!invoiceData._id && (() => {
                   const activeMeters = (invoiceProperty?.meters || []).filter(m => m.isActive !== false);
                   const hasMultipleMeters = activeMeters.length > 1;
@@ -2915,7 +2934,15 @@ const Electricity = () => {
                     label="Period To"
                     type="date"
                     value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
-                    onChange={(e) => handleInvoiceFieldChange('periodTo', e.target.value)}
+                    onChange={(e) => {
+                      const newPeriodTo = e.target.value;
+                      handleInvoiceFieldChange('periodTo', newPeriodTo);
+                      // Auto-set Due Date to 15 days after Period To
+                      if (newPeriodTo) {
+                        const dueDate = dayjs(newPeriodTo).add(15, 'day').format('YYYY-MM-DD');
+                        handleInvoiceFieldChange('dueDate', dueDate);
+                      }
+                    }}
                     fullWidth
                     size="small"
                     InputLabelProps={{ shrink: true }}

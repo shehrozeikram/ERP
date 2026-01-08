@@ -340,7 +340,11 @@ const RentalAgreements = () => {
   const summaryStats = useMemo(() => {
     const totalRent = agreements.reduce((sum, agreement) => sum + (agreement.monthlyRent || 0), 0);
     const active = agreements.filter((agreement) => agreement.status === 'Active').length;
-    return { totalRent, active, total: agreements.length };
+    const expired = agreements.filter((agreement) => agreement.status === 'Expired').length;
+    const expiredRent = agreements
+      .filter((agreement) => agreement.status === 'Expired')
+      .reduce((sum, agreement) => sum + (agreement.monthlyRent || agreement.increasedRent || 0), 0);
+    return { totalRent, active, expired, expiredRent, total: agreements.length };
   }, [agreements]);
 
   return (
@@ -373,7 +377,11 @@ const RentalAgreements = () => {
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
         <StatCard title="Total Agreements" value={summaryStats.total} />
         <StatCard title="Active Agreements" value={summaryStats.active} />
+        <StatCard title="Expired Agreements" value={summaryStats.expired || 0} />
         <StatCard title="Monthly Rent Portfolio" value={`PKR ${summaryStats.totalRent.toLocaleString()}`} />
+        {summaryStats.expiredRent > 0 && (
+          <StatCard title="Expired Rent Portfolio" value={`PKR ${summaryStats.expiredRent.toLocaleString()}`} />
+        )}
       </Stack>
 
       <Card>
@@ -387,6 +395,7 @@ const RentalAgreements = () => {
                   <TableCell>Tenant</TableCell>
                   <TableCell>Rent</TableCell>
                   <TableCell>Timeline</TableCell>
+                  <TableCell>Time Left</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -411,6 +420,9 @@ const RentalAgreements = () => {
                       <TableCell><Skeleton variant="text" width={80} /></TableCell>
                       <TableCell>
                         <Skeleton variant="text" width={120} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={100} />
                       </TableCell>
                       <TableCell><Skeleton variant="rectangular" width={80} height={24} /></TableCell>
                       <TableCell align="right">
@@ -449,10 +461,72 @@ const RentalAgreements = () => {
                         {dayjs(agreement.endDate).format('MMM D, YYYY')}
                       </TableCell>
                       <TableCell>
+                        {(() => {
+                          const endDate = dayjs(agreement.endDate);
+                          const now = dayjs();
+                          const diffDays = endDate.diff(now, 'day');
+                          const diffMonths = endDate.diff(now, 'month', true);
+                          const diffYears = endDate.diff(now, 'year', true);
+                          
+                          if (agreement.status === 'Expired' || diffDays < 0) {
+                            const daysAgo = Math.abs(diffDays);
+                            if (daysAgo === 0) {
+                              return <Typography variant="body2" color="error">Expired today</Typography>;
+                            } else if (daysAgo === 1) {
+                              return <Typography variant="body2" color="error">Expired 1 day ago</Typography>;
+                            } else if (daysAgo < 30) {
+                              return <Typography variant="body2" color="error">Expired {daysAgo} days ago</Typography>;
+                            } else if (daysAgo < 365) {
+                              const monthsAgo = Math.floor(daysAgo / 30);
+                              return <Typography variant="body2" color="error">Expired {monthsAgo} {monthsAgo === 1 ? 'month' : 'months'} ago</Typography>;
+                            } else {
+                              const yearsAgo = Math.floor(daysAgo / 365);
+                              return <Typography variant="body2" color="error">Expired {yearsAgo} {yearsAgo === 1 ? 'year' : 'years'} ago</Typography>;
+                            }
+                          } else if (diffDays === 0) {
+                            return <Typography variant="body2" color="warning.main" fontWeight={600}>Expires today</Typography>;
+                          } else if (diffDays === 1) {
+                            return <Typography variant="body2" color="warning.main" fontWeight={600}>1 day left</Typography>;
+                          } else if (diffDays < 7) {
+                            return <Typography variant="body2" color="warning.main" fontWeight={600}>{diffDays} days left</Typography>;
+                          } else if (diffDays < 30) {
+                            const weeks = Math.floor(diffDays / 7);
+                            const days = diffDays % 7;
+                            if (days === 0) {
+                              return <Typography variant="body2">{weeks} {weeks === 1 ? 'week' : 'weeks'} left</Typography>;
+                            } else {
+                              return <Typography variant="body2">{weeks} {weeks === 1 ? 'week' : 'weeks'} {days} {days === 1 ? 'day' : 'days'} left</Typography>;
+                            }
+                          } else if (diffDays < 365) {
+                            const months = Math.floor(diffMonths);
+                            const remainingDays = diffDays % 30;
+                            if (remainingDays === 0) {
+                              return <Typography variant="body2">{months} {months === 1 ? 'month' : 'months'} left</Typography>;
+                            } else {
+                              return <Typography variant="body2">{months} {months === 1 ? 'month' : 'months'} {remainingDays} {remainingDays === 1 ? 'day' : 'days'} left</Typography>;
+                            }
+                          } else {
+                            const years = Math.floor(diffYears);
+                            const remainingMonths = Math.floor((diffDays % 365) / 30);
+                            if (remainingMonths === 0) {
+                              return <Typography variant="body2">{years} {years === 1 ? 'year' : 'years'} left</Typography>;
+                            } else {
+                              return <Typography variant="body2">{years} {years === 1 ? 'year' : 'years'} {remainingMonths} {remainingMonths === 1 ? 'month' : 'months'} left</Typography>;
+                            }
+                          }
+                        })()}
+                      </TableCell>
+                      <TableCell>
                         <Chip
                           label={agreement.status}
                           size="small"
-                          color={agreement.status === 'Active' ? 'success' : 'default'}
+                          color={
+                            agreement.status === 'Active' 
+                              ? 'success' 
+                              : agreement.status === 'Expired' 
+                              ? 'error' 
+                              : 'default'
+                          }
                         />
                       </TableCell>
                       <TableCell align="right">

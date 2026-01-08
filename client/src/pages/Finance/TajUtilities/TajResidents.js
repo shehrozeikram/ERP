@@ -229,19 +229,42 @@ const TajResidents = () => {
   }, [allocations, payForm.amount]);
 
   // Filter properties to only show those assigned to selected resident (for deposit payment dialog)
+  // Use unassignedProperties which includes all properties regardless of category
   const filteredPropertiesForDeposit = useMemo(() => {
-    if (!selectedResident || !selectedResident.properties || !Array.isArray(selectedResident.properties)) {
-      return properties;
+    // Use unassignedProperties which is loaded from /unassigned-properties with includeAssigned: 'true'
+    // This ensures all properties are shown regardless of category
+    const propertiesToFilter = unassignedProperties.length > 0 ? unassignedProperties : properties;
+    
+    if (!selectedResident) {
+      return propertiesToFilter;
     }
-    // Get IDs of properties assigned to this resident
-    const residentPropertyIds = selectedResident.properties.map(p => 
-      typeof p === 'object' ? p._id || p : p
-    );
+    
+    // If resident has no properties or properties array is empty, show all properties
+    if (!selectedResident.properties || !Array.isArray(selectedResident.properties) || selectedResident.properties.length === 0) {
+      return propertiesToFilter;
+    }
+    
+    // Get IDs of properties assigned to this resident (convert all to strings for comparison)
+    const residentPropertyIds = selectedResident.properties.map(p => {
+      const id = typeof p === 'object' ? (p._id || p) : p;
+      return String(id);
+    });
+    
     // Filter properties to only include those assigned to the resident
-    return properties.filter(property => 
-      residentPropertyIds.includes(property._id)
-    );
-  }, [properties, selectedResident]);
+    // Convert property._id to string for comparison
+    const filtered = propertiesToFilter.filter(property => {
+      const propertyId = String(property._id || property);
+      return residentPropertyIds.includes(propertyId);
+    });
+    
+    // If filtered list is empty but resident has properties, use resident's properties directly
+    // This handles cases where properties might not be in the unassignedProperties list
+    if (filtered.length === 0 && selectedResident.properties.length > 0) {
+      return selectedResident.properties;
+    }
+    
+    return filtered;
+  }, [unassignedProperties, properties, selectedResident]);
 
   // API calls
   const loadResidents = useCallback(async () => {
@@ -400,7 +423,8 @@ const TajResidents = () => {
         limit: 1000 // Get all deposits (adjust if needed)
       });
       const allDeposits = (response.data.data.transactions || []).filter(
-        txn => txn.transactionType === 'deposit'
+        txn => txn.transactionType === 'deposit' && 
+               (!txn.referenceNumberExternal || !txn.referenceNumberExternal.startsWith('REV-'))
       );
       // Ensure remainingAmount is preserved (should already be included from backend)
       // Log for debugging if needed
@@ -552,7 +576,8 @@ const TajResidents = () => {
     try {
       const response = await fetchResidentTransactions(selectedResident._id);
       const allDeposits = (response.data.data.transactions || []).filter(
-        txn => txn.transactionType === 'deposit'
+        txn => txn.transactionType === 'deposit' && 
+               (!txn.referenceNumberExternal || !txn.referenceNumberExternal.startsWith('REV-'))
       );
       setSelectedDeposits(allDeposits);
       // Initialize deposit usage - all deposits start with 0 usage
@@ -567,7 +592,6 @@ const TajResidents = () => {
       setDepositUsage({});
     }
     
-    setDepositPaymentDialog(true);
     setSelectedProperty(null);
     setDepositPaymentAllocations([]);
     setDepositPaymentForm({
@@ -578,10 +602,10 @@ const TajResidents = () => {
       paymentMethod: 'Cash'
     });
     
-    // Refresh resident data to get latest balance
+    // Refresh resident data to get latest balance and properties
     try {
       await loadResidents();
-      // Update selectedResident with latest balance
+      // Update selectedResident with latest balance and properties
       const response = await fetchResidents({});
       const updatedResident = response.data.data.find(r => r._id === selectedResident?._id);
       if (updatedResident) {
@@ -591,14 +615,16 @@ const TajResidents = () => {
       console.error('Error refreshing resident data:', err);
     }
     
-    // Load properties
+    // Load all properties (regardless of category) for deposit payment BEFORE opening dialog
     try {
-      const response = await api.get('/taj-utilities/properties');
-      setProperties(response.data?.data || []);
+      await loadUnassignedProperties('');
     } catch (err) {
       console.error('Error loading properties:', err);
     }
-  }, [selectedResident, loadResidents]);
+    
+    // Open dialog after properties are loaded
+    setDepositPaymentDialog(true);
+  }, [selectedResident, loadResidents, loadUnassignedProperties]);
 
   const handleDepositPaymentPropertyChange = useCallback(async (property) => {
     setSelectedProperty(property);
@@ -821,7 +847,8 @@ const TajResidents = () => {
           limit: 1000 // Get all deposits
         });
         const depositTransactions = (response.data.data.transactions || []).filter(
-          txn => txn.transactionType === 'deposit'
+          txn => txn.transactionType === 'deposit' && 
+                 (!txn.referenceNumberExternal || !txn.referenceNumberExternal.startsWith('REV-'))
         );
         setDeposits(depositTransactions);
         // Update selectedDeposits with fresh data including updated remainingAmount
@@ -961,7 +988,8 @@ const TajResidents = () => {
               limit: 1000
             });
             const allDeposits = (response.data.data.transactions || []).filter(
-              txn => txn.transactionType === 'deposit'
+              txn => txn.transactionType === 'deposit' && 
+                     (!txn.referenceNumberExternal || !txn.referenceNumberExternal.startsWith('REV-'))
             );
             setDeposits(allDeposits);
           } catch (err) {
@@ -2361,6 +2389,7 @@ const TajResidents = () => {
                 }
                 value={selectedProperty}
                 onChange={(e, newValue) => handleDepositPaymentPropertyChange(newValue)}
+                loading={propertiesLoading}
                 renderInput={(params) => (
                   <TextField {...params} label="Select Property" size="small" required />
                 )}

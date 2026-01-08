@@ -76,7 +76,13 @@ const updateInvoiceFields = (invoice, { charges, subtotal, totalArrears, grandTo
 
 // Helper: Populate invoice references
 const populateInvoiceReferences = async (invoice, { camCharge, electricityBill }) => {
-  await invoice.populate('property');
+  await invoice.populate({
+    path: 'property',
+    populate: {
+      path: 'resident',
+      select: 'name accountType contactNumber email residentId'
+    }
+  });
   if (camCharge) await invoice.populate('camCharge');
   if (electricityBill) await invoice.populate('electricityBill');
 };
@@ -384,7 +390,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { periodFrom, periodTo, dueDate, includeCAM, includeElectricity, includeRent, charges: requestCharges } = req.body;
+    const { periodFrom, periodTo, dueDate, invoiceDate, includeCAM, includeElectricity, includeRent, charges: requestCharges } = req.body;
 
     // Find latest charges/bills
     const propertyKey = property.address || property.plotNumber || property.ownerName;
@@ -1273,7 +1279,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     const invoiceData = {
       property: property._id,
       invoiceNumber,
-      invoiceDate: new Date(),
+      invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : (periodTo ? new Date(periodTo) : now.add(30, 'day').toDate()),
       periodFrom: periodFrom ? new Date(periodFrom) : undefined,
       periodTo: periodTo ? new Date(periodTo) : undefined,
@@ -1317,7 +1323,13 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const invoice = await PropertyInvoice.findById(req.params.id)
-      .populate('property')
+      .populate({
+        path: 'property',
+        populate: {
+          path: 'resident',
+          select: 'name accountType contactNumber email residentId'
+        }
+      })
       .populate('camCharge')
       .populate('electricityBill')
       .populate('createdBy', 'firstName lastName')
@@ -1347,6 +1359,14 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
     // OPTIMIZATION: Select only needed fields and use lean
     const invoices = await PropertyInvoice.find({ property: req.params.propertyId })
       .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge electricityBill rentPayment property createdAt updatedAt')
+      .populate({
+        path: 'property',
+        select: 'propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit',
+        populate: {
+          path: 'resident',
+          select: 'name accountType contactNumber email residentId'
+        }
+      })
       .populate('camCharge', 'invoiceNumber amount arrears')
       .populate('electricityBill', 'invoiceNumber totalBill arrears meterNo')
       .populate('payments.recordedBy', 'firstName lastName')
@@ -1570,7 +1590,13 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
     }
 
     // Populate references
-    await invoice.populate('property');
+    await invoice.populate({
+      path: 'property',
+      populate: {
+        path: 'resident',
+        select: 'name accountType contactNumber email residentId'
+      }
+    });
     await invoice.populate('camCharge');
     await invoice.populate('electricityBill');
 
@@ -1623,7 +1649,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
         select: 'propertyName plotNumber address ownerName resident',
         populate: {
           path: 'resident',
-          select: 'name accountType _id'
+          select: 'name accountType _id residentId'
         }
       })
       .populate('createdBy', 'firstName lastName')
@@ -1712,12 +1738,104 @@ router.delete('/:invoiceId/payments/:paymentId', authMiddleware, asyncHandler(as
 // Delete invoice
 router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {
-    const invoice = await PropertyInvoice.findById(req.params.id).populate('electricityBill');
+    const invoice = await PropertyInvoice.findById(req.params.id).populate('electricityBill').populate('property', 'resident');
     if (!invoice) {
       return res.status(404).json({ success: false, message: 'Invoice not found' });
     }
 
     const propertyId = invoice.property?.toString() || invoice.property;
+    
+    // Find all payment transactions linked to this invoice
+    const TajResident = require('../models/tajResidencia/TajResident');
+    
+    const paymentTransactions = await TajTransaction.find({
+      transactionType: 'bill_payment',
+      referenceId: invoice._id
+    }).populate('resident').populate('depositUsages.depositId');
+
+    // Reverse deposit usages for each payment transaction
+    if (paymentTransactions.length > 0) {
+      // Group reversals by resident to update balances correctly
+      const residentReversals = {};
+      
+      for (const paymentTxn of paymentTransactions) {
+        if (paymentTxn.depositUsages && Array.isArray(paymentTxn.depositUsages) && paymentTxn.depositUsages.length > 0) {
+          const residentId = paymentTxn.resident._id?.toString() || paymentTxn.resident.toString();
+          
+          if (!residentReversals[residentId]) {
+            residentReversals[residentId] = {
+              resident: paymentTxn.resident,
+              totalAmount: 0,
+              reversals: []
+            };
+          }
+          
+          // Create reversal transactions for each deposit usage
+          for (const depositUsage of paymentTxn.depositUsages) {
+            const depositId = depositUsage.depositId?._id || depositUsage.depositId;
+            const reversalAmount = depositUsage.amount || 0;
+            
+            if (reversalAmount > 0 && depositId) {
+              // Get the deposit transaction to get its details
+              const depositTxn = await TajTransaction.findById(depositId);
+              if (depositTxn) {
+                residentReversals[residentId].reversals.push({
+                  depositTxn,
+                  reversalAmount,
+                  paymentTxnId: paymentTxn._id
+                });
+                residentReversals[residentId].totalAmount += reversalAmount;
+              }
+            }
+          }
+        }
+      }
+      
+      // Process reversals for each resident
+      for (const residentId in residentReversals) {
+        const reversalData = residentReversals[residentId];
+        const resident = await TajResident.findById(residentId);
+        
+        if (!resident) continue;
+        
+        let currentBalance = resident.balance || 0;
+        const balanceBefore = currentBalance;
+        
+        // Create reversal transactions (one per deposit usage)
+        for (const reversal of reversalData.reversals) {
+          const balanceAfter = currentBalance + reversal.reversalAmount;
+          
+          const reversalTransaction = new TajTransaction({
+            resident: resident._id,
+            transactionType: 'deposit',
+            amount: reversal.reversalAmount,
+            balanceBefore: currentBalance,
+            balanceAfter: balanceAfter,
+            description: `Reversal: Invoice ${invoice.invoiceNumber || invoice._id} deleted - Deposit restored`,
+            paymentMethod: reversal.depositTxn.paymentMethod || 'Bank Transfer',
+            bank: reversal.depositTxn.bank || null,
+            referenceNumberExternal: `REV-${reversal.paymentTxnId}`,
+            createdBy: req.user.id
+          });
+          
+          await reversalTransaction.save();
+          currentBalance = balanceAfter; // Update for next reversal
+        }
+        
+        // Update resident balance (add back the total reversed amount)
+        if (reversalData.totalAmount > 0) {
+          resident.balance = balanceBefore + reversalData.totalAmount;
+          resident.updatedBy = req.user.id;
+          await resident.save();
+        }
+      }
+      
+      // Delete all payment transactions linked to this invoice
+      await TajTransaction.deleteMany({
+        transactionType: 'bill_payment',
+        referenceId: invoice._id
+      });
+    }
     
     // If invoice has ELECTRICITY charge type and references an electricity bill, delete it
     if (invoice.chargeTypes?.includes('ELECTRICITY') && invoice.electricityBill) {
@@ -1738,7 +1856,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Invoice deleted successfully'
+      message: `Invoice deleted successfully${paymentTransactions.length > 0 ? `. ${paymentTransactions.length} payment(s) reversed and deposits restored.` : ''}`
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

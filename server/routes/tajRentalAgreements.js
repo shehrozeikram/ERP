@@ -121,6 +121,18 @@ router.get('/', withPermission('read'), async (req, res) => {
       return res.json(cached);
     }
     
+    // First, update any agreements that should be expired
+    const now = new Date();
+    await TajRentalAgreement.updateMany(
+      {
+        status: 'Active',
+        endDate: { $lt: now }
+      },
+      {
+        $set: { status: 'Expired' }
+      }
+    );
+    
     // OPTIMIZATION: Select only needed fields and use lean
     const agreements = await TajRentalAgreement.find()
       .select('_id agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdBy createdAt updatedAt')

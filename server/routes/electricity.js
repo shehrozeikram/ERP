@@ -116,10 +116,31 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     console.log(`📋 Fetching current Electricity overview (page: ${page}, limit: ${limit})...`);
     
     // OPTIMIZATION: Select only needed fields from properties
-    const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType electricityWaterMeterNo meters';
+    const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType electricityWaterMeterNo meters resident';
     
     // OPTIMIZATION: Fetch properties with optimized field selection
-    const allProperties = await fetchProperties(propertyFields);
+    const propertiesResult = await fetchProperties(propertyFields);
+    
+    // Populate resident with residentId
+    const TajResident = require('../models/tajResidencia/TajResident');
+    const residentIds = propertiesResult.map(p => p.resident).filter(Boolean);
+    let allProperties = propertiesResult;
+    if (residentIds.length > 0) {
+      const residents = await TajResident.find({ _id: { $in: residentIds } })
+        .select('_id residentId')
+        .lean();
+      const residentMap = new Map(residents.map(r => [r._id.toString(), r]));
+      allProperties = propertiesResult.map(property => {
+        const prop = { ...property };
+        if (property.resident) {
+          const resident = residentMap.get(property.resident.toString());
+          if (resident) {
+            prop.resident = { _id: resident._id, residentId: resident.residentId };
+          }
+        }
+        return prop;
+      });
+    }
       console.log(`✅ Found ${allProperties.length} total properties`);
 
     if (allProperties.length === 0) {
@@ -326,6 +347,9 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
             areaUnit: property.areaUnit || null,
             electricityWaterMeterNo: property.electricityWaterMeterNo || null,
             meters: property.meters || [], // Include meters array
+            tenantName: property.tenantName || null,
+            // Include resident data if available
+            resident: property.resident || null,
             // Electricity related fields (only show if there's a PropertyInvoice)
             electricityAmount: propertyAmount || 0,
             electricityArrears: propertyArrears || 0,
@@ -359,6 +383,56 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
 
     console.log('✅ Sending response with', propertyDetails.length, 'properties');
     
+    // Calculate totals across ALL invoices (all pages) for counts
+    // Sum all PropertyInvoices with ELECTRICITY charge type
+    let totalAmountAllPages = 0;
+    let totalArrearsAllPages = 0;
+    try {
+      // Get all PropertyInvoices with ELECTRICITY charge type (across all properties, all pages)
+      const allElectricityInvoices = await PropertyInvoice.find({
+        chargeTypes: { $in: ['ELECTRICITY'] }
+      })
+      .select('grandTotal balance charges')
+      .lean()
+      .catch(() => []);
+      
+      // Calculate total amount from all invoices (grandTotal)
+      totalAmountAllPages = allElectricityInvoices.reduce((sum, invoice) => {
+        return sum + (invoice.grandTotal || 0);
+      }, 0);
+      
+      // Calculate total arrears (unpaid balance) from all invoices
+      totalArrearsAllPages = allElectricityInvoices.reduce((sum, invoice) => {
+        // For mixed invoices, calculate ELECTRICITY portion of balance
+        const electricityCharges = invoice.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+        if (electricityCharges.length > 0) {
+          const hasOnlyElectricity = invoice.chargeTypes?.length === 1 && invoice.chargeTypes[0] === 'ELECTRICITY';
+          if (hasOnlyElectricity) {
+            // If only ELECTRICITY, use full balance
+            return sum + (invoice.balance || 0);
+          } else {
+            // If mixed charges, calculate ELECTRICITY portion proportionally
+            const electricityTotal = electricityCharges.reduce((s, c) => s + (c.amount || 0) + (c.arrears || 0), 0);
+            const invoiceTotal = invoice.grandTotal || 0;
+            if (invoiceTotal > 0) {
+              const electricityProportion = electricityTotal / invoiceTotal;
+              return sum + ((invoice.balance || 0) * electricityProportion);
+            }
+          }
+        }
+        return sum;
+      }, 0);
+      
+      // Round to 2 decimal places
+      totalAmountAllPages = Math.round(totalAmountAllPages * 100) / 100;
+      totalArrearsAllPages = Math.round(totalArrearsAllPages * 100) / 100;
+    } catch (totalsError) {
+      console.error('❌ Error calculating totals from invoices:', totalsError);
+      // Use current page totals as fallback
+      totalAmountAllPages = totalAmount;
+      totalArrearsAllPages = totalArrears;
+    }
+
     const responseData = {
       totalProperties,
       totalActiveProperties,
@@ -366,6 +440,8 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       totalCompletedProperties,
       totalAmount: Math.round(totalAmount),
       totalArrears: Math.round(totalArrears),
+      totalAmountAllPages: Math.round(totalAmountAllPages),
+      totalArrearsAllPages: Math.round(totalArrearsAllPages),
       properties: propertyDetails,
       pagination: {
         page,

@@ -43,6 +43,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
+import paymentSettlementService from '../../../services/paymentSettlementService';
 import dayjs from 'dayjs';
 
 const IndentsList = () => {
@@ -50,6 +51,8 @@ const IndentsList = () => {
   const location = useLocation();
   const { user } = useAuth();
   const [indents, setIndents] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [combinedItems, setCombinedItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -91,6 +94,59 @@ const IndentsList = () => {
     }
   }, [page, rowsPerPage, searchTerm, statusFilter, categoryFilter, departmentFilter]);
 
+  // Load payments
+  const loadPayments = useCallback(async () => {
+    try {
+      const params = {
+        page: 1,
+        limit: 1000, // Get all payments for now
+        ...(searchTerm && { search: searchTerm }),
+        ...(departmentFilter && { fromDepartment: departmentFilter })
+      };
+
+      const response = await paymentSettlementService.getPaymentSettlements(params);
+      const allPayments = response.data?.settlements || [];
+      
+      // Filter by status if needed
+      let filteredPayments = allPayments;
+      if (statusFilter) {
+        // Map indent status to payment workflow status
+        const statusMap = {
+          'Submitted': 'Send to CEO Office',
+          'Under Review': 'Send to CEO Office',
+          'Approved': 'Approved',
+          'Rejected': 'Rejected'
+        };
+        const paymentStatus = statusMap[statusFilter];
+        if (paymentStatus) {
+          filteredPayments = allPayments.filter(p => 
+            (p.workflowStatus || '').includes(paymentStatus)
+          );
+        }
+      }
+      
+      setPayments(filteredPayments);
+    } catch (err) {
+      console.error('Error loading payments:', err);
+      setPayments([]);
+    }
+  }, [searchTerm, departmentFilter, statusFilter]);
+
+  // Combine indents and payments
+  useEffect(() => {
+    const combined = [
+      ...indents.map(indent => ({ ...indent, type: 'indent' })),
+      ...payments.map(payment => ({ ...payment, type: 'payment' }))
+    ].sort((a, b) => {
+      // Sort by date (newest first)
+      const dateA = a.requestedDate || a.date || a.createdAt;
+      const dateB = b.requestedDate || b.date || b.createdAt;
+      return new Date(dateB) - new Date(dateA);
+    });
+    
+    setCombinedItems(combined);
+  }, [indents, payments]);
+
   useEffect(() => {
     // Check for status filter from URL or location state
     const urlParams = new URLSearchParams(location.search);
@@ -100,7 +156,8 @@ const IndentsList = () => {
     }
     
     loadIndents();
-  }, [loadIndents, location.search]);
+    loadPayments();
+  }, [loadIndents, loadPayments, location.search]);
 
   // Handle pagination
   const handleChangePage = (event, newPage) => {
@@ -330,109 +387,157 @@ const IndentsList = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell><strong>Indent #</strong></TableCell>
-              <TableCell><strong>Title</strong></TableCell>
+              <TableCell><strong>Type</strong></TableCell>
+              <TableCell><strong>Number/Reference</strong></TableCell>
+              <TableCell><strong>Title/Description</strong></TableCell>
               <TableCell><strong>Department</strong></TableCell>
               <TableCell><strong>Requested By</strong></TableCell>
               <TableCell><strong>Status</strong></TableCell>
               <TableCell><strong>Priority</strong></TableCell>
-              <TableCell align="right"><strong>Estimated Cost</strong></TableCell>
+              <TableCell align="right"><strong>Amount</strong></TableCell>
               <TableCell><strong>Date</strong></TableCell>
               <TableCell align="center"><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {indents.length === 0 ? (
+            {combinedItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
-                    No indents found
+                    No indents or payments found
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              indents.map((indent) => (
-                <TableRow key={indent._id} hover>
-                  <TableCell>{indent.indentNumber}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                      {indent.title}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{indent.department?.name || '—'}</TableCell>
-                  <TableCell>
-                    {indent.requestedBy?.firstName} {indent.requestedBy?.lastName}
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={indent.status} 
-                      size="small" 
-                      color={getStatusColor(indent.status)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip 
-                      label={indent.priority} 
-                      size="small" 
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    {formatCurrency(indent.totalEstimatedCost)}
-                  </TableCell>
-                  <TableCell>{formatDate(indent.requestedDate)}</TableCell>
-                  <TableCell align="center">
-                    <Stack direction="row" spacing={1} justifyContent="center">
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        onClick={() => navigate(`/general/indents/${indent._id}`)}
-                      >
-                        <ViewIcon />
-                      </IconButton>
-                      {indent.status === 'Draft' && indent.requestedBy?._id === user?.id && (
+              combinedItems.map((item) => {
+                if (item.type === 'payment') {
+                  return (
+                    <TableRow key={`payment-${item._id}`} hover>
+                      <TableCell>
+                        <Chip label="Payment" size="small" color="primary" variant="outlined" />
+                      </TableCell>
+                      <TableCell>{item.referenceNumber || item._id}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                          {item.forWhat || item.toWhomPaid || '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{item.fromDepartment || '—'}</TableCell>
+                      <TableCell>
+                        {item.createdBy?.firstName} {item.createdBy?.lastName}
+                      </TableCell>
+                      <TableCell>
+                        <Chip 
+                          label={item.workflowStatus || item.status || 'Draft'} 
+                          size="small" 
+                          color={getStatusColor(item.workflowStatus || item.status)}
+                        />
+                      </TableCell>
+                      <TableCell>—</TableCell>
+                      <TableCell align="right">
+                        {formatCurrency(item.grandTotal || item.amount || 0)}
+                      </TableCell>
+                      <TableCell>{formatDate(item.date || item.createdAt)}</TableCell>
+                      <TableCell align="center">
+                        <Stack direction="row" spacing={1} justifyContent="center">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => navigate(`/general/payments?settlementId=${item._id}`)}
+                          >
+                            <ViewIcon />
+                          </IconButton>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
+                return (
+                  <TableRow key={`indent-${item._id}`} hover>
+                    <TableCell>
+                      <Chip label="Indent" size="small" color="secondary" variant="outlined" />
+                    </TableCell>
+                    <TableCell>{item.indentNumber}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                        {item.title}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>{item.department?.name || '—'}</TableCell>
+                    <TableCell>
+                      {item.requestedBy?.firstName} {item.requestedBy?.lastName}
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={item.status} 
+                        size="small" 
+                        color={getStatusColor(item.status)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={item.priority} 
+                        size="small" 
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      {formatCurrency(item.totalEstimatedCost)}
+                    </TableCell>
+                    <TableCell>{formatDate(item.requestedDate)}</TableCell>
+                    <TableCell align="center">
+                      <Stack direction="row" spacing={1} justifyContent="center">
                         <IconButton
                           size="small"
                           color="primary"
-                          onClick={() => navigate(`/general/indents/${indent._id}/edit`)}
+                          onClick={() => navigate(`/general/indents/${item._id}`)}
                         >
-                          <EditIcon />
+                          <ViewIcon />
                         </IconButton>
-                      )}
-                      {canApproveReject(indent) && (
-                        <>
+                        {item.status === 'Draft' && item.requestedBy?._id === user?.id && (
                           <IconButton
                             size="small"
-                            color="success"
-                            onClick={() => handleApprove(indent._id)}
+                            color="primary"
+                            onClick={() => navigate(`/general/indents/${item._id}/edit`)}
                           >
-                            <CheckCircleIcon />
+                            <EditIcon />
                           </IconButton>
+                        )}
+                        {canApproveReject(item) && (
+                          <>
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => handleApprove(item._id)}
+                            >
+                              <CheckCircleIcon />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleReject(item._id)}
+                            >
+                              <CancelIcon />
+                            </IconButton>
+                          </>
+                        )}
+                        {['super_admin', 'admin'].includes(user?.role) && (
                           <IconButton
                             size="small"
                             color="error"
-                            onClick={() => handleReject(indent._id)}
+                            onClick={() => {
+                              setSelectedIndent(item);
+                              setDeleteDialogOpen(true);
+                            }}
                           >
-                            <CancelIcon />
+                            <DeleteIcon />
                           </IconButton>
-                        </>
-                      )}
-                      {indent.status === 'Draft' && indent.requestedBy?._id === user?.id && (
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => {
-                            setSelectedIndent(indent);
-                            setDeleteDialogOpen(true);
-                          }}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      )}
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))
+                        )}
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

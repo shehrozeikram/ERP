@@ -88,11 +88,28 @@ router.get('/', async (req, res) => {
 
     // Get total count for pagination
     const total = await TajProperty.countDocuments(filters);
-
+    
+    // Get property type counts across all records (not just current page)
+    const propertyTypeCounts = await TajProperty.aggregate([
+      { $match: filters },
+      {
+        $group: {
+          _id: '$propertyType',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    // Convert to object format
+    const countsByType = {};
+    propertyTypeCounts.forEach(item => {
+      countsByType[item._id || 'Other'] = item.count;
+    });
+    
     // OPTIMIZATION: Use lean for better performance with pagination
     const properties = await TajProperty.find(filters)
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
-      .populate('resident', 'name accountType contactNumber email')
+      .populate('resident', 'name accountType contactNumber email residentId')
       .sort({ srNo: 1 })
       .skip(skip)
       .limit(limit)
@@ -107,6 +124,10 @@ router.get('/', async (req, res) => {
         limit,
         total,
         totalPages
+      },
+      counts: {
+        total,
+        byPropertyType: countsByType
       }
     };
     
@@ -126,7 +147,7 @@ router.get('/:id', async (req, res) => {
   try {
     const property = await TajProperty.findById(req.params.id)
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
-      .populate('resident', 'name accountType contactNumber email')
+      .populate('resident', 'name accountType contactNumber email residentId')
       .populate('createdBy', 'firstName lastName email _id')
       .populate('updatedBy', 'firstName lastName email _id');
     if (!property) {
@@ -221,7 +242,7 @@ router.patch('/:id/status', async (req, res) => {
       { new: true, runValidators: true }
     )
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
-      .populate('resident', 'name accountType contactNumber email')
+      .populate('resident', 'name accountType contactNumber email residentId')
       .populate('updatedBy', 'firstName lastName email _id');
 
     if (!property) {

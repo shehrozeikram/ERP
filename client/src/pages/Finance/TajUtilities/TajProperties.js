@@ -142,6 +142,7 @@ const getFieldLabel = (fieldType) => {
 const TajProperties = () => {
   const navigate = useNavigate();
   const [properties, setProperties] = useState([]);
+  const [totalCounts, setTotalCounts] = useState({ total: 0, byPropertyType: {} });
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState(defaultForm);
@@ -290,6 +291,9 @@ const TajProperties = () => {
       setProperties(response.data?.data || []);
       if (response.data?.pagination) {
         pagination.setTotal(response.data.pagination.total);
+      }
+      if (response.data?.counts) {
+        setTotalCounts(response.data.counts);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load Taj properties');
@@ -1026,15 +1030,10 @@ const TajProperties = () => {
     });
   }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
 
-  // Calculate dynamic property type counts
+  // Use total counts from backend (across all pages) instead of calculating from current page
   const propertyTypeCounts = useMemo(() => {
-    const counts = {};
-    filteredProperties.forEach(property => {
-      const type = property.propertyType || 'Other';
-      counts[type] = (counts[type] || 0) + 1;
-    });
-    return counts;
-  }, [filteredProperties]);
+    return totalCounts.byPropertyType || {};
+  }, [totalCounts]);
   
   const handleFilterChange = (name, value) => {
     setFilters(prev => ({
@@ -1134,7 +1133,7 @@ const TajProperties = () => {
       <Box sx={{ mb: 3 }}>
         <Grid container spacing={2}>
           <Grid item xs={6} sm={4} md={2}>
-            <StatCard title="Total Properties" value={properties.length} />
+            <StatCard title="Total Properties" value={totalCounts.total || 0} />
           </Grid>
           {Object.entries(propertyTypeCounts).map(([type, count]) => (
             <Grid item xs={6} sm={4} md={2} key={type}>

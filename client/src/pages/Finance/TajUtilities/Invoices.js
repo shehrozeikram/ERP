@@ -31,14 +31,13 @@ import {
   Refresh as RefreshIcon,
   Visibility as ViewIcon,
   Download as DownloadIcon,
-  Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
-import { fetchAllInvoices, deleteInvoice } from '../../../services/propertyInvoiceService';
+import { fetchAllInvoices } from '../../../services/propertyInvoiceService';
 import { fetchProperties } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
 import { fetchSectors } from '../../../services/tajSectorsService';
@@ -91,7 +90,7 @@ const Invoices = () => {
     resetDependencies: [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]
   });
 
-  const loadInvoices = async () => {
+  const loadInvoices = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError('');
@@ -102,6 +101,10 @@ const Invoices = () => {
       if (statusFilter !== 'all') params.status = statusFilter;
       if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
       if (propertyFilter) params.propertyId = propertyFilter;
+      // Add timestamp to bypass cache if force refresh
+      if (forceRefresh) {
+        params._t = Date.now();
+      }
       
       const response = await fetchAllInvoices(params);
       let invoicesData = response.data?.data || [];
@@ -193,7 +196,16 @@ const Invoices = () => {
   };
 
   useEffect(() => {
-    loadInvoices();
+    // Reset to page 1 when filters change (except pagination changes)
+    if (pagination.page !== 0) {
+      pagination.setPage(0);
+    }
+  }, [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]);
+
+  useEffect(() => {
+    // Force refresh on initial load to ensure we get the latest invoices
+    const isInitialLoad = pagination.page === 0 && pagination.rowsPerPage === 50;
+    loadInvoices(isInitialLoad);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]);
 
@@ -202,20 +214,6 @@ const Invoices = () => {
     loadResidents();
     loadSectors();
   }, []);
-
-  const handleDeleteInvoice = async (invoiceId) => {
-    if (!window.confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      await deleteInvoice(invoiceId);
-      setSuccess('Invoice deleted successfully');
-      loadInvoices();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete invoice');
-    }
-  };
 
   const handleViewInvoice = (invoice) => {
     // Navigate to property detail page where invoice can be viewed
@@ -275,6 +273,12 @@ const Invoices = () => {
     ).format('MMM-YY').toUpperCase();
 
     const residentName = property.tenantName || property.ownerName || '—';
+    // Try multiple ways to get residentId: from populated resident object, from property.residentId, or from invoice.property.resident
+    const residentId = property.resident?.residentId || 
+                      (invoice?.property?.resident?.residentId) || 
+                      property.residentId || 
+                      (invoice?.property?.residentId) || 
+                      '—';
     const propertyAddress =
       property.address ||
       [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street]
@@ -434,6 +438,7 @@ const Invoices = () => {
       cursorY += 6;
 
       const inlineRows = [
+        ['Resident ID', residentId],
         ['Residents Name', residentName],
         ['Address', propertyAddress],
         ['Sector', propertySector],
@@ -692,7 +697,7 @@ const Invoices = () => {
             )}
           />
           <Tooltip title="Refresh">
-            <IconButton onClick={loadInvoices} disabled={loading}>
+            <IconButton onClick={() => loadInvoices(true)} disabled={loading}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>
@@ -945,15 +950,6 @@ const Invoices = () => {
                                     onClick={() => handleViewInvoice(invoice)}
                                   >
                                     <ViewIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="Delete Invoice">
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={() => handleDeleteInvoice(invoice._id)}
-                                  >
-                                    <DeleteIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                               </Stack>

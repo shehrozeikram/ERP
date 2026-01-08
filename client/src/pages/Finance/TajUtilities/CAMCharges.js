@@ -165,9 +165,17 @@ const CAMCharges = () => {
   const [bulkCreateMonth, setBulkCreateMonth] = useState(dayjs().format('MM'));
   const [bulkCreateYear, setBulkCreateYear] = useState(dayjs().format('YYYY'));
   const [bulkCreating, setBulkCreating] = useState(false);
+  const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
+  const [bulkCreateInvoiceData, setBulkCreateInvoiceData] = useState({
+    invoiceDate: dayjs().format('YYYY-MM-DD'),
+    periodFrom: dayjs().startOf('month').format('YYYY-MM-DD'),
+    periodTo: dayjs().endOf('month').format('YYYY-MM-DD'),
+    dueDate: dayjs().endOf('month').add(15, 'day').format('YYYY-MM-DD')
+  });
   
   // Properties state
   const [properties, setProperties] = useState([]);
+  const [totalCounts, setTotalCounts] = useState({ totalProperties: 0, totalAmount: 0, totalArrears: 0 });
   const [currentOverviewLoading, setCurrentOverviewLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [expandedInvoices, setExpandedInvoices] = useState(new Set());
@@ -222,6 +230,13 @@ const CAMCharges = () => {
       setProperties(response.data.data?.properties || []);
       if (response.data.data?.pagination) {
         pagination.setTotal(response.data.data.pagination.total);
+      }
+      if (response.data.data) {
+        setTotalCounts({
+          totalProperties: response.data.data.totalProperties || 0,
+          totalAmount: response.data.data.totalAmountAllPages || response.data.data.totalAmount || 0,
+          totalArrears: response.data.data.totalArrearsAllPages || response.data.data.totalArrears || 0
+        });
       }
     } catch (error) {
       console.error('Error fetching properties:', error);
@@ -379,7 +394,7 @@ const CAMCharges = () => {
       if (invoiceData._id) {
         const response = await updateInvoice(invoiceData._id, {
           invoiceNumber: invoiceData.invoiceNumber,
-          invoiceDate: invoiceData.invoiceDate,
+          invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
           dueDate: invoiceData.dueDate,
           periodFrom: invoiceData.periodFrom,
           periodTo: invoiceData.periodTo,
@@ -410,6 +425,7 @@ const CAMCharges = () => {
         includeCAM: true,
         includeElectricity: false,
         includeRent: false,
+        invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
         periodFrom: invoiceData.periodFrom,
         periodTo: invoiceData.periodTo,
         dueDate: invoiceData.dueDate,
@@ -485,8 +501,9 @@ const CAMCharges = () => {
   };
 
   const generateInvoicePDF = (propertyParam = null, invoiceParam = null) => {
-    const property = propertyParam || invoiceProperty;
+    // Use property from invoice if available, otherwise use propertyParam or invoiceProperty
     const invoice = invoiceParam || invoiceData;
+    const property = invoice?.property || propertyParam || invoiceProperty;
     
     if (!property || !invoice) return;
     
@@ -529,6 +546,12 @@ const CAMCharges = () => {
     ).format('MMM-YY').toUpperCase();
 
     const residentName = property.tenantName || property.ownerName || '—';
+    // Try multiple ways to get residentId: from populated resident object, from property.residentId, or from invoice.property.resident
+    const residentId = property.resident?.residentId || 
+                      (invoice?.property?.resident?.residentId) || 
+                      property.residentId || 
+                      (invoice?.property?.residentId) || 
+                      '—';
     const propertyAddress =
       property.address ||
       [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street]
@@ -637,6 +660,7 @@ const CAMCharges = () => {
       cursorY += 6;
 
       const inlineRows = [
+        ['Resident ID', residentId],
         ['Residents Name', residentName],
         ['Address', propertyAddress],
         ['Sector', propertySector],
@@ -868,9 +892,25 @@ const CAMCharges = () => {
     }
   };
 
+  const handleOpenBulkCreateDialog = () => {
+    // Initialize bulk create invoice data with current month/year as defaults
+    const now = dayjs();
+    const periodFrom = now.startOf('month');
+    const periodTo = now.endOf('month');
+    
+    setBulkCreateInvoiceData({
+      invoiceDate: now.format('YYYY-MM-DD'),
+      periodFrom: periodFrom.format('YYYY-MM-DD'),
+      periodTo: periodTo.format('YYYY-MM-DD'),
+      dueDate: periodTo.add(15, 'day').format('YYYY-MM-DD')
+    });
+    
+    setBulkCreateDialogOpen(true);
+  };
+
   const handleBulkCreateInvoices = async () => {
-    if (!bulkCreateMonth || !bulkCreateYear) {
-      setError('Please select both month and year');
+    if (!bulkCreateInvoiceData.periodFrom || !bulkCreateInvoiceData.periodTo) {
+      setError('Please fill in all required fields');
       return;
     }
 
@@ -878,11 +918,13 @@ const CAMCharges = () => {
       setBulkCreating(true);
       setError('');
       setSuccess('');
+      setBulkCreateDialogOpen(false);
 
-      // Calculate period dates for the selected month/year
-      const periodFrom = dayjs(`${bulkCreateYear}-${bulkCreateMonth}-01`).startOf('month').toDate();
-      const periodTo = dayjs(`${bulkCreateYear}-${bulkCreateMonth}-01`).endOf('month').toDate();
-      const dueDate = dayjs(periodTo).add(30, 'day').toDate();
+      // Use dates from dialog
+      const periodFrom = new Date(bulkCreateInvoiceData.periodFrom);
+      const periodTo = new Date(bulkCreateInvoiceData.periodTo);
+      const invoiceDate = new Date(bulkCreateInvoiceData.invoiceDate);
+      const dueDate = new Date(bulkCreateInvoiceData.dueDate);
 
       // Get all active properties (or filtered properties)
       const propertiesToProcess = filteredProperties.length > 0 ? filteredProperties : properties;
@@ -923,10 +965,15 @@ const CAMCharges = () => {
                 }
               }
 
-              // Check if invoice already exists for this month/year
-              const invoiceExists = invoices.some((invoice) => 
-                invoiceMatchesMonthYear(invoice, bulkCreateMonth, bulkCreateYear)
-              );
+              // Check if invoice already exists for this period
+              const invoiceExists = invoices.some((invoice) => {
+                if (!invoice.periodFrom || !invoice.periodTo) return false;
+                const invoicePeriodFrom = dayjs(invoice.periodFrom);
+                const invoicePeriodTo = dayjs(invoice.periodTo);
+                const targetPeriodFrom = dayjs(bulkCreateInvoiceData.periodFrom);
+                const targetPeriodTo = dayjs(bulkCreateInvoiceData.periodTo);
+                return invoicePeriodFrom.isSame(targetPeriodFrom, 'day') && invoicePeriodTo.isSame(targetPeriodTo, 'day');
+              });
 
               if (invoiceExists) {
                 skippedCount++;
@@ -938,6 +985,7 @@ const CAMCharges = () => {
                 includeCAM: true,
                 includeElectricity: false,
                 includeRent: false,
+                invoiceDate: invoiceDate,
                 periodFrom: periodFrom,
                 periodTo: periodTo,
                 dueDate: dueDate
@@ -1047,6 +1095,17 @@ const CAMCharges = () => {
           </Grid>
           <Grid item xs={12} sm={6}>
             <TextField
+              label="Invoice Date"
+              type="date"
+              value={invoiceData.invoiceDate ? dayjs(invoiceData.invoiceDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')}
+              onChange={(e) => handleInvoiceFieldChange('invoiceDate', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
               label="Period From"
               type="date"
               value={invoiceData.periodFrom ? dayjs(invoiceData.periodFrom).format('YYYY-MM-DD') : ''}
@@ -1061,7 +1120,26 @@ const CAMCharges = () => {
               label="Period To"
               type="date"
               value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
-              onChange={(e) => handleInvoiceFieldChange('periodTo', e.target.value)}
+              onChange={(e) => {
+                const newPeriodTo = e.target.value;
+                if (!invoiceData) return;
+                
+                // Update both periodTo and dueDate in a single state update
+                const updatedData = {
+                  ...invoiceData,
+                  periodTo: newPeriodTo ? dayjs(newPeriodTo).toDate() : null
+                };
+                
+                // Auto-set Due Date to 15 days after Period To
+                if (newPeriodTo) {
+                  const dueDate = dayjs(newPeriodTo).add(15, 'day').format('YYYY-MM-DD');
+                  updatedData.dueDate = dayjs(dueDate).toDate();
+                } else {
+                  updatedData.dueDate = null;
+                }
+                
+                setInvoiceData(updatedData);
+              }}
               fullWidth
               size="small"
               InputLabelProps={{ shrink: true }}
@@ -2009,10 +2087,9 @@ const CAMCharges = () => {
 
       {/* Statistics Cards */}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
-        <StatCard title="Total Properties" value={pagination.total || properties.length} />
-        <StatCard title="Current Page" value={`${properties.length} of ${pagination.total || properties.length}`} />
-        <StatCard title="Total CAM Amount" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.camAmount || 0), 0))} />
-        <StatCard title="Total Arrears" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.camArrears || 0), 0))} />
+        <StatCard title="Total Properties" value={totalCounts.totalProperties || pagination.total || 0} />
+        <StatCard title="Total CAM Amount" value={formatCurrency(totalCounts.totalAmount)} />
+        <StatCard title="Total Arrears" value={formatCurrency(totalCounts.totalArrears)} />
       </Stack>
 
       {/* Filters */}
@@ -2073,48 +2150,13 @@ const CAMCharges = () => {
                 Bulk Create Invoices
               </Typography>
             </Grid>
-            <Grid item xs={12} sm={4} md={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Month</InputLabel>
-                <Select
-                  value={bulkCreateMonth}
-                  label="Month"
-                  onChange={(e) => setBulkCreateMonth(e.target.value)}
-                >
-                  {months.map((month) => (
-                    <MenuItem key={month.value} value={month.value}>
-                      {month.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={4} md={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Year</InputLabel>
-                <Select
-                  value={bulkCreateYear}
-                  label="Year"
-                  onChange={(e) => setBulkCreateYear(e.target.value)}
-                >
-                  {Array.from({ length: 10 }, (_, i) => {
-                    const year = dayjs().year() - 5 + i;
-                    return (
-                      <MenuItem key={year} value={String(year)}>
-                        {year}
-                      </MenuItem>
-                    );
-                  })}
-                </Select>
-              </FormControl>
-            </Grid>
             <Grid item xs={12} sm={12} md={6}>
               <Button
                 variant="contained"
                 color="success"
                 startIcon={<AddIcon />}
-                onClick={handleBulkCreateInvoices}
-                disabled={bulkCreating || !bulkCreateMonth || !bulkCreateYear}
+                onClick={handleOpenBulkCreateDialog}
+                disabled={bulkCreating}
                 sx={{ minWidth: 200 }}
               >
                 {bulkCreating ? 'Creating Invoices...' : `Create Invoices for ${filteredProperties.length > 0 ? filteredProperties.length : properties.length} Properties`}
@@ -2554,6 +2596,92 @@ const CAMCharges = () => {
             disabled={invoiceLoading || !invoiceData || !invoiceData._id}
           >
             {invoiceLoading ? (invoiceData?._id ? 'Updating...' : 'Creating...') : (invoiceData?._id ? 'Update Invoice' : 'Save Invoice')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk Create Invoices Dialog */}
+      <Dialog open={bulkCreateDialogOpen} onClose={() => setBulkCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Bulk Create Invoices - Common Fields</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              These fields will be applied to all invoices. Other fields (charges, amounts) will be calculated per property.
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Invoice Date"
+                  type="date"
+                  value={bulkCreateInvoiceData.invoiceDate}
+                  onChange={(e) => setBulkCreateInvoiceData(prev => ({ ...prev, invoiceDate: e.target.value }))}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Period From"
+                  type="date"
+                  value={bulkCreateInvoiceData.periodFrom}
+                  onChange={(e) => {
+                    const newPeriodFrom = e.target.value;
+                    setBulkCreateInvoiceData(prev => ({ ...prev, periodFrom: newPeriodFrom }));
+                    // Auto-update Due Date if Period To exists
+                    if (bulkCreateInvoiceData.periodTo) {
+                      const dueDate = dayjs(bulkCreateInvoiceData.periodTo).add(15, 'day').format('YYYY-MM-DD');
+                      setBulkCreateInvoiceData(prev => ({ ...prev, dueDate }));
+                    }
+                  }}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Period To"
+                  type="date"
+                  value={bulkCreateInvoiceData.periodTo}
+                  onChange={(e) => {
+                    const newPeriodTo = e.target.value;
+                    setBulkCreateInvoiceData(prev => ({ ...prev, periodTo: newPeriodTo }));
+                    // Auto-set Due Date to 15 days after Period To
+                    const dueDate = dayjs(newPeriodTo).add(15, 'day').format('YYYY-MM-DD');
+                    setBulkCreateInvoiceData(prev => ({ ...prev, dueDate }));
+                  }}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Due Date"
+                  type="date"
+                  value={bulkCreateInvoiceData.dueDate}
+                  onChange={(e) => setBulkCreateInvoiceData(prev => ({ ...prev, dueDate: e.target.value }))}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+            </Grid>
+            <Alert severity="info">
+              This will create invoices for {filteredProperties.length > 0 ? filteredProperties.length : properties.length} properties. Invoices that already exist for this period will be skipped.
+            </Alert>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkCreateDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleBulkCreateInvoices}
+            disabled={bulkCreating || !bulkCreateInvoiceData.periodFrom || !bulkCreateInvoiceData.periodTo}
+          >
+            {bulkCreating ? 'Creating...' : 'Create All Invoices'}
           </Button>
         </DialogActions>
       </Dialog>

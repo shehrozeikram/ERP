@@ -33,6 +33,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
+import paymentSettlementService from '../../../services/paymentSettlementService';
 import dayjs from 'dayjs';
 
 // Stat Card Component
@@ -78,6 +79,7 @@ const IndentsDashboard = () => {
   const [stats, setStats] = useState(null);
   const [recentIndents, setRecentIndents] = useState([]);
   const [myIndents, setMyIndents] = useState([]);
+  const [recentPayments, setRecentPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -87,12 +89,23 @@ const IndentsDashboard = () => {
       setLoading(true);
       setError('');
 
-      const response = await indentService.getDashboardStats();
-      const data = response.data;
-      
-      setStats(data.stats);
-      setRecentIndents(data.recentIndents || []);
-      setMyIndents(data.myIndents || []);
+      const [indentsResponse, paymentsResponse] = await Promise.allSettled([
+        indentService.getDashboardStats(),
+        paymentSettlementService.getPaymentSettlements({ page: 1, limit: 50 })
+      ]);
+
+      if (indentsResponse.status === 'fulfilled') {
+        const data = indentsResponse.value.data;
+        setStats(data.stats);
+        setRecentIndents(data.recentIndents || []);
+        setMyIndents(data.myIndents || []);
+      }
+
+      if (paymentsResponse.status === 'fulfilled') {
+        const payments = paymentsResponse.value.data?.settlements || [];
+        // Get recent payments (last 10)
+        setRecentPayments(payments.slice(0, 10));
+      }
 
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load dashboard data');
@@ -108,17 +121,28 @@ const IndentsDashboard = () => {
 
   // Get status color
   const getStatusColor = (status) => {
+    if (!status) return 'default';
+    const statusStr = String(status).toLowerCase();
     const colors = {
-      'Draft': 'default',
-      'Submitted': 'info',
-      'Under Review': 'warning',
-      'Approved': 'success',
-      'Rejected': 'error',
-      'Partially Fulfilled': 'info',
-      'Fulfilled': 'success',
-      'Cancelled': 'default'
+      'draft': 'default',
+      'submitted': 'info',
+      'under review': 'warning',
+      'approved': 'success',
+      'rejected': 'error',
+      'partially fulfilled': 'info',
+      'fulfilled': 'success',
+      'cancelled': 'default',
+      'send to ceo office': 'warning',
+      'returned from ceo office': 'warning',
+      'paid': 'success'
     };
-    return colors[status] || 'default';
+    // Check if status contains any of the keys
+    for (const [key, color] of Object.entries(colors)) {
+      if (statusStr.includes(key)) {
+        return color;
+      }
+    }
+    return 'default';
   };
 
   // Get priority color
@@ -260,6 +284,7 @@ const IndentsDashboard = () => {
                       <TableRow>
                         <TableCell><strong>Indent #</strong></TableCell>
                         <TableCell><strong>Title</strong></TableCell>
+                        <TableCell><strong>Department</strong></TableCell>
                         <TableCell><strong>Status</strong></TableCell>
                         <TableCell><strong>Date</strong></TableCell>
                       </TableRow>
@@ -278,6 +303,7 @@ const IndentsDashboard = () => {
                               {indent.title}
                             </Typography>
                           </TableCell>
+                          <TableCell>{indent.department?.name || '—'}</TableCell>
                           <TableCell>
                             <Chip 
                               label={indent.status} 
@@ -286,6 +312,67 @@ const IndentsDashboard = () => {
                             />
                           </TableCell>
                           <TableCell>{formatDate(indent.requestedDate)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Recent Payments */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="h6" fontWeight={600}>
+                  Recent Payments
+                </Typography>
+                <Button size="small" onClick={() => navigate('/general/payments')}>
+                  View All
+                </Button>
+              </Stack>
+              {recentPayments.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                  No payments found
+                </Typography>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Reference #</strong></TableCell>
+                        <TableCell><strong>Description</strong></TableCell>
+                        <TableCell><strong>Department</strong></TableCell>
+                        <TableCell><strong>Status</strong></TableCell>
+                        <TableCell><strong>Amount</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {recentPayments.map((payment) => (
+                        <TableRow 
+                          key={payment._id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => navigate(`/general/payments?settlementId=${payment._id}`)}
+                        >
+                          <TableCell>{payment.referenceNumber || payment._id}</TableCell>
+                          <TableCell>
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                              {payment.forWhat || payment.toWhomPaid || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{payment.fromDepartment || '—'}</TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={payment.workflowStatus || payment.status || 'Draft'} 
+                              size="small" 
+                              color={getStatusColor(payment.workflowStatus || payment.status)}
+                            />
+                          </TableCell>
+                          <TableCell>{formatCurrency(payment.grandTotal || payment.amount || 0)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

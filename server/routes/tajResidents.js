@@ -93,10 +93,15 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   // Calculate property count and total remaining deposits for each resident
   const residentIds = residents.map(r => r._id);
   
-  // Get all deposits for these residents
+  // Get all deposits for these residents (exclude reversal transactions)
   const allDeposits = await TajTransaction.find({
     resident: { $in: residentIds },
-    transactionType: 'deposit'
+    transactionType: 'deposit',
+    $or: [
+      { referenceNumberExternal: { $not: /^REV-/ } },
+      { referenceNumberExternal: { $exists: false } },
+      { referenceNumberExternal: null }
+    ]
   }).select('resident amount _id').lean();
   
   // Get all deposit usages from bill_payment transactions
@@ -399,7 +404,12 @@ router.get('/:id/transactions', authMiddleware, asyncHandler(async (req, res) =>
   // to ensure remainingAmount is calculated correctly for all deposits
   const allDepositTransactions = await TajTransaction.find({
     resident: req.params.id,
-    transactionType: 'deposit'
+    transactionType: 'deposit',
+    $or: [
+      { referenceNumberExternal: { $not: /^REV-/ } },
+      { referenceNumberExternal: { $exists: false } },
+      { referenceNumberExternal: null }
+    ]
   }).select('_id amount');
   
   const allDepositIds = allDepositTransactions.map(d => d._id);
@@ -514,7 +524,7 @@ router.post(
       return res.status(404).json({ success: false, message: 'Resident not found' });
     }
 
-    const { amount, description, paymentMethod, bank, referenceNumberExternal } = req.body;
+    const { amount, description, paymentMethod, bank, referenceNumberExternal, depositDate } = req.body;
     const amountNum = parseFloat(amount) || 0;
     if (amountNum <= 0) {
       return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
@@ -534,7 +544,7 @@ router.post(
     await resident.save();
 
     // Create transaction record
-    const transaction = new TajTransaction({
+    const transactionData = {
       resident: resident._id,
       transactionType: 'deposit',
       amount: amountNum,
@@ -545,7 +555,14 @@ router.post(
       bank: bank || null,
       referenceNumberExternal,
       createdBy: req.user.id
-    });
+    };
+    
+    // Set createdAt if depositDate is provided
+    if (depositDate) {
+      transactionData.createdAt = new Date(depositDate);
+    }
+    
+    const transaction = new TajTransaction(transactionData);
     await transaction.save();
 
     await transaction.populate('resident', 'name accountType');
@@ -598,7 +615,7 @@ router.put(
       return res.status(403).json({ success: false, message: 'Transaction does not belong to this resident' });
     }
 
-    const { amount, description, paymentMethod, bank, referenceNumberExternal } = req.body;
+    const { amount, description, paymentMethod, bank, referenceNumberExternal, depositDate } = req.body;
     const oldAmount = transaction.amount;
     const amountChanged = amount !== undefined && parseFloat(amount) !== oldAmount;
 
@@ -646,6 +663,11 @@ router.put(
     if (paymentMethod !== undefined) transaction.paymentMethod = paymentMethod;
     if (bank !== undefined) transaction.bank = bank;
     if (referenceNumberExternal !== undefined) transaction.referenceNumberExternal = referenceNumberExternal;
+    
+    // Update deposit date if provided
+    if (depositDate !== undefined) {
+      transaction.createdAt = new Date(depositDate);
+    }
 
     // Validate bank is provided for bank-related payment methods
     if ((transaction.paymentMethod === 'Bank Transfer' || transaction.paymentMethod === 'Cheque' || transaction.paymentMethod === 'Online') && !transaction.bank) {
@@ -1180,8 +1202,15 @@ router.get('/deposits/all', authMiddleware, asyncHandler(async (req, res) => {
   const { page = 1, limit = 50, search, startDate, endDate } = req.query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
-  // Build query
-  const query = { transactionType: 'deposit' };
+  // Build query (exclude reversal transactions)
+  const query = {
+    transactionType: 'deposit',
+    $or: [
+      { referenceNumberExternal: { $not: /^REV-/ } },
+      { referenceNumberExternal: { $exists: false } },
+      { referenceNumberExternal: null }
+    ]
+  };
 
   // Date filter
   if (startDate || endDate) {

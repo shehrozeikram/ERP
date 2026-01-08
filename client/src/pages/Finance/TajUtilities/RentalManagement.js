@@ -129,6 +129,7 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'REN') => {
 const RentalManagement = () => {
   const navigate = useNavigate();
   const [properties, setProperties] = useState([]);
+  const [summary, setSummary] = useState(defaultSummary);
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [paymentInvoiceDialog, setPaymentInvoiceDialog] = useState(false);
   const [paymentDetailsDialog, setPaymentDetailsDialog] = useState(false);
@@ -182,7 +183,10 @@ const RentalManagement = () => {
     try {
       setLoading(true);
       const response = await fetchProperties();
-      setProperties(response.data?.data || []);
+      setProperties(response.data?.data?.properties || response.data?.data || []);
+      if (response.data?.data?.summary) {
+        setSummary(response.data.data.summary);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load data');
     } finally {
@@ -368,7 +372,7 @@ const RentalManagement = () => {
       
       setInvoiceData({
         invoiceNumber,
-        dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+        dueDate: dayjs(periodTo).add(15, 'day').toDate(),
         periodFrom,
         periodTo,
         chargeTypes: ['RENT'],
@@ -397,7 +401,7 @@ const RentalManagement = () => {
       
       setInvoiceData({
         invoiceNumber,
-        dueDate: dayjs(periodTo).add(30, 'day').toDate(),
+        dueDate: dayjs(periodTo).add(15, 'day').toDate(),
         periodFrom,
         periodTo,
         chargeTypes: ['RENT'],
@@ -450,7 +454,7 @@ const RentalManagement = () => {
     } else {
       const updatedData = {
         ...invoiceData,
-        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate'
+        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate'
           ? (value ? new Date(value) : null)
           : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
           ? Number(value) || 0
@@ -488,7 +492,7 @@ const RentalManagement = () => {
       if (invoiceData._id) {
         const response = await updateInvoice(invoiceData._id, {
           invoiceNumber: invoiceData.invoiceNumber,
-          invoiceDate: invoiceData.invoiceDate,
+          invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
           dueDate: invoiceData.dueDate,
           periodFrom: invoiceData.periodFrom,
           periodTo: invoiceData.periodTo,
@@ -520,6 +524,7 @@ const RentalManagement = () => {
         includeCAM: false,
         includeElectricity: false,
         includeRent: true,
+        invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
         periodFrom: invoiceData.periodFrom,
         periodTo: invoiceData.periodTo,
         dueDate: invoiceData.dueDate,
@@ -898,6 +903,12 @@ const RentalManagement = () => {
     ).format('MMM-YY').toUpperCase();
 
     const tenantName = property.tenantName || property.ownerName || '—';
+    // Try multiple ways to get residentId: from populated resident object, from property.residentId, or from invoice.property.resident
+    const residentId = property.resident?.residentId || 
+                      (invoice?.property?.resident?.residentId) || 
+                      property.residentId || 
+                      (invoice?.property?.residentId) || 
+                      '—';
     const propertyAddress =
       property.fullAddress ||
       property.address ||
@@ -1003,6 +1014,7 @@ const RentalManagement = () => {
       cursorY += 6;
 
       const inlineRows = [
+        ['Resident ID', residentId],
         ['Tenant Name', tenantName],
         ['Address', propertyAddress],
         ['Sector', propertySector],
@@ -1354,6 +1366,17 @@ const RentalManagement = () => {
           </Grid>
           <Grid item xs={12} sm={6}>
             <TextField
+              label="Invoice Date"
+              type="date"
+              value={invoiceData.invoiceDate ? dayjs(invoiceData.invoiceDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')}
+              onChange={(e) => handleInvoiceFieldChange('invoiceDate', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
               label="Due Date"
               type="date"
               value={invoiceData.dueDate ? dayjs(invoiceData.dueDate).format('YYYY-MM-DD') : ''}
@@ -1379,7 +1402,15 @@ const RentalManagement = () => {
               label="Period To"
               type="date"
               value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
-              onChange={(e) => handleInvoiceFieldChange('periodTo', e.target.value)}
+              onChange={(e) => {
+                const newPeriodTo = e.target.value;
+                handleInvoiceFieldChange('periodTo', newPeriodTo);
+                // Auto-set Due Date to 15 days after Period To
+                if (newPeriodTo) {
+                  const dueDate = dayjs(newPeriodTo).add(15, 'day').format('YYYY-MM-DD');
+                  handleInvoiceFieldChange('dueDate', dueDate);
+                }
+              }}
               fullWidth
               size="small"
               InputLabelProps={{ shrink: true }}
@@ -1675,10 +1706,10 @@ const RentalManagement = () => {
 
       {/* Statistics Cards */}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
-        <StatCard title="Total Properties" value={properties.length} />
+        <StatCard title="Total Properties" value={summary.totalProperties || properties.length} />
         <StatCard title="Filtered Properties" value={filteredProperties.length} />
-        <StatCard title="Total Expected Rent" value={formatCurrency(filteredProperties.reduce((sum, p) => sum + (p.expectedRent || p.rentalAgreement?.monthlyRent || 0), 0))} />
-        <StatCard title="Avg Monthly Rent" value={formatCurrency(filteredProperties.length > 0 ? filteredProperties.reduce((sum, p) => sum + (p.expectedRent || p.rentalAgreement?.monthlyRent || 0), 0) / filteredProperties.length : 0)} />
+        <StatCard title="Total Expected Rent" value={formatCurrency(summary.rent?.expectedTotal || filteredProperties.reduce((sum, p) => sum + (p.expectedRent || p.rentalAgreement?.monthlyRent || 0), 0))} />
+        <StatCard title="Avg Monthly Rent" value={formatCurrency(summary.rent?.expectedAverage || (filteredProperties.length > 0 ? filteredProperties.reduce((sum, p) => sum + (p.expectedRent || p.rentalAgreement?.monthlyRent || 0), 0) / filteredProperties.length : 0))} />
       </Stack>
 
       {/* Filters */}
