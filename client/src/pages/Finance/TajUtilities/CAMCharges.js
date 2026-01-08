@@ -738,33 +738,98 @@ const CAMCharges = () => {
     try {
       setCountingInvoices(true);
       
+      // Fetch ALL properties (not just current page) for accurate count
+      let allProperties = [];
+      let currentPage = 1;
+      const pageSize = 1000; // Large page size to minimize requests
+      let hasMorePages = true;
+
+      while (hasMorePages) {
+        try {
+          const params = { page: currentPage, limit: pageSize };
+          const response = await api.get('/taj-utilities/cam-charges/current-overview', { params });
+          const pageProperties = response.data.data?.properties || [];
+          allProperties = [...allProperties, ...pageProperties];
+          
+          const totalPages = response.data.data?.pagination?.totalPages || 1;
+          hasMorePages = currentPage < totalPages;
+          currentPage++;
+          
+          // Small delay between page requests
+          if (hasMorePages) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        } catch (err) {
+          console.error(`Error loading properties page ${currentPage}:`, err);
+          hasMorePages = false;
+        }
+      }
+      
       // Load invoices for all properties that don't have them loaded yet
-      const propertiesToLoad = properties.filter(
+      const propertiesToLoad = allProperties.filter(
         property => !propertyInvoices[property._id]
       );
 
       let updatedInvoices = { ...propertyInvoices };
 
+      // Helper function to fetch invoices with retry logic for rate limiting
+      const fetchInvoicesWithRetry = async (property, maxRetries = 3) => {
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            const response = await fetchInvoicesForProperty(property._id);
+            return response.data?.data || [];
+          } catch (err) {
+            // If it's a 429 error (rate limit), wait and retry
+            if (err.response?.status === 429 && attempt < maxRetries - 1) {
+              const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+              continue;
+            }
+            // If not a rate limit error or max retries reached, return empty
+            console.error(`Error loading invoices for property ${property._id}:`, err);
+            return [];
+          }
+        }
+        return [];
+      };
+
       if (propertiesToLoad.length > 0) {
-        // Load invoices for properties in batches
-        const batchSize = 10;
+        // Load invoices in parallel batches with progressive count updates
+        const batchSize = 10; // Process 10 properties in parallel
+        let processedCount = 0;
+        
         for (let i = 0; i < propertiesToLoad.length; i += batchSize) {
           const batch = propertiesToLoad.slice(i, i + batchSize);
+          
+          // Process batch in parallel
           await Promise.all(
             batch.map(async (property) => {
               try {
-                const response = await fetchInvoicesForProperty(property._id);
-                updatedInvoices[property._id] = response.data?.data || [];
+                updatedInvoices[property._id] = await fetchInvoicesWithRetry(property);
+                processedCount++;
+                
+                // Update count progressively every 10 properties
+                if (processedCount % 10 === 0) {
+                  let tempCount = 0;
+                  allProperties.forEach((p) => {
+                    const invs = updatedInvoices[p._id] || propertyInvoices[p._id] || [];
+                    invs.forEach((inv) => {
+                      if (invoiceMatchesMonthYear(inv, bulkDownloadMonth, bulkDownloadYear)) {
+                        tempCount++;
+                      }
+                    });
+                  });
+                  setMatchingInvoiceCount(tempCount);
+                }
               } catch (err) {
-                console.error(`Error loading invoices for property ${property._id}:`, err);
                 updatedInvoices[property._id] = [];
               }
             })
           );
           
-          // Small delay between batches
+          // Small delay between batches to avoid rate limiting (only if not last batch)
           if (i + batchSize < propertiesToLoad.length) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 200));
           }
         }
         
@@ -772,11 +837,11 @@ const CAMCharges = () => {
         setPropertyInvoices(updatedInvoices);
       }
 
-      // Calculate count from all invoices (both already loaded and newly loaded)
+      // Calculate final count from ALL properties
       const allInvoices = propertiesToLoad.length > 0 ? updatedInvoices : propertyInvoices;
       let count = 0;
       
-      properties.forEach((property) => {
+      allProperties.forEach((property) => {
         const invoices = allInvoices[property._id] || [];
         invoices.forEach((invoice) => {
           if (invoiceMatchesMonthYear(invoice, bulkDownloadMonth, bulkDownloadYear)) {
@@ -792,7 +857,7 @@ const CAMCharges = () => {
     } finally {
       setCountingInvoices(false);
     }
-  }, [bulkDownloadMonth, bulkDownloadYear, properties, propertyInvoices, invoiceMatchesMonthYear]);
+  }, [bulkDownloadMonth, bulkDownloadYear, propertyInvoices, invoiceMatchesMonthYear]);
 
   // Load invoices when month/year changes to get accurate count
   useEffect(() => {
@@ -811,49 +876,96 @@ const CAMCharges = () => {
     try {
       setBulkDownloading(true);
       setError('');
-      setSuccess('Loading invoices...');
+      setSuccess('Loading all properties and invoices...');
+
+      // Fetch ALL properties (not just current page) for bulk download
+      // Use a very high limit to get all properties in one request
+      let allProperties = [];
+      let currentPage = 1;
+      const pageSize = 1000; // Large page size to minimize requests
+      let hasMorePages = true;
+
+      while (hasMorePages) {
+        try {
+          const params = { page: currentPage, limit: pageSize };
+          const response = await api.get('/taj-utilities/cam-charges/current-overview', { params });
+          const pageProperties = response.data.data?.properties || [];
+          allProperties = [...allProperties, ...pageProperties];
+          
+          const totalPages = response.data.data?.pagination?.totalPages || 1;
+          hasMorePages = currentPage < totalPages;
+          currentPage++;
+          
+          if (hasMorePages) {
+            setSuccess(`Loading properties... (${allProperties.length} loaded so far)`);
+            // Small delay between page requests
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        } catch (err) {
+          console.error(`Error loading properties page ${currentPage}:`, err);
+          hasMorePages = false;
+        }
+      }
+
+      setSuccess(`Found ${allProperties.length} properties. Loading invoices...`);
 
       // Load invoices for all properties that don't have them loaded yet
-      const propertiesToLoad = properties.filter(
+      const propertiesToLoad = allProperties.filter(
         property => !propertyInvoices[property._id]
       );
 
       if (propertiesToLoad.length > 0) {
         setSuccess(`Loading invoices for ${propertiesToLoad.length} property(ies)...`);
         
-        // Load invoices for properties in batches to avoid overwhelming the server
-        const batchSize = 10;
+        // Helper function to fetch invoices with retry logic for rate limiting
+        const fetchInvoicesWithRetry = async (property, maxRetries = 3) => {
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+              const response = await fetchInvoicesForProperty(property._id);
+              return response.data?.data || [];
+            } catch (err) {
+              // If it's a 429 error (rate limit), wait and retry
+              if (err.response?.status === 429 && attempt < maxRetries - 1) {
+                const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+              }
+              // If not a rate limit error or max retries reached, return empty
+              console.error(`Error loading invoices for property ${property._id}:`, err);
+              return [];
+            }
+          }
+          return [];
+        };
+        
+        // Load invoices in parallel batches (faster but still rate-limit safe)
+        const batchSize = 10; // Process 10 properties in parallel
         for (let i = 0; i < propertiesToLoad.length; i += batchSize) {
           const batch = propertiesToLoad.slice(i, i + batchSize);
+          
+          // Process batch in parallel
           await Promise.all(
             batch.map(async (property) => {
-              try {
-                const response = await fetchInvoicesForProperty(property._id);
-                setPropertyInvoices(prev => ({
-                  ...prev,
-                  [property._id]: response.data?.data || []
-                }));
-              } catch (err) {
-                console.error(`Error loading invoices for property ${property._id}:`, err);
-                setPropertyInvoices(prev => ({
-                  ...prev,
-                  [property._id]: []
-                }));
-              }
+              const invoices = await fetchInvoicesWithRetry(property);
+              setPropertyInvoices(prev => ({
+                ...prev,
+                [property._id]: invoices
+              }));
             })
           );
           
-          // Small delay between batches
+          // Small delay between batches to avoid rate limiting
           if (i + batchSize < propertiesToLoad.length) {
+            setSuccess(`Loading invoices... (${Math.min(i + batchSize, propertiesToLoad.length)}/${propertiesToLoad.length} properties)`);
             await new Promise(resolve => setTimeout(resolve, 200));
           }
         }
       }
 
-      // Collect all invoices from all properties that match the month/year
+      // Collect all invoices from ALL properties that match the month/year
       const matchingInvoices = [];
       
-      properties.forEach((property) => {
+      allProperties.forEach((property) => {
         const invoices = propertyInvoices[property._id] || [];
         invoices.forEach((invoice) => {
           if (invoiceMatchesMonthYear(invoice, bulkDownloadMonth, bulkDownloadYear)) {
