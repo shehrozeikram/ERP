@@ -642,23 +642,27 @@ const Electricity = () => {
           }];
           
           // Round the bill amount to nearest integer (0.5 rounds up)
-          const roundedAmount = Math.round(calcData.charges.withSurcharge || 0);
-          const roundedGrandTotal = Math.round(calcData.grandTotal || 0);
+          // Electricity Bill Amount = charges.withSurcharge (includes all electricity charges)
+          const electricityBillAmount = Math.round(calcData.charges.withSurcharge || 0);
+          // Arrears = previousArrears
+          const arrears = calcData.previousArrears || 0;
+          // Grand Total = Electricity Bill Amount + Arrears
+          const grandTotal = Math.round(electricityBillAmount + arrears);
           
           if (chargeIndex >= 0) {
             updatedCharges[chargeIndex] = {
               ...updatedCharges[chargeIndex],
-              amount: roundedAmount,
-              arrears: calcData.previousArrears || 0,
-              total: roundedGrandTotal
+              amount: electricityBillAmount,
+              arrears: arrears,
+              total: grandTotal
             };
           } else {
             updatedCharges.push({
               type: 'ELECTRICITY',
               description: 'Electricity Bill',
-              amount: roundedAmount,
-              arrears: calcData.previousArrears || 0,
-              total: roundedGrandTotal
+              amount: electricityBillAmount,
+              arrears: arrears,
+              total: grandTotal
             });
           }
           
@@ -666,9 +670,9 @@ const Electricity = () => {
             ...prev,
             chargeTypes: ['ELECTRICITY'],
             charges: updatedCharges,
-            subtotal: roundedAmount,
-            totalArrears: calcData.previousArrears || 0,
-            grandTotal: roundedGrandTotal,
+            subtotal: electricityBillAmount,
+            totalArrears: arrears,
+            grandTotal: grandTotal,
             calculationData: calcData
           };
         });
@@ -2731,9 +2735,14 @@ const Electricity = () => {
             <Alert severity="error">{invoiceError}</Alert>
           )}
           {!invoiceLoading && !calculating && !invoiceError && invoiceProperty && invoiceData && (() => {
-              const totalAmount = (invoiceData.subtotal || 0) + (invoiceData.totalArrears || 0);
               const calcData = invoiceData?.calculationData;
               const electricityCharge = invoiceData.charges?.find(c => c.type === 'ELECTRICITY') || invoiceData.charges?.[0];
+              
+              // Calculate total amount: subtotal + totalArrears (should match grandTotal)
+              // Use grandTotal if available, otherwise calculate from subtotal + totalArrears
+              const totalAmount = invoiceData.grandTotal !== undefined && invoiceData.grandTotal !== null
+                ? invoiceData.grandTotal
+                : (invoiceData.subtotal || 0) + (invoiceData.totalArrears || 0);
               
               // Calculate units consumed: Current Reading - Previous Reading
               // Always calculate directly from readings to ensure accuracy
