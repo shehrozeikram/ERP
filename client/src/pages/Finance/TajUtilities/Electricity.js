@@ -2362,11 +2362,6 @@ const Electricity = () => {
                         </TableCell>
                         <TableCell>
                           {(() => {
-                            // Debug: Check if meters exists
-                            if (process.env.NODE_ENV === 'development') {
-                              console.log('Property meters:', property.meters, 'Type:', typeof property.meters, 'Is Array:', Array.isArray(property.meters));
-                            }
-                            
                             const metersArray = Array.isArray(property.meters) ? property.meters : [];
                             const activeMetersCount = metersArray.filter(m => m && m.isActive !== false).length || 0;
                             const totalMetersCount = metersArray.length || 0;
@@ -2739,7 +2734,40 @@ const Electricity = () => {
               const totalAmount = (invoiceData.subtotal || 0) + (invoiceData.totalArrears || 0);
               const calcData = invoiceData?.calculationData;
               const electricityCharge = invoiceData.charges?.find(c => c.type === 'ELECTRICITY') || invoiceData.charges?.[0];
-              const unitsConsumed = calcData?.unitsConsumed || (currentReading ? Math.max(0, parseFloat(currentReading) - readingData.previousReading) : 0);
+              
+              // Calculate units consumed: Current Reading - Previous Reading
+              // Always calculate directly from readings to ensure accuracy
+              let unitsConsumed = 0;
+              
+              // Get current reading (prioritize input field, then calcData)
+              const current = currentReading 
+                ? parseFloat(String(currentReading).trim()) || 0
+                : (calcData?.currentReading ? parseFloat(String(calcData.currentReading)) || 0 : 0);
+              
+              // Get previous reading (prioritize readingData, then calcData)
+              const previous = readingData.previousReading !== undefined && readingData.previousReading !== null
+                ? parseFloat(String(readingData.previousReading).trim()) || 0
+                : (calcData?.previousReading !== undefined && calcData?.previousReading !== null
+                    ? parseFloat(String(calcData.previousReading)) || 0 
+                    : 0);
+              
+              // Always calculate: Units Consumed = Current Reading - Previous Reading
+              if (current > 0) {
+                unitsConsumed = Math.max(0, current - previous);
+              } else if (calcData?.unitsConsumed !== undefined && calcData?.unitsConsumed !== null) {
+                // Only use backend value if we don't have current reading
+                const backendUnits = Number(calcData.unitsConsumed) || 0;
+                // Verify backend calculation is correct
+                const backendCurrent = calcData.currentReading ? parseFloat(String(calcData.currentReading)) || 0 : 0;
+                const backendPrevious = calcData.previousReading !== undefined ? parseFloat(String(calcData.previousReading)) || 0 : 0;
+                if (backendCurrent > 0 && backendPrevious >= 0) {
+                  const expectedUnits = Math.max(0, backendCurrent - backendPrevious);
+                  // Use backend value only if it matches expected calculation
+                  unitsConsumed = (backendUnits === expectedUnits) ? backendUnits : expectedUnits;
+                } else {
+                  unitsConsumed = backendUnits;
+                }
+              }
               
               return (
               <Stack spacing={2}>
@@ -2788,9 +2816,13 @@ const Electricity = () => {
                           {activeMeters.map((meter, index) => {
                             const meterNo = String(meter.meterNo || '');
                             const meterReading = meterReadings[meterNo] || { previousReading: 0, currentReading: '', previousArrears: 0 };
-                            const unitsConsumed = meterReading.currentReading 
-                              ? Math.max(0, parseFloat(meterReading.currentReading) - (meterReading.previousReading || 0))
-                              : 0;
+                            // Calculate units consumed: Current Reading - Previous Reading
+                            let unitsConsumed = 0;
+                            if (meterReading.currentReading && meterReading.previousReading !== undefined) {
+                              const current = parseFloat(meterReading.currentReading) || 0;
+                              const previous = parseFloat(meterReading.previousReading) || 0;
+                              unitsConsumed = Math.max(0, current - previous);
+                            }
                             return (
                               <Box key={meterNo} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                                 <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
