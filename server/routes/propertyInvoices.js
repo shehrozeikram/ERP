@@ -1619,7 +1619,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     const skip = (page - 1) * limit;
     
     // OPTIMIZATION: Check cache first (only if no filters and default pagination)
-    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus;
+    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType;
     const isDefaultPagination = page === 1 && limit === 50;
     const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.INVOICES_OVERVIEW;
     
@@ -1631,12 +1631,13 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       }
     }
     
-    const { propertyId, status, paymentStatus } = req.query;
+    const { propertyId, status, paymentStatus, chargeType } = req.query;
     const filter = {};
     
     if (propertyId) filter.property = propertyId;
     if (status) filter.status = status;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
+    if (chargeType) filter.chargeTypes = { $in: [chargeType] };
 
     // Get total count for pagination
     const total = await PropertyInvoice.countDocuments(filter);
@@ -1646,7 +1647,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy')
       .populate({
         path: 'property',
-        select: 'propertyName plotNumber address ownerName resident',
+        select: 'propertyName plotNumber address ownerName resident sector',
         populate: {
           path: 'resident',
           select: 'name accountType _id residentId'

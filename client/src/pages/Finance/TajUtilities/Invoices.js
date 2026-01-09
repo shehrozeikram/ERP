@@ -101,6 +101,7 @@ const Invoices = () => {
       if (statusFilter !== 'all') params.status = statusFilter;
       if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
       if (propertyFilter) params.propertyId = propertyFilter;
+      if (chargeTypeFilter !== 'all') params.chargeType = chargeTypeFilter;
       // Add timestamp to bypass cache if force refresh
       if (forceRefresh) {
         params._t = Date.now();
@@ -124,14 +125,6 @@ const Invoices = () => {
           }
           
           return String(residentId) === String(residentFilter);
-        });
-      }
-      
-      // Filter by charge type if selected (client-side filter)
-      if (chargeTypeFilter !== 'all') {
-        invoicesData = invoicesData.filter(invoice => {
-          const chargeTypes = invoice.chargeTypes || [];
-          return chargeTypes.includes(chargeTypeFilter);
         });
       }
       
