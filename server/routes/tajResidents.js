@@ -42,7 +42,8 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       { name: new RegExp(search, 'i') },
       { cnic: new RegExp(search, 'i') },
       { contactNumber: new RegExp(search, 'i') },
-      { email: new RegExp(search, 'i') }
+      { email: new RegExp(search, 'i') },
+      { residentId: new RegExp(search, 'i') }
     ];
   }
 

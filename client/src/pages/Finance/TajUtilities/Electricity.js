@@ -2738,11 +2738,11 @@ const Electricity = () => {
               const calcData = invoiceData?.calculationData;
               const electricityCharge = invoiceData.charges?.find(c => c.type === 'ELECTRICITY') || invoiceData.charges?.[0];
               
-              // Calculate total amount: subtotal + totalArrears (should match grandTotal)
-              // Use grandTotal if available, otherwise calculate from subtotal + totalArrears
-              const totalAmount = invoiceData.grandTotal !== undefined && invoiceData.grandTotal !== null
-                ? invoiceData.grandTotal
-                : (invoiceData.subtotal || 0) + (invoiceData.totalArrears || 0);
+              // Calculate total amount: Electricity Bill Amount + Arrears
+              // Use the actual charge values to ensure accuracy
+              const electricityBillAmount = electricityCharge?.amount || 0;
+              const arrears = electricityCharge?.arrears || 0;
+              const totalAmount = Math.round(electricityBillAmount + arrears);
               
               // Calculate units consumed: Current Reading - Previous Reading
               // Always calculate directly from readings to ensure accuracy

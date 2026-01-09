@@ -353,7 +353,7 @@ const RoleManagement = () => {
                     {role.permissions?.map((permission, index) => (
                       <Chip
                         key={index}
-                        label={`${permission.module} (${permission.submodules.length})`}
+                        label={`${permission.module} (${permission.submodules?.length || 0})`}
                         size="small"
                         variant="outlined"
                       />
@@ -462,16 +462,16 @@ const RoleManagement = () => {
             <Divider />
             
             <Typography variant="h6">Permissions</Typography>
-            {availableModules.map((module) => (
+            {availableModules && availableModules.length > 0 ? availableModules.map((module) => (
               <Accordion key={module.key}>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Typography variant="subtitle1">
-                    {module.name} ({module.submodules.length} submodules)
+                    {module.name} ({module.submodules?.length || 0} submodules)
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {module.submodules.map((submodule) => (
+                    {(module.submodules || []).map((submodule) => (
                       <Box key={submodule} sx={{ ml: 2 }}>
                         <Typography variant="subtitle2" sx={{ mb: 1 }}>
                           {submodule.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
@@ -495,7 +495,11 @@ const RoleManagement = () => {
                   </Box>
                 </AccordionDetails>
               </Accordion>
-            ))}
+            )) : (
+              <Typography variant="body2" color="text.secondary">
+                No modules available
+              </Typography>
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -540,13 +544,18 @@ const RoleManagement = () => {
                       {permission.module}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Submodules: {permission.submodules.join(', ')}
+                      Submodules: {(permission.submodules || []).join(', ') || 'None'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Actions: {permission.actions.join(', ')}
+                      Actions: {(permission.actions || []).join(', ') || 'None'}
                     </Typography>
                   </Box>
                 ))}
+                {(!viewingRole.permissions || viewingRole.permissions.length === 0) && (
+                  <Typography variant="body2" color="text.secondary">
+                    No permissions assigned
+                  </Typography>
+                )}
               </Box>
             </Box>
           )}
