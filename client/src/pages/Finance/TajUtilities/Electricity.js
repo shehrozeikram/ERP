@@ -289,12 +289,63 @@ const Electricity = () => {
     return properties.filter((property) => {
       // Search filter
       const searchLower = search.toLowerCase();
-      const matchesSearch = !search || 
-        (property.propertyName || '').toLowerCase().includes(searchLower) ||
-        (property.ownerName || '').toLowerCase().includes(searchLower) ||
-        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
-        (property.address || '').toLowerCase().includes(searchLower) ||
-        (property.sector || '').toLowerCase().includes(searchLower);
+      
+      if (!search) {
+        // No search term, all properties match (subject to other filters)
+        const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
+        const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
+        const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
+        return matchesStatus && matchesSector && matchesCategory;
+      }
+      
+      // Check meter numbers from meters array
+      const metersArray = Array.isArray(property.meters) ? property.meters : [];
+      const meterNumbers = metersArray
+        .map(m => String(m?.meterNo || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      
+      // Check location fields (fullAddress, address, street, city, block, sector)
+      // Join all location fields with spaces and normalize multiple spaces
+      const locationFields = [
+        property.fullAddress || '',
+        property.address || '',
+        property.street || '',
+        property.city || '',
+        property.block || '',
+        property.sector || ''
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+        .trim()
+        .toLowerCase();
+      
+      // Normalize search term (remove extra spaces)
+      const normalizedSearch = searchLower.replace(/\s+/g, ' ').trim();
+      
+      // Helper function to check if search matches (handles partial matches with spaces)
+      const checkMatch = (text) => {
+        if (!text) return false;
+        const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
+        // Check if exact match or if all search words are present
+        if (normalizedText.includes(normalizedSearch)) return true;
+        // For multi-word searches, check if all words are present
+        const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length > 0);
+        if (searchWords.length > 1) {
+          return searchWords.every(word => normalizedText.includes(word));
+        }
+        return false;
+      };
+      
+      const matchesSearch = 
+        checkMatch(property.propertyName) ||
+        checkMatch(property.ownerName) ||
+        checkMatch(property.plotNumber) ||
+        checkMatch(property.rdaNumber) ||
+        checkMatch(locationFields) ||
+        checkMatch(meterNumbers);
 
       // Status filter
       const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
@@ -747,29 +798,41 @@ const Electricity = () => {
         grandTotal
       });
     } else {
-      const updatedData = {
-        ...invoiceData,
-        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate'
-          ? (value ? new Date(value) : null)
-          : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
-          ? Number(value) || 0
-          : value
-      };
-      
-      // Regenerate invoice number if period changes (for new invoices only)
-      if ((field === 'periodFrom' || field === 'periodTo') && !invoiceData._id && invoiceProperty) {
-        const periodDate = field === 'periodFrom' ? new Date(value) : (updatedData.periodTo || new Date(value));
-        const periodDayjs = dayjs(periodDate);
-        const newInvoiceNumber = generateInvoiceNumber(
-          invoiceProperty.srNo,
-          periodDayjs.year(),
-          periodDayjs.month() + 1,
-          'ELECTRICITY'
-        );
-        updatedData.invoiceNumber = newInvoiceNumber;
-      }
-      
-      setInvoiceData(updatedData);
+      // Use functional update to avoid stale state issues
+      setInvoiceData(prevData => {
+        if (!prevData) return prevData;
+        
+        // For date fields, parse with dayjs to avoid timezone issues
+        let fieldValue;
+        if (field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate') {
+          fieldValue = value ? dayjs(value).toDate() : null;
+        } else if (field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears') {
+          fieldValue = Number(value) || 0;
+        } else {
+          fieldValue = value;
+        }
+        
+        const updatedData = {
+          ...prevData,
+          [field]: fieldValue
+        };
+        
+        // Regenerate invoice number if period changes (for new invoices only)
+        if ((field === 'periodFrom' || field === 'periodTo') && !prevData._id && invoiceProperty) {
+          const periodDate = field === 'periodFrom' 
+            ? (fieldValue ? dayjs(fieldValue) : dayjs(value))
+            : (updatedData.periodTo ? dayjs(updatedData.periodTo) : dayjs(value));
+          const newInvoiceNumber = generateInvoiceNumber(
+            invoiceProperty.srNo,
+            periodDate.year(),
+            periodDate.month() + 1,
+            'ELECTRICITY'
+          );
+          updatedData.invoiceNumber = newInvoiceNumber;
+        }
+        
+        return updatedData;
+      });
     }
   };
 
@@ -2913,15 +2976,41 @@ const Electricity = () => {
                   <TextField
                     label="Period From"
                     type="date"
-                    value={invoiceData.periodFrom ? dayjs(invoiceData.periodFrom).format('YYYY-MM-DD') : ''}
+                    value={invoiceData.periodFrom 
+                      ? (dayjs(invoiceData.periodFrom).isValid() 
+                          ? dayjs(invoiceData.periodFrom).format('YYYY-MM-DD') 
+                          : '')
+                      : ''}
                     onChange={(e) => {
                       const newPeriodFrom = e.target.value;
-                      const currentPeriodTo = invoiceData.periodTo 
-                        ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD')
-                        : '';
-                      handleInvoiceFieldChange('periodFrom', newPeriodFrom);
-                      if (!currentPeriodTo) {
-                        handleInvoiceFieldChange('periodTo', dayjs(newPeriodFrom).endOf('month').format('YYYY-MM-DD'));
+                      if (!invoiceData) return;
+                      
+                      if (newPeriodFrom) {
+                        // Update both periodFrom and periodTo in a single state update
+                        const newPeriodTo = dayjs(newPeriodFrom).endOf('month').format('YYYY-MM-DD');
+                        setInvoiceData(prevData => {
+                          if (!prevData) return prevData;
+                          const updatedData = {
+                            ...prevData,
+                            periodFrom: dayjs(newPeriodFrom).toDate(),
+                            periodTo: dayjs(newPeriodTo).toDate()
+                          };
+                          
+                          // Regenerate invoice number if needed
+                          if (!prevData._id && invoiceProperty) {
+                            const periodDate = dayjs(newPeriodFrom);
+                            updatedData.invoiceNumber = generateInvoiceNumber(
+                              invoiceProperty.srNo,
+                              periodDate.year(),
+                              periodDate.month() + 1,
+                              'ELECTRICITY'
+                            );
+                          }
+                          
+                          return updatedData;
+                        });
+                      } else {
+                        handleInvoiceFieldChange('periodFrom', null);
                       }
                     }}
                     fullWidth
@@ -2933,14 +3022,43 @@ const Electricity = () => {
                   <TextField
                     label="Period To"
                     type="date"
-                    value={invoiceData.periodTo ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') : ''}
+                    value={invoiceData.periodTo 
+                      ? (dayjs(invoiceData.periodTo).isValid() 
+                          ? dayjs(invoiceData.periodTo).format('YYYY-MM-DD') 
+                          : '')
+                      : ''}
                     onChange={(e) => {
                       const newPeriodTo = e.target.value;
-                      handleInvoiceFieldChange('periodTo', newPeriodTo);
-                      // Auto-set Due Date to 15 days after Period To
+                      if (!invoiceData) return;
+                      
                       if (newPeriodTo) {
+                        // Update both periodTo and dueDate in a single state update
                         const dueDate = dayjs(newPeriodTo).add(15, 'day').format('YYYY-MM-DD');
-                        handleInvoiceFieldChange('dueDate', dueDate);
+                        setInvoiceData(prevData => {
+                          if (!prevData) return prevData;
+                          const updatedData = {
+                            ...prevData,
+                            periodTo: dayjs(newPeriodTo).toDate(),
+                            dueDate: dayjs(dueDate).toDate()
+                          };
+                          
+                          // Regenerate invoice number if needed
+                          if (!prevData._id && invoiceProperty) {
+                            const periodDate = updatedData.periodFrom 
+                              ? dayjs(updatedData.periodFrom) 
+                              : dayjs(newPeriodTo);
+                            updatedData.invoiceNumber = generateInvoiceNumber(
+                              invoiceProperty.srNo,
+                              periodDate.year(),
+                              periodDate.month() + 1,
+                              'ELECTRICITY'
+                            );
+                          }
+                          
+                          return updatedData;
+                        });
+                      } else {
+                        handleInvoiceFieldChange('periodTo', null);
                       }
                     }}
                     fullWidth
