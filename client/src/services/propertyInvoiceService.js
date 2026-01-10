@@ -23,13 +23,27 @@ export const deleteInvoice = (invoiceId) =>
 export const deletePaymentFromInvoice = (invoiceId, paymentId) =>
   api.delete(`${base}/${invoiceId}/payments/${paymentId}`);
 
-export const getElectricityCalculation = (propertyId, currentReading, meterNo) =>
-  api.get(`${base}/property/${propertyId}/electricity-calculation`, {
-    params: {
-      ...(currentReading !== undefined ? { currentReading } : {}),
-      ...(meterNo ? { meterNo } : {})
-    }
-  });
+export const getElectricityCalculation = (propertyId, currentReading, meterNo, unitsConsumed) => {
+  const params = {};
+  
+  // CRITICAL: If unitsConsumed is provided, ONLY send unitsConsumed (ignore currentReading)
+  if (unitsConsumed !== undefined && unitsConsumed !== null && unitsConsumed !== '') {
+    params.unitsConsumed = unitsConsumed;
+    // Explicitly do NOT send currentReading when unitsConsumed is provided
+  } else if (currentReading !== undefined && currentReading !== null && currentReading !== '') {
+    // Only send currentReading if unitsConsumed is NOT provided
+    params.currentReading = currentReading;
+  }
+  
+  // Always include meterNo if provided
+  if (meterNo) {
+    params.meterNo = meterNo;
+  }
+  
+  console.log('[getElectricityCalculation] Params:', params);
+  
+  return api.get(`${base}/property/${propertyId}/electricity-calculation`, { params });
+};
 
 export const getRentCalculation = (propertyId) =>
   api.get(`${base}/property/${propertyId}/rent-calculation`);

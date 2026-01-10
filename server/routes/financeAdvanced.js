@@ -13,7 +13,6 @@ const GeneralLedger = require('../models/finance/GeneralLedger');
 const AccountsReceivable = require('../models/finance/AccountsReceivable');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const Banking = require('../models/finance/Banking');
-const PaymentSettlement = require('../models/hr/PaymentSettlement');
 
 const router = express.Router();
 
@@ -596,67 +595,22 @@ router.get('/accounts-payable',
       if (endDate) filters.billDate.$lte = new Date(endDate);
     }
 
-    // Fetch both AccountsPayable bills and Payment Settlements with "Send to Finance" status
-    const [allBills, paymentSettlements, billsCount, settlementsCount] = await Promise.all([
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const [bills, totalCount] = await Promise.all([
       AccountsPayable.find(filters)
         .sort({ billDate: -1 })
-        .lean(),
-      PaymentSettlement.find({ workflowStatus: 'Send to Finance' })
-        .populate('createdBy', 'firstName lastName email')
-        .populate('fromDepartment')
-        .sort({ date: -1, createdAt: -1 })
-        .lean(),
-      AccountsPayable.countDocuments(filters),
-      PaymentSettlement.countDocuments({ workflowStatus: 'Send to Finance' })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      AccountsPayable.countDocuments(filters)
     ]);
 
-    // Transform payment settlements to match bills format for display
-    const transformedSettlements = paymentSettlements.map(settlement => ({
-      _id: settlement._id,
-      type: 'payment_settlement',
-      billNumber: settlement.referenceNumber || settlement._id.toString(),
-      vendorInvoiceNumber: settlement.referenceNumber || 'N/A',
-      vendor: {
-        name: settlement.toWhomPaid || 'N/A',
-        vendorId: null
-      },
-      vendorName: settlement.toWhomPaid || 'N/A',
-      billDate: settlement.date || settlement.createdAt,
-      dueDate: settlement.date || settlement.createdAt,
-      amount: settlement.amount || 0,
-      totalAmount: settlement.grandTotal || settlement.amount || 0,
-      grandTotal: settlement.grandTotal || settlement.amount || 0,
-      paidAmount: 0,
-      status: 'pending', // Payment settlements are always pending until processed
-      description: settlement.forWhat || 'Payment Settlement',
-      fromDepartment: typeof settlement.fromDepartment === 'object' 
-        ? settlement.fromDepartment?.name 
-        : settlement.fromDepartment,
-      workflowStatus: settlement.workflowStatus,
-      paymentSettlement: settlement // Keep full settlement data for reference
-    }));
-
-    // Combine bills and payment settlements, then sort by date
-    const allItems = [
-      ...allBills.map(bill => ({ ...bill, type: 'bill' })),
-      ...transformedSettlements
-    ].sort((a, b) => {
-      const dateA = new Date(a.billDate || a.date || a.createdAt);
-      const dateB = new Date(b.billDate || b.date || b.createdAt);
-      return dateB - dateA; // Newest first
-    });
-
-    // Apply pagination to combined results
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedItems = allItems.slice(skip, skip + parseInt(limit));
-    const totalCount = billsCount + settlementsCount;
     const totalPages = Math.ceil(totalCount / parseInt(limit));
 
     res.json({
       success: true,
       data: {
-        bills: paginatedItems,
-        paymentSettlements: transformedSettlements,
+        bills,
         pagination: {
           currentPage: parseInt(page),
           totalPages,

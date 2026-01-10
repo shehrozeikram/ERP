@@ -287,7 +287,7 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { currentReading, meterNo: requestedMeterNo } = req.query;
+    const { unitsConsumed, currentReading, meterNo: requestedMeterNo } = req.query;
     
     // Get active meters from property
     const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
@@ -310,8 +310,17 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
     // Get previous reading (pass propertyId for carry forward calculation)
     const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, req.params.propertyId);
     
-    if (currentReading !== undefined && currentReading !== null) {
-      const curReading = parseFloat(currentReading) || 0;
+    // Calculate units consumed - prioritize direct unitsConsumed parameter
+    let finalUnitsConsumed = 0;
+    let curReading = 0;
+    
+    if (unitsConsumed !== undefined && unitsConsumed !== null && unitsConsumed !== '') {
+      // Use units consumed directly (simplest approach)
+      finalUnitsConsumed = Math.max(0, parseFloat(unitsConsumed) || 0);
+      curReading = prvReading + finalUnitsConsumed; // Calculate current reading for display
+    } else if (currentReading !== undefined && currentReading !== null && currentReading !== '') {
+      // Fallback: calculate from current reading
+      curReading = parseFloat(currentReading) || 0;
       
       if (curReading < prvReading) {
         return res.status(400).json({ 
@@ -320,10 +329,14 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
         });
       }
       
-      const unitsConsumed = Math.max(0, curReading - prvReading);
-      const { slab, unitRate, fixRate, unitsSlab } = await getElectricitySlabForUnits(unitsConsumed);
+      finalUnitsConsumed = Math.max(0, curReading - prvReading);
+    }
+    
+    // Only calculate if we have units consumed
+    if (finalUnitsConsumed > 0 || unitsConsumed === 0 || currentReading !== undefined) {
+      const { slab, unitRate, fixRate, unitsSlab } = await getElectricitySlabForUnits(finalUnitsConsumed);
       
-      if (!slab && unitsConsumed > 0) {
+      if (!slab && finalUnitsConsumed > 0) {
         return res.status(400).json({ 
           success: false, 
           message: 'No matching slab found for units consumed' 
@@ -333,14 +346,14 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
       // Meter Rent, TV Fee, and NJ Surcharge removed from calculation
       const meterRent = 0;
       const tvFee = 0;
-      const charges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
+      const charges = calculateElectricityCharges(finalUnitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
       
       return res.json({
         success: true,
         data: {
           previousReading: prvReading,
-          currentReading: curReading,
-          unitsConsumed,
+          currentReading: curReading || (prvReading + finalUnitsConsumed),
+          unitsConsumed: finalUnitsConsumed,
           previousArrears,
           meterNo,
           meterFloor: targetMeter.floor,
@@ -361,6 +374,7 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
       });
     }
     
+    // Return basic info if no calculation requested
     res.json({
       success: true,
       data: {

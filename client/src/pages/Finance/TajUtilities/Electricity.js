@@ -572,15 +572,36 @@ const Electricity = () => {
     }
   };
 
-  // Handle current reading input change (immediate update)
+  // Handle units consumed input change - simple and direct approach
+  const handleUnitsConsumedChange = (unitsValue) => {
+    const units = parseFloat(unitsValue) || 0;
+    
+    // Calculate current reading from units consumed for display
+    if (units >= 0 && readingData.previousReading !== undefined) {
+      const calculatedCurrentReading = readingData.previousReading + units;
+      setCurrentReading(String(calculatedCurrentReading));
+    }
+    
+    // Set pending reading to units consumed for calculation
+    if (unitsValue === '' || isNaN(units) || units < 0) {
+      setPendingReading(null);
+      if (invoiceData?.calculationData) {
+        setInvoiceData(prev => prev ? { ...prev, calculationData: null } : null);
+      }
+      return;
+    }
+    
+    // Use units consumed directly for calculation
+    setPendingReading(units);
+  };
+
+  // Handle current reading input change (fallback for manual entry)
   const handleCurrentReadingChange = (value) => {
     setCurrentReading(value);
     
-    // Validate and set pending reading for debounced calculation
     const trimmedValue = value?.trim() || '';
     if (!trimmedValue) {
       setPendingReading(null);
-      // Clear calculation data if input is cleared
       if (invoiceData?.calculationData) {
         setInvoiceData(prev => prev ? { ...prev, calculationData: null } : null);
       }
@@ -589,7 +610,6 @@ const Electricity = () => {
     
     const reading = parseFloat(trimmedValue);
     
-    // Validate reading
     if (isNaN(reading) || reading < 0) {
       setPendingReading(null);
       return;
@@ -603,13 +623,14 @@ const Electricity = () => {
       return;
     }
     
-    // Set pending reading for debounced calculation
-    setPendingReading(reading);
+    // Calculate units consumed from current reading
+    const unitsConsumed = Math.max(0, reading - readingData.previousReading);
+    setPendingReading(unitsConsumed);
   };
 
-  // Debounced calculation effect
+  // Debounced calculation effect - now works with units consumed
   useEffect(() => {
-    // Don't calculate if no pending reading or missing dependencies
+    // Don't calculate if no pending reading (which now represents units consumed) or missing dependencies
     if (pendingReading === null || !invoiceProperty?._id) {
       return;
     }
@@ -620,7 +641,8 @@ const Electricity = () => {
         setCalculating(true);
         setInvoiceError('');
         
-        const response = await getElectricityCalculation(invoiceProperty._id, pendingReading);
+        // Send units consumed directly to backend (simplified approach)
+        const response = await getElectricityCalculation(invoiceProperty._id, undefined, undefined, pendingReading);
         
         if (!response.data?.success) {
           throw new Error('Calculation failed');
@@ -706,17 +728,19 @@ const Electricity = () => {
         setInvoiceError('');
         
         // Process each meter that has a pending calculation (filter out null/undefined first)
+        // pendingMeterCalculations now stores units consumed directly
         const validCalculations = Object.entries(pendingMeterCalculations)
-          .filter(([_, currentReading]) => currentReading !== null && currentReading !== undefined);
+          .filter(([_, unitsConsumed]) => unitsConsumed !== null && unitsConsumed !== undefined);
         
         if (validCalculations.length === 0) {
           setCalculating(false);
           return;
         }
         
-        const meterCalculationPromises = validCalculations.map(async ([meterNo, currentReading]) => {
+        const meterCalculationPromises = validCalculations.map(async ([meterNo, unitsConsumed]) => {
           try {
-            const response = await getElectricityCalculation(invoiceProperty._id, currentReading, meterNo);
+            // Send units consumed directly (simplified approach)
+            const response = await getElectricityCalculation(invoiceProperty._id, undefined, meterNo, unitsConsumed);
             
             if (!response.data?.success) {
               throw new Error('Calculation failed');
@@ -2867,14 +2891,15 @@ const Electricity = () => {
                                           }
                                         }));
                                         
-                                        // Trigger calculation for this meter
+                                        // Calculate units consumed from current reading and trigger calculation
                                         if (value && !isNaN(parseFloat(value))) {
                                           const current = parseFloat(value);
                                           const previous = meterReading.previousReading || 0;
                                           if (current >= previous) {
+                                            const units = Math.max(0, current - previous);
                                             setPendingMeterCalculations(prev => ({
                                               ...prev,
-                                              [meterNo]: current
+                                              [meterNo]: units
                                             }));
                                           }
                                         } else {
@@ -2900,9 +2925,40 @@ const Electricity = () => {
                                       label="Units Consumed"
                                       type="number"
                                       value={unitsConsumed}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        const units = parseFloat(value) || 0;
+                                        
+                                        // Update current reading for display
+                                        if (units >= 0 && meterReading.previousReading !== undefined) {
+                                          const calculatedCurrentReading = meterReading.previousReading + units;
+                                          setMeterReadings(prev => ({
+                                            ...prev,
+                                            [meterNo]: {
+                                              ...prev[meterNo],
+                                              currentReading: String(calculatedCurrentReading)
+                                            }
+                                          }));
+                                        }
+                                        
+                                        // Trigger calculation with units consumed
+                                        if (value && !isNaN(units) && units >= 0) {
+                                          setPendingMeterCalculations(prev => ({
+                                            ...prev,
+                                            [meterNo]: units
+                                          }));
+                                        } else {
+                                          setPendingMeterCalculations(prev => {
+                                            const updated = { ...prev };
+                                            delete updated[meterNo];
+                                            return updated;
+                                          });
+                                        }
+                                      }}
                                       fullWidth
                                       size="small"
-                                      InputProps={{ readOnly: true }}
+                                      inputProps={{ min: 0, step: 1 }}
+                                      helperText="Enter units consumed to calculate bill"
                                     />
                                   </Grid>
                                 </Grid>
@@ -2999,17 +3055,12 @@ const Electricity = () => {
                         type="number"
                         value={unitsConsumed}
                         onChange={(e) => {
-                          const newUnits = parseFloat(e.target.value) || 0;
-                          if (newUnits >= 0 && readingData.previousReading !== undefined) {
-                            const newCurrentReading = readingData.previousReading + newUnits;
-                            setCurrentReading(String(newCurrentReading));
-                            handleCurrentReadingChange(String(newCurrentReading));
-                          }
+                          handleUnitsConsumedChange(e.target.value);
                         }}
                         fullWidth
                         size="small"
                         inputProps={{ min: 0, step: 1 }}
-                        helperText="Auto-calculated from readings, or enter manually"
+                        helperText="Enter units consumed to calculate bill"
                       />
                     </Grid>
                   </>
