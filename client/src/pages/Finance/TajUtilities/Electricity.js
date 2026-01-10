@@ -642,7 +642,14 @@ const Electricity = () => {
         setInvoiceError('');
         
         // Send units consumed directly to backend (simplified approach)
-        const response = await getElectricityCalculation(invoiceProperty._id, undefined, undefined, pendingReading);
+        // Pass manual previous reading to ensure it's used in calculation
+        const response = await getElectricityCalculation(
+          invoiceProperty._id, 
+          undefined, 
+          undefined, 
+          pendingReading,
+          readingData.previousReading
+        );
         
         if (!response.data?.success) {
           throw new Error('Calculation failed');
@@ -739,8 +746,18 @@ const Electricity = () => {
         
         const meterCalculationPromises = validCalculations.map(async ([meterNo, unitsConsumed]) => {
           try {
+            // Get previous reading for this specific meter
+            const meterReading = meterReadings[meterNo] || {};
+            
             // Send units consumed directly (simplified approach)
-            const response = await getElectricityCalculation(invoiceProperty._id, undefined, meterNo, unitsConsumed);
+            // Pass manual previous reading to ensure it's used in calculation
+            const response = await getElectricityCalculation(
+              invoiceProperty._id, 
+              undefined, 
+              meterNo, 
+              unitsConsumed,
+              meterReading.previousReading
+            );
             
             if (!response.data?.success) {
               throw new Error('Calculation failed');
@@ -949,15 +966,18 @@ const Electricity = () => {
         activeMeters.forEach(meter => {
           const meterNo = String(meter.meterNo || '');
           const meterReading = meterReadings[meterNo];
-          if (meterReading && meterReading.currentReading) {
-            meterReadingsPayload[meterNo] = parseFloat(meterReading.currentReading);
+          if (meterReading) {
+            meterReadingsPayload[meterNo] = {
+              currentReading: meterReading.currentReading ? parseFloat(meterReading.currentReading) : undefined,
+              previousReading: meterReading.previousReading !== undefined ? parseFloat(meterReading.previousReading) : undefined
+            };
           }
         });
       }
       
-      // Only send charges if we're not sending readings (for manual entry)
-      // When readings are provided, backend should calculate charges
-      const shouldSendCharges = !hasMultipleMeters || Object.keys(meterReadingsPayload).length === 0;
+      // ALWAYS send charges when we have calculated them (from units consumed calculation)
+      // Backend will use these charges instead of recalculating
+      const hasCalculatedCharges = invoiceData.charges && invoiceData.charges.length > 0 && invoiceData.charges.some(c => c.type === 'ELECTRICITY' && c.amount > 0);
       
       const response = await createInvoice(invoiceProperty._id, {
         includeCAM: false,
@@ -969,7 +989,10 @@ const Electricity = () => {
         periodFrom: invoiceData.periodFrom,
         periodTo: invoiceData.periodTo,
         dueDate: invoiceData.dueDate,
-        charges: shouldSendCharges ? (invoiceData.charges || []) : undefined
+        // Always send charges if we have calculated them (prioritize frontend calculation from units consumed)
+        charges: hasCalculatedCharges ? (invoiceData.charges || []) : undefined,
+        // Send full calculation data to backend so it can store the breakdown
+        calculationData: invoiceData.calculationData
       });
 
       const savedInvoice = response.data?.data || invoiceData;
@@ -1019,6 +1042,8 @@ const Electricity = () => {
     // Get electricity charge from invoice
     const electricityCharge = invoice.charges?.find(c => c.type === 'ELECTRICITY');
     const electricityBill = invoice.electricityBill || {};
+    // Get calculation data (preferred source for accurate values)
+    const calcData = invoice.calculationData || {};
 
     const pdf = new jsPDF('landscape', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -1049,7 +1074,8 @@ const Electricity = () => {
 
     const formatRate = (value) => (Number(value) || 0).toFixed(2);
 
-    const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
+    // Use meter number from calculation data if available, otherwise from electricityBill or property
+    const meterNo = calcData.meterNo || electricityBill.meterNo || property.electricityWaterMeterNo || '—';
     const clientName = property.ownerName || property.tenantName || '—';
     // Try multiple ways to get residentId: from populated resident object, from property.residentId, or from invoice.property.resident
     const residentId = property.resident?.residentId || 
@@ -1067,11 +1093,20 @@ const Electricity = () => {
     const periodTo = formatDate(invoice.periodTo || electricityBill.toDate);
     const readingDate = formatFullDate(invoice.periodTo || electricityBill.toDate);
     const dueDate = formatFullDate(invoice.dueDate || electricityBill.dueDate);
-    const unitsConsumed = electricityBill.unitsConsumed || 0;
-    const unitsCharged = electricityBill.unitsConsumedForDays || unitsConsumed;
+    
+    // SOURCE OF TRUTH: calculationData (for new invoices) or electricityBill (for history)
+    const unitsConsumed = calcData.unitsConsumed !== undefined 
+      ? calcData.unitsConsumed 
+      : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
+      
+    const unitsCharged = (electricityBill.unitsConsumedForDays !== undefined && electricityBill.unitsConsumedForDays !== null)
+      ? electricityBill.unitsConsumedForDays 
+      : unitsConsumed;
 
     const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
-    const arrears = electricityCharge?.arrears || electricityBill.arrears || 0;
+    const arrears = calcData.previousArrears !== undefined 
+      ? calcData.previousArrears 
+      : (electricityCharge?.arrears !== undefined ? electricityCharge.arrears : (electricityBill.arrears || 0));
     const amountReceived = electricityBill.receivedAmount || 0;
     const submittedInFreePeriod = totalBill + arrears;
     const payableWithinDueDate = totalBill + arrears - amountReceived;
@@ -1106,13 +1141,27 @@ const Electricity = () => {
 
     const drawMeterTable = (startX, startY) => {
       const headers = ['Meter No.', 'Previous', 'Present', 'Unit Consumed', 'Units Charged', 'IESCO SLAB'];
+      
+      // Use calculation data for accurate readings, fallback to electricityBill
+      const previousReading = calcData.previousReading !== undefined 
+        ? calcData.previousReading 
+        : (electricityBill.prvReading !== undefined ? electricityBill.prvReading : 0);
+        
+      const currentReading = calcData.currentReading !== undefined 
+        ? calcData.currentReading 
+        : (electricityBill.curReading !== undefined ? electricityBill.curReading : 0);
+        
+      const slabLabel = calcData.slab?.unitsSlab || electricityBill.iescoSlabs || '—';
+      
+      // For readings, we use a simpler format without commas if requested, but formatAmount is generally safer
+      // We use String() to ensure we don't pass objects
       const values = [
         meterNo,
-        formatAmount(electricityBill.prvReading),
-        formatAmount(electricityBill.curReading),
-        formatAmount(unitsConsumed),
-        formatAmount(unitsCharged),
-        electricityBill.iescoSlabs || '—'
+        String(previousReading),
+        String(currentReading),
+        String(unitsConsumed),
+        String(unitsCharged),
+        slabLabel
       ];
       const cellWidth = (panelWidth - marginX * 2) / headers.length;
       const headerHeight = 5;
@@ -1135,15 +1184,25 @@ const Electricity = () => {
     };
 
     const drawComputationTable = (startX, startY, billMonthLabel) => {
+      // Use calculation data for accurate charges, fallback to electricityBill
+      const charges = calcData.charges || {};
+      const unitRate = calcData.slab?.unitRate !== undefined ? calcData.slab.unitRate : (electricityBill.iescoUnitPrice || 0);
+      const electricityCost = charges.electricityCost !== undefined ? charges.electricityCost : (electricityBill.electricityCost || 0);
+      const fcSurcharge = charges.fcSurcharge !== undefined ? charges.fcSurcharge : (electricityBill.fcSurcharge || 0);
+      const gst = charges.gst !== undefined ? charges.gst : (electricityBill.gst || 0);
+      const electricityDuty = charges.electricityDuty !== undefined ? charges.electricityDuty : (electricityBill.electricityDuty || 0);
+      const fixedCharges = charges.fixedCharges !== undefined ? charges.fixedCharges : (calcData.slab?.fixRate !== undefined ? calcData.slab.fixRate : (electricityBill.fixedCharges || 0));
+      
       const rows = [
         {
           label: 'Share of IESCO Supply Cost Rate',
-          value: `${formatRate(electricityBill.iescoUnitPrice || 0)}   ${formatAmount(electricityBill.electricityCost || 0)}`
+          rate: formatRate(unitRate),
+          value: formatAmount(electricityCost)
         },
-        { label: 'FC Surcharge', value: formatAmount(electricityBill.fcSurcharge || 0) },
-        { label: 'Sales Tax', value: formatAmount(electricityBill.gst || 0) },
-        { label: 'Electricity Duty', value: formatAmount(electricityBill.electricityDuty || 0) },
-        { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0) },
+        { label: 'FC Surcharge', value: formatAmount(fcSurcharge) },
+        { label: 'Sales Tax', value: formatAmount(gst) },
+        { label: 'Electricity Duty', value: formatAmount(electricityDuty) },
+        { label: 'Fixed Charges', value: formatAmount(fixedCharges) },
         { label: 'Charges for the Month', value: formatAmount(totalBill) },
         { label: '*Amount Submitted in Free Period', value: formatAmount(submittedInFreePeriod) },
         { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
@@ -1158,7 +1217,17 @@ const Electricity = () => {
         const y = startY + idx * rowHeight;
         pdf.setFont('helvetica', idx >= rows.length - 2 ? 'bold' : 'normal');
         pdf.text(row.label, startX, y + 4);
-        pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
+        
+        if (row.label === 'Share of IESCO Supply Cost Rate' && row.rate !== undefined) {
+          // Draw the rate value shifted to the left to clearly separate it from the amount
+          // Positioned at 70% of available width to give it enough space from the amount on the right
+          pdf.text(String(row.rate), startX + availableWidth * 0.7, y + 4, { align: 'right' });
+          // Draw the total cost amount at the far right
+          pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
+        } else {
+          pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
+        }
+        
         pdf.line(startX, y + rowHeight, startX + availableWidth, y + rowHeight);
       });
 
@@ -2870,10 +2939,31 @@ const Electricity = () => {
                                       label="Previous Reading"
                                       type="number"
                                       value={meterReading.previousReading || 0}
-                    fullWidth
-                    size="small"
-                                      InputProps={{ readOnly: true }}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        const previous = parseFloat(value) || 0;
+                                        setMeterReadings(prev => ({
+                                          ...prev,
+                                          [meterNo]: {
+                                            ...prev[meterNo],
+                                            previousReading: previous
+                                          }
+                                        }));
+                                        
+                                        // Recalculate if current reading or units consumed exists
+                                        if (meterReading.currentReading) {
+                                          const current = parseFloat(meterReading.currentReading) || 0;
+                                          const units = Math.max(0, current - previous);
+                                          setPendingMeterCalculations(prev => ({
+                                            ...prev,
+                                            [meterNo]: units
+                                          }));
+                                        }
+                                      }}
+                                      fullWidth
+                                      size="small"
                                       inputProps={{ min: 0, step: 1 }}
+                                      helperText="Adjust previous reading if incorrect"
                                     />
                                   </Grid>
                                   <Grid item xs={12} sm={4}>

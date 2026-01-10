@@ -23,8 +23,13 @@ export const deleteInvoice = (invoiceId) =>
 export const deletePaymentFromInvoice = (invoiceId, paymentId) =>
   api.delete(`${base}/${invoiceId}/payments/${paymentId}`);
 
-export const getElectricityCalculation = (propertyId, currentReading, meterNo, unitsConsumed) => {
+export const getElectricityCalculation = (propertyId, currentReading, meterNo, unitsConsumed, previousReading) => {
   const params = {};
+  
+  // Include manual previous reading if provided
+  if (previousReading !== undefined && previousReading !== null && previousReading !== '') {
+    params.previousReading = previousReading;
+  }
   
   // CRITICAL: If unitsConsumed is provided, ONLY send unitsConsumed (ignore currentReading)
   if (unitsConsumed !== undefined && unitsConsumed !== null && unitsConsumed !== '') {

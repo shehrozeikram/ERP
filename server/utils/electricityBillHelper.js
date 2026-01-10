@@ -121,22 +121,40 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null) => {
     if (meterNo) {
       // Convert meterNo to string for consistent matching
       const meterNoStr = String(meterNo);
+      
+      // OPTIMIZATION: Find the latest Electricity record that is actually linked to an active PropertyInvoice
+      // This ensures that if an invoice is deleted, its reading is ignored
+      const validInvoices = await PropertyInvoice.find({ 
+        property: propertyId,
+        chargeTypes: { $in: ['ELECTRICITY'] }
+      }).select('electricityBill').lean();
+      
+      const validBillIds = validInvoices.map(inv => inv.electricityBill).filter(Boolean);
+
       lastBill = await Electricity.findOne({ 
-        meterNo: meterNoStr  // Exact match on meter number
+        meterNo: meterNoStr,
+        _id: { $in: validBillIds } // Only consider bills that still have an invoice
       })
         .sort({ toDate: -1, createdAt: -1 })
         .lean();
     }
     
-    // If not found by meter, try by property key (but only if meterNo was not provided or empty)
-    // This is a fallback for legacy properties without meter numbers
+    // If not found by meter, try by property key (fallback for legacy)
     if (!lastBill && propertyKey && (!meterNo || String(meterNo).trim() === '')) {
+      const validInvoices = await PropertyInvoice.find({ 
+        property: propertyId,
+        chargeTypes: { $in: ['ELECTRICITY'] }
+      }).select('electricityBill').lean();
+      
+      const validBillIds = validInvoices.map(inv => inv.electricityBill).filter(Boolean);
+
       lastBill = await Electricity.findOne({
         $or: [
           { address: propertyKey },
           { plotNo: propertyKey },
           { owner: propertyKey }
-        ]
+        ],
+        _id: { $in: validBillIds }
       })
       .sort({ toDate: -1, createdAt: -1 })
       .lean();

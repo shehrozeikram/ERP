@@ -46,11 +46,25 @@ const normalizeReadingsMap = (meterReadings, currentReading, metersToProcess) =>
   
   if (meterReadings && typeof meterReadings === 'object' && Object.keys(meterReadings).length > 0) {
     Object.entries(meterReadings).forEach(([key, value]) => {
-      readingsMap[String(key)] = parseFloat(value) || 0;
+      if (typeof value === 'object' && value !== null) {
+        readingsMap[String(key)] = {
+          currentReading: parseFloat(value.currentReading),
+          previousReading: value.previousReading !== undefined ? parseFloat(value.previousReading) : undefined
+        };
+      } else {
+        readingsMap[String(key)] = parseFloat(value) || 0;
+      }
     });
   } else if (typeof currentReading === 'object' && currentReading !== null) {
     Object.entries(currentReading).forEach(([key, value]) => {
-      readingsMap[String(key)] = parseFloat(value) || 0;
+      if (typeof value === 'object' && value !== null) {
+        readingsMap[String(key)] = {
+          currentReading: parseFloat(value.currentReading),
+          previousReading: value.previousReading !== undefined ? parseFloat(value.previousReading) : undefined
+        };
+      } else {
+        readingsMap[String(key)] = parseFloat(value) || 0;
+      }
     });
   } else if (currentReading !== undefined && currentReading !== null && currentReading !== '' && metersToProcess.length > 0) {
     readingsMap[String(metersToProcess[0].meterNo || '')] = parseFloat(currentReading) || 0;
@@ -161,6 +175,7 @@ const createElectricityBillData = (meter, property, calculatedCharges, { prvRead
     prvReading,
     curReading,
     unitsConsumed,
+    unitsConsumedForDays: unitsConsumed,
     iescoSlabs: unitsSlab || '',
     fromDate: periodFrom ? new Date(periodFrom) : now.startOf('month').toDate(),
     toDate: periodTo ? new Date(periodTo) : now.endOf('month').toDate(),
@@ -287,7 +302,7 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { unitsConsumed, currentReading, meterNo: requestedMeterNo } = req.query;
+    const { unitsConsumed, currentReading, meterNo: requestedMeterNo, previousReading: requestedPreviousReading } = req.query;
     
     // Get active meters from property
     const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
@@ -308,7 +323,12 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
     const propertyKey = property.address || property.plotNumber || property.ownerName;
     
     // Get previous reading (pass propertyId for carry forward calculation)
-    const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, req.params.propertyId);
+    const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, req.params.propertyId);
+    
+    // PRIORITY: Use requested previous reading if provided (manual override), otherwise use auto-fetched one
+    const prvReading = requestedPreviousReading !== undefined 
+      ? parseFloat(requestedPreviousReading) 
+      : autoPrvReading;
     
     // Calculate units consumed - prioritize direct unitsConsumed parameter
     let finalUnitsConsumed = 0;
@@ -404,7 +424,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { periodFrom, periodTo, dueDate, invoiceDate, includeCAM, includeElectricity, includeRent, charges: requestCharges } = req.body;
+    const { periodFrom, periodTo, dueDate, invoiceDate, includeCAM, includeElectricity, includeRent, charges: requestCharges, calculationData } = req.body;
 
     // Find latest charges/bills
     const propertyKey = property.address || property.plotNumber || property.ownerName;
@@ -528,6 +548,12 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       // which is called when processing meter readings, so no need to calculate separately here
       const { currentReading, meterReadings } = req.body;
       
+      // Check if frontend provided charges with correct calculation (from units consumed)
+      // If charges are provided with amounts, use those instead of recalculating
+      const hasProvidedCharges = requestCharges && Array.isArray(requestCharges) && requestCharges.length > 0;
+      const electricityChargeFromRequest = hasProvidedCharges ? requestCharges.find(c => c.type === 'ELECTRICITY') : null;
+      const shouldUseProvidedCharges = electricityChargeFromRequest && electricityChargeFromRequest.amount > 0;
+      
       // Get active meters from property
       const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
       
@@ -538,234 +564,330 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           ? [{ meterNo: property.meterNumber || property.electricityWaterMeterNo || '', floor: property.floor || 'Ground Floor' }]
           : []);
       
-      // If current reading or meterReadings provided, calculate and create new bill(s)
-      hasReadings = (currentReading !== undefined && currentReading !== null && currentReading !== '') ||
-                    (meterReadings && typeof meterReadings === 'object' && Object.keys(meterReadings).length > 0);
-      
-      if (hasReadings) {
-        const readingsMap = normalizeReadingsMap(meterReadings, currentReading, metersToProcess);
+      // PRIORITY: If frontend provided charges (calculated from units consumed), use those
+      // Only recalculate from readings if charges were NOT provided
+      if (shouldUseProvidedCharges) {
+        // Use charges provided from frontend - they're already calculated correctly from units consumed
+        // Still need to create electricity bill record for reference, but use provided charge values
         const now = dayjs();
-        const monthYear = `${now.year()}-${String(now.month() + 1).padStart(2, '0')}`;
-        const propertyKey = property.address || property.plotNumber || property.ownerName;
-        const meterRent = property.hasElectricityWater ? 75 : 0;
-        const tvFee = property.hasElectricityWater ? 35 : 0;
+        const billInvoiceNumber = `ELEC-${now.format('YYYY-MM')}-${String(property.srNo || 1).padStart(4, '0')}`;
         
-        // Process each meter
-        for (let meterIndex = 0; meterIndex < metersToProcess.length; meterIndex++) {
-          const meter = metersToProcess[meterIndex];
-          const meterNo = String(meter.meterNo || '');
+        // Get meter info for bill record
+        const firstMeter = metersToProcess.length > 0 ? metersToProcess[0] : { meterNo: property.meterNumber || property.electricityWaterMeterNo || '', floor: property.floor || 'Ground Floor' };
+        const meterNo = firstMeter.meterNo || '';
+        const propertyKey = property.address || property.plotNumber || property.ownerName;
+        
+        // Get previous reading for reference
+        const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, property._id);
+        
+        // PRIORITY: Use previousReading from calculationData if provided, otherwise fallback to auto-fetched one
+        const prvReading = calculationData?.previousReading !== undefined 
+          ? parseFloat(calculationData.previousReading) 
+          : autoPrvReading;
+
+        // Use values from calculationData if provided by frontend, otherwise fallback to request parameters
+        const unitsConsumed = calculationData?.unitsConsumed !== undefined 
+          ? parseFloat(calculationData.unitsConsumed) 
+          : (parseFloat(currentReading) ? Math.max(0, parseFloat(currentReading) - prvReading) : 0);
           
-          // Get current reading for this meter
-          let curReading;
-          if (readingsMap[meterNo] !== undefined) {
-            curReading = readingsMap[meterNo];
-          } else if (meterReadings && typeof meterReadings === 'object') {
-            continue; // Skip if meterReadings provided but this meter has no reading
-          } else if (meterIndex === 0 && typeof currentReading === 'number') {
-            curReading = parseFloat(currentReading) || 0;
-          } else {
-            continue; // Skip if no reading for this meter
-          }
+        const curReading = calculationData?.currentReading !== undefined 
+          ? parseFloat(calculationData.currentReading) 
+          : (parseFloat(currentReading) || prvReading + unitsConsumed);
+        
+        // Create minimal electricity bill record for reference
+        const billData = {
+          invoiceNumber: billInvoiceNumber,
+          meterNo: meterNo,
+          propertyType: 'Residential',
+          prvReading: prvReading, // Now uses the correct validated reading
+          curReading: curReading,
+          unitsConsumed: unitsConsumed,
+          unitsConsumedForDays: unitsConsumed, // Explicitly save units consumed for calculation reference
+          iescoSlabs: calculationData?.slab?.unitsSlab || '',
+          iescoUnitPrice: parseFloat(calculationData?.slab?.unitRate) || 0,
+          electricityCost: calculationData?.charges?.electricityCost || 0,
+          fcSurcharge: calculationData?.charges?.fcSurcharge || 0,
+          meterRent: calculationData?.charges?.meterRent || 0,
+          njSurcharge: calculationData?.charges?.njSurcharge || 0,
+          gst: calculationData?.charges?.gst || 0,
+          electricityDuty: calculationData?.charges?.electricityDuty || 0,
+          tvFee: calculationData?.charges?.tvFee || 0,
+          fixedCharges: calculationData?.charges?.fixedCharges || (calculationData?.slab?.fixRate || 0),
+          fromDate: periodFrom ? new Date(periodFrom) : now.startOf('month').toDate(),
+          toDate: periodTo ? new Date(periodTo) : now.endOf('month').toDate(),
+          month: now.format('MMM-YY'),
+          dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+          totalBill: electricityChargeFromRequest.amount || 0,
+          withSurcharge: electricityChargeFromRequest.amount || 0,
+          arrears: electricityChargeFromRequest.arrears || 0,
+          amount: electricityChargeFromRequest.amount || 0,
+          plotNo: property.plotNumber || '',
+          rdaNo: property.rdaNumber || '',
+          street: property.street || '',
+          sector: property.sector || '',
+          category: property.categoryType || '',
+          address: property.address || property.fullAddress || '',
+          project: property.project || '',
+          owner: property.ownerName || '',
+          contactNo: property.contactNumber || '',
+          status: 'Active',
+          createdBy: req.user.id
+        };
+        
+        electricityBill = new Electricity(billData);
+        await electricityBill.save();
+        
+        // Use the charges provided from frontend (already calculated correctly from units consumed)
+        charges.push({
+          type: 'ELECTRICITY',
+          description: electricityChargeFromRequest.description || 'Electricity Bill',
+          amount: electricityChargeFromRequest.amount || 0,
+          arrears: electricityChargeFromRequest.arrears || 0,
+          total: electricityChargeFromRequest.total || (electricityChargeFromRequest.amount || 0) + (electricityChargeFromRequest.arrears || 0)
+        });
+        
+        hasReadings = false; // Mark that we didn't recalculate from readings
+      } else {
+        // No charges provided from frontend - recalculate from readings if available
+        hasReadings = (currentReading !== undefined && currentReading !== null && currentReading !== '') ||
+                      (meterReadings && typeof meterReadings === 'object' && Object.keys(meterReadings).length > 0);
+        
+        if (hasReadings) {
+          const readingsMap = normalizeReadingsMap(meterReadings, currentReading, metersToProcess);
+          const now = dayjs();
+          const monthYear = `${now.year()}-${String(now.month() + 1).padStart(2, '0')}`;
+          const propertyKey = property.address || property.plotNumber || property.ownerName;
+          const meterRent = property.hasElectricityWater ? 75 : 0;
+          const tvFee = property.hasElectricityWater ? 35 : 0;
           
-          // Get previous reading for this specific meter (pass propertyId for carry forward calculation)
-          const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, property._id);
-          
-          // Validate current reading
-          if (curReading < prvReading) {
-            return res.status(400).json({ 
-              success: false, 
-              message: `Current reading (${curReading}) for meter ${meterNo || meter.floor} cannot be less than previous reading (${prvReading})` 
-            });
-          }
-          
-          // Calculate units consumed and charges
-          const unitsConsumed = Math.max(0, curReading - prvReading);
-          const { slab, unitRate, fixRate, unitsSlab } = await getElectricitySlabForUnits(unitsConsumed);
-          
-          if (!slab && unitsConsumed > 0) {
-            return res.status(400).json({ 
-              success: false, 
-              message: `No matching slab found for units consumed (${unitsConsumed}) for meter ${meterNo || meter.floor}` 
-            });
-          }
-          
-          const calculatedCharges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
-          
-          // Generate bill invoice number with meter suffix
-          const meterSuffix = metersToProcess.length > 1 ? `M${meterIndex + 1}` : '';
-          const billInvoiceNumber = `ELEC-${monthYear}-${String(property.srNo || 1).padStart(4, '0')}${meterSuffix ? `-${meterSuffix}` : ''}`;
-          
-          // Create electricity bill for this meter
-          const billData = createElectricityBillData(
-            meter, property, calculatedCharges,
-            { prvReading, curReading, unitsConsumed, unitRate, unitsSlab, previousArrears },
-            periodFrom, periodTo, billInvoiceNumber, req.user.id
-          );
-          
-          const meterBill = new Electricity(billData);
-          await meterBill.save();
-          
-          // Store first meter's bill for backward compatibility, or create separate invoices
-          if (meterIndex === 0) {
-            electricityBill = meterBill;
-            // previousArrears already includes carry forward from getPreviousReading
-            const electricityDescription = metersToProcess.length > 1 
-              ? `Electricity Bill - ${meter.floor || 'Meter 1'}` 
-              : (previousArrears > 0 ? 'Electricity Bill (with Carry Forward Arrears)' : 'Electricity Bill');
+          // Process each meter
+          for (let meterIndex = 0; meterIndex < metersToProcess.length; meterIndex++) {
+            const meter = metersToProcess[meterIndex];
+            const meterNo = String(meter.meterNo || '');
             
-            charges.push({
-              type: 'ELECTRICITY',
-              description: electricityDescription,
-              amount: calculatedCharges.withSurcharge,
-              arrears: previousArrears,
-              total: calculatedCharges.withSurcharge + previousArrears
-            });
-          } else {
-            // For additional meters, store data to create separate invoices
-            // Note: Carry forward arrears only added to first meter to avoid duplication
-            meterBillsData.push({
-              bill: meterBill,
-              meter: meter,
-              meterIndex: meterIndex + 1,
-              charges: {
+            // Get current reading for this meter
+            let curReading;
+            let prvReadingFromPayload;
+            
+            const meterReading = readingsMap[meterNo];
+            if (meterReading !== undefined) {
+              if (typeof meterReading === 'object') {
+                curReading = meterReading.currentReading;
+                prvReadingFromPayload = meterReading.previousReading;
+              } else {
+                curReading = meterReading;
+              }
+            } else if (meterReadings && typeof meterReadings === 'object') {
+              continue; // Skip if meterReadings provided but this meter has no reading
+            } else if (meterIndex === 0 && typeof currentReading === 'number') {
+              curReading = parseFloat(currentReading) || 0;
+            } else {
+              continue; // Skip if no reading for this meter
+            }
+            
+            // Get previous reading for this specific meter (pass propertyId for carry forward calculation)
+            const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, property._id);
+            
+            // PRIORITY: Use prvReading from payload if provided (manually adjusted), otherwise use auto-fetched one
+            const prvReading = prvReadingFromPayload !== undefined ? prvReadingFromPayload : autoPrvReading;
+            
+            // Validate current reading
+            if (curReading < prvReading) {
+              return res.status(400).json({ 
+                success: false, 
+                message: `Current reading (${curReading}) for meter ${meterNo || meter.floor} cannot be less than previous reading (${prvReading})` 
+              });
+            }
+            
+            // Calculate units consumed and charges
+            const unitsConsumed = Math.max(0, curReading - prvReading);
+            const { slab, unitRate, fixRate, unitsSlab } = await getElectricitySlabForUnits(unitsConsumed);
+            
+            if (!slab && unitsConsumed > 0) {
+              return res.status(400).json({ 
+                success: false, 
+                message: `No matching slab found for units consumed (${unitsConsumed}) for meter ${meterNo || meter.floor}` 
+              });
+            }
+            
+            const calculatedCharges = calculateElectricityCharges(unitsConsumed, unitRate, fixRate || 0, meterRent, tvFee);
+            
+            // Generate bill invoice number with meter suffix
+            const meterSuffix = metersToProcess.length > 1 ? `M${meterIndex + 1}` : '';
+            const billInvoiceNumber = `ELEC-${monthYear}-${String(property.srNo || 1).padStart(4, '0')}${meterSuffix ? `-${meterSuffix}` : ''}`;
+            
+            // Create electricity bill for this meter
+            const billData = createElectricityBillData(
+              meter, property, calculatedCharges,
+              { prvReading, curReading, unitsConsumed, unitRate, unitsSlab, previousArrears },
+              periodFrom, periodTo, billInvoiceNumber, req.user.id
+            );
+            
+            const meterBill = new Electricity(billData);
+            await meterBill.save();
+            
+            // Store first meter's bill for backward compatibility, or create separate invoices
+            if (meterIndex === 0) {
+              electricityBill = meterBill;
+              // previousArrears already includes carry forward from getPreviousReading
+              const electricityDescription = metersToProcess.length > 1 
+                ? `Electricity Bill - ${meter.floor || 'Meter 1'}` 
+                : (previousArrears > 0 ? 'Electricity Bill (with Carry Forward Arrears)' : 'Electricity Bill');
+              
+              charges.push({
                 type: 'ELECTRICITY',
-                description: `Electricity Bill - ${meter.floor || `Meter ${meterIndex + 1}`}`,
+                description: electricityDescription,
                 amount: calculatedCharges.withSurcharge,
                 arrears: previousArrears,
                 total: calculatedCharges.withSurcharge + previousArrears
+              });
+            } else {
+              // For additional meters, store data to create separate invoices
+              // Note: Carry forward arrears only added to first meter to avoid duplication
+              meterBillsData.push({
+                bill: meterBill,
+                meter: meter,
+                meterIndex: meterIndex + 1,
+                charges: {
+                  type: 'ELECTRICITY',
+                  description: `Electricity Bill - ${meter.floor || `Meter ${meterIndex + 1}`}`,
+                  amount: calculatedCharges.withSurcharge,
+                  arrears: previousArrears,
+                  total: calculatedCharges.withSurcharge + previousArrears
+                }
+              });
+            }
+          }
+        } else if (requestCharges && Array.isArray(requestCharges) && requestCharges.length > 0 && !hasReadings) {
+          // Use manually entered charges from request (only if no readings were processed and charges not already used)
+          const electricityCharge = requestCharges.find(c => c.type === 'ELECTRICITY');
+          if (electricityCharge && electricityCharge.amount > 0) {
+            // Create a minimal electricity bill record for reference
+            const now = dayjs();
+            const billInvoiceNumber = `ELEC-${now.format('YYYY-MM')}-${String(property.srNo || 1).padStart(4, '0')}`;
+            
+            const billData = {
+              invoiceNumber: billInvoiceNumber,
+              meterNo: property.meterNumber || '',
+              propertyType: 'Residential',
+              fromDate: periodFrom ? new Date(periodFrom) : now.startOf('month').toDate(),
+              toDate: periodTo ? new Date(periodTo) : now.endOf('month').toDate(),
+              month: now.format('MMM-YY'),
+              dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+              totalBill: electricityCharge.amount || 0,
+              withSurcharge: electricityCharge.amount || 0,
+              arrears: electricityCharge.arrears || 0,
+              amount: electricityCharge.amount || 0,
+              plotNo: property.plotNumber || '',
+              rdaNo: property.rdaNumber || '',
+              street: property.street || '',
+              sector: property.sector || '',
+              category: property.categoryType || '',
+              address: property.address || property.fullAddress || '',
+              project: property.project || '',
+              owner: property.ownerName || '',
+              contactNo: property.contactNumber || '',
+              status: 'Active',
+              createdBy: req.user.id
+            };
+            
+            electricityBill = new Electricity(billData);
+            await electricityBill.save();
+            
+            // For manual charges, calculate carry forward arrears from PropertyInvoice
+            let manualCarryForwardArrears = 0;
+            const previousElectricityInvoices = await PropertyInvoice.find({
+              property: property._id,
+              chargeTypes: { $in: ['ELECTRICITY'] },
+              paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+              balance: { $gt: 0 }
+            })
+            .select('charges grandTotal totalPaid balance')
+            .sort({ invoiceDate: 1 })
+            .lean();
+            
+            previousElectricityInvoices.forEach(inv => {
+              const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+              if (electricityCharges.length > 0) {
+                const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
+                if (hasOnlyElectricity) {
+                  manualCarryForwardArrears += (inv.balance || 0);
+                } else {
+                  const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
+                  const invoiceTotal = inv.grandTotal || 0;
+                  if (invoiceTotal > 0) {
+                    const electricityProportion = electricityTotal / invoiceTotal;
+                    manualCarryForwardArrears += (inv.balance || 0) * electricityProportion;
+                  }
+                }
               }
             });
+            
+            manualCarryForwardArrears = Math.round(manualCarryForwardArrears * 100) / 100;
+            
+            const totalElectricityArrears = (electricityCharge.arrears || 0) + manualCarryForwardArrears;
+            const electricityDesc = electricityCharge.description || 
+              (manualCarryForwardArrears > 0 ? 'Electricity Bill (with Carry Forward Arrears)' : 'Electricity Bill');
+            
+            charges.push({
+              type: 'ELECTRICITY',
+              description: electricityDesc,
+              amount: electricityCharge.amount || 0,
+              arrears: totalElectricityArrears,
+              total: (electricityCharge.amount || 0) + totalElectricityArrears
+            });
           }
-        }
-      } else if (requestCharges && Array.isArray(requestCharges) && requestCharges.length > 0) {
-        // Use manually entered charges from request (only if no readings were processed)
-        const electricityCharge = requestCharges.find(c => c.type === 'ELECTRICITY');
-        if (electricityCharge && electricityCharge.amount > 0) {
-          // Create a minimal electricity bill record for reference
-          const now = dayjs();
-          const billInvoiceNumber = `ELEC-${now.format('YYYY-MM')}-${String(property.srNo || 1).padStart(4, '0')}`;
+        } else if (conditions.length > 0) {
+          // Fallback to existing bill
+          electricityBill = await Electricity.findOne({ $or: conditions })
+            .sort({ toDate: -1, createdAt: -1 })
+            .lean();
           
-          const billData = {
-            invoiceNumber: billInvoiceNumber,
-            meterNo: property.meterNumber || '',
-            propertyType: 'Residential',
-            fromDate: periodFrom ? new Date(periodFrom) : now.startOf('month').toDate(),
-            toDate: periodTo ? new Date(periodTo) : now.endOf('month').toDate(),
-            month: now.format('MMM-YY'),
-            dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
-            totalBill: electricityCharge.amount || 0,
-            withSurcharge: electricityCharge.amount || 0,
-            arrears: electricityCharge.arrears || 0,
-            amount: electricityCharge.amount || 0,
-            plotNo: property.plotNumber || '',
-            rdaNo: property.rdaNumber || '',
-            street: property.street || '',
-            sector: property.sector || '',
-            category: property.categoryType || '',
-            address: property.address || property.fullAddress || '',
-            project: property.project || '',
-            owner: property.ownerName || '',
-            contactNo: property.contactNumber || '',
-            status: 'Active',
-            createdBy: req.user.id
-          };
-          
-          electricityBill = new Electricity(billData);
-          await electricityBill.save();
-          
-          // For manual charges, calculate carry forward arrears from PropertyInvoice
-          let manualCarryForwardArrears = 0;
-          const previousElectricityInvoices = await PropertyInvoice.find({
-            property: property._id,
-            chargeTypes: { $in: ['ELECTRICITY'] },
-            paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-            balance: { $gt: 0 }
-          })
-          .select('charges grandTotal totalPaid balance')
-          .sort({ invoiceDate: 1 })
-          .lean();
-          
-          previousElectricityInvoices.forEach(inv => {
-            const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
-            if (electricityCharges.length > 0) {
-              const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
-              if (hasOnlyElectricity) {
-                manualCarryForwardArrears += (inv.balance || 0);
-              } else {
-                const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
-                const invoiceTotal = inv.grandTotal || 0;
-                if (invoiceTotal > 0) {
-                  const electricityProportion = electricityTotal / invoiceTotal;
-                  manualCarryForwardArrears += (inv.balance || 0) * electricityProportion;
+          if (electricityBill) {
+            // For existing bill, calculate carry forward arrears from PropertyInvoice
+            let existingBillCarryForwardArrears = 0;
+            const previousElectricityInvoices = await PropertyInvoice.find({
+              property: property._id,
+              chargeTypes: { $in: ['ELECTRICITY'] },
+              paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+              balance: { $gt: 0 }
+            })
+            .select('charges grandTotal totalPaid balance')
+            .sort({ invoiceDate: 1 })
+            .lean();
+            
+            previousElectricityInvoices.forEach(inv => {
+              const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+              if (electricityCharges.length > 0) {
+                const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
+                if (hasOnlyElectricity) {
+                  existingBillCarryForwardArrears += (inv.balance || 0);
+                } else {
+                  const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
+                  const invoiceTotal = inv.grandTotal || 0;
+                  if (invoiceTotal > 0) {
+                    const electricityProportion = electricityTotal / invoiceTotal;
+                    existingBillCarryForwardArrears += (inv.balance || 0) * electricityProportion;
+                  }
                 }
               }
-            }
-          });
-          
-          manualCarryForwardArrears = Math.round(manualCarryForwardArrears * 100) / 100;
-          
-          const totalElectricityArrears = (electricityCharge.arrears || 0) + manualCarryForwardArrears;
-          const electricityDesc = electricityCharge.description || 
-            (manualCarryForwardArrears > 0 ? 'Electricity Bill (with Carry Forward Arrears)' : 'Electricity Bill');
-          
-          charges.push({
-            type: 'ELECTRICITY',
-            description: electricityDesc,
-            amount: electricityCharge.amount || 0,
-            arrears: totalElectricityArrears,
-            total: (electricityCharge.amount || 0) + totalElectricityArrears
-          });
-        }
-      } else if (conditions.length > 0) {
-        // Fallback to existing bill
-        electricityBill = await Electricity.findOne({ $or: conditions })
-          .sort({ toDate: -1, createdAt: -1 })
-          .lean();
-        
-        if (electricityBill) {
-          // For existing bill, calculate carry forward arrears from PropertyInvoice
-          let existingBillCarryForwardArrears = 0;
-          const previousElectricityInvoices = await PropertyInvoice.find({
-            property: property._id,
-            chargeTypes: { $in: ['ELECTRICITY'] },
-            paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-            balance: { $gt: 0 }
-          })
-          .select('charges grandTotal totalPaid balance')
-          .sort({ invoiceDate: 1 })
-          .lean();
-          
-          previousElectricityInvoices.forEach(inv => {
-            const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
-            if (electricityCharges.length > 0) {
-              const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
-              if (hasOnlyElectricity) {
-                existingBillCarryForwardArrears += (inv.balance || 0);
-              } else {
-                const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
-                const invoiceTotal = inv.grandTotal || 0;
-                if (invoiceTotal > 0) {
-                  const electricityProportion = electricityTotal / invoiceTotal;
-                  existingBillCarryForwardArrears += (inv.balance || 0) * electricityProportion;
-                }
-              }
-            }
-          });
-          
-          existingBillCarryForwardArrears = Math.round(existingBillCarryForwardArrears * 100) / 100;
-          
-          const totalElectricityArrears = (electricityBill.arrears || 0) + existingBillCarryForwardArrears;
-          const electricityDesc = existingBillCarryForwardArrears > 0 
-            ? 'Electricity Bill (with Carry Forward Arrears)' 
-            : 'Electricity Bill';
-          
-          charges.push({
-            type: 'ELECTRICITY',
-            description: electricityDesc,
-            amount: electricityBill.withSurcharge || electricityBill.totalBill || 0,
-            arrears: totalElectricityArrears,
-            total: (electricityBill.withSurcharge || electricityBill.totalBill || 0) + totalElectricityArrears
-          });
+            });
+            
+            existingBillCarryForwardArrears = Math.round(existingBillCarryForwardArrears * 100) / 100;
+            
+            const totalElectricityArrears = (electricityBill.arrears || 0) + existingBillCarryForwardArrears;
+            const electricityDesc = existingBillCarryForwardArrears > 0 
+              ? 'Electricity Bill (with Carry Forward Arrears)' 
+              : 'Electricity Bill';
+            
+            charges.push({
+              type: 'ELECTRICITY',
+              description: electricityDesc,
+              amount: electricityBill.withSurcharge || electricityBill.totalBill || 0,
+              arrears: totalElectricityArrears,
+              total: (electricityBill.withSurcharge || electricityBill.totalBill || 0) + totalElectricityArrears
+            });
+          }
         }
       }
     }
@@ -999,9 +1121,11 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       invoiceType = 'MIXED';
     }
 
+    // Get active meters from property for electricity check
+    const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
+
     // Handle multiple meters for electricity invoices
     const now = dayjs();
-    const activeMeters = (property.meters || []).filter(m => m.isActive !== false);
     const hasMultipleMeters = activeMeters.length > 1 && includeElectricity === true && electricityBill && meterBillsData.length > 0;
     
     // If we have multiple meters with electricity, create separate invoices for each
@@ -1123,6 +1247,9 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
         totalArrears,
         grandTotal,
         amountInWords: numberToWords(grandTotal),
+        totalPaid: 0, // Explicitly set initial totalPaid
+        balance: grandTotal, // Explicitly set initial balance (grandTotal - 0)
+        calculationData: calculationData, // Persist calculation breakdown
         status: 'Issued',
         paymentStatus: 'unpaid',
         createdBy: req.user.id
@@ -1156,6 +1283,8 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           totalArrears: meterArrears,
           grandTotal: meterGrandTotal,
           amountInWords: numberToWords(meterGrandTotal),
+          totalPaid: 0, // Explicitly set initial totalPaid
+          balance: meterGrandTotal, // Explicitly set initial balance (grandTotal - 0)
           status: 'Issued',
           paymentStatus: 'unpaid',
           createdBy: req.user.id
@@ -1306,6 +1435,9 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       totalArrears,
       grandTotal,
       amountInWords: numberToWords(grandTotal),
+      totalPaid: 0, // Explicitly set initial totalPaid
+      balance: grandTotal, // Explicitly set initial balance (grandTotal - 0)
+      calculationData: calculationData, // Persist calculation breakdown
       status: 'Issued',
       paymentStatus: 'unpaid',
       createdBy: req.user.id
@@ -1372,7 +1504,7 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
     
     // OPTIMIZATION: Select only needed fields and use lean
     const invoices = await PropertyInvoice.find({ property: req.params.propertyId })
-      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge electricityBill rentPayment property createdAt updatedAt')
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge electricityBill rentPayment property createdAt updatedAt calculationData')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit meters floor electricityWaterMeterNo',

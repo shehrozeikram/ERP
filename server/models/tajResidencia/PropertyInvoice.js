@@ -46,6 +46,11 @@ const propertyInvoiceSchema = new mongoose.Schema({
   rentPayment: {
     type: mongoose.Schema.Types.ObjectId
   },
+  // Store detailed calculation breakdown for reference (especially for PDF)
+  calculationData: {
+    type: Object,
+    default: null
+  },
   // Charges Breakdown
   charges: [{
     type: {
