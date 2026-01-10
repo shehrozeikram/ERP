@@ -714,8 +714,14 @@ export const MODULES = {
         path: '/general/user-tracking'
       },
       {
-        name: 'Payments',
-        path: '/general/payments'
+        name: 'Ceo Secretariat',
+        path: '/general/ceo-secretariat',
+        subItems: [
+          {
+            name: 'Payments',
+            path: '/general/ceo-secretariat/payments'
+          }
+        ]
       }
     ]
   }

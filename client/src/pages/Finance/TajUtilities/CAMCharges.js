@@ -639,7 +639,7 @@ const CAMCharges = () => {
       pdf.setFontSize(11);
       pdf.setTextColor(178, 34, 34);
       pdf.text(
-        `Taj CAM Charges Invoice For The Month Of ${monthLabel}`,
+        `Taj CAM Charges For The Month Of ${monthLabel}`,
         startX + contentWidth / 2,
         cursorY,
         { align: 'center' }
@@ -649,7 +649,7 @@ const CAMCharges = () => {
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(9);
-      pdf.text('Statement of CAM Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+      pdf.text('Invoice of CAM Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
       cursorY += 6;
 
       const inlineRows = [

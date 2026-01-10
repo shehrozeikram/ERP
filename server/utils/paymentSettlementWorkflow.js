@@ -71,6 +71,7 @@ const getAllWorkflowStatuses = () => {
     'Send to Audit',
     'Send to Finance',
     'Send to CEO Office',
+    'Forwarded to CEO',
     'Approved',
     'Rejected',
     'Returned from Audit',
@@ -142,7 +143,8 @@ const getNextPossibleStatuses = (currentStatus) => {
     'Send to HOD Admin': ['Send to Audit', 'Send to Finance', 'Send to CEO Office', 'Approved', 'Rejected'],
     'Send to Audit': ['Send to Finance', 'Send to CEO Office', 'Approved', 'Rejected'],
     'Send to Finance': ['Send to CEO Office', 'Approved', 'Rejected'],
-    'Send to CEO Office': ['Approved', 'Rejected', 'Returned from CEO Office'], // Final approval step
+    'Send to CEO Office': ['Forwarded to CEO', 'Rejected', 'Returned from CEO Office'], // Coordinator can forward or reject
+    'Forwarded to CEO': ['Approved', 'Rejected', 'Returned from CEO Office'], // CEO can approve, reject, or return with objection
     'Approved': ['Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'], // Can forward to any status after approval
     'Rejected': ['Draft', 'Send to AM Admin', 'Send to HOD Admin', 'Send to Audit', 'Send to Finance', 'Send to CEO Office'], // Can be sent back to draft or forwarded
     'Returned from Audit': ['Send to Audit', 'Draft'], // Can resubmit to Pre Audit or go back to Draft

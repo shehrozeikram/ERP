@@ -1027,6 +1027,12 @@ const Electricity = () => {
 
     const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
     const clientName = property.ownerName || property.tenantName || '—';
+    // Try multiple ways to get residentId: from populated resident object, from property.residentId, or from invoice.property.resident
+    const residentId = property.resident?.residentId || 
+                      (invoice?.property?.resident?.residentId) || 
+                      property.residentId || 
+                      (invoice?.property?.residentId) || 
+                      '—';
     const sector = property.sector || '—';
     const address = electricityBill.address || property.address || '—';
     // Fetch floor from meters array based on meterNo
@@ -1115,10 +1121,6 @@ const Electricity = () => {
         { label: 'Electricity Duty', value: formatAmount(electricityBill.electricityDuty || 0) },
         { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0) },
         { label: 'Charges for the Month', value: formatAmount(totalBill) },
-        {
-          label: `Amount Received in ${billMonthLabel.replace('-', ' ')}`,
-          value: formatAmount(amountReceived ? -amountReceived : 0)
-        },
         { label: '*Amount Submitted in Free Period', value: formatAmount(submittedInFreePeriod) },
         { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
         { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge) },
@@ -1162,10 +1164,11 @@ const Electricity = () => {
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(9);
-      pdf.text('Statement of Electricity Charges', startX + (panelWidth - marginX * 2) / 2, cursorY, { align: 'center' });
+      pdf.text('Invoice of Electricity Charges', startX + (panelWidth - marginX * 2) / 2, cursorY, { align: 'center' });
       cursorY += 6;
 
       const inlineFields = [
+        ['Resident ID', residentId],
         ['Meter ID', meterNo],
         ['Client', clientName],
         ['Sector', sector],
@@ -1476,7 +1479,7 @@ const Electricity = () => {
       cursorY += 6;
 
       setTextStyle('helvetica', 'bold', 9);
-      pdf.text('Statement of Electricity Charges', startX + panelCenterX, cursorY, { align: 'center' });
+      pdf.text('Invoice of Electricity Charges', startX + panelCenterX, cursorY, { align: 'center' });
       cursorY += 6;
 
       // Invoice fields

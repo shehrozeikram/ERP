@@ -152,7 +152,7 @@ const SUBMODULES = {
     'document_tracking',
     'indents',
     'user_tracking',
-    'payments'
+    'ceo_secretariat'
   ]
 };
 

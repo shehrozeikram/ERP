@@ -38,13 +38,15 @@ import {
   Search as SearchIcon,
   Visibility as ViewIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import dayjs from 'dayjs';
+import toast from 'react-hot-toast';
 
 const IndentsList = () => {
   const navigate = useNavigate();
@@ -62,6 +64,18 @@ const IndentsList = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedIndent, setSelectedIndent] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // CEO action dialogs for payments
+  const [approvePaymentDialog, setApprovePaymentDialog] = useState({ open: false, payment: null });
+  const [rejectPaymentDialog, setRejectPaymentDialog] = useState({ open: false, payment: null });
+  const [returnPaymentDialog, setReturnPaymentDialog] = useState({ open: false, payment: null });
+  const [paymentActionLoading, setPaymentActionLoading] = useState(false);
+  const [approvalComments, setApprovalComments] = useState('');
+  const [approvalSignature, setApprovalSignature] = useState('');
+  const [rejectionComments, setRejectionComments] = useState('');
+  const [rejectionSignature, setRejectionSignature] = useState('');
+  const [returnComments, setReturnComments] = useState('');
+  const [returnSignature, setReturnSignature] = useState('');
   
   // Pagination state
   const [page, setPage] = useState(0);
@@ -107,19 +121,21 @@ const IndentsList = () => {
       const response = await paymentSettlementService.getPaymentSettlements(params);
       const allPayments = response.data?.settlements || [];
       
-      // Filter by status if needed
-      let filteredPayments = allPayments;
+      // Filter only "Forwarded to CEO" payments for CEO review
+      let filteredPayments = allPayments.filter(p => p.workflowStatus === 'Forwarded to CEO');
+      
+      // Additional filter by status if needed
       if (statusFilter) {
         // Map indent status to payment workflow status
         const statusMap = {
-          'Submitted': 'Send to CEO Office',
-          'Under Review': 'Send to CEO Office',
+          'Submitted': 'Forwarded to CEO',
+          'Under Review': 'Forwarded to CEO',
           'Approved': 'Approved',
           'Rejected': 'Rejected'
         };
         const paymentStatus = statusMap[statusFilter];
         if (paymentStatus) {
-          filteredPayments = allPayments.filter(p => 
+          filteredPayments = filteredPayments.filter(p => 
             (p.workflowStatus || '').includes(paymentStatus)
           );
         }
@@ -167,6 +183,80 @@ const IndentsList = () => {
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
+  };
+
+  // CEO Actions for Payments
+  const handleApprovePayment = async () => {
+    if (!approvalSignature.trim()) {
+      toast.error('Please provide digital signature');
+      return;
+    }
+
+    try {
+      setPaymentActionLoading(true);
+      await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
+        comments: approvalComments || `Approved by CEO with digital signature: ${approvalSignature}`,
+        digitalSignature: approvalSignature
+      });
+      toast.success('Payment approved successfully');
+      setApprovePaymentDialog({ open: false, payment: null });
+      setApprovalComments('');
+      setApprovalSignature('');
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to approve payment');
+    } finally {
+      setPaymentActionLoading(false);
+    }
+  };
+
+  const handleRejectPayment = async () => {
+    if (!rejectionSignature.trim() || !rejectionComments.trim()) {
+      toast.error('Please provide comments and digital signature');
+      return;
+    }
+
+    try {
+      setPaymentActionLoading(true);
+      await paymentSettlementService.rejectPayment(rejectPaymentDialog.payment._id, {
+        comments: rejectionComments,
+        digitalSignature: rejectionSignature
+      });
+      toast.success('Payment rejected successfully');
+      setRejectPaymentDialog({ open: false, payment: null });
+      setRejectionComments('');
+      setRejectionSignature('');
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to reject payment');
+    } finally {
+      setPaymentActionLoading(false);
+    }
+  };
+
+  const handleReturnPayment = async () => {
+    if (!returnSignature.trim() || !returnComments.trim()) {
+      toast.error('Please provide objection comments and digital signature');
+      return;
+    }
+
+    try {
+      setPaymentActionLoading(true);
+      await paymentSettlementService.updateWorkflowStatus(returnPaymentDialog.payment._id, {
+        workflowStatus: 'Returned from CEO Office',
+        comments: `Returned with objection: ${returnComments}`,
+        digitalSignature: returnSignature
+      });
+      toast.success('Payment returned with objection successfully');
+      setReturnPaymentDialog({ open: false, payment: null });
+      setReturnComments('');
+      setReturnSignature('');
+      loadPayments();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to return payment');
+    } finally {
+      setPaymentActionLoading(false);
+    }
   };
 
   // Handle delete
@@ -443,10 +533,40 @@ const IndentsList = () => {
                           <IconButton
                             size="small"
                             color="primary"
-                            onClick={() => navigate(`/general/payments?settlementId=${item._id}`)}
+                            onClick={() => navigate(`/general/ceo-secretariat/payments?settlementId=${item._id}`)}
+                            title="View Details"
                           >
                             <ViewIcon />
                           </IconButton>
+                          {/* CEO Actions - Only show for "Forwarded to CEO" status */}
+                          {item.workflowStatus === 'Forwarded to CEO' && (
+                            <>
+                              <IconButton
+                                size="small"
+                                color="success"
+                                onClick={() => setApprovePaymentDialog({ open: true, payment: item })}
+                                title="Approve"
+                              >
+                                <CheckCircleIcon />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => setRejectPaymentDialog({ open: true, payment: item })}
+                                title="Reject"
+                              >
+                                <CancelIcon />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                color="warning"
+                                onClick={() => setReturnPaymentDialog({ open: true, payment: item })}
+                                title="Return with Objection"
+                              >
+                                <WarningIcon />
+                              </IconButton>
+                            </>
+                          )}
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -565,6 +685,127 @@ const IndentsList = () => {
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* CEO Payment Action Dialogs */}
+      {/* Approve Payment Dialog */}
+      <Dialog open={approvePaymentDialog.open} onClose={() => setApprovePaymentDialog({ open: false, payment: null })}>
+        <DialogTitle>Approve Payment</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Approve payment settlement: <strong>{approvePaymentDialog.payment?.referenceNumber}</strong>
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Comments (Optional)"
+            value={approvalComments}
+            onChange={(e) => setApprovalComments(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Digital Signature"
+            value={approvalSignature}
+            onChange={(e) => setApprovalSignature(e.target.value)}
+            placeholder="Type your name as digital signature"
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApprovePaymentDialog({ open: false, payment: null })}>Cancel</Button>
+          <Button
+            onClick={handleApprovePayment}
+            variant="contained"
+            color="success"
+            disabled={paymentActionLoading || !approvalSignature.trim()}
+            startIcon={<CheckCircleIcon />}
+          >
+            {paymentActionLoading ? <CircularProgress size={20} /> : 'Approve'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject Payment Dialog */}
+      <Dialog open={rejectPaymentDialog.open} onClose={() => setRejectPaymentDialog({ open: false, payment: null })}>
+        <DialogTitle>Reject Payment</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Reject payment settlement: <strong>{rejectPaymentDialog.payment?.referenceNumber}</strong>
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            label="Rejection Comments"
+            value={rejectionComments}
+            onChange={(e) => setRejectionComments(e.target.value)}
+            required
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Digital Signature"
+            value={rejectionSignature}
+            onChange={(e) => setRejectionSignature(e.target.value)}
+            placeholder="Type your name as digital signature"
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRejectPaymentDialog({ open: false, payment: null })}>Cancel</Button>
+          <Button
+            onClick={handleRejectPayment}
+            variant="contained"
+            color="error"
+            disabled={paymentActionLoading || !rejectionSignature.trim() || !rejectionComments.trim()}
+            startIcon={<CancelIcon />}
+          >
+            {paymentActionLoading ? <CircularProgress size={20} /> : 'Reject'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Return Payment with Objection Dialog */}
+      <Dialog open={returnPaymentDialog.open} onClose={() => setReturnPaymentDialog({ open: false, payment: null })}>
+        <DialogTitle>Return Payment with Objection</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Return payment settlement with objection: <strong>{returnPaymentDialog.payment?.referenceNumber}</strong>
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Objection Comments"
+            value={returnComments}
+            onChange={(e) => setReturnComments(e.target.value)}
+            placeholder="Specify the objection or issue with this payment..."
+            required
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            fullWidth
+            label="Digital Signature"
+            value={returnSignature}
+            onChange={(e) => setReturnSignature(e.target.value)}
+            placeholder="Type your name as digital signature"
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReturnPaymentDialog({ open: false, payment: null })}>Cancel</Button>
+          <Button
+            onClick={handleReturnPayment}
+            variant="contained"
+            color="warning"
+            disabled={paymentActionLoading || !returnSignature.trim() || !returnComments.trim()}
+            startIcon={<WarningIcon />}
+          >
+            {paymentActionLoading ? <CircularProgress size={20} /> : 'Return with Objection'}
           </Button>
         </DialogActions>
       </Dialog>

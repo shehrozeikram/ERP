@@ -141,7 +141,8 @@ const Sidebar = () => {
       '/documents-tracking': 'document_tracking',
       '/general/indents': 'indents',
       '/general/indents/dashboard': 'indents',
-      '/general/payments': 'payments',
+      '/general/ceo-secretariat': 'ceo_secretariat',
+      '/general/ceo-secretariat/payments': 'ceo_secretariat',
       '/general/indents/create': 'indents',
       
       // Finance Module
@@ -233,7 +234,7 @@ const Sidebar = () => {
     if (path.startsWith('/taj-residencia')) return 'taj_residencia';
     if (path.startsWith('/documents-tracking')) return 'general';
     if (path.startsWith('/general/indents')) return 'general';
-    if (path.startsWith('/general/payments')) return 'general';
+    if (path.startsWith('/general/ceo-secretariat')) return 'general';
     return null;
   };
 

@@ -45,6 +45,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import paymentSettlementService from '../../services/paymentSettlementService';
+import toast from 'react-hot-toast';
 
 const AccountsPayable = () => {
   const navigate = useNavigate();
@@ -91,7 +93,9 @@ const AccountsPayable = () => {
 
       const response = await api.get(`/finance/accounts-payable?${params}`);
       if (response.data.success) {
-        setBills(response.data.data.bills || []);
+        // Combine bills and payment settlements
+        const allItems = response.data.data.bills || [];
+        setBills(allItems);
         setPagination(prev => ({
           ...prev,
           ...response.data.data.pagination
@@ -384,43 +388,68 @@ const AccountsPayable = () => {
               </TableHead>
               <TableBody>
                 {bills.map((bill) => {
-                  const days = calculateAge(bill.billDate);
-                  const outstanding = bill.totalAmount - (bill.paidAmount || 0);
+                  const isPaymentSettlement = bill.type === 'payment_settlement';
+                  const billDate = bill.billDate || bill.date || bill.createdAt;
+                  const days = calculateAge(billDate);
+                  const outstanding = isPaymentSettlement 
+                    ? (bill.grandTotal || bill.amount || 0)
+                    : (bill.totalAmount - (bill.paidAmount || 0));
+                  
                   return (
                     <TableRow key={bill._id} hover>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                          {bill.billNumber}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {bill.vendorName || 'Unknown Vendor'}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {bill.vendorEmail}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {isPaymentSettlement && (
+                            <Chip 
+                              label="Payment Settlement" 
+                              size="small" 
+                              color="primary" 
+                              variant="outlined"
+                              sx={{ fontSize: '0.7rem', height: '20px' }}
+                            />
+                          )}
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                            {bill.billNumber || bill.referenceNumber || bill._id}
                           </Typography>
                         </Box>
                       </TableCell>
                       <TableCell>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                            {isPaymentSettlement 
+                              ? (bill.vendor?.name || bill.toWhomPaid || 'N/A')
+                              : (bill.vendorName || 'Unknown Vendor')}
+                          </Typography>
+                          {!isPaymentSettlement && bill.vendorEmail && (
+                            <Typography variant="caption" color="textSecondary">
+                              {bill.vendorEmail}
+                            </Typography>
+                          )}
+                          {isPaymentSettlement && (
+                            <Typography variant="caption" color="textSecondary" display="block">
+                              From: {typeof bill.fromDepartment === 'string' ? bill.fromDepartment : (bill.fromDepartment?.name || 'N/A')}
+                            </Typography>
+                          )}
+                        </Box>
+                      </TableCell>
+                      <TableCell>
                         <Typography variant="body2">
-                          {formatDate(bill.billDate)}
+                          {formatDate(billDate)}
                         </Typography>
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">
-                          {formatDate(bill.dueDate)}
+                          {formatDate(bill.dueDate || billDate)}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {formatPKR(bill.totalAmount)}
+                          {formatPKR(isPaymentSettlement ? (bill.grandTotal || bill.amount || 0) : bill.totalAmount)}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                          {formatPKR(bill.paidAmount || 0)}
+                          {formatPKR(isPaymentSettlement ? 0 : (bill.paidAmount || 0))}
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
@@ -436,10 +465,12 @@ const AccountsPayable = () => {
                       </TableCell>
                       <TableCell>
                         <Chip 
-                          label={bill.status?.toUpperCase() || 'UNKNOWN'} 
+                          label={isPaymentSettlement 
+                            ? (bill.workflowStatus || 'PENDING')
+                            : (bill.status?.toUpperCase() || 'UNKNOWN')} 
                           size="small" 
-                          color={getStatusColor(bill.status)}
-                          icon={getStatusIcon(bill.status)}
+                          color={isPaymentSettlement ? 'info' : getStatusColor(bill.status)}
+                          icon={isPaymentSettlement ? null : getStatusIcon(bill.status)}
                         />
                       </TableCell>
                       <TableCell>
@@ -452,20 +483,40 @@ const AccountsPayable = () => {
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <Tooltip title="View Details">
-                            <IconButton size="small">
+                            <IconButton 
+                              size="small"
+                              onClick={async () => {
+                                if (isPaymentSettlement) {
+                                  try {
+                                    const response = await paymentSettlementService.getPaymentSettlement(bill._id);
+                                    // Open payment settlement in new tab
+                                    window.open(`/general/ceo-secretariat/payments?settlementId=${bill._id}`, '_blank');
+                                  } catch (error) {
+                                    toast.error('Failed to load payment settlement details');
+                                  }
+                                } else {
+                                  // Handle regular bill view
+                                  console.log('View bill:', bill._id);
+                                }
+                              }}
+                            >
                               <ViewIcon />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Make Payment">
-                            <IconButton size="small" color="success">
-                              <PaymentIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit Bill">
-                            <IconButton size="small">
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
+                          {!isPaymentSettlement && (
+                            <>
+                              <Tooltip title="Make Payment">
+                                <IconButton size="small" color="success">
+                                  <PaymentIcon />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Edit Bill">
+                                <IconButton size="small">
+                                  <EditIcon />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
                         </Box>
                       </TableCell>
                     </TableRow>

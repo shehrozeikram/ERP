@@ -575,11 +575,11 @@ const approveDocument = asyncHandler(async (req, res) => {
       });
     }
 
-    // Check if document can be approved (must be in a "Send to" status)
-    if (!settlement.workflowStatus || !settlement.workflowStatus.includes('Send to')) {
+    // Check if document can be approved (must be in a "Send to" status or "Forwarded to CEO")
+    if (!settlement.workflowStatus || (!settlement.workflowStatus.includes('Send to') && settlement.workflowStatus !== 'Forwarded to CEO')) {
       return res.status(400).json({
         success: false,
-        message: 'Document must be in a "Send to" status to be approved'
+        message: 'Document must be in a "Send to" status or "Forwarded to CEO" status to be approved'
       });
     }
 
@@ -661,11 +661,11 @@ const rejectDocument = asyncHandler(async (req, res) => {
       });
     }
 
-    // Check if document can be rejected (must be in a "Send to" status)
-    if (!settlement.workflowStatus || !settlement.workflowStatus.includes('Send to')) {
+    // Check if document can be rejected (must be in a "Send to" status or "Forwarded to CEO")
+    if (!settlement.workflowStatus || (!settlement.workflowStatus.includes('Send to') && settlement.workflowStatus !== 'Forwarded to CEO')) {
       return res.status(400).json({
         success: false,
-        message: 'Document must be in a "Send to" status to be rejected'
+        message: 'Document must be in a "Send to" status or "Forwarded to CEO" status to be rejected'
       });
     }
 

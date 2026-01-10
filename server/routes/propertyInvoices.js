@@ -1361,14 +1361,14 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
       .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge electricityBill rentPayment property createdAt updatedAt')
       .populate({
         path: 'property',
-        select: 'propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit',
+        select: 'propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit meters floor electricityWaterMeterNo',
         populate: {
           path: 'resident',
           select: 'name accountType contactNumber email residentId'
         }
       })
       .populate('camCharge', 'invoiceNumber amount arrears')
-      .populate('electricityBill', 'invoiceNumber totalBill arrears meterNo')
+      .populate('electricityBill', 'invoiceNumber meterNo prvReading curReading unitsConsumed unitsConsumedForDays iescoSlabs iescoUnitPrice electricityCost fcSurcharge gst electricityDuty fixedCharges totalBill withSurcharge receivedAmount arrears fromDate toDate dueDate month address')
       .populate('payments.recordedBy', 'firstName lastName')
       .sort({ invoiceDate: -1 })
       .lean();

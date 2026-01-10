@@ -140,6 +140,7 @@ const Payments = () => {
       // Client-side filtering based on tab with proper status categorization
       // Document Flow Logic:
       // - Pending: Documents with "Send to CEO Office" status (waiting for action)
+      // - Forwarded: Documents with "Forwarded to CEO" status (forwarded to CEO for review)
       // - Returned: Documents with "Returned from CEO Office" status (returned with observations)
       // - Approved: Documents with "Approved" or "Approved (from Send to CEO Office)" status
       // - Rejected: Documents with "Rejected" or "Rejected (from Send to CEO Office)" status
@@ -154,28 +155,36 @@ const Payments = () => {
           return status === 'Send to CEO Office';
         });
       } else if (tabValue === 1) {
+        // Forwarded - Show "Forwarded to CEO" status
+        filteredSettlements = allSettlements.filter(s => {
+          const status = s.workflowStatus || '';
+          return status === 'Forwarded to CEO';
+        });
+      } else if (tabValue === 2) {
         // Returned - Show "Returned from CEO Office" status
         filteredSettlements = allSettlements.filter(s => {
           const status = s.workflowStatus || '';
           return status === 'Returned from CEO Office';
         });
-      } else if (tabValue === 2) {
-        // Approved - Show only documents approved from "Send to CEO Office"
-        // Must be "Approved (from Send to CEO Office)" - not approved from other departments
-        filteredSettlements = allSettlements.filter(s => {
-          const status = s.workflowStatus || '';
-          // Only show if it's approved from Send to CEO Office
-          return status === 'Approved (from Send to CEO Office)' || 
-                 (status.startsWith('Approved (from') && status.includes('Send to CEO Office'));
-        });
       } else if (tabValue === 3) {
-        // Rejected - Show only documents rejected from "Send to CEO Office"
-        // Must be "Rejected (from Send to CEO Office)" - not rejected from other departments
+        // Approved - Show only documents approved from "Send to CEO Office" or "Forwarded to CEO"
+        // Must be "Approved (from Send to CEO Office)" or "Approved (from Forwarded to CEO)" - not approved from other departments
         filteredSettlements = allSettlements.filter(s => {
           const status = s.workflowStatus || '';
-          // Only show if it's rejected from Send to CEO Office
+          // Only show if it's approved from Send to CEO Office or Forwarded to CEO
+          return status === 'Approved (from Send to CEO Office)' || 
+                 status === 'Approved (from Forwarded to CEO)' ||
+                 (status.startsWith('Approved (from') && (status.includes('Send to CEO Office') || status.includes('Forwarded to CEO')));
+        });
+      } else if (tabValue === 4) {
+        // Rejected - Show only documents rejected from "Send to CEO Office" or "Forwarded to CEO"
+        // Must be "Rejected (from Send to CEO Office)" or "Rejected (from Forwarded to CEO)" - not rejected from other departments
+        filteredSettlements = allSettlements.filter(s => {
+          const status = s.workflowStatus || '';
+          // Only show if it's rejected from Send to CEO Office or Forwarded to CEO
           return status === 'Rejected (from Send to CEO Office)' || 
-                 (status.startsWith('Rejected (from') && status.includes('Send to CEO Office'));
+                 status === 'Rejected (from Forwarded to CEO)' ||
+                 (status.startsWith('Rejected (from') && (status.includes('Send to CEO Office') || status.includes('Forwarded to CEO')));
         });
       }
       
@@ -189,7 +198,7 @@ const Payments = () => {
     }
   };
 
-  const handleApprove = async () => {
+  const handleForward = async () => {
     if (!approvalAgree || !approvalSignature.trim()) {
       toast.error('Please provide digital signature and agree to terms');
       return;
@@ -199,20 +208,22 @@ const Payments = () => {
       setActionLoading(true);
       setError(null);
       
-      await paymentSettlementService.approvePayment(approveDialog.settlement._id, {
-        comments: approvalComments || `Approved with digital signature: ${approvalSignature}`,
+      // Forward to CEO by updating workflow status to "Forwarded to CEO"
+      await paymentSettlementService.updateWorkflowStatus(approveDialog.settlement._id, {
+        workflowStatus: 'Forwarded to CEO',
+        comments: approvalComments || `Forwarded to CEO with digital signature: ${approvalSignature}`,
         digitalSignature: approvalSignature
       });
       
-      toast.success('Payment approved successfully');
+      toast.success('Payment forwarded to CEO successfully');
       setApproveDialog({ open: false, settlement: null });
       setApprovalComments('');
       setApprovalSignature('');
       setApprovalAgree(false);
       fetchSettlements();
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to approve payment');
-      toast.error('Failed to approve payment');
+      setError(error.response?.data?.message || 'Failed to forward payment');
+      toast.error('Failed to forward payment');
     } finally {
       setActionLoading(false);
     }
@@ -503,6 +514,7 @@ const Payments = () => {
             setPage(0);
           }} sx={{ mb: 2 }}>
             <Tab label="Pending" />
+            <Tab label="Forwarded" />
             <Tab label="Returned" />
             <Tab label="Approved" />
             <Tab label="Rejected" />
@@ -646,16 +658,17 @@ const Payments = () => {
                                                     <ViewIcon fontSize="small" />
                                                   </IconButton>
                                                 </Tooltip>
-                                                {/* Show action buttons for "Send to CEO Office" status (Pending tab) */}
+                                                {/* Show action buttons for "Send to CEO Office" status (Pending tab) - Coordinator actions */}
+                                                {/* Forwarded tab (tabValue === 1) shows documents already forwarded, no actions needed */}
                                                 {tabValue === 0 && settlement.workflowStatus === 'Send to CEO Office' && (
                                                   <>
-                                                    <Tooltip title="Approve">
+                                                    <Tooltip title="Forward to CEO">
                                                       <IconButton
                                                         size="small"
-                                                        color="success"
+                                                        color="primary"
                                                         onClick={() => setApproveDialog({ open: true, settlement })}
                                                       >
-                                                        <CheckCircleIcon fontSize="small" />
+                                                        <ArrowForwardIcon fontSize="small" />
                                                       </IconButton>
                                                     </Tooltip>
                                                     <Tooltip title="Reject">
@@ -665,15 +678,6 @@ const Payments = () => {
                                                         onClick={() => setRejectDialog({ open: true, settlement })}
                                                       >
                                                         <CancelIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                    <Tooltip title="Return with Observations">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="warning"
-                                                        onClick={() => setReturnDialog({ open: true, settlement })}
-                                                      >
-                                                        <WarningIcon fontSize="small" />
                                                       </IconButton>
                                                     </Tooltip>
                                                   </>
@@ -1281,10 +1285,10 @@ const Payments = () => {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Approve Payment</DialogTitle>
+        <DialogTitle>Forward to CEO</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to approve payment settlement: <strong>{approveDialog.settlement?.referenceNumber}</strong>
+            You are about to forward payment settlement to CEO: <strong>{approveDialog.settlement?.referenceNumber}</strong>
           </Typography>
           
           <TextField
@@ -1314,7 +1318,7 @@ const Payments = () => {
                 onChange={(e) => setApprovalAgree(e.target.checked)}
               />
             }
-            label="I confirm that I have reviewed all payment details and approve this payment settlement"
+            label="I confirm that I have reviewed all payment details and forward this payment settlement to CEO"
           />
         </DialogContent>
         <DialogActions>
@@ -1329,13 +1333,13 @@ const Payments = () => {
             Cancel
           </Button>
           <Button
-            onClick={handleApprove}
+            onClick={handleForward}
             variant="contained"
-            color="success"
+            color="primary"
             disabled={actionLoading || !approvalAgree || !approvalSignature.trim()}
-            startIcon={<CheckCircleIcon />}
+            startIcon={<ArrowForwardIcon />}
           >
-            {actionLoading ? <CircularProgress size={20} /> : 'Approve'}
+            {actionLoading ? <CircularProgress size={20} /> : 'Forward to CEO'}
           </Button>
         </DialogActions>
       </Dialog>

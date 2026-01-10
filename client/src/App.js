@@ -584,7 +584,7 @@ function App() {
               element={<ProtectedRoute><IndentsList /></ProtectedRoute>}
             />
             <Route
-              path="/general/payments"
+              path="/general/ceo-secretariat/payments"
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><Payments /></ProtectedRoute>}
             />
             <Route

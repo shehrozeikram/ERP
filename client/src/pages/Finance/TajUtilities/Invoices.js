@@ -427,7 +427,7 @@ const Invoices = () => {
 
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(9);
-      pdf.text('Statement of Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+      pdf.text('Invoice of Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
       cursorY += 6;
 
       const inlineRows = [
