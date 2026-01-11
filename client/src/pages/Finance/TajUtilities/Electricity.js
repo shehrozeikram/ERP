@@ -1061,9 +1061,10 @@ const Electricity = () => {
       value ? dayjs(value).format('MMMM D, YYYY') : '—';
 
     const formatMonthLabel = () => {
+      const dateToUse = invoice.periodTo || invoice.periodFrom;
+      if (dateToUse) return dayjs(dateToUse).format('MMM-YY').toUpperCase();
       if (electricityBill.month) return electricityBill.month.toUpperCase();
-      if (invoice.periodTo) return dayjs(invoice.periodTo).format('MMMM-YY').toUpperCase();
-      return dayjs().format('MMMM-YY').toUpperCase();
+      return dayjs().format('MMM-YY').toUpperCase();
     };
 
     const formatAmount = (value) => {
@@ -1108,10 +1109,9 @@ const Electricity = () => {
       ? calcData.previousArrears 
       : (electricityCharge?.arrears !== undefined ? electricityCharge.arrears : (electricityBill.arrears || 0));
     const amountReceived = electricityBill.receivedAmount || 0;
-    const submittedInFreePeriod = totalBill + arrears;
     const payableWithinDueDate = totalBill + arrears - amountReceived;
-    const payableAfterDueDate = electricityBill.withSurcharge || payableWithinDueDate;
-    const latePaymentSurcharge = Math.max(payableAfterDueDate - payableWithinDueDate, 0);
+    const latePaymentSurcharge = Math.max(Math.round(payableWithinDueDate * 0.1), 0);
+    const payableAfterDueDate = payableWithinDueDate + latePaymentSurcharge;
 
     pdf.setDrawColor(170);
     pdf.setLineWidth(0.3);
@@ -1204,7 +1204,6 @@ const Electricity = () => {
         { label: 'Electricity Duty', value: formatAmount(electricityDuty) },
         { label: 'Fixed Charges', value: formatAmount(fixedCharges) },
         { label: 'Charges for the Month', value: formatAmount(totalBill) },
-        { label: '*Amount Submitted in Free Period', value: formatAmount(submittedInFreePeriod) },
         { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
         { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge) },
         { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate) }
@@ -1223,7 +1222,7 @@ const Electricity = () => {
           // Positioned at 70% of available width to give it enough space from the amount on the right
           pdf.text(String(row.rate), startX + availableWidth * 0.7, y + 4, { align: 'right' });
           // Draw the total cost amount at the far right
-          pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
+        pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
         } else {
           pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
         }
@@ -1388,9 +1387,9 @@ const Electricity = () => {
     const electricityBill = invoice.electricityBill || {};
     
     // Calculate month label once
-    const monthLabel = electricityBill.month?.toUpperCase() || 
-      (invoice.periodTo ? dayjs(invoice.periodTo).format('MMMM-YY').toUpperCase() : 
-       dayjs().format('MMMM-YY').toUpperCase());
+    const monthLabel = (invoice.periodTo || invoice.periodFrom)
+      ? dayjs(invoice.periodTo || invoice.periodFrom).format('MMM-YY').toUpperCase()
+      : (electricityBill.month?.toUpperCase() || dayjs().format('MMM-YY').toUpperCase());
 
     // Calculate invoice values
     const meterNo = electricityBill.meterNo || property.electricityWaterMeterNo || '—';
@@ -1417,10 +1416,9 @@ const Electricity = () => {
     const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
     const arrears = electricityCharge?.arrears || electricityBill.arrears || 0;
     const amountReceived = electricityBill.receivedAmount || 0;
-    const submittedInFreePeriod = totalBill + arrears;
     const payableWithinDueDate = totalBill + arrears - amountReceived;
-    const payableAfterDueDate = electricityBill.withSurcharge || payableWithinDueDate;
-    const latePaymentSurcharge = Math.max(payableAfterDueDate - payableWithinDueDate, 0);
+    const latePaymentSurcharge = Math.max(Math.round(payableWithinDueDate * 0.1), 0);
+    const payableAfterDueDate = payableWithinDueDate + latePaymentSurcharge;
 
     // Calculate payment status
     const totalPaid = invoice.totalPaid || 0;
@@ -1498,7 +1496,6 @@ const Electricity = () => {
         { label: 'Fixed Charges', value: formatAmount(electricityBill.fixedCharges || 0), bold: false },
         { label: 'Charges for the Month', value: formatAmount(totalBill), bold: false },
         { label: `Amount Received in ${monthLabel.replace('-', ' ')}`, value: formatAmount(amountReceived ? -amountReceived : 0), bold: false },
-        { label: '*Amount Submitted in Free Period', value: formatAmount(submittedInFreePeriod), bold: true },
         { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate), bold: true },
         { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge), bold: false },
         { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate), bold: true }
@@ -2960,8 +2957,8 @@ const Electricity = () => {
                                           }));
                                         }
                                       }}
-                                      fullWidth
-                                      size="small"
+                    fullWidth
+                    size="small"
                                       inputProps={{ min: 0, step: 1 }}
                                       helperText="Adjust previous reading if incorrect"
                                     />
