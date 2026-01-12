@@ -885,7 +885,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/cam-charges"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <CAMCharges />
                 </ProtectedRoute>
               }
@@ -893,7 +893,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/electricity-bills"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <Electricity />
                 </ProtectedRoute>
               }
@@ -917,7 +917,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-management"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <RentalManagementFinance />
                 </ProtectedRoute>
               }
@@ -925,7 +925,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/rental-management/:id"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <RentalManagementDetailFinance />
                 </ProtectedRoute>
               }
@@ -965,7 +965,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/charges-slabs"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <ChargesSlabs />
                 </ProtectedRoute>
               }
@@ -973,7 +973,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/invoices"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <Invoices />
                 </ProtectedRoute>
               }
@@ -981,7 +981,7 @@ function App() {
             <Route
               path="/finance/taj-utilities-charges/deposits"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <Deposits />
                 </ProtectedRoute>
               }

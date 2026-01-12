@@ -658,6 +658,7 @@ const CAMCharges = () => {
         ['Address', propertyAddress],
         ['Sector', propertySector],
         ['Size', propertySize],
+        ['Account No.', 'PK68ABPA0010035700420129'],
         ['Period From', periodFrom],
         ['Period To', periodTo],
         ['Invoice No.', invoiceNumber],

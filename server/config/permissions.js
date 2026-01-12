@@ -91,7 +91,8 @@ const SUBMODULES = {
     'taj_rental_management',
     'taj_residents',
     'taj_properties',
-    'taj_deposits'
+    'taj_deposits',
+    'taj_invoices'
   ],
   [MODULES.PROCUREMENT]: [
     'purchase_orders',
@@ -547,9 +548,15 @@ const getUserAllowedSubmodules = async (userId, module) => {
     // Special handling for TCM_MANAGER - restrict to specific submodules
     if (user.role === ROLES.TCM_MANAGER && module === MODULES.FINANCE) {
       return allSubmodules.filter(submodule => 
+        submodule === 'taj_utilities_charges' ||
+        submodule === 'taj_cam_charges' ||
+        submodule === 'taj_electricity_bills' ||
         submodule === 'taj_rental_agreements' || 
+        submodule === 'taj_rental_management' ||
         submodule === 'taj_residents' || 
-        submodule === 'taj_properties'
+        submodule === 'taj_properties' ||
+        submodule === 'taj_invoices' ||
+        submodule === 'taj_deposits'
       );
     }
     
@@ -581,7 +588,17 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
   if (hasModuleAccess(user.role, module)) {
     // Special handling for TCM_MANAGER - restrict to specific submodules
     if (user.role === ROLES.TCM_MANAGER && module === MODULES.FINANCE) {
-      const allowedSubmodules = ['taj_rental_agreements', 'taj_residents', 'taj_properties'];
+      const allowedSubmodules = [
+        'taj_utilities_charges',
+        'taj_cam_charges',
+        'taj_electricity_bills',
+        'taj_rental_agreements',
+        'taj_rental_management',
+        'taj_residents',
+        'taj_properties',
+        'taj_invoices',
+        'taj_deposits'
+      ];
       return allowedSubmodules.includes(submodule);
     }
     

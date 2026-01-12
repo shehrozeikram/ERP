@@ -392,9 +392,10 @@ const Invoices = () => {
     };
 
     const footnotes = [
-      '1. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch.',
-      '2. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
-      '3. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
+      '1. The above mentioned charges are calculated based on proportionate share of user in total cost of services/utilities and do not include any profit element of Taj Residencia.',
+      '2. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0917). Bank Account No.: PK68ABPA0010035700420129.',
+      '3. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
+      '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
     ];
 
     const drawPanel = (copyLabel, columnIndex) => {
@@ -436,6 +437,7 @@ const Invoices = () => {
         ['Address', propertyAddress],
         ['Sector', propertySector],
         ['Size', propertySize],
+        ['Account No.', 'PK68ABPA0010035700420129'],
         ['Period From', periodFrom],
         ['Period To', periodTo],
         ['Invoice No.', invoiceNumber],

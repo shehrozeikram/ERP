@@ -204,7 +204,10 @@ export const SUBMODULES = {
     'taj_electricity_bills',
     'taj_rental_agreements',
     'taj_rental_management',
-    'taj_residents'
+    'taj_residents',
+    'taj_properties',
+    'taj_deposits',
+    'taj_invoices'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'purchase_orders',
@@ -473,7 +476,7 @@ export const MODULES = {
     path: '/finance',
     icon: 'AccountBalance',
     description: 'Comprehensive financial management and accounting',
-    roles: ['super_admin', 'admin', 'finance_manager'],
+    roles: ['super_admin', 'admin', 'finance_manager', 'tcm_manager'],
     subItems: [
       { name: 'Finance Dashboard', path: '/finance' },
       { name: 'Chart of Accounts', path: '/finance/accounts' },
@@ -763,9 +766,16 @@ export const getModuleMenuItems = (userRole) => {
   
   // Define allowed submodules for TCM Manager
   const tcmManagerAllowedSubmodules = [
+    '/finance/taj-utilities-charges',
+    '/finance/taj-utilities-charges/cam-charges',
+    '/finance/taj-utilities-charges/electricity-bills',
     '/finance/taj-utilities-charges/rental-agreements',
+    '/finance/taj-utilities-charges/rental-management',
     '/finance/taj-utilities-charges/taj-residents',
-    '/finance/taj-utilities-charges/taj-properties'
+    '/finance/taj-utilities-charges/taj-properties',
+    '/finance/taj-utilities-charges/charges-slabs',
+    '/finance/taj-utilities-charges/invoices',
+    '/finance/taj-utilities-charges/deposits'
   ];
   
   return accessibleModules.map(moduleKey => {
@@ -1016,9 +1026,16 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       // Special handling for TCM_MANAGER - restrict to specific submodules
       if (userRole === ROLES.TCM_MANAGER && moduleKey === MODULE_KEYS.FINANCE) {
         const allowedPaths = [
+          '/finance/taj-utilities-charges',
+          '/finance/taj-utilities-charges/cam-charges',
+          '/finance/taj-utilities-charges/electricity-bills',
           '/finance/taj-utilities-charges/rental-agreements',
+          '/finance/taj-utilities-charges/rental-management',
           '/finance/taj-utilities-charges/taj-residents',
-          '/finance/taj-utilities-charges/taj-properties'
+          '/finance/taj-utilities-charges/taj-properties',
+          '/finance/taj-utilities-charges/charges-slabs',
+          '/finance/taj-utilities-charges/invoices',
+          '/finance/taj-utilities-charges/deposits'
         ];
         
         // Check if path matches allowed paths or starts with them (for dynamic routes)
