@@ -447,6 +447,8 @@ router.post('/employees', [
     // Clean up the request body
     const employeeData = {
       ...req.body,
+      // Convert empty email strings to null to avoid unique index conflicts
+      email: req.body.email && req.body.email.trim() !== '' ? req.body.email.trim() : null,
       salary: {
         gross: parseFloat(req.body.salary?.gross || 0)
       },
@@ -865,6 +867,11 @@ router.put('/employees/:id', [
 
     // Clean up the request body
     const employeeData = { ...req.body };
+    
+    // Convert empty email strings to null to avoid unique index conflicts
+    if (employeeData.email !== undefined) {
+      employeeData.email = employeeData.email && employeeData.email.trim() !== '' ? employeeData.email.trim() : null;
+    }
     
     // Handle salary field
     if (req.body.salary && req.body.salary.gross !== undefined && req.body.salary.gross !== null && req.body.salary.gross !== '') {

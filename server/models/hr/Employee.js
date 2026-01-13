@@ -1036,7 +1036,7 @@ const employeeSchema = new mongoose.Schema({
 
 // Indexes for better query performance
 employeeSchema.index({ employeeId: 1 });
-employeeSchema.index({ email: 1 });
+employeeSchema.index({ email: 1 }, { unique: true, sparse: true }); // Sparse unique index - only indexes non-empty emails
 employeeSchema.index({ department: 1 });
 employeeSchema.index({ position: 1 });
 employeeSchema.index({ employmentStatus: 1 });
@@ -1141,6 +1141,11 @@ employeeSchema.virtual('otherAllowance').get(function() {
 
 // Pre-save middleware to auto-generate Employee ID, calculate probation dates, salary components, and update user reference
 employeeSchema.pre('save', async function(next) {
+  // Convert empty email strings to null to avoid unique index conflicts
+  if (this.email === '' || this.email === undefined) {
+    this.email = null;
+  }
+  
   // Auto-generate Employee ID if not provided
   if (!this.employeeId) {
     try {
