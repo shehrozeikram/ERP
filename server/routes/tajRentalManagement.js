@@ -219,10 +219,16 @@ const mapRentalPropertyResponse = (property) => {
   };
 };
 
-const fetchPersonalRentProperties = async ({ status, search }) => {
+const fetchPersonalRentProperties = async ({ status, search, sector, categoryType }) => {
   const filters = { categoryType: 'Personal Rent' };
   if (status) {
     filters.status = status;
+  }
+  if (sector) {
+    filters.sector = sector;
+  }
+  if (categoryType) {
+    filters.categoryType = categoryType;
   }
   if (search) {
     const pattern = new RegExp(search, 'i');
@@ -254,7 +260,7 @@ const fetchPersonalRentProperties = async ({ status, search }) => {
 router.get('/general-properties', authMiddleware, async (req, res) => {
   try {
     // OPTIMIZATION: Check cache first (only if no filters/search)
-    const hasFilters = req.query.status || req.query.search;
+    const hasFilters = req.query.status || req.query.search || req.query.sector || req.query.categoryType;
     const cacheKey = hasFilters ? null : CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES;
     
     if (cacheKey) {
@@ -293,7 +299,7 @@ router.get('/general-properties', authMiddleware, async (req, res) => {
 router.get('/properties', authMiddleware, async (req, res) => {
   try {
     // OPTIMIZATION: Check cache first (only if no filters/search)
-    const hasFilters = req.query.status || req.query.search;
+    const hasFilters = req.query.status || req.query.search || req.query.sector || req.query.categoryType;
     const cacheKey = hasFilters ? null : CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES;
     
     if (cacheKey) {

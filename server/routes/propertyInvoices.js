@@ -1765,7 +1765,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     const skip = (page - 1) * limit;
     
     // OPTIMIZATION: Check cache first (only if no filters and default pagination)
-    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType;
+    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType || req.query.residentId || req.query.sector;
     const isDefaultPagination = page === 1 && limit === 50;
     const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.INVOICES_OVERVIEW;
     
@@ -1777,7 +1777,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       }
     }
     
-    const { propertyId, status, paymentStatus, chargeType } = req.query;
+    const { propertyId, status, paymentStatus, chargeType, residentId, sector } = req.query;
     const filter = {};
     
     if (propertyId) filter.property = propertyId;
@@ -1785,11 +1785,11 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     if (paymentStatus) filter.paymentStatus = paymentStatus;
     if (chargeType) filter.chargeTypes = { $in: [chargeType] };
 
-    // Get total count for pagination
-    const total = await PropertyInvoice.countDocuments(filter);
+    // Get total count for pagination (before applying resident/sector filters)
+    let total = await PropertyInvoice.countDocuments(filter);
 
     // OPTIMIZATION: Select only needed fields and use lean with pagination
-    const invoices = await PropertyInvoice.find(filter)
+    let invoices = await PropertyInvoice.find(filter)
       .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy')
       .populate({
         path: 'property',
@@ -1802,8 +1802,74 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       .populate('createdBy', 'firstName lastName')
       .sort({ invoiceDate: -1 })
       .skip(skip)
-      .limit(limit)
+      .limit(limit * 2) // Fetch more to account for filtering
       .lean();
+    
+    // Apply resident filter if provided
+    if (residentId) {
+      invoices = invoices.filter(invoice => {
+        const propertyResident = invoice.property?.resident;
+        if (!propertyResident) return false;
+        const residentIdValue = typeof propertyResident === 'object' && propertyResident !== null
+          ? (propertyResident._id || propertyResident.id || propertyResident)
+          : propertyResident;
+        return String(residentIdValue) === String(residentId);
+      });
+    }
+    
+    // Apply sector filter if provided
+    if (sector) {
+      invoices = invoices.filter(invoice => {
+        const propertySector = invoice.property?.sector;
+        if (!propertySector) return false;
+        const sectorValue = typeof propertySector === 'object' && propertySector !== null
+          ? (propertySector.name || propertySector.sectorName || String(propertySector))
+          : String(propertySector);
+        return sectorValue.toLowerCase() === String(sector).toLowerCase();
+      });
+    }
+    
+    // Apply pagination after filtering
+    const filteredTotal = invoices.length;
+    invoices = invoices.slice(0, limit);
+    
+    // Recalculate total if filters were applied
+    if (residentId || sector) {
+      // Need to count all matching invoices, not just current page
+      const allInvoices = await PropertyInvoice.find(filter)
+        .populate({
+          path: 'property',
+          select: 'resident sector',
+          populate: {
+            path: 'resident',
+            select: '_id residentId'
+          }
+        })
+        .lean();
+      
+      let filteredInvoices = allInvoices;
+      if (residentId) {
+        filteredInvoices = filteredInvoices.filter(invoice => {
+          const propertyResident = invoice.property?.resident;
+          if (!propertyResident) return false;
+          const residentIdValue = typeof propertyResident === 'object' && propertyResident !== null
+            ? (propertyResident._id || propertyResident.id || propertyResident)
+            : propertyResident;
+          return String(residentIdValue) === String(residentId);
+        });
+      }
+      if (sector) {
+        filteredInvoices = filteredInvoices.filter(invoice => {
+          const propertySector = invoice.property?.sector;
+          if (!propertySector) return false;
+          const sectorValue = typeof propertySector === 'object' && propertySector !== null
+            ? (propertySector.name || propertySector.sectorName || String(propertySector))
+            : String(propertySector);
+          return sectorValue.toLowerCase() === String(sector).toLowerCase();
+        });
+      }
+      total = filteredInvoices.length;
+    }
 
     const totalPages = Math.ceil(total / limit);
     const response = { 

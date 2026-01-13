@@ -183,7 +183,13 @@ const RentalManagement = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const response = await fetchProperties();
+      const params = {};
+      // Add search and filter parameters
+      if (search) params.search = search;
+      if (statusFilter) params.status = statusFilter;
+      if (sectorFilter) params.sector = sectorFilter;
+      if (categoryFilter) params.categoryType = categoryFilter;
+      const response = await fetchProperties(params);
       setProperties(response.data?.data?.properties || response.data?.data || []);
       if (response.data?.data?.summary) {
         setSummary(response.data.data.summary);
@@ -1339,31 +1345,14 @@ const RentalManagement = () => {
     setExpandedRows(newExpanded);
   };
 
-  // Filter properties based on search and filters
-  const filteredProperties = useMemo(() => {
-    return properties.filter((property) => {
-      // Search filter
-      const searchLower = search.toLowerCase();
-      const matchesSearch = !search || 
-        (property.propertyName || '').toLowerCase().includes(searchLower) ||
-        (property.ownerName || property.tenantName || '').toLowerCase().includes(searchLower) ||
-        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
-        (property.fullAddress || property.address || '').toLowerCase().includes(searchLower) ||
-        (property.sector || '').toLowerCase().includes(searchLower) ||
-        (property.propertyCode || '').toLowerCase().includes(searchLower);
-
-      // Status filter
-      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
-
-      // Sector filter
-      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
-
-      // Category filter (categoryType)
-      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
-
-      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
-    });
-  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
+  // Properties are already filtered on the backend, so use them directly
+  const filteredProperties = properties;
+  
+  // Reload data when filters change
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, statusFilter, sectorFilter, categoryFilter]);
 
   const toggleInvoiceExpansion = (invoiceId) => {
     const newExpanded = new Set(expandedInvoices);

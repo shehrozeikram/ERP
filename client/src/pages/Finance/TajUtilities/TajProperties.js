@@ -278,9 +278,15 @@ const TajProperties = () => {
         page: pagination.page + 1,
         limit: pagination.rowsPerPage
       };
+      // Add search parameter
       if (search) params.search = search;
       
-      // Add filters to params
+      // Add status, sector, and category filters
+      if (statusFilter) params.status = statusFilter;
+      if (sectorFilter) params.sector = sectorFilter;
+      if (categoryFilter) params.categoryType = categoryFilter;
+      
+      // Add legacy filters to params
       Object.keys(filters).forEach(key => {
         if (filters[key] !== '') {
           params[key] = filters[key];
@@ -300,12 +306,12 @@ const TajProperties = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filters, pagination.page, pagination.rowsPerPage]);
+  }, [search, statusFilter, sectorFilter, categoryFilter, filters, pagination.page, pagination.rowsPerPage]);
 
   useEffect(() => {
     loadProperties();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.rowsPerPage, search, filters]);
+  }, [pagination.page, pagination.rowsPerPage, search, statusFilter, sectorFilter, categoryFilter, filters]);
 
   useEffect(() => {
     loadAgreements();
@@ -1004,31 +1010,8 @@ const TajProperties = () => {
     }
   };
 
-  // Filter properties based on search and filters (similar to CAM Charges)
-  const filteredProperties = useMemo(() => {
-    return properties.filter((property) => {
-      // Search filter
-      const searchLower = search.toLowerCase();
-      const matchesSearch = !search || 
-        (property.propertyName || '').toLowerCase().includes(searchLower) ||
-        (property.ownerName || '').toLowerCase().includes(searchLower) ||
-        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
-        (property.address || property.fullAddress || '').toLowerCase().includes(searchLower) ||
-        (property.sector || '').toLowerCase().includes(searchLower) ||
-        (property.propertyCode || '').toLowerCase().includes(searchLower);
-
-      // Status filter
-      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
-
-      // Sector filter
-      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
-
-      // Category filter
-      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
-
-      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
-    });
-  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
+  // Properties are already filtered on the backend, so use them directly
+  const filteredProperties = properties;
 
   // Use total counts from backend (across all pages) instead of calculating from current page
   const propertyTypeCounts = useMemo(() => {

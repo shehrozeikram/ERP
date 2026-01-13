@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
     
     // OPTIMIZATION: Check cache first (only if no filters/search and default pagination)
-    const hasFilters = req.query.search || req.query.status || req.query.propertyType || 
+    const hasFilters = req.query.search || req.query.status || req.query.sector || req.query.propertyType || 
                       req.query.zoneType || req.query.categoryType || req.query.project || 
                       req.query.resident || req.query.hasElectricityWater !== undefined;
     const isDefaultPagination = page === 1 && limit === 50;
@@ -36,6 +36,7 @@ router.get('/', async (req, res) => {
     const { 
       search, 
       status, 
+      sector,
       propertyType, 
       zoneType, 
       categoryType, 
@@ -47,6 +48,10 @@ router.get('/', async (req, res) => {
 
     if (status) {
       filters.status = status;
+    }
+
+    if (sector) {
+      filters.sector = sector;
     }
 
     if (propertyType) {

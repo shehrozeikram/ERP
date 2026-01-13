@@ -98,8 +98,17 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
     
-    // Only use cache if no pagination is requested (page 1, default limit)
-    const isDefaultPagination = page === 1 && limit === 50;
+    // Extract filter parameters
+    const filters = {
+      search: req.query.search || '',
+      status: req.query.status || '',
+      sector: req.query.sector || '',
+      categoryType: req.query.categoryType || ''
+    };
+    
+    // Only use cache if no pagination/filters are requested (page 1, default limit, no filters)
+    const hasFilters = filters.search || filters.status || filters.sector || filters.categoryType;
+    const isDefaultPagination = page === 1 && limit === 50 && !hasFilters;
     if (isDefaultPagination) {
     const cached = getCached(CACHE_KEYS.CAM_CHARGES_OVERVIEW);
     if (cached) {
@@ -108,14 +117,14 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       }
     }
     
-    console.log(`📋 Fetching current CAM charges overview (page: ${page}, limit: ${limit})...`);
+    console.log(`📋 Fetching current CAM charges overview (page: ${page}, limit: ${limit}, filters: ${JSON.stringify(filters)})...`);
     
     // OPTIMIZATION: Select only needed fields from properties
     const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType resident';
     
     // OPTIMIZATION: Run all initial queries in parallel
     const [propertiesResult, activeSlabsResult] = await Promise.all([
-      fetchProperties(propertyFields).then(async (properties) => {
+      fetchProperties(propertyFields, filters).then(async (properties) => {
         // Populate resident with residentId
         const TajResident = require('../models/tajResidencia/TajResident');
         const residentIds = properties.map(p => p.resident).filter(Boolean);

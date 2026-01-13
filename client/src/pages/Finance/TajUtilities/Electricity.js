@@ -231,15 +231,20 @@ const Electricity = () => {
   }, []);
 
   useEffect(() => {
-    // Load properties when component mounts or pagination changes
+    // Load properties when component mounts, pagination changes, or filters change
     loadProperties();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.rowsPerPage]);
+  }, [pagination.page, pagination.rowsPerPage, search, statusFilter, sectorFilter, categoryFilter]);
 
   const loadProperties = async () => {
     try {
       setCurrentOverviewLoading(true);
       const params = pagination.getApiParams();
+      // Add search and filter parameters
+      if (search) params.search = search;
+      if (statusFilter) params.status = statusFilter;
+      if (sectorFilter) params.sector = sectorFilter;
+      if (categoryFilter) params.categoryType = categoryFilter;
       const response = await api.get('/taj-utilities/electricity/current-overview', { params });
       setProperties(response.data.data?.properties || []);
       if (response.data.data?.pagination) {
@@ -285,81 +290,8 @@ const Electricity = () => {
     setExpandedRows(newExpanded);
   };
 
-  // Filter properties based on search and filters
-  const filteredProperties = useMemo(() => {
-    return properties.filter((property) => {
-      // Search filter
-      const searchLower = search.toLowerCase();
-      
-      if (!search) {
-        // No search term, all properties match (subject to other filters)
-        const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
-        const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
-        const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
-        return matchesStatus && matchesSector && matchesCategory;
-      }
-      
-      // Check meter numbers from meters array
-      const metersArray = Array.isArray(property.meters) ? property.meters : [];
-      const meterNumbers = metersArray
-        .map(m => String(m?.meterNo || '').trim())
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      
-      // Check location fields (fullAddress, address, street, city, block, sector)
-      // Join all location fields with spaces and normalize multiple spaces
-      const locationFields = [
-        property.fullAddress || '',
-        property.address || '',
-        property.street || '',
-        property.city || '',
-        property.block || '',
-        property.sector || ''
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-        .trim()
-        .toLowerCase();
-      
-      // Normalize search term (remove extra spaces)
-      const normalizedSearch = searchLower.replace(/\s+/g, ' ').trim();
-      
-      // Helper function to check if search matches (handles partial matches with spaces)
-      const checkMatch = (text) => {
-        if (!text) return false;
-        const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
-        // Check if exact match or if all search words are present
-        if (normalizedText.includes(normalizedSearch)) return true;
-        // For multi-word searches, check if all words are present
-        const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length > 0);
-        if (searchWords.length > 1) {
-          return searchWords.every(word => normalizedText.includes(word));
-        }
-        return false;
-      };
-      
-      const matchesSearch = 
-        checkMatch(property.propertyName) ||
-        checkMatch(property.ownerName) ||
-        checkMatch(property.plotNumber) ||
-        checkMatch(property.rdaNumber) ||
-        checkMatch(locationFields) ||
-        checkMatch(meterNumbers);
-
-      // Status filter
-      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
-
-      // Sector filter
-      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
-
-      // Category filter
-      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
-
-      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
-    });
-  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
+  // Properties are already filtered on the backend, so use them directly
+  const filteredProperties = properties;
 
   const toggleInvoiceExpansion = (invoiceId) => {
     const newExpanded = new Set(expandedInvoices);

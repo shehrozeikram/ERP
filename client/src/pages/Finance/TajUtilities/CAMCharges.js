@@ -212,15 +212,20 @@ const CAMCharges = () => {
   // The /cam-charges endpoint was loading all charges unnecessarily
 
   useEffect(() => {
-    // Load properties when component mounts or pagination changes
+    // Load properties when component mounts, pagination changes, or filters change
     loadProperties();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.rowsPerPage]);
+  }, [pagination.page, pagination.rowsPerPage, search, statusFilter, sectorFilter, categoryFilter]);
 
   const loadProperties = async () => {
     try {
       setCurrentOverviewLoading(true);
       const params = pagination.getApiParams();
+      // Add search and filter parameters
+      if (search) params.search = search;
+      if (statusFilter) params.status = statusFilter;
+      if (sectorFilter) params.sector = sectorFilter;
+      if (categoryFilter) params.categoryType = categoryFilter;
       const response = await api.get('/taj-utilities/cam-charges/current-overview', { params });
       setProperties(response.data.data?.properties || []);
       if (response.data.data?.pagination) {
@@ -266,31 +271,8 @@ const CAMCharges = () => {
     setExpandedRows(newExpanded);
   };
 
-  // Filter properties based on search and filters
-  // Note: This filters the current page only. For full filtering, consider server-side filtering.
-  const filteredProperties = useMemo(() => {
-    return properties.filter((property) => {
-      // Search filter
-      const searchLower = search.toLowerCase();
-      const matchesSearch = !search || 
-        (property.propertyName || '').toLowerCase().includes(searchLower) ||
-        (property.ownerName || '').toLowerCase().includes(searchLower) ||
-        (property.plotNumber || '').toLowerCase().includes(searchLower) ||
-        (property.address || '').toLowerCase().includes(searchLower) ||
-        (property.sector || '').toLowerCase().includes(searchLower);
-
-      // Status filter
-      const matchesStatus = !statusFilter || (property.status || '').toLowerCase() === statusFilter.toLowerCase();
-
-      // Sector filter
-      const matchesSector = !sectorFilter || (property.sector || '') === sectorFilter;
-
-      // Category filter
-      const matchesCategory = !categoryFilter || (property.categoryType || '') === categoryFilter;
-
-      return matchesSearch && matchesStatus && matchesSector && matchesCategory;
-    });
-  }, [properties, search, statusFilter, sectorFilter, categoryFilter]);
+  // Properties are already filtered on the backend, so use them directly
+  const filteredProperties = properties;
 
 
   const toggleInvoiceExpansion = (invoiceId) => {

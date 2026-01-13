@@ -408,7 +408,10 @@ router.post('/employees', [
   authorize('super_admin', 'admin', 'hr_manager'),
   body('firstName').trim().notEmpty().withMessage('First name is required'),
   body('lastName').optional().trim(),
-  body('email').optional().isEmail().withMessage('Valid email is required'),
+  body('email').optional({ nullable: true, checkFalsy: true }).custom((value) => {
+    if (!value || value.trim() === '') return true;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }).withMessage('Please enter a valid email address'),
   body('phone').trim().notEmpty().withMessage('Phone is required'),
   body('dateOfBirth').notEmpty().withMessage('Date of birth is required'),
   body('gender').isIn(['male', 'female', 'other']).withMessage('Valid gender is required'),
@@ -795,7 +798,10 @@ router.put('/employees/:id', [
   authorize('super_admin', 'admin', 'hr_manager'),
   body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
   body('lastName').optional().trim(),
-  body('email').optional().isEmail().withMessage('Please enter a valid email address (e.g., name@example.com)'),
+  body('email').optional({ nullable: true, checkFalsy: true }).custom((value) => {
+    if (!value || value.trim() === '') return true;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }).withMessage('Please enter a valid email address'),
   body('phone').optional().trim().notEmpty().withMessage('Phone cannot be empty'),
   body('dateOfBirth').optional().notEmpty().withMessage('Date of birth is required'),
   body('gender').optional().isIn(['male', 'female', 'other']).withMessage('Valid gender is required'),

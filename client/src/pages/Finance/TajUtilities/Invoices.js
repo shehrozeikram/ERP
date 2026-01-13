@@ -107,44 +107,16 @@ const Invoices = () => {
       if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
       if (propertyFilter) params.propertyId = propertyFilter;
       if (chargeTypeFilter !== 'all') params.chargeType = chargeTypeFilter;
+      // Send resident and sector filters to backend
+      if (residentFilter) params.residentId = residentFilter;
+      if (sectorFilter) params.sector = sectorFilter;
       // Add timestamp to bypass cache if force refresh
       if (forceRefresh) {
         params._t = Date.now();
       }
       
       const response = await fetchAllInvoices(params);
-      let invoicesData = response.data?.data || [];
-      
-      // Filter by resident if selected (client-side filter for resident)
-      if (residentFilter) {
-        invoicesData = invoicesData.filter(invoice => {
-          const propertyResident = invoice.property?.resident;
-          if (!propertyResident) return false;
-          
-          // Handle both populated object and ObjectId string
-          let residentId;
-          if (typeof propertyResident === 'object' && propertyResident !== null) {
-            residentId = propertyResident._id || propertyResident.id || propertyResident;
-          } else {
-            residentId = propertyResident;
-          }
-          
-          return String(residentId) === String(residentFilter);
-        });
-      }
-      
-      // Filter by sector if selected (client-side filter)
-      if (sectorFilter) {
-        invoicesData = invoicesData.filter(invoice => {
-          const propertySector = invoice.property?.sector;
-          if (!propertySector) return false;
-          // Handle both string sector and sector object
-          const sectorValue = typeof propertySector === 'object' && propertySector !== null
-            ? (propertySector.name || propertySector.sectorName || String(propertySector))
-            : String(propertySector);
-          return sectorValue.toLowerCase() === String(sectorFilter).toLowerCase();
-        });
-      }
+      const invoicesData = response.data?.data || [];
       
       setInvoices(invoicesData);
       if (response.data?.pagination) {

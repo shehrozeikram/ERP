@@ -59,13 +59,39 @@ const clearAllTajUtilitiesCache = () => {
 };
 
 /**
- * Fetch properties with optimized field selection
+ * Fetch properties with optimized field selection and optional filters
  * @param {string} fields - Space-separated field names to select (optional)
+ * @param {object} filters - Filter object with search, status, sector, categoryType (optional)
  * @returns {Promise<Array>} - Array of properties
  */
-const fetchProperties = async (fields = null) => {
+const fetchProperties = async (fields = null, filters = {}) => {
   const TajProperty = require('../models/tajResidencia/TajProperty');
-  const query = TajProperty.find({}).sort({ srNo: 1 });
+  const queryFilters = {};
+  
+  // Apply filters
+  if (filters.status) {
+    queryFilters.status = filters.status;
+  }
+  if (filters.sector) {
+    queryFilters.sector = filters.sector;
+  }
+  if (filters.categoryType) {
+    queryFilters.categoryType = filters.categoryType;
+  }
+  if (filters.search) {
+    const pattern = new RegExp(filters.search, 'i');
+    queryFilters.$or = [
+      { propertyName: pattern },
+      { ownerName: pattern },
+      { plotNumber: pattern },
+      { address: pattern },
+      { fullAddress: pattern },
+      { sector: pattern },
+      { propertyCode: pattern }
+    ];
+  }
+  
+  const query = TajProperty.find(queryFilters).sort({ srNo: 1 });
   
   if (fields) {
     query.select(fields);
