@@ -63,6 +63,7 @@ import {
   deletePayment
 } from '../../../services/tajRentalManagementService';
 import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getRentCalculation } from '../../../services/propertyInvoiceService';
+import { generateRentInvoicePDF as generateRentInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
@@ -859,207 +860,14 @@ const RentalManagement = () => {
     pdf.save(`Rent-Invoice-${paymentInvoiceData.invoiceNumber || 'INV'}.pdf`);
   };
 
-  const generateRentInvoicePDF = (propertyParam = null, invoiceParam = null) => {
-    const property = propertyParam || invoiceProperty;
+  const generateRentInvoicePDF = async (propertyParam = null, invoiceParam = null) => {
     const invoice = invoiceParam || invoiceData;
+    const property = invoice?.property || propertyParam || invoiceProperty;
     
     if (!property || !invoice) return;
     
-    // Get rent charge from invoice
-    const rentCharge = invoice.charges?.find(c => c.type === 'RENT');
-    const rentAmount = rentCharge?.amount || 0;
-    const arrears = rentCharge?.arrears || 0;
-
-    const pdf = new jsPDF('landscape', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const panelWidth = pageWidth / 3;
-    const marginX = 6;
-    const topMargin = 10;
-    const contentWidth = panelWidth - 2 * marginX;
-
-    const formatDate = (value, pattern = 'DD-MMM-YY') =>
-      value ? dayjs(value).format(pattern) : '—';
-
-    const formatFullDate = (value) =>
-      value ? dayjs(value).format('MMMM D, YYYY') : '—';
-
-    const formatMoney = (value) =>
-      (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
-
-    const periodFromRaw = invoice?.periodFrom || null;
-    const periodToRaw = invoice?.periodTo || null;
-    const periodFrom = formatDate(periodFromRaw);
-    const periodTo = formatDate(periodToRaw);
-    const invoiceNumber = invoice?.invoiceNumber || '—';
-    const invoicingDate = formatFullDate(invoice?.invoiceDate || invoice?.createdAt);
-    const computedDueDate = invoice?.dueDate || (periodToRaw ? dayjs(periodToRaw).add(30, 'day').toDate() : null);
-    const dueDate = formatFullDate(computedDueDate);
-    const monthLabel = (periodToRaw
-      ? dayjs(periodToRaw)
-      : invoice?.invoiceDate
-      ? dayjs(invoice.invoiceDate)
-      : dayjs()
-    ).format('MMM-YY').toUpperCase();
-
-    const tenantName = property.tenantName || property.ownerName || '—';
-    // Try multiple ways to get residentId: from populated resident object, from property.residentId, or from invoice.property.resident
-    const residentId = property.resident?.residentId || 
-                      (invoice?.property?.resident?.residentId) || 
-                      property.residentId || 
-                      (invoice?.property?.residentId) || 
-                      '—';
-    const propertyAddress =
-      property.fullAddress ||
-      property.address ||
-      [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street]
-        .filter(Boolean)
-        .join(', ') ||
-      '—';
-    const propertySector = property.sector || '—';
-
-    const payableWithinDue = invoice?.grandTotal || (rentAmount + arrears);
-    const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
-    const payableAfterDue = payableWithinDue + lateSurcharge;
-
-    pdf.setDrawColor(170);
-    pdf.setLineWidth(0.3);
-    if (pdf.setLineDash) {
-      pdf.setLineDash([1, 2], 0);
-    }
-    [panelWidth, panelWidth * 2].forEach((xPos) => {
-      pdf.line(xPos, topMargin - 5, xPos, pageHeight - 15);
-    });
-    if (pdf.setLineDash) {
-      pdf.setLineDash([], 0);
-    }
-
-    const drawInlineField = (label, value, startX, startY, labelWidth = 34) => {
-      const valueWidth = contentWidth - labelWidth;
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7);
-      pdf.text(label, startX, startY);
-      pdf.setFont('helvetica', 'normal');
-      const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
-      lines.forEach((line, idx) => {
-        pdf.text(line, startX + labelWidth, startY + idx * 4.5);
-      });
-      return startY + lines.length * 4.5 + 1.5;
-    };
-
-    const drawRentDetails = (startX, startY) => {
-      const width = contentWidth;
-      let y = startY;
-      pdf.setFillColor(242, 242, 242);
-      pdf.rect(startX, y, width, 7, 'F');
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(8);
-      pdf.setTextColor(178, 34, 34);
-      pdf.text('RENT DETAILS', startX + width / 2, y + 4.5, { align: 'center' });
-      pdf.setTextColor(0, 0, 0);
-      y += 13;
-
-      const rows = [
-        ['Monthly Rent', formatMoney(rentAmount)],
-        ['Charges for the Month', formatMoney(rentAmount)],
-        ['Arrears', arrears ? formatMoney(arrears) : '-'],
-        ['Payable Within Due Date', formatMoney(payableWithinDue)],
-        ['Payable After Due Date', formatMoney(payableAfterDue)]
-      ];
-
-      rows.forEach((row) => {
-        pdf.setDrawColor(210);
-        pdf.rect(startX, y - 5, width, 7);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7);
-        pdf.text(row[0], startX + 2, y - 1);
-      pdf.setFont('helvetica', 'normal');
-        pdf.text(row[1], startX + width - 2, y - 1, { align: 'right' });
-        y += 7;
-      });
-
-      return y + 2;
-    };
-
-    const footnotes = [
-      '1. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0917). Bank Account No.: PK68ABPA0010035700420129.',
-      '2. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
-      '3. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.',
-      '4. Any returned or dishonored cheques will attract service charges.'
-    ];
-
-    const drawPanel = (copyLabel, columnIndex) => {
-      const startX = columnIndex * panelWidth + marginX;
-      let cursorY = topMargin;
-
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'italic');
-      pdf.text(`(${copyLabel})`, startX + contentWidth / 2, cursorY, { align: 'center' });
-      cursorY += 5;
-
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(11);
-      pdf.setTextColor(178, 34, 34);
-      pdf.text(
-        `Taj Rent Invoice For The Month Of ${monthLabel}`,
-        startX + contentWidth / 2,
-        cursorY,
-        { align: 'center' }
-      );
-      pdf.setTextColor(0, 0, 0);
-      cursorY += 6;
-
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(9);
-      pdf.text('Invoice of Rent Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
-      cursorY += 6;
-
-      const inlineRows = [
-        ['Resident ID', residentId],
-        ['Tenant Name', tenantName],
-        ['Address', propertyAddress],
-        ['Sector', propertySector],
-        ['Account No.', 'PK68ABPA0010035700420129'],
-        ['Period From', periodFrom],
-        ['Period To', periodTo],
-        ['Invoice No.', invoiceNumber],
-        ['Invoicing Date', invoicingDate],
-        ['Due Date', dueDate]
-      ];
-
-      inlineRows.forEach(([label, value]) => {
-        cursorY = drawInlineField(label, value, startX, cursorY);
-      });
-
-      pdf.setFont('helvetica', 'italic');
-      pdf.setFontSize(6.5);
-      pdf.text('(In Rupees)', startX + contentWidth, cursorY, { align: 'right' });
-      cursorY += 4;
-
-      cursorY = drawRentDetails(startX, cursorY);
-
-      let footY = cursorY + 2;
-      pdf.setFont('helvetica', 'italic');
-      pdf.setFontSize(5.2);
-      footnotes.forEach((line) => {
-        const wrapped = pdf.splitTextToSize(line, contentWidth);
-        wrapped.forEach((wrappedLine) => {
-          pdf.text(wrappedLine, startX, footY);
-          footY += 3.2;
-        });
-      });
-    };
-
-    const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
-    copies.forEach((copy, index) => drawPanel(copy, index));
-
-    const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'rent-property')
-      .toString()
-      .replace(/[^a-z0-9-_ ]/gi, '')
-      .trim()
-      .replace(/\s+/g, '_');
-
-    pdf.save(`Rent_Invoice_${sanitizedName || property._id}.pdf`);
+    // Use the shared utility function
+    return await generateRentInvoicePDFUtil(invoice, property);
   };
 
   const generateRentalPaymentReceiptPDF = (invoice, payment, property) => {
@@ -1304,9 +1112,9 @@ const RentalManagement = () => {
     pdf.save(`Rental_Payment_Receipt_${sanitizedName}_${receiptDate}.pdf`);
   };
 
-  const handleDownloadInvoice = () => {
+  const handleDownloadInvoice = async () => {
     if (!invoiceProperty || !invoiceData) return;
-    generateRentInvoicePDF();
+    await generateRentInvoicePDF();
   };
 
   const renderInvoicePreview = () => {
@@ -2026,7 +1834,7 @@ const RentalManagement = () => {
                                             <IconButton
                                               size="small"
                                               color="primary"
-                                              onClick={() => generateRentInvoicePDF(property, invoice)}
+                                              onClick={async () => await generateRentInvoicePDF(property, invoice)}
                                             >
                                               <DownloadIcon fontSize="small" />
                                             </IconButton>

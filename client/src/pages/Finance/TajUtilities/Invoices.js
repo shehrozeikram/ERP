@@ -37,10 +37,15 @@ import {
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
-import { fetchAllInvoices } from '../../../services/propertyInvoiceService';
-import { fetchProperties } from '../../../services/tajPropertiesService';
+import { fetchAllInvoices, fetchInvoice } from '../../../services/propertyInvoiceService';
+import { fetchProperties, fetchPropertyById } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
 import { fetchSectors } from '../../../services/tajSectorsService';
+import { 
+  generateElectricityInvoicePDF, 
+  generateCAMInvoicePDF, 
+  generateRentInvoicePDF 
+} from '../../../utils/invoicePDFGenerators';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -219,19 +224,58 @@ const Invoices = () => {
     }
   };
 
-  const generateInvoicePDF = (invoice) => {
+  // Use the shared PDF generation functions from the utility file
+
+  const generateInvoicePDF = async (invoice) => {
     if (!invoice || !invoice.property) {
       setError('Invoice or property data is missing');
       return;
     }
 
-    const property = invoice.property;
+    let property = invoice.property;
+    
+    // Fetch full property details if areaValue/areaUnit are missing or null/undefined
+    const hasAreaValue = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') ||
+                         (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '');
+    const hasAreaUnit = (property.areaUnit !== undefined && property.areaUnit !== null && property.areaUnit !== '') ||
+                        (invoice?.property?.areaUnit !== undefined && invoice?.property?.areaUnit !== null && invoice?.property?.areaUnit !== '');
+    
+    const needsFetch = !hasAreaValue && !hasAreaUnit;
+    const propertyId = property._id || property.id || (typeof property === 'string' ? property : null);
+    
+    if (needsFetch && propertyId) {
+      try {
+        const propertyResponse = await fetchPropertyById(propertyId);
+        if (propertyResponse?.data?.data) {
+          property = { ...property, ...propertyResponse.data.data };
+        }
+      } catch (err) {
+        // Silently fail - will use fallback values
+      }
+    }
+    
     const chargeTypes = invoice.chargeTypes || [];
     
     // Determine invoice type based on charge types
     const isElectricity = chargeTypes.includes('ELECTRICITY');
     const isCAM = chargeTypes.includes('CAM');
     const isRent = chargeTypes.includes('RENT');
+    
+    // Route to specific detailed PDF generation for single-type invoices
+    // For mixed invoices, use the general format below
+    const isSingleType = (isElectricity && !isCAM && !isRent) || 
+                         (isCAM && !isElectricity && !isRent) || 
+                         (isRent && !isElectricity && !isCAM);
+    
+    if (isSingleType && isElectricity) {
+      return await generateElectricityInvoicePDF(invoice, property);
+    } else if (isSingleType && isCAM) {
+      return await generateCAMInvoicePDF(invoice, property);
+    } else if (isSingleType && isRent) {
+      return await generateRentInvoicePDF(invoice, property);
+    }
+    
+    // For mixed invoices or fallback, use the general format below
 
     const pdf = new jsPDF('landscape', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -279,9 +323,23 @@ const Invoices = () => {
         .join(', ') ||
       '—';
     const propertySector = property.sector || '—';
-    const propertySize = property.areaValue
-      ? `${property.areaValue} ${property.areaUnit || ''}`.trim()
-      : '—';
+    
+    // Calculate property size - use property (which may have been updated after fetch) or invoice.property as fallback
+    const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '') 
+      ? property 
+      : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== ''
+          ? invoice.property 
+          : property);
+    
+    let propertySize = '—';
+    const areaValue = sourceProperty.areaValue;
+    const areaUnit = sourceProperty.areaUnit;
+    
+    if (areaValue !== undefined && areaValue !== null && areaValue !== '') {
+      const valueStr = String(areaValue).trim();
+      const unitStr = areaUnit ? String(areaUnit).trim() : '';
+      propertySize = valueStr ? `${valueStr}${unitStr ? ' ' + unitStr : ''}`.trim() : '—';
+    }
 
     // Draw fold lines
     pdf.setDrawColor(170);
@@ -398,37 +456,92 @@ const Invoices = () => {
       '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
     ];
 
-    const drawPanel = (copyLabel, columnIndex) => {
+    // Helper function to load and add logo image to PDF
+    const addLogoToPDF = async (pdf, x, y, width = 15, height = 15) => {
+      try {
+        const logoPath = '/images/taj-logo.png';
+        const img = new Image();
+        
+        return new Promise((resolve) => {
+          img.onload = () => {
+            try {
+              pdf.addImage(img, 'PNG', x, y, width, height);
+            } catch (error) {
+              console.error('Error adding logo to PDF:', error);
+              pdf.setFontSize(7);
+              pdf.setFont('helvetica', 'normal');
+              pdf.text('LOGO', x, y + height / 2);
+            }
+            resolve();
+          };
+          img.onerror = () => {
+            pdf.setFontSize(7);
+            pdf.setFont('helvetica', 'normal');
+            pdf.text('LOGO', x, y + height / 2);
+            resolve();
+          };
+          img.src = logoPath;
+        });
+      } catch (error) {
+        console.error('Error loading logo:', error);
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text('LOGO', x, y + 5);
+      }
+    };
+
+    const drawPanel = async (copyLabel, columnIndex) => {
       const startX = columnIndex * panelWidth + marginX;
-      let cursorY = topMargin;
+      let cursorY = topMargin - 3; // Move first row up
 
+      // Header row: Copy Label (left) | Taj Residencia (center) | Logo (right)
       pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'italic');
-      pdf.text(`(${copyLabel})`, startX + contentWidth / 2, cursorY, { align: 'center' });
-      cursorY += 5;
-
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(11);
+      pdf.text(copyLabel, startX, cursorY); // Left: Copy label
+      pdf.setFontSize(10);
+      pdf.setTextColor(178, 34, 34);
+      pdf.text('Taj Residencia', startX + contentWidth / 2, cursorY, { align: 'center' }); // Center: Taj Residencia
+      pdf.setTextColor(0, 0, 0);
+      
+      // Add logo image on the right - bigger and better positioned
+      const logoWidth = 20;
+      const logoHeight = 20;
+      const logoX = startX + contentWidth - logoWidth - 1; // Slight margin from edge
+      const logoY = cursorY - 5; // Center vertically with text, accounting for larger size
+      await addLogoToPDF(pdf, logoX, logoY, logoWidth, logoHeight);
+      
+      cursorY += 7; // Increased spacing to accommodate larger logo
+
+      pdf.setFont('helvetica', 'bold'); // Make invoice type bold
+      pdf.setFontSize(9); // Reduced from 11 to 9
       pdf.setTextColor(178, 34, 34);
       
-      let invoiceTitle = 'Taj Invoice';
+      let invoiceTitle = 'Invoice of Charges';
       if (isElectricity && !isCAM && !isRent) {
-        invoiceTitle = `Taj Electricity Invoice For The Month Of ${monthLabel}`;
+        invoiceTitle = 'Invoice of Electricity Charges';
       } else if (isCAM && !isElectricity && !isRent) {
-        invoiceTitle = `Taj CAM Charges Invoice For The Month Of ${monthLabel}`;
+        invoiceTitle = 'Invoice of CAM Charges';
       } else if (isRent && !isElectricity && !isCAM) {
-        invoiceTitle = `Taj Rent Invoice For The Month Of ${monthLabel}`;
+        invoiceTitle = 'Invoice of Rent Charges';
       } else {
-        invoiceTitle = `Taj Invoice For The Month Of ${monthLabel}`;
+        invoiceTitle = 'Invoice of Charges';
       }
       
       pdf.text(invoiceTitle, startX + contentWidth / 2, cursorY, { align: 'center' });
       pdf.setTextColor(0, 0, 0);
       cursorY += 6;
 
-      pdf.setFont('helvetica', 'bold');
+      // Render "For The Month Of" in normal, then month label in bold
+      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(9);
-      pdf.text('Invoice of Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+      const monthPrefix = 'For The Month Of ';
+      const monthValue = monthLabel;
+      const prefixWidth = pdf.getTextWidth(monthPrefix);
+      const totalWidth = pdf.getTextWidth(monthPrefix + monthValue);
+      const centerX = startX + contentWidth / 2;
+      pdf.text(monthPrefix, centerX - totalWidth / 2, cursorY);
+      pdf.setFont('helvetica', 'bold'); // Make date/year bold
+      pdf.text(monthValue, centerX - totalWidth / 2 + prefixWidth, cursorY);
       cursorY += 6;
 
       const inlineRows = [
@@ -469,7 +582,10 @@ const Invoices = () => {
     };
 
     const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
-    copies.forEach((copy, index) => drawPanel(copy, index));
+    // Draw all panels (await each one to ensure logo loads)
+    for (let index = 0; index < copies.length; index++) {
+      await drawPanel(copies[index], index);
+    }
 
     const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'invoice')
       .toString()
@@ -480,9 +596,12 @@ const Invoices = () => {
     pdf.save(`Invoice_${sanitizedName || invoice._id}.pdf`);
   };
 
-  const handleDownloadInvoice = (invoice) => {
+  const handleDownloadInvoice = async (invoice) => {
     try {
-      generateInvoicePDF(invoice);
+      // Fetch full invoice details with all populated fields
+      const fullInvoiceResponse = await fetchInvoice(invoice._id);
+      const fullInvoice = fullInvoiceResponse?.data?.data || invoice;
+      await generateInvoicePDF(fullInvoice);
     } catch (error) {
       console.error('Error generating PDF:', error);
       setError('Failed to generate invoice PDF');
@@ -831,6 +950,7 @@ const Invoices = () => {
                       <TableHead>
                         <TableRow>
                           <TableCell>Invoice #</TableCell>
+                          <TableCell>Resident ID</TableCell>
                           <TableCell>Property</TableCell>
                           <TableCell>Owner</TableCell>
                           <TableCell>Charge Types</TableCell>
@@ -841,116 +961,116 @@ const Invoices = () => {
                           <TableCell align="right">Paid</TableCell>
                           <TableCell align="right">Balance</TableCell>
                           <TableCell>Payment Status</TableCell>
-                          <TableCell>Status</TableCell>
                           <TableCell>Recorded By</TableCell>
                           <TableCell align="right">Actions</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {monthGroup.invoices.map((invoice) => (
-                          <TableRow key={invoice._id} hover>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight={600}>
-                                {invoice.invoiceNumber || 'N/A'}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">
-                                {invoice.property?.propertyName || invoice.property?.plotNumber || 'N/A'}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {invoice.property?.address || '—'}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">
-                                {invoice.property?.ownerName || '—'}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">
-                                {getChargeTypesLabel(invoice.chargeTypes)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              {invoice.periodFrom ? dayjs(invoice.periodFrom).format('MMM D, YYYY') : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {invoice.periodTo ? dayjs(invoice.periodTo).format('MMM D, YYYY') : '—'}
-                            </TableCell>
-                            <TableCell>
-                              {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
-                            </TableCell>
-                            <TableCell align="right">
-                              <Typography fontWeight={600}>
-                                {formatCurrency(invoice.grandTotal || 0)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell align="right">
-                              {formatCurrency(invoice.totalPaid || 0)}
-                            </TableCell>
-                            <TableCell align="right">
-                              <Typography
-                                fontWeight={600}
-                                color={invoice.balance > 0 ? 'error.main' : 'success.main'}
-                              >
-                                {formatCurrency(invoice.balance || 0)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              {(() => {
-                                const { color, label } = getPaymentStatusConfig(invoice.paymentStatus);
-                                return (
-                                  <Chip
-                                    label={label}
-                                    color={color}
-                                    size="small"
-                                  />
-                                );
-                              })()}
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={invoice.status || 'Issued'}
-                                size="small"
-                                color={
-                                  invoice.status === 'Issued' ? 'primary' :
-                                  invoice.status === 'Draft' ? 'default' :
-                                  invoice.status === 'Cancelled' ? 'error' : 'default'
-                                }
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">
-                                {invoice.createdBy 
-                                  ? `${invoice.createdBy.firstName || ''} ${invoice.createdBy.lastName || ''}`.trim() || 'N/A'
-                                  : 'N/A'}
-                              </Typography>
-                            </TableCell>
-                            <TableCell align="right">
-                              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                                <Tooltip title="Download Invoice PDF">
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => handleDownloadInvoice(invoice)}
-                                  >
-                                    <DownloadIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                <Tooltip title="View Invoice">
-                                  <IconButton
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => handleViewInvoice(invoice)}
-                                  >
-                                    <ViewIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Stack>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {monthGroup.invoices.map((invoice) => {
+                          // Get Resident ID from invoice property
+                          const residentId = invoice.property?.resident?.residentId || 
+                                           invoice.property?.residentId || 
+                                           '—';
+                          
+                          return (
+                            <TableRow key={invoice._id} hover>
+                              <TableCell>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {invoice.invoiceNumber || 'N/A'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {residentId}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {invoice.property?.propertyName || invoice.property?.plotNumber || 'N/A'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {invoice.property?.address || '—'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {invoice.property?.ownerName || '—'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {getChargeTypesLabel(invoice.chargeTypes)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                {invoice.periodFrom ? dayjs(invoice.periodFrom).format('MMM D, YYYY') : '—'}
+                              </TableCell>
+                              <TableCell>
+                                {invoice.periodTo ? dayjs(invoice.periodTo).format('MMM D, YYYY') : '—'}
+                              </TableCell>
+                              <TableCell>
+                                {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography fontWeight={600}>
+                                  {formatCurrency(invoice.grandTotal || 0)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                {formatCurrency(invoice.totalPaid || 0)}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography
+                                  fontWeight={600}
+                                  color={invoice.balance > 0 ? 'error.main' : 'success.main'}
+                                >
+                                  {formatCurrency(invoice.balance || 0)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                {(() => {
+                                  const { color, label } = getPaymentStatusConfig(invoice.paymentStatus);
+                                  return (
+                                    <Chip
+                                      label={label}
+                                      color={color}
+                                      size="small"
+                                    />
+                                  );
+                                })()}
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">
+                                  {invoice.createdBy 
+                                    ? `${invoice.createdBy.firstName || ''} ${invoice.createdBy.lastName || ''}`.trim() || 'N/A'
+                                    : 'N/A'}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                  <Tooltip title="Download Invoice PDF">
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={() => handleDownloadInvoice(invoice)}
+                                    >
+                                      <DownloadIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="View Invoice">
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={() => handleViewInvoice(invoice)}
+                                    >
+                                      <ViewIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>

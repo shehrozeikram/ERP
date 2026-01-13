@@ -1793,7 +1793,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy')
       .populate({
         path: 'property',
-        select: 'propertyName plotNumber address ownerName resident sector',
+        select: 'propertyName plotNumber address ownerName resident sector areaValue areaUnit',
         populate: {
           path: 'resident',
           select: 'name accountType _id residentId'
