@@ -205,6 +205,7 @@ const CAMCharges = () => {
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [invoiceError, setInvoiceError] = useState('');
+  const [invoiceWasSaved, setInvoiceWasSaved] = useState(false);
   const [propertyInvoices, setPropertyInvoices] = useState({});
   const [loadingInvoices, setLoadingInvoices] = useState({});
 
@@ -294,28 +295,104 @@ const CAMCharges = () => {
     setInvoiceProperty(property);
     setInvoiceData(invoice);
     setInvoiceError('');
+    setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
     setInvoiceDialogOpen(true);
+  };
+
+  // Generate invoice number helper function
+  const generateInvoiceNumber = (propertySrNo, year, month, type = 'CAM') => {
+    const paddedMonth = String(month).padStart(2, '0');
+    const paddedIndex = String(propertySrNo || 1).padStart(4, '0');
+    
+    let prefix = 'INV';
+    if (type === 'CAM' || type === 'CMC') {
+      prefix = 'INV-CMC';
+    } else if (type === 'ELECTRICITY' || type === 'ELC') {
+      prefix = 'INV-ELC';
+    } else if (type === 'RENT' || type === 'REN') {
+      prefix = 'INV-REN';
+    } else if (type === 'MIXED' || type === 'MIX') {
+      prefix = 'INV-MIX';
+    }
+    
+    return `${prefix}-${year}-${paddedMonth}-${paddedIndex}`;
   };
 
   const handleCreateInvoice = async (property) => {
     setInvoiceProperty(property);
     setInvoiceData(null); // Reset invoice data for new invoice
     setInvoiceError('');
+    setInvoiceWasSaved(false); // Reset saved flag
     setInvoiceDialogOpen(true);
 
     try {
       setInvoiceLoading(true);
-      const response = await createInvoice(property._id, {
-        includeCAM: true,
-        includeElectricity: false,
-        includeRent: false
+      
+      // Prepare invoice data locally (don't create in database yet)
+      // Backend will calculate CAM charge when user clicks "Create Invoice"
+      const now = dayjs();
+      const periodFrom = now.startOf('month').toDate();
+      const periodTo = now.endOf('month').toDate();
+      
+      // Generate invoice number
+      const invoiceNumber = generateInvoiceNumber(
+        property.srNo,
+        now.year(),
+        now.month() + 1,
+        'CAM'
+      );
+      
+      // Prepare invoice data locally (not saved to database yet)
+      // Amount will be calculated by backend when saving
+      setInvoiceData({
+        invoiceNumber,
+        invoiceDate: new Date(),
+        dueDate: dayjs(periodTo).add(15, 'day').toDate(),
+        periodFrom,
+        periodTo,
+        chargeTypes: ['CAM'],
+        charges: [{
+          type: 'CAM',
+          description: 'CAM Charges',
+          amount: 0,
+          arrears: 0,
+          total: 0
+        }],
+        subtotal: 0,
+        totalArrears: 0,
+        grandTotal: 0
       });
-      setInvoiceData(response.data?.data || null);
-      if (!response.data?.data) {
-        setInvoiceError('Failed to create invoice.');
-      }
     } catch (err) {
-      setInvoiceError(err.response?.data?.message || 'Failed to create invoice');
+      setInvoiceError(err.response?.data?.message || 'Failed to prepare invoice');
+      // Initialize with defaults on error
+      const now = dayjs();
+      const periodFrom = now.startOf('month').toDate();
+      const periodTo = now.endOf('month').toDate();
+      const invoiceNumber = generateInvoiceNumber(
+        property.srNo,
+        now.year(),
+        now.month() + 1,
+        'CAM'
+      );
+      
+      setInvoiceData({
+        invoiceNumber,
+        invoiceDate: new Date(),
+        dueDate: dayjs(periodTo).add(15, 'day').toDate(),
+        periodFrom,
+        periodTo,
+        chargeTypes: ['CAM'],
+        charges: [{
+          type: 'CAM',
+          description: 'CAM Charges',
+          amount: 0,
+          arrears: 0,
+          total: 0
+        }],
+        subtotal: 0,
+        totalArrears: 0,
+        grandTotal: 0
+      });
     } finally {
       setInvoiceLoading(false);
     }
@@ -383,6 +460,7 @@ const CAMCharges = () => {
 
         setInvoiceData(response.data?.data || invoiceData);
         setSuccess('Invoice updated successfully');
+        setInvoiceWasSaved(true); // Mark as saved
         
         // Refresh invoices for this property
         if (invoiceProperty?._id) {
@@ -412,6 +490,7 @@ const CAMCharges = () => {
       const savedInvoice = response.data?.data || invoiceData;
       setInvoiceData(savedInvoice);
       setSuccess('Invoice created successfully');
+      setInvoiceWasSaved(true); // Mark as saved
       
       // Refresh invoices for this property
       if (invoiceProperty?._id) {
@@ -435,6 +514,7 @@ const CAMCharges = () => {
     setInvoiceProperty(null);
     setInvoiceData(null);
     setInvoiceError('');
+    setInvoiceWasSaved(false); // Reset saved flag
   };
 
   const handleDeleteInvoice = async (property, invoice) => {
@@ -488,7 +568,15 @@ const CAMCharges = () => {
   };
 
   const handleDownloadInvoice = async () => {
-    if (!invoiceProperty || !invoiceData) return;
+    if (!invoiceProperty || !invoiceData) {
+      setInvoiceError('Invoice data is not ready yet. Please wait a moment.');
+      return;
+    }
+    // Only allow download if invoice is already saved (has _id) or if it's an existing invoice
+    if (!invoiceData._id) {
+      setInvoiceError('Please create the invoice first before downloading.');
+      return;
+    }
     await generateInvoicePDF();
   };
 
@@ -2119,7 +2207,21 @@ const CAMCharges = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
+      <Dialog 
+        open={invoiceDialogOpen} 
+        onClose={(event, reason) => {
+          // Prevent closing on backdrop click or ESC if invoice is being created/updated
+          if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+            if (invoiceLoading) {
+              return; // Don't close if loading
+            }
+          }
+          handleCloseInvoiceDialog();
+        }} 
+        maxWidth="sm" 
+        fullWidth
+        disableEscapeKeyDown={invoiceLoading}
+      >
         <DialogTitle>{invoiceData?._id ? 'Edit Invoice' : 'Create Invoice'}</DialogTitle>
         <DialogContent dividers>{renderInvoicePreview()}</DialogContent>
         <DialogActions>
@@ -2135,7 +2237,7 @@ const CAMCharges = () => {
           <Button
             variant="contained"
             onClick={handleSaveInvoice}
-            disabled={invoiceLoading || !invoiceData || !invoiceData._id}
+            disabled={invoiceLoading || !invoiceData}
           >
             {invoiceLoading ? (invoiceData?._id ? 'Updating...' : 'Creating...') : (invoiceData?._id ? 'Update Invoice' : 'Save Invoice')}
           </Button>

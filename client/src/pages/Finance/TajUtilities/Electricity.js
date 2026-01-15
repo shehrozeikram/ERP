@@ -200,6 +200,7 @@ const Electricity = () => {
   const [paymentAttachment, setPaymentAttachment] = useState(null);
   
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
+  const [invoiceWasSaved, setInvoiceWasSaved] = useState(false);
   const [invoiceProperty, setInvoiceProperty] = useState(null);
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
@@ -345,6 +346,7 @@ const Electricity = () => {
     setInvoiceProperty(property);
     setInvoiceData(invoice);
     setInvoiceError('');
+    setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
     setInvoiceDialogOpen(true);
   };
 
@@ -353,6 +355,7 @@ const Electricity = () => {
     setInvoiceError('');
     setCurrentReading('');
     setMeterReadings({});
+    setInvoiceWasSaved(false); // Reset saved flag
     setInvoiceDialogOpen(true);
     
     try {
@@ -840,6 +843,7 @@ const Electricity = () => {
 
         setInvoiceData(response.data?.data || invoiceData);
         setSuccess('Invoice updated successfully');
+        setInvoiceWasSaved(true); // Mark as saved
         
         if (invoiceProperty?._id) {
           const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
@@ -939,6 +943,7 @@ const Electricity = () => {
         setReadingData(prev => ({ ...prev, meterNo }));
       }
       setSuccess('Invoice created successfully');
+      setInvoiceWasSaved(true); // Mark as saved
       
       if (invoiceProperty?._id) {
         const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
@@ -956,6 +961,8 @@ const Electricity = () => {
   };
 
   const handleCloseInvoiceDialog = () => {
+    // Only close if invoice was saved or if it's an existing invoice being viewed
+    // If it's a new invoice that wasn't saved, don't do anything that might trigger creation
     setInvoiceDialogOpen(false);
     setInvoiceProperty(null);
     setInvoiceData(null);
@@ -964,6 +971,7 @@ const Electricity = () => {
     setPendingReading(null);
     setReadingData({ previousReading: 0, previousArrears: 0, meterNo: '' });
     setMeterReadings({});
+    setInvoiceWasSaved(false); // Reset saved flag
   };
 
   const generateElectricityVoucherPDF = async (propertyParam = null, invoiceParam = null) => {
@@ -979,6 +987,11 @@ const Electricity = () => {
   const handleDownloadInvoice = async () => {
     if (!invoiceProperty || !invoiceData) {
       setInvoiceError('Invoice data is not ready yet. Please wait a moment.');
+      return;
+    }
+    // Only allow download if invoice is already saved (has _id) or if it's an existing invoice
+    if (!invoiceData._id) {
+      setInvoiceError('Please create the invoice first before downloading.');
       return;
     }
     await generateElectricityVoucherPDF();
@@ -2304,6 +2317,7 @@ const Electricity = () => {
                                                   setInvoiceError('');
                                                   setCurrentReading('');
                                                   setMeterReadings({});
+                                                  setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
                                                   setInvoiceDialogOpen(true);
                                                   
                                                   // For viewing existing invoice, use the invoice's electricity bill data
@@ -2497,7 +2511,31 @@ const Electricity = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
+      <Dialog 
+        open={invoiceDialogOpen} 
+        onClose={(event, reason) => {
+          // Prevent closing on backdrop click or ESC if invoice is being created/updated
+          if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+            if (invoiceLoading) {
+              return; // Don't close if loading
+            }
+            // If it's a new invoice (no _id) and user hasn't saved, just close without confirmation
+            // Only existing invoices need confirmation
+            if (invoiceData?._id) {
+              // For existing invoices, allow closing
+              handleCloseInvoiceDialog();
+            } else {
+              // For new invoices, just close - don't create anything
+              handleCloseInvoiceDialog();
+            }
+            return;
+          }
+          handleCloseInvoiceDialog();
+        }} 
+        maxWidth="sm" 
+        fullWidth
+        disableEscapeKeyDown={invoiceLoading}
+      >
         <DialogTitle>{invoiceData?._id ? 'Edit Invoice' : 'Create Invoice'}</DialogTitle>
         <DialogContent dividers>
           {invoiceLoading && (

@@ -157,6 +157,7 @@ const RentalManagement = () => {
   const [invoiceProperty, setInvoiceProperty] = useState(null);
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceWasSaved, setInvoiceWasSaved] = useState(false);
   const [invoiceError, setInvoiceError] = useState('');
   const [propertyInvoices, setPropertyInvoices] = useState({});
   const [loadingInvoices, setLoadingInvoices] = useState({});
@@ -297,6 +298,7 @@ const RentalManagement = () => {
     setInvoiceProperty(property);
     setInvoiceData(invoice);
     setInvoiceError('');
+    setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
     setInvoiceDialogOpen(true);
   };
 
@@ -304,6 +306,7 @@ const RentalManagement = () => {
     setInvoiceProperty(property);
     setInvoiceData(null); // Reset invoice data for new invoice
     setInvoiceError('');
+    setInvoiceWasSaved(false); // Reset saved flag
     setInvoiceDialogOpen(true);
     
     try {
@@ -512,6 +515,7 @@ const RentalManagement = () => {
         const savedInvoice = response.data?.data || invoiceData;
         setInvoiceData(savedInvoice);
         setSuccess('Invoice updated successfully');
+        setInvoiceWasSaved(true); // Mark as saved
         
         // Refresh invoices for this property
         if (invoiceProperty?._id) {
@@ -541,6 +545,7 @@ const RentalManagement = () => {
       const savedInvoice = response.data?.data || invoiceData;
       setInvoiceData(savedInvoice);
       setSuccess('Invoice created successfully');
+      setInvoiceWasSaved(true); // Mark as saved
       
       // Refresh invoices for this property
       if (invoiceProperty?._id) {
@@ -605,6 +610,7 @@ const RentalManagement = () => {
     setInvoiceData(null);
     setInvoiceLoading(false);
     setInvoiceError('');
+    setInvoiceWasSaved(false); // Reset saved flag
   };
 
   const handlePrintInvoice = () => {
@@ -1119,7 +1125,15 @@ const RentalManagement = () => {
   };
 
   const handleDownloadInvoice = async () => {
-    if (!invoiceProperty || !invoiceData) return;
+    if (!invoiceProperty || !invoiceData) {
+      setInvoiceError('Invoice data is not ready yet. Please wait a moment.');
+      return;
+    }
+    // Only allow download if invoice is already saved (has _id) or if it's an existing invoice
+    if (!invoiceData._id) {
+      setInvoiceError('Please create the invoice first before downloading.');
+      return;
+    }
     await generateRentInvoicePDF();
   };
 
@@ -1936,7 +1950,21 @@ const RentalManagement = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={invoiceDialogOpen} onClose={handleCloseInvoiceDialog} maxWidth="sm" fullWidth>
+      <Dialog 
+        open={invoiceDialogOpen} 
+        onClose={(event, reason) => {
+          // Prevent closing on backdrop click or ESC if invoice is being created/updated
+          if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+            if (invoiceLoading) {
+              return; // Don't close if loading
+            }
+          }
+          handleCloseInvoiceDialog();
+        }} 
+        maxWidth="sm" 
+        fullWidth
+        disableEscapeKeyDown={invoiceLoading}
+      >
         <DialogTitle>{invoiceData?._id ? 'Edit Invoice' : 'Create Invoice'}</DialogTitle>
         <DialogContent dividers>{renderInvoicePreview()}</DialogContent>
         <DialogActions>
