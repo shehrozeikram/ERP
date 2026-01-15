@@ -1,4 +1,6 @@
 const PaymentSettlement = require('../models/hr/PaymentSettlement');
+const AccountsPayable = require('../models/finance/AccountsPayable');
+const FinanceHelper = require('../utils/financeHelper');
 const { asyncHandler } = require('../middleware/errorHandler');
 const multer = require('multer');
 const path = require('path');
@@ -607,6 +609,73 @@ const approveDocument = asyncHandler(async (req, res) => {
 
     await settlement.save();
 
+    // Track if Accounts Payable entry was created
+    let accountsPayableCreated = false;
+    let accountsPayableId = null;
+
+    // If CEO approved (from "Forwarded to CEO"), create Accounts Payable entry
+    if (sourceStatus === 'Forwarded to CEO') {
+      try {
+        // Check if Accounts Payable entry already exists for this settlement
+        const existingAP = await AccountsPayable.findOne({ referenceId: settlement._id });
+        if (!existingAP) {
+          // Parse amount - handle string format like "PKR 50,000" or just "50000"
+          const amountStr = settlement.grandTotal || settlement.amount || '0';
+          const numericAmount = parseFloat(amountStr.toString().replace(/[^\d.-]/g, '')) || 0;
+          
+          if (numericAmount > 0) {
+            // Generate bill number from settlement reference number or ID
+            let billNumber = settlement.referenceNumber || `PS-${settlement._id.toString().slice(-8)}`;
+            
+            // Check if bill number already exists and make it unique if needed
+            const existingBill = await AccountsPayable.findOne({ billNumber });
+            if (existingBill) {
+              billNumber = `${billNumber}-${Date.now().toString().slice(-6)}`;
+            }
+            
+            // Always use today's date as billDate for Accounts Payable entries created from CEO approvals
+            // This ensures they appear in the default date filter range (current month)
+            const billDate = new Date();
+            billDate.setHours(0, 0, 0, 0);
+            
+            // Calculate due date (30 days from bill date)
+            const dueDate = new Date(billDate);
+            dueDate.setDate(dueDate.getDate() + 30);
+
+            // Map department to valid enum values
+            const mapDepartment = (dept) => {
+              if (!dept) return 'general';
+              const deptLower = dept.toLowerCase().trim();
+              const validDepartments = ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'];
+              return validDepartments.find(valid => deptLower === valid || deptLower.includes(valid)) || 'general';
+            };
+
+            // Create Accounts Payable entry using FinanceHelper
+            const apEntry = await FinanceHelper.createAPFromBill({
+              vendorName: settlement.toWhomPaid || settlement.subsidiaryName || 'Unknown Vendor',
+              vendorEmail: '', // Not available in settlement
+              vendorId: null, // Not available in settlement
+              billNumber: billNumber,
+              billDate: billDate,
+              dueDate: dueDate,
+              amount: numericAmount,
+              department: mapDepartment(settlement.fromDepartment),
+              module: 'general',
+              referenceId: settlement._id,
+              createdBy: req.user.id
+            });
+            
+            accountsPayableCreated = true;
+            accountsPayableId = apEntry._id;
+          }
+        }
+      } catch (apError) {
+        // Log error but don't fail the approval
+        console.error('Error creating Accounts Payable entry:', apError.message);
+        // Continue with approval even if AP creation fails
+      }
+    }
+
     const updatedSettlement = await PaymentSettlement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
@@ -615,7 +684,9 @@ const approveDocument = asyncHandler(async (req, res) => {
     res.json({
       success: true,
       message: 'Document approved successfully',
-      data: updatedSettlement
+      data: updatedSettlement,
+      accountsPayableCreated,
+      accountsPayableId
     });
   } catch (error) {
     res.status(500).json({

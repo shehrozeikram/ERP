@@ -128,7 +128,44 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     const propertyFields = '_id srNo propertyType propertyName plotNumber rdaNumber street sector categoryType address fullAddress project ownerName contactNumber status fileSubmissionDate demarcationDate constructionDate familyStatus areaValue areaUnit zoneType electricityWaterMeterNo meters resident';
     
     // OPTIMIZATION: Fetch properties with optimized field selection
-    const propertiesResult = await fetchProperties(propertyFields, filters);
+    let propertiesResult = await fetchProperties(propertyFields, filters);
+    
+    // If searching by meter number, also find properties from Electricity charges
+    if (filters.search) {
+      const searchPattern = new RegExp(filters.search, 'i');
+      const electricityChargesByMeter = await Electricity.find({
+        meterNo: searchPattern
+      })
+        .select('address plotNo owner meterNo')
+        .lean();
+      
+      if (electricityChargesByMeter.length > 0) {
+        // Build query to find properties matching these charges
+        const chargeConditions = [];
+        electricityChargesByMeter.forEach(charge => {
+          if (charge.address) chargeConditions.push({ address: charge.address });
+          if (charge.plotNo) chargeConditions.push({ plotNumber: charge.plotNo });
+          if (charge.owner) chargeConditions.push({ ownerName: charge.owner });
+        });
+        
+        if (chargeConditions.length > 0) {
+          const additionalProperties = await TajProperty.find({
+            $or: chargeConditions
+          })
+            .select(propertyFields)
+            .lean();
+          
+          // Merge with existing properties, avoiding duplicates
+          const existingIds = new Set(propertiesResult.map(p => p._id.toString()));
+          additionalProperties.forEach(prop => {
+            if (!existingIds.has(prop._id.toString())) {
+              propertiesResult.push(prop);
+              existingIds.add(prop._id.toString());
+            }
+          });
+        }
+      }
+    }
     
     // Populate resident with residentId
     const TajResident = require('../models/tajResidencia/TajResident');
@@ -190,14 +227,24 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
     const identifiers = collectPropertyIdentifiers(properties, propertyAddressMap);
     const queryConditions = buildPropertyQueryConditions(identifiers);
     
-    // Match Electricity charges by address, plot number, or owner name
+    // Match Electricity charges by address, plot number, owner name, or meter number
     let electricityCharges = [];
-    if (queryConditions.length > 0) {
+    if (queryConditions.length > 0 || filters.search) {
       try {
-        console.log(`🔍 Querying Electricity charges with ${queryConditions.length} conditions...`);
-        electricityCharges = await Electricity.find({
-          $or: queryConditions
-        })
+        const chargeQuery = { $or: queryConditions };
+        
+        // If search is provided, also search by meter number
+        if (filters.search) {
+          const searchPattern = new RegExp(filters.search, 'i');
+          if (chargeQuery.$or && chargeQuery.$or.length > 0) {
+            chargeQuery.$or.push({ meterNo: searchPattern });
+          } else {
+            chargeQuery.$or = [{ meterNo: searchPattern }];
+          }
+        }
+        
+        console.log(`🔍 Querying Electricity charges with ${chargeQuery.$or?.length || 0} conditions...`);
+        electricityCharges = await Electricity.find(chargeQuery)
           .select('address plotNo owner meterNo amount arrears status curReading toDate totalBill payments paymentStatus')
           .sort({ toDate: -1 })
           .lean();

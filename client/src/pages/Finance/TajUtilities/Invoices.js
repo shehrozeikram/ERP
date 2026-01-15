@@ -87,12 +87,13 @@ const Invoices = () => {
   const [residentFilter, setResidentFilter] = useState('');
   const [chargeTypeFilter, setChargeTypeFilter] = useState('all');
   const [sectorFilter, setSectorFilter] = useState('');
+  const [monthYearFilter, setMonthYearFilter] = useState('');
   const [expandedMonths, setExpandedMonths] = useState([]);
   
   // Pagination
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]
+    resetDependencies: [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter, monthYearFilter]
   });
 
   const loadInvoices = async (forceRefresh = false) => {
@@ -110,6 +111,10 @@ const Invoices = () => {
       // Send resident and sector filters to backend
       if (residentFilter) params.residentId = residentFilter;
       if (sectorFilter) params.sector = sectorFilter;
+      // Send search to backend (server-side search across all pages)
+      if (search) params.search = search;
+      // Send month/year filter to backend
+      if (monthYearFilter) params.monthYear = monthYearFilter;
       // Add timestamp to bypass cache if force refresh
       if (forceRefresh) {
         params._t = Date.now();
@@ -170,14 +175,14 @@ const Invoices = () => {
     if (pagination.page !== 0) {
       pagination.setPage(0);
     }
-  }, [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]);
+  }, [statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter, search, monthYearFilter]);
 
   useEffect(() => {
     // Force refresh on initial load to ensure we get the latest invoices
     const isInitialLoad = pagination.page === 0 && pagination.rowsPerPage === 50;
     loadInvoices(isInitialLoad);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter]);
+  }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter, search, monthYearFilter]);
 
   useEffect(() => {
     loadProperties();
@@ -580,23 +585,11 @@ const Invoices = () => {
     }
   };
 
-  const filteredInvoices = invoices.filter((invoice) => {
-    const searchLower = search.toLowerCase();
-    const matchesSearch = 
-      !search ||
-      invoice.invoiceNumber?.toLowerCase().includes(searchLower) ||
-      invoice.property?.propertyName?.toLowerCase().includes(searchLower) ||
-      invoice.property?.ownerName?.toLowerCase().includes(searchLower) ||
-      invoice.property?.plotNumber?.toLowerCase().includes(searchLower) ||
-      invoice.property?.address?.toLowerCase().includes(searchLower);
-    
-    return matchesSearch;
-  });
-
   // Group invoices by month based on period dates
+  // Note: Search is now handled server-side, so we use invoices directly
   const invoicesByMonth = useMemo(() => {
     const grouped = {};
-    filteredInvoices.forEach((invoice) => {
+    invoices.forEach((invoice) => {
       // Use periodTo if available, otherwise periodFrom, otherwise invoiceDate as fallback
       const periodDate = invoice.periodTo 
         ? dayjs(invoice.periodTo) 
@@ -628,7 +621,7 @@ const Invoices = () => {
     return Object.entries(grouped)
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([key, value]) => ({ key, ...value }));
-  }, [filteredInvoices]);
+  }, [invoices]);
 
   const toggleMonth = (monthKey) => {
     setExpandedMonths(prev => {
@@ -674,7 +667,7 @@ const Invoices = () => {
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <TextField
             size="small"
-            placeholder="Search invoices..."
+            placeholder="Search by name, CNIC, Resident ID, invoice number..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             sx={{ minWidth: 250 }}
@@ -781,6 +774,15 @@ const Invoices = () => {
                 placeholder="Select sector"
               />
             )}
+          />
+          <TextField
+            size="small"
+            type="month"
+            label="Month/Year"
+            value={monthYearFilter}
+            onChange={(e) => setMonthYearFilter(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 180 }}
           />
           <Tooltip title="Refresh">
             <IconButton onClick={() => loadInvoices(true)} disabled={loading}>

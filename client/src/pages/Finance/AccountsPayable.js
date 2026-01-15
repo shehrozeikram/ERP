@@ -26,7 +26,15 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Pagination
+  Pagination,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider,
+  List,
+  ListItem,
+  ListItemText
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -39,12 +47,15 @@ import {
   Visibility as ViewIcon,
   Payment as PaymentIcon,
   Download as DownloadIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Close as CloseIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import toast from 'react-hot-toast';
 
 const AccountsPayable = () => {
   const navigate = useNavigate();
@@ -53,6 +64,24 @@ const AccountsPayable = () => {
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedBill, setSelectedBill] = useState(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editData, setEditData] = useState({
+    billNumber: '',
+    totalAmount: 0,
+    billDate: '',
+    dueDate: ''
+  });
+  const [paymentData, setPaymentData] = useState({
+    amount: 0,
+    paymentMethod: 'bank_transfer',
+    reference: '',
+    paymentDate: new Date().toISOString().split('T')[0]
+  });
+  const [processingPayment, setProcessingPayment] = useState(false);
+
   const [filters, setFilters] = useState({
     status: '',
     vendor: '',
@@ -88,8 +117,13 @@ const AccountsPayable = () => {
       if (filters.search) params.append('search', filters.search);
       params.append('page', pagination.currentPage);
       params.append('limit', pagination.limit);
+      params.append('_t', new Date().getTime());
 
-      const response = await api.get(`/finance/accounts-payable?${params}`);
+      const response = await api.get(`/finance/accounts-payable?${params}`, {
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
       if (response.data.success) {
         setBills(response.data.data.bills || []);
         setPagination(prev => ({
@@ -118,8 +152,85 @@ const AccountsPayable = () => {
     setPagination(prev => ({ ...prev, currentPage: page }));
   };
 
+  const handleViewBill = async (bill) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/finance/accounts-payable/${bill._id}`);
+      if (response.data.success) {
+        setSelectedBill(response.data.data);
+        setViewDialogOpen(true);
+      }
+    } catch (error) {
+      console.error('Error fetching bill details:', error);
+      toast.error('Failed to fetch bill details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenPayment = (bill) => {
+    setSelectedBill(bill);
+    setPaymentData({
+      amount: bill.totalAmount - (bill.paidAmount || 0),
+      paymentMethod: 'bank_transfer',
+      reference: '',
+      paymentDate: new Date().toISOString().split('T')[0]
+    });
+    setPaymentDialogOpen(true);
+  };
+
+  const handleRecordPayment = async () => {
+    if (paymentData.amount <= 0) {
+      toast.error('Payment amount must be greater than zero');
+      return;
+    }
+
+    try {
+      setProcessingPayment(true);
+      const response = await api.post(`/finance/accounts-payable/${selectedBill._id}/payment`, paymentData);
+      if (response.data.success) {
+        toast.success('Payment recorded successfully');
+        setPaymentDialogOpen(false);
+        fetchAccountsPayable();
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      toast.error(error.response?.data?.message || 'Failed to record payment');
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
+  const handleOpenEdit = (bill) => {
+    setSelectedBill(bill);
+    setEditData({
+      billNumber: bill.billNumber,
+      totalAmount: bill.totalAmount,
+      billDate: new Date(bill.billDate).toISOString().split('T')[0],
+      dueDate: new Date(bill.dueDate).toISOString().split('T')[0]
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateBill = async () => {
+    try {
+      const response = await api.put(`/finance/accounts-payable/${selectedBill._id}`, editData);
+      if (response.data.success) {
+        toast.success('Bill updated successfully');
+        setEditDialogOpen(false);
+        fetchAccountsPayable();
+      }
+    } catch (error) {
+      console.error('Error updating bill:', error);
+      toast.error(error.response?.data?.message || 'Failed to update bill');
+    }
+  };
+
   const getStatusColor = (status) => {
     const colorMap = {
+      'draft': 'default',
+      'received': 'info',
+      'approved': 'success',
       'pending': 'warning',
       'paid': 'success',
       'overdue': 'error',
@@ -131,6 +242,9 @@ const AccountsPayable = () => {
 
   const getStatusIcon = (status) => {
     const iconMap = {
+      'draft': <AccountBalanceIcon />,
+      'received': <AccountBalanceIcon />,
+      'approved': <CheckCircleIcon />,
       'pending': <WarningIcon />,
       'paid': <CheckCircleIcon />,
       'overdue': <WarningIcon />,
@@ -192,7 +306,7 @@ const AccountsPayable = () => {
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
-              onClick={() => console.log('Export functionality')}
+              onClick={() => toast.success('Export functionality coming soon')}
             >
               Export
             </Button>
@@ -239,10 +353,12 @@ const AccountsPayable = () => {
                 label="Status"
               >
                 <MenuItem value="">All Status</MenuItem>
-                <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="draft">Draft</MenuItem>
+                <MenuItem value="received">Received</MenuItem>
+                <MenuItem value="approved">Approved</MenuItem>
+                <MenuItem value="partial">Partial</MenuItem>
                 <MenuItem value="paid">Paid</MenuItem>
                 <MenuItem value="overdue">Overdue</MenuItem>
-                <MenuItem value="partial">Partial</MenuItem>
                 <MenuItem value="cancelled">Cancelled</MenuItem>
               </Select>
             </FormControl>
@@ -452,17 +568,28 @@ const AccountsPayable = () => {
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <Tooltip title="View Details">
-                            <IconButton size="small">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleViewBill(bill)}
+                            >
                               <ViewIcon />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Make Payment">
-                            <IconButton size="small" color="success">
+                            <IconButton 
+                              size="small" 
+                              color="success"
+                              onClick={() => handleOpenPayment(bill)}
+                              disabled={bill.status === 'paid'}
+                            >
                               <PaymentIcon />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Edit Bill">
-                            <IconButton size="small">
+                            <IconButton 
+                              size="small"
+                              onClick={() => handleOpenEdit(bill)}
+                            >
                               <EditIcon />
                             </IconButton>
                           </Tooltip>
@@ -506,6 +633,237 @@ const AccountsPayable = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Bill Details Dialog */}
+      <Dialog 
+        open={viewDialogOpen} 
+        onClose={() => setViewDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Bill Details: {selectedBill?.billNumber}
+          <IconButton onClick={() => setViewDialogOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedBill && (
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="textSecondary">Vendor Information</Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedBill.vendorName}</Typography>
+                <Typography variant="body2">{selectedBill.vendorEmail}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="textSecondary">Bill Status</Typography>
+                <Chip 
+                  label={selectedBill.status?.toUpperCase()} 
+                  color={getStatusColor(selectedBill.status)}
+                  size="small"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="subtitle2" color="textSecondary">Bill Date</Typography>
+                <Typography variant="body2">{formatDate(selectedBill.billDate)}</Typography>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="subtitle2" color="textSecondary">Due Date</Typography>
+                <Typography variant="body2">{formatDate(selectedBill.dueDate)}</Typography>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="subtitle2" color="textSecondary">Amount</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedBill.totalAmount)}</Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle1" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HistoryIcon /> Payment History
+                </Typography>
+                {selectedBill.payments && selectedBill.payments.length > 0 ? (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Method</TableCell>
+                        <TableCell>Reference</TableCell>
+                        <TableCell align="right">Amount</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selectedBill.payments.map((payment, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                          <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                          <TableCell>{payment.reference || '-'}</TableCell>
+                          <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Typography variant="body2" color="textSecondary">No payments recorded yet</Typography>
+                )}
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+          <Button 
+            variant="contained" 
+            color="success" 
+            onClick={() => {
+              setViewDialogOpen(false);
+              handleOpenPayment(selectedBill);
+            }}
+            disabled={selectedBill?.status === 'paid'}
+          >
+            Record Payment
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Record Payment Dialog */}
+      <Dialog 
+        open={paymentDialogOpen} 
+        onClose={() => setPaymentDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Record Payment: {selectedBill?.billNumber}</DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Outstanding Balance: <strong>{selectedBill ? formatPKR(selectedBill.totalAmount - (selectedBill.paidAmount || 0)) : 0}</strong>
+              </Typography>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Payment Amount"
+                type="number"
+                value={paymentData.amount}
+                onChange={(e) => setPaymentData({ ...paymentData, amount: parseFloat(e.target.value) })}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Payment Method</InputLabel>
+                <Select
+                  value={paymentData.paymentMethod}
+                  onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
+                  label="Payment Method"
+                >
+                  <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+                  <MenuItem value="check">Check</MenuItem>
+                  <MenuItem value="cash">Cash</MenuItem>
+                  <MenuItem value="other">Other</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Payment Date"
+                type="date"
+                value={paymentData.paymentDate}
+                onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Reference / Transaction #"
+                value={paymentData.reference}
+                onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
+                size="small"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            color="success" 
+            onClick={handleRecordPayment}
+            disabled={processingPayment}
+          >
+            {processingPayment ? 'Processing...' : 'Confirm Payment'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Bill Dialog */}
+      <Dialog 
+        open={editDialogOpen} 
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Bill: {selectedBill?.billNumber}</DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Bill Number"
+                value={editData.billNumber}
+                onChange={(e) => setEditData({ ...editData, billNumber: e.target.value })}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Total Amount"
+                type="number"
+                value={editData.totalAmount}
+                onChange={(e) => setEditData({ ...editData, totalAmount: parseFloat(e.target.value) })}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Bill Date"
+                type="date"
+                value={editData.billDate}
+                onChange={(e) => setEditData({ ...editData, billDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Due Date"
+                type="date"
+                value={editData.dueDate}
+                onChange={(e) => setEditData({ ...editData, dueDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={handleUpdateBill}
+          >
+            Update Bill
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

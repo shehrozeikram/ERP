@@ -30,7 +30,11 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Divider,
+  List,
+  ListItem,
+  ListItemText
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -43,12 +47,15 @@ import {
   Visibility as ViewIcon,
   Payment as PaymentIcon,
   Download as DownloadIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Close as CloseIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import toast from 'react-hot-toast';
 
 const AccountsReceivable = () => {
   const navigate = useNavigate();
@@ -57,6 +64,24 @@ const AccountsReceivable = () => {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editData, setEditData] = useState({
+    invoiceNumber: '',
+    totalAmount: 0,
+    invoiceDate: '',
+    dueDate: ''
+  });
+  const [paymentData, setPaymentData] = useState({
+    amount: 0,
+    paymentMethod: 'bank_transfer',
+    reference: '',
+    paymentDate: new Date().toISOString().split('T')[0]
+  });
+  const [processingPayment, setProcessingPayment] = useState(false);
+
   const [filters, setFilters] = useState({
     status: '',
     customer: '',
@@ -120,6 +145,80 @@ const AccountsReceivable = () => {
 
   const handlePageChange = (event, page) => {
     setPagination(prev => ({ ...prev, currentPage: page }));
+  };
+
+  const handleViewInvoice = async (invoice) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/finance/accounts-receivable/${invoice._id}`);
+      if (response.data.success) {
+        setSelectedInvoice(response.data.data);
+        setViewDialogOpen(true);
+      }
+    } catch (error) {
+      console.error('Error fetching invoice details:', error);
+      toast.error('Failed to fetch invoice details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenPayment = (invoice) => {
+    setSelectedInvoice(invoice);
+    setPaymentData({
+      amount: invoice.totalAmount - (invoice.paidAmount || 0),
+      paymentMethod: 'bank_transfer',
+      reference: '',
+      paymentDate: new Date().toISOString().split('T')[0]
+    });
+    setPaymentDialogOpen(true);
+  };
+
+  const handleRecordPayment = async () => {
+    if (paymentData.amount <= 0) {
+      toast.error('Payment amount must be greater than zero');
+      return;
+    }
+
+    try {
+      setProcessingPayment(true);
+      const response = await api.post(`/finance/accounts-receivable/${selectedInvoice._id}/payment`, paymentData);
+      if (response.data.success) {
+        toast.success('Payment recorded successfully');
+        setPaymentDialogOpen(false);
+        fetchAccountsReceivable();
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      toast.error(error.response?.data?.message || 'Failed to record payment');
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
+  const handleOpenEdit = (invoice) => {
+    setSelectedInvoice(invoice);
+    setEditData({
+      invoiceNumber: invoice.invoiceNumber,
+      totalAmount: invoice.totalAmount,
+      invoiceDate: new Date(invoice.invoiceDate).toISOString().split('T')[0],
+      dueDate: new Date(invoice.dueDate).toISOString().split('T')[0]
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateInvoice = async () => {
+    try {
+      const response = await api.put(`/finance/accounts-receivable/${selectedInvoice._id}`, editData);
+      if (response.data.success) {
+        toast.success('Invoice updated successfully');
+        setEditDialogOpen(false);
+        fetchAccountsReceivable();
+      }
+    } catch (error) {
+      console.error('Error updating invoice:', error);
+      toast.error(error.response?.data?.message || 'Failed to update invoice');
+    }
   };
 
   const getStatusColor = (status) => {
@@ -196,7 +295,7 @@ const AccountsReceivable = () => {
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
-              onClick={() => console.log('Export functionality')}
+              onClick={() => toast.success('Export functionality coming soon')}
             >
               Export
             </Button>
@@ -456,17 +555,28 @@ const AccountsReceivable = () => {
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <Tooltip title="View Details">
-                            <IconButton size="small">
+                            <IconButton 
+                              size="small"
+                              onClick={() => handleViewInvoice(invoice)}
+                            >
                               <ViewIcon />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Record Payment">
-                            <IconButton size="small" color="success">
+                            <IconButton 
+                              size="small" 
+                              color="success"
+                              onClick={() => handleOpenPayment(invoice)}
+                              disabled={invoice.status === 'paid'}
+                            >
                               <PaymentIcon />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Edit Invoice">
-                            <IconButton size="small">
+                            <IconButton 
+                              size="small"
+                              onClick={() => handleOpenEdit(invoice)}
+                            >
                               <EditIcon />
                             </IconButton>
                           </Tooltip>
@@ -510,6 +620,237 @@ const AccountsReceivable = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Invoice Details Dialog */}
+      <Dialog 
+        open={viewDialogOpen} 
+        onClose={() => setViewDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Invoice Details: {selectedInvoice?.invoiceNumber}
+          <IconButton onClick={() => setViewDialogOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedInvoice && (
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="textSecondary">Customer Information</Typography>
+                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedInvoice.customerName}</Typography>
+                <Typography variant="body2">{selectedInvoice.customerEmail}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" color="textSecondary">Invoice Status</Typography>
+                <Chip 
+                  label={selectedInvoice.status?.toUpperCase()} 
+                  color={getStatusColor(selectedInvoice.status)}
+                  size="small"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="subtitle2" color="textSecondary">Invoice Date</Typography>
+                <Typography variant="body2">{formatDate(selectedInvoice.invoiceDate)}</Typography>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="subtitle2" color="textSecondary">Due Date</Typography>
+                <Typography variant="body2">{formatDate(selectedInvoice.dueDate)}</Typography>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="subtitle2" color="textSecondary">Amount</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedInvoice.totalAmount)}</Typography>
+              </Grid>
+
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle1" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HistoryIcon /> Payment History
+                </Typography>
+                {selectedInvoice.payments && selectedInvoice.payments.length > 0 ? (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Method</TableCell>
+                        <TableCell>Reference</TableCell>
+                        <TableCell align="right">Amount</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selectedInvoice.payments.map((payment, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                          <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                          <TableCell>{payment.reference || '-'}</TableCell>
+                          <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Typography variant="body2" color="textSecondary">No payments recorded yet</Typography>
+                )}
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+          <Button 
+            variant="contained" 
+            color="success" 
+            onClick={() => {
+              setViewDialogOpen(false);
+              handleOpenPayment(selectedInvoice);
+            }}
+            disabled={selectedInvoice?.status === 'paid'}
+          >
+            Record Payment
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Record Payment Dialog */}
+      <Dialog 
+        open={paymentDialogOpen} 
+        onClose={() => setPaymentDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Record Payment: {selectedInvoice?.invoiceNumber}</DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Outstanding Balance: <strong>{selectedInvoice ? formatPKR(selectedInvoice.totalAmount - (selectedInvoice.paidAmount || 0)) : 0}</strong>
+              </Typography>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Payment Amount"
+                type="number"
+                value={paymentData.amount}
+                onChange={(e) => setPaymentData({ ...paymentData, amount: parseFloat(e.target.value) })}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Payment Method</InputLabel>
+                <Select
+                  value={paymentData.paymentMethod}
+                  onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
+                  label="Payment Method"
+                >
+                  <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
+                  <MenuItem value="check">Check</MenuItem>
+                  <MenuItem value="cash">Cash</MenuItem>
+                  <MenuItem value="other">Other</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Payment Date"
+                type="date"
+                value={paymentData.paymentDate}
+                onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Reference / Receipt #"
+                value={paymentData.reference}
+                onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
+                size="small"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            color="success" 
+            onClick={handleRecordPayment}
+            disabled={processingPayment}
+          >
+            {processingPayment ? 'Processing...' : 'Confirm Receipt'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Invoice Dialog */}
+      <Dialog 
+        open={editDialogOpen} 
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Invoice: {selectedInvoice?.invoiceNumber}</DialogTitle>
+        <DialogContent dividers>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Invoice Number"
+                value={editData.invoiceNumber}
+                onChange={(e) => setEditData({ ...editData, invoiceNumber: e.target.value })}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Total Amount"
+                type="number"
+                value={editData.totalAmount}
+                onChange={(e) => setEditData({ ...editData, totalAmount: parseFloat(e.target.value) })}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Invoice Date"
+                type="date"
+                value={editData.invoiceDate}
+                onChange={(e) => setEditData({ ...editData, invoiceDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Due Date"
+                type="date"
+                value={editData.dueDate}
+                onChange={(e) => setEditData({ ...editData, dueDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={handleUpdateInvoice}
+          >
+            Update Invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

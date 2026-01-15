@@ -84,6 +84,7 @@ const ChartOfAccounts = () => {
       if (filters.department) params.append('department', filters.department);
       if (filters.search) params.append('search', filters.search);
       params.append('limit', '1000');
+      params.append('_t', new Date().getTime());
 
       const response = await api.get(`/finance/accounts?${params}`);
       if (response.data.success) {
@@ -262,6 +263,8 @@ const ChartOfAccounts = () => {
                 <MenuItem value="finance">Finance</MenuItem>
                 <MenuItem value="audit">Audit</MenuItem>
                 <MenuItem value="general">General</MenuItem>
+                <MenuItem value="finance">Finance</MenuItem>
+                <MenuItem value="taj_utilities">Taj Utilities</MenuItem>
               </Select>
             </FormControl>
           </Grid>

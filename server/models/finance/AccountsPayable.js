@@ -134,8 +134,8 @@ const accountsPayableSchema = new mongoose.Schema({
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
-    default: 'procurement'
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
+    default: 'general'
   },
   // Reference to source document
   referenceId: {

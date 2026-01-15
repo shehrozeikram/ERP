@@ -8,6 +8,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Payroll = require('../models/hr/Payroll');
 const Employee = require('../models/hr/Employee');
+const FinanceHelper = require('../utils/financeHelper');
 const Payslip = require('../models/hr/Payslip');
 const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected, calculateTaxWithSeparateArrears } = require('../utils/taxCalculator');
 const FBRTaxSlab = require('../models/hr/FBRTaxSlab');
@@ -2232,6 +2233,13 @@ router.patch('/:id/approve',
 
     await payroll.approve(req.user.id);
 
+    // Record accrual in Finance/GL
+    try {
+      await FinanceHelper.recordPayrollAccrual(payroll, req.user.id);
+    } catch (finError) {
+      console.error('❌ Error recording payroll accrual in finance:', finError);
+    }
+
     const updatedPayroll = await Payroll.findById(payroll._id)
       .populate({
         path: 'employee',
@@ -2291,6 +2299,13 @@ router.patch('/:id/mark-paid', [
   }
 
   await payroll.markAsPaid(req.body.paymentMethod);
+
+  // Record payment in Finance/GL
+  try {
+    await FinanceHelper.recordPayrollPayment(payroll, req.body.paymentMethod, req.user.id);
+  } catch (finError) {
+    console.error('❌ Error recording payroll payment in finance:', finError);
+  }
 
   const updatedPayroll = await Payroll.findById(payroll._id)
     .populate('employee', 'firstName lastName employeeId department position')

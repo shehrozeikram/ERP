@@ -334,6 +334,8 @@ const JournalEntryForm = () => {
                     <MenuItem value="sales">Sales</MenuItem>
                     <MenuItem value="finance">Finance</MenuItem>
                     <MenuItem value="audit">Audit</MenuItem>
+                    <MenuItem value="finance">Finance</MenuItem>
+                    <MenuItem value="taj_utilities">Taj Utilities</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -353,6 +355,8 @@ const JournalEntryForm = () => {
                     <MenuItem value="hr">HR</MenuItem>
                     <MenuItem value="admin">Admin</MenuItem>
                     <MenuItem value="audit">Audit</MenuItem>
+                    <MenuItem value="finance">Finance</MenuItem>
+                    <MenuItem value="taj_utilities">Taj Utilities</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>

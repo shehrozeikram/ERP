@@ -87,7 +87,9 @@ const fetchProperties = async (fields = null, filters = {}) => {
       { address: pattern },
       { fullAddress: pattern },
       { sector: pattern },
-      { propertyCode: pattern }
+      { propertyCode: pattern },
+      { electricityWaterMeterNo: pattern },
+      { 'meters.meterNo': pattern }
     ];
   }
   

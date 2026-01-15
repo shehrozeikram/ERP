@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const journalEntrySchema = new mongoose.Schema({
   entryNumber: {
     type: String,
-    required: [true, 'Entry number is required'],
     unique: true,
     trim: true
   },
@@ -31,7 +30,7 @@ const journalEntrySchema = new mongoose.Schema({
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
     required: [true, 'Module is required']
   },
   referenceId: {

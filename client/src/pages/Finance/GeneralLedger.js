@@ -58,8 +58,8 @@ const GeneralLedger = () => {
     accountId: '',
     department: '',
     module: '',
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: '',
+    endDate: '',
     search: ''
   });
   const [pagination, setPagination] = useState({
@@ -97,6 +97,7 @@ const GeneralLedger = () => {
       if (filters.search) params.append('search', filters.search);
       params.append('page', pagination.currentPage);
       params.append('limit', pagination.limit);
+      params.append('_t', new Date().getTime());
 
       const response = await api.get(`/finance/general-ledger?${params}`);
       if (response.data.success) {
@@ -282,6 +283,8 @@ const GeneralLedger = () => {
                 <MenuItem value="admin">Admin</MenuItem>
                 <MenuItem value="audit">Audit</MenuItem>
                 <MenuItem value="general">General</MenuItem>
+                <MenuItem value="finance">Finance</MenuItem>
+                <MenuItem value="taj_utilities">Taj Utilities</MenuItem>
               </Select>
             </FormControl>
           </Grid>

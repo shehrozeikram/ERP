@@ -72,7 +72,7 @@ const generalLedgerSchema = new mongoose.Schema({
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
     required: [true, 'Module is required']
   },
   referenceId: {

@@ -116,8 +116,8 @@ const accountsReceivableSchema = new mongoose.Schema({
   },
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
-    default: 'sales'
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
+    default: 'general'
   },
   // Reference to source document
   referenceId: {

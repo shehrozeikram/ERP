@@ -1982,7 +1982,7 @@ const Electricity = () => {
         <Stack direction="row" spacing={1}>
           <TextField
             size="small"
-            placeholder="Search bills"
+            placeholder="Search by property, owner, meter number..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

@@ -247,11 +247,17 @@ const IndentsDashboard = () => {
 
     try {
       setPaymentActionLoading(true);
-      await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
+      const response = await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
         comments: approvalComments || `Approved by CEO with digital signature: ${approvalSignature}`,
         digitalSignature: approvalSignature
       });
-      toast.success('Payment approved successfully');
+      
+      let successMessage = 'Payment approved successfully';
+      if (response.data?.accountsPayableCreated) {
+        successMessage += ' and added to Accounts Payable';
+      }
+      
+      toast.success(successMessage);
       setApprovePaymentDialog({ open: false, payment: null });
       setApprovalComments('');
       setApprovalSignature('');

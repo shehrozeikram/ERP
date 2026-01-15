@@ -89,7 +89,7 @@ const accountSchema = new mongoose.Schema({
   // Module integration for auto-posting
   module: {
     type: String,
-    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general'],
+    enum: ['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities'],
     default: 'general'
   },
   metadata: {

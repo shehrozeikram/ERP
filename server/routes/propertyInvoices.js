@@ -8,6 +8,7 @@ const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement')
 const TajTransaction = require('../models/tajResidencia/TajTransaction');
 const { authMiddleware } = require('../middleware/auth');
 const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesHelper');
+const FinanceHelper = require('../utils/financeHelper');
 const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges } = require('../utils/electricityBillHelper');
 const dayjs = require('dayjs');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
@@ -140,6 +141,31 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
     try {
       invoice = new PropertyInvoice(invoiceData);
       await invoice.save();
+
+      // Create Accounts Receivable entry and post to GL
+      try {
+        const property = await TajProperty.findById(invoice.property).populate('resident');
+        if (property && property.resident) {
+          await FinanceHelper.createARFromInvoice({
+            customerName: property.resident.name,
+            customerEmail: property.resident.email,
+            customerId: property.resident._id,
+            invoiceNumber: invoice.invoiceNumber,
+            invoiceDate: invoice.invoiceDate,
+            dueDate: invoice.dueDate,
+            amount: invoice.grandTotal,
+            department: 'general',
+            module: 'general',
+            referenceId: invoice._id,
+            charges: invoice.charges,
+            createdBy: userId
+          });
+        }
+      } catch (arError) {
+        console.error('❌ Error creating AR for property invoice:', arError);
+        // We don't fail the invoice creation if AR fails, but we log it
+      }
+
       return { invoice, isNew: true };
     } catch (error) {
       if (error.code === 11000 && error.keyPattern?.invoiceNumber) {
@@ -1765,7 +1791,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     const skip = (page - 1) * limit;
     
     // OPTIMIZATION: Check cache first (only if no filters and default pagination)
-    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType || req.query.residentId || req.query.sector;
+    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType || req.query.residentId || req.query.sector || req.query.search || req.query.monthYear;
     const isDefaultPagination = page === 1 && limit === 50;
     const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.INVOICES_OVERVIEW;
     
@@ -1777,33 +1803,140 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       }
     }
     
-    const { propertyId, status, paymentStatus, chargeType, residentId, sector } = req.query;
+    const { propertyId, status, paymentStatus, chargeType, residentId, sector, search, monthYear } = req.query;
     const filter = {};
     
     if (propertyId) filter.property = propertyId;
     if (status) filter.status = status;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
     if (chargeType) filter.chargeTypes = { $in: [chargeType] };
+    
+    // Handle month/year filter
+    if (monthYear) {
+      // monthYear format: "YYYY-MM" (e.g., "2026-01")
+      const [year, month] = monthYear.split('-');
+      if (year && month) {
+        const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+        
+        // Filter by periodTo (billing period end) or invoiceDate if periodTo is not available
+        // Use periodTo if it exists, otherwise fall back to invoiceDate
+        filter.$or = [
+          { 
+            periodTo: { 
+              $exists: true,
+              $gte: startDate, 
+              $lte: endDate 
+            } 
+          },
+          { 
+            $and: [
+              { periodTo: { $exists: false } },
+              { invoiceDate: { $gte: startDate, $lte: endDate } }
+            ]
+          }
+        ];
+      }
+    }
+
+    // Handle search parameter - search across all invoices
+    let searchFilter = {};
+    let propertyIdsFromSearch = [];
+    let residentIdsFromSearch = [];
+    
+    if (search) {
+      const searchPattern = new RegExp(search, 'i');
+      const TajProperty = require('../models/tajResidencia/TajProperty');
+      const TajResident = require('../models/tajResidencia/TajResident');
+      
+      // Search by invoice number
+      searchFilter.$or = [
+        { invoiceNumber: searchPattern }
+      ];
+      
+      // Find properties matching owner name
+      const matchingProperties = await TajProperty.find({
+        ownerName: searchPattern
+      }).select('_id').lean();
+      propertyIdsFromSearch = matchingProperties.map(p => p._id);
+      
+      // Find residents matching name, residentId, or CNIC
+      const matchingResidents = await TajResident.find({
+        $or: [
+          { name: searchPattern },
+          { residentId: searchPattern },
+          { cnic: searchPattern }
+        ]
+      }).select('_id').lean();
+      residentIdsFromSearch = matchingResidents.map(r => r._id);
+      
+      // Find properties for matching residents
+      if (residentIdsFromSearch.length > 0) {
+        const propertiesForResidents = await TajProperty.find({
+          resident: { $in: residentIdsFromSearch }
+        }).select('_id').lean();
+        const propertyIdsFromResidents = propertiesForResidents.map(p => p._id);
+        propertyIdsFromSearch = [...new Set([...propertyIdsFromSearch, ...propertyIdsFromResidents])];
+      }
+      
+      // Add property IDs to search filter
+      if (propertyIdsFromSearch.length > 0) {
+        searchFilter.$or.push({ property: { $in: propertyIdsFromSearch } });
+      }
+    }
+
+    // Combine filters
+    const combinedFilter = { ...filter, ...searchFilter };
 
     // Get total count for pagination (before applying resident/sector filters)
-    let total = await PropertyInvoice.countDocuments(filter);
+    let total = await PropertyInvoice.countDocuments(combinedFilter);
 
     // OPTIMIZATION: Select only needed fields and use lean with pagination
-    let invoices = await PropertyInvoice.find(filter)
+    // Fetch all matching invoices first (for search across all pages)
+    let invoices = await PropertyInvoice.find(combinedFilter)
       .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName resident sector areaValue areaUnit',
         populate: {
           path: 'resident',
-          select: 'name accountType _id residentId'
+          select: 'name accountType _id residentId cnic'
         }
       })
       .populate('createdBy', 'firstName lastName')
       .sort({ invoiceDate: -1 })
-      .skip(skip)
-      .limit(limit * 2) // Fetch more to account for filtering
       .lean();
+    
+    // Additional filtering for search (to ensure we catch all matches)
+    if (search) {
+      const searchLower = search.toLowerCase();
+      invoices = invoices.filter(invoice => {
+        // Search invoice number
+        if (invoice.invoiceNumber?.toLowerCase().includes(searchLower)) return true;
+        
+        // Search property owner name
+        if (invoice.property?.ownerName?.toLowerCase().includes(searchLower)) return true;
+        
+        // Search resident name
+        if (invoice.property?.resident?.name?.toLowerCase().includes(searchLower)) return true;
+        
+        // Search resident ID (check both string and number formats)
+        const residentId = invoice.property?.resident?.residentId;
+        if (residentId) {
+          const residentIdStr = String(residentId).toLowerCase();
+          if (residentIdStr.includes(searchLower)) return true;
+        }
+        
+        // Search CNIC
+        if (invoice.property?.resident?.cnic?.toLowerCase().includes(searchLower)) return true;
+        
+        return false;
+      });
+      
+      // Update total count after search filtering
+      total = invoices.length;
+    }
     
     // Apply resident filter if provided
     if (residentId) {
@@ -1829,47 +1962,11 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       });
     }
     
-    // Apply pagination after filtering
-    const filteredTotal = invoices.length;
-    invoices = invoices.slice(0, limit);
+    // Get total count after all filters (search, resident, sector)
+    total = invoices.length;
     
-    // Recalculate total if filters were applied
-    if (residentId || sector) {
-      // Need to count all matching invoices, not just current page
-      const allInvoices = await PropertyInvoice.find(filter)
-        .populate({
-          path: 'property',
-          select: 'resident sector',
-          populate: {
-            path: 'resident',
-            select: '_id residentId'
-          }
-        })
-        .lean();
-      
-      let filteredInvoices = allInvoices;
-      if (residentId) {
-        filteredInvoices = filteredInvoices.filter(invoice => {
-          const propertyResident = invoice.property?.resident;
-          if (!propertyResident) return false;
-          const residentIdValue = typeof propertyResident === 'object' && propertyResident !== null
-            ? (propertyResident._id || propertyResident.id || propertyResident)
-            : propertyResident;
-          return String(residentIdValue) === String(residentId);
-        });
-      }
-      if (sector) {
-        filteredInvoices = filteredInvoices.filter(invoice => {
-          const propertySector = invoice.property?.sector;
-          if (!propertySector) return false;
-          const sectorValue = typeof propertySector === 'object' && propertySector !== null
-            ? (propertySector.name || propertySector.sectorName || String(propertySector))
-            : String(propertySector);
-          return sectorValue.toLowerCase() === String(sector).toLowerCase();
-        });
-      }
-      total = filteredInvoices.length;
-    }
+    // Apply pagination after all filtering
+    invoices = invoices.slice(skip, skip + limit);
 
     const totalPages = Math.ceil(total / limit);
     const response = { 

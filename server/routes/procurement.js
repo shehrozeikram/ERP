@@ -2,8 +2,10 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
+const dayjs = require('dayjs');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const Supplier = require('../models/hr/Supplier');
+const FinanceHelper = require('../utils/financeHelper');
 const Inventory = require('../models/procurement/Inventory');
 const User = require('../models/User');
 
@@ -352,9 +354,33 @@ router.put('/purchase-orders/:id/receive',
   
   await purchaseOrder.save();
 
+  // If status is "Received", create Accounts Payable entry and post to GL
+  if (purchaseOrder.status === 'Received') {
+    try {
+      const supplier = await Supplier.findById(purchaseOrder.vendor);
+      await FinanceHelper.createAPFromBill({
+        vendorName: supplier ? supplier.name : 'Unknown Supplier',
+        vendorEmail: supplier ? supplier.email : '',
+        vendorId: purchaseOrder.vendor,
+        billNumber: `PO-${purchaseOrder.orderNumber}`,
+        billDate: new Date(),
+        dueDate: dayjs().add(30, 'day').toDate(),
+        amount: purchaseOrder.totalAmount,
+        department: 'procurement',
+        module: 'procurement',
+        referenceId: purchaseOrder._id,
+        createdBy: req.user.id
+      });
+    } catch (apError) {
+      console.error('❌ Error creating AP for received purchase order:', apError);
+    }
+  }
+
   res.json({
     success: true,
-    message: 'Receiving information updated successfully',
+    message: purchaseOrder.status === 'Received' 
+      ? 'Items received and Accounts Payable entry created' 
+      : 'Receiving information updated successfully',
     data: purchaseOrder
   });
 }));

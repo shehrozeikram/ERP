@@ -60,7 +60,10 @@ const JournalEntriesList = () => {
   const fetchJournalEntries = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/finance/journal-entries?limit=20&page=1');
+      const params = new URLSearchParams();
+      params.append('limit', '100');
+      params.append('page', '1');
+      const response = await api.get(`/finance/journal-entries?${params}`);
       if (response.data.success) {
         setEntries(response.data.data.entries || []);
         setPagination(response.data.data.pagination || {});

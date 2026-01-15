@@ -13,6 +13,7 @@ const GeneralLedger = require('../models/finance/GeneralLedger');
 const AccountsReceivable = require('../models/finance/AccountsReceivable');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const Banking = require('../models/finance/Banking');
+const FinanceHelper = require('../utils/financeHelper');
 
 const router = express.Router();
 
@@ -48,6 +49,7 @@ const upload = multer({
 router.get('/accounts', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     const { 
       page = 1, 
       limit = 20, 
@@ -175,6 +177,7 @@ router.post('/accounts',
 router.get('/journal-entries', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     const { 
       page = 1, 
       limit = 20, 
@@ -200,8 +203,16 @@ router.get('/journal-entries',
     }
     if (startDate || endDate) {
       filters.date = {};
-      if (startDate) filters.date.$gte = new Date(startDate);
-      if (endDate) filters.date.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filters.date.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filters.date.$lte = end;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -244,7 +255,7 @@ router.post('/journal-entries',
   [
     body('description').trim().notEmpty().withMessage('Description is required'),
     body('department').isIn(['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general']).withMessage('Valid department is required'),
-    body('module').isIn(['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general']).withMessage('Valid module is required'),
+    body('module').isIn(['payroll', 'procurement', 'sales', 'hr', 'admin', 'audit', 'general', 'finance', 'taj_utilities']).withMessage('Valid module is required'),
     body('lines').isArray({ min: 2 }).withMessage('At least 2 lines are required'),
     body('lines.*.account').isMongoId().withMessage('Valid account is required for each line'),
     body('lines.*.debit').isFloat({ min: 0 }).withMessage('Debit amount must be non-negative'),
@@ -317,6 +328,7 @@ router.put('/journal-entries/:id/post',
 router.get('/general-ledger', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     const { 
       page = 1, 
       limit = 20, 
@@ -342,8 +354,16 @@ router.get('/general-ledger',
     }
     if (startDate || endDate) {
       filters.date = {};
-      if (startDate) filters.date.$gte = new Date(startDate);
-      if (endDate) filters.date.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filters.date.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filters.date.$lte = end;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -432,8 +452,16 @@ router.get('/accounts-receivable',
     }
     if (startDate || endDate) {
       filters.invoiceDate = {};
-      if (startDate) filters.invoiceDate.$gte = new Date(startDate);
-      if (endDate) filters.invoiceDate.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filters.invoiceDate.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filters.invoiceDate.$lte = end;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -500,18 +528,83 @@ router.post('/accounts-receivable',
       });
     }
 
-    const invoiceData = {
-      ...req.body,
+    // Use FinanceHelper to create AR and post to GL
+    const arEntry = await FinanceHelper.createARFromInvoice({
+      customerName: req.body.customer.name,
+      customerEmail: req.body.customer.email || '',
+      customerId: req.body.customer.customerId || null,
+      invoiceNumber: req.body.invoiceNumber,
+      invoiceDate: req.body.invoiceDate,
+      dueDate: req.body.dueDate,
+      amount: req.body.totalAmount,
+      department: req.body.department || 'general',
+      module: 'general',
+      referenceId: null,
+      charges: req.body.lineItems.map(item => ({
+        type: 'OTHER',
+        description: item.description,
+        amount: item.amount,
+        total: item.total || item.amount
+      })),
       createdBy: req.user._id
-    };
-
-    const invoice = new AccountsReceivable(invoiceData);
-    await invoice.save();
+    });
 
     res.status(201).json({
       success: true,
       message: 'Invoice created successfully',
+      data: arEntry
+    });
+  })
+);
+
+// @route   PUT /api/finance/accounts-receivable/:id
+// @desc    Update invoice
+// @access  Private (Finance and Admin)
+router.put('/accounts-receivable/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const invoice = await AccountsReceivable.findByIdAndUpdate(
+      req.params.id,
+      { $set: req.body },
+      { new: true, runValidators: true }
+    );
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invoice not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Invoice updated successfully',
       data: invoice
+    });
+  })
+);
+
+// @route   GET /api/finance/accounts-receivable/:id
+// @desc    Get invoice by ID
+// @access  Private (Finance and Admin)
+router.get('/accounts-receivable/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const invoice = await AccountsReceivable.findById(req.params.id).lean();
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invoice not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...invoice,
+        customerName: invoice.customer?.name || 'Unknown Customer',
+        customerEmail: invoice.customer?.email || ''
+      }
     });
   })
 );
@@ -535,26 +628,121 @@ router.post('/accounts-receivable/:id/payment',
       });
     }
 
-    const invoice = await AccountsReceivable.findById(req.params.id);
-    if (!invoice) {
+    // Use FinanceHelper to record payment and post to GL
+    try {
+      const updatedInvoice = await FinanceHelper.recordARPayment(req.params.id, {
+        amount: req.body.amount,
+        paymentMethod: req.body.paymentMethod,
+        reference: req.body.reference,
+        date: req.body.paymentDate,
+        createdBy: req.user._id
+      });
+
+      res.json({
+        success: true,
+        message: 'Payment recorded successfully',
+        data: updatedInvoice
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to record payment'
+      });
+    }
+  })
+);
+
+// @route   PUT /api/finance/accounts-payable/:id
+// @desc    Update bill
+// @access  Private (Finance and Admin)
+router.put('/accounts-payable/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const bill = await AccountsPayable.findByIdAndUpdate(
+      req.params.id,
+      { $set: req.body },
+      { new: true, runValidators: true }
+    );
+
+    if (!bill) {
       return res.status(404).json({
         success: false,
-        message: 'Invoice not found'
+        message: 'Bill not found'
       });
     }
 
-    const paymentData = {
-      ...req.body,
-      createdBy: req.user._id
-    };
+    res.json({
+      success: true,
+      message: 'Bill updated successfully',
+      data: bill
+    });
+  })
+);
 
-    await invoice.recordPayment(paymentData);
+// @route   GET /api/finance/accounts-payable/:id
+// @desc    Get bill by ID
+// @access  Private (Finance and Admin)
+router.get('/accounts-payable/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const bill = await AccountsPayable.findById(req.params.id).lean();
+    if (!bill) {
+      return res.status(404).json({
+        success: false,
+        message: 'Bill not found'
+      });
+    }
 
     res.json({
       success: true,
-      message: 'Payment recorded successfully',
-      data: invoice
+      data: {
+        ...bill,
+        vendorName: bill.vendor?.name || 'Unknown Vendor',
+        vendorEmail: bill.vendor?.email || ''
+      }
     });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/:id/payment
+// @desc    Record payment for bill
+// @access  Private (Finance and Admin)
+router.post('/accounts-payable/:id/payment',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('amount').isFloat({ min: 0 }).withMessage('Payment amount must be non-negative'),
+    body('paymentMethod').isIn(['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    try {
+      const updatedBill = await FinanceHelper.recordAPPayment(req.params.id, {
+        amount: req.body.amount,
+        paymentMethod: req.body.paymentMethod,
+        reference: req.body.reference,
+        date: req.body.paymentDate,
+        createdBy: req.user._id
+      });
+
+      res.json({
+        success: true,
+        message: 'Payment recorded successfully',
+        data: updatedBill
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to record payment'
+      });
+    }
   })
 );
 
@@ -591,8 +779,16 @@ router.get('/accounts-payable',
     }
     if (startDate || endDate) {
       filters.billDate = {};
-      if (startDate) filters.billDate.$gte = new Date(startDate);
-      if (endDate) filters.billDate.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filters.billDate.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filters.billDate.$lte = end;
+      }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -601,16 +797,82 @@ router.get('/accounts-payable',
       AccountsPayable.find(filters)
         .sort({ billDate: -1 })
         .skip(skip)
-        .limit(parseInt(limit)),
+        .limit(parseInt(limit))
+        .lean(),
       AccountsPayable.countDocuments(filters)
     ]);
 
+    // Calculate summary using aggregation pipeline for better performance
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const summaryResult = await AccountsPayable.aggregate([
+      { $match: filters },
+      {
+        $project: {
+          totalAmount: { $ifNull: ['$totalAmount', 0] },
+          amountPaid: { $ifNull: ['$amountPaid', 0] },
+          dueDate: 1
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalOutstanding: {
+            $sum: {
+              $subtract: ['$totalAmount', '$amountPaid']
+            }
+          },
+          totalPaid: { $sum: '$amountPaid' },
+          totalOverdue: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ['$dueDate', null] },
+                    { $lt: ['$dueDate', today] },
+                    { $gt: [{ $subtract: ['$totalAmount', '$amountPaid'] }, 0] }
+                  ]
+                },
+                { $subtract: ['$totalAmount', '$amountPaid'] },
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
+
+    const summary = {
+      totalOutstanding: 0,
+      totalOverdue: 0,
+      totalPaid: 0,
+      totalBills: totalCount,
+      ...(summaryResult[0] || {})
+    };
+
+    // Transform bills to match frontend expectations
+    const transformedBills = bills.map(bill => ({
+      ...bill,
+      vendorName: bill.vendor?.name || 'Unknown Vendor',
+      vendorEmail: bill.vendor?.email || '',
+      paidAmount: bill.amountPaid || 0
+    }));
+
     const totalPages = Math.ceil(totalCount / parseInt(limit));
+
+    // Prevent caching to ensure fresh data
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
 
     res.json({
       success: true,
       data: {
-        bills,
+        bills: transformedBills,
+        summary,
         pagination: {
           currentPage: parseInt(page),
           totalPages,
@@ -659,18 +921,25 @@ router.post('/accounts-payable',
       });
     }
 
-    const billData = {
-      ...req.body,
+    // Use FinanceHelper to create AP and post to GL
+    const apEntry = await FinanceHelper.createAPFromBill({
+      vendorName: req.body.vendor.name,
+      vendorEmail: req.body.vendor.email || '',
+      vendorId: req.body.vendor.vendorId || null,
+      billNumber: req.body.billNumber,
+      billDate: req.body.billDate,
+      dueDate: req.body.dueDate,
+      amount: req.body.totalAmount,
+      department: req.body.department || 'general',
+      module: 'general',
+      referenceId: null,
       createdBy: req.user._id
-    };
-
-    const bill = new AccountsPayable(billData);
-    await bill.save();
+    });
 
     res.status(201).json({
       success: true,
       message: 'Bill created successfully',
-      data: bill
+      data: apEntry
     });
   })
 );
@@ -818,8 +1087,16 @@ router.get('/banking/transactions',
     if (type) filters.type = type;
     if (startDate || endDate) {
       filters.date = {};
-      if (startDate) filters.date.$gte = new Date(startDate);
-      if (endDate) filters.date.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filters.date.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filters.date.$lte = end;
+      }
     }
     if (search) {
       filters.$or = [
