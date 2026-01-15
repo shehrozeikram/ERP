@@ -14,9 +14,9 @@ import { TablePagination } from '@mui/material';
  * @param {Function} props.onResetExpanded - Optional callback to reset expanded rows on page change
  */
 const TablePaginationWrapper = ({
-  page,
-  rowsPerPage,
-  total,
+  page = 0,
+  rowsPerPage = 50,
+  total = 0,
   onPageChange,
   onRowsPerPageChange,
   rowsPerPageOptions = [25, 50, 100, 200],
@@ -30,13 +30,18 @@ const TablePaginationWrapper = ({
     onPageChange(event, newPage);
   };
 
+  // Ensure total is always a valid number
+  const validTotal = typeof total === 'number' && !isNaN(total) ? total : 0;
+  const validPage = typeof page === 'number' && !isNaN(page) ? page : 0;
+  const validRowsPerPage = typeof rowsPerPage === 'number' && !isNaN(rowsPerPage) ? rowsPerPage : 50;
+
   return (
     <TablePagination
       component="div"
-      count={total}
-      page={page}
+      count={validTotal}
+      page={validPage}
       onPageChange={handlePageChange}
-      rowsPerPage={rowsPerPage}
+      rowsPerPage={validRowsPerPage}
       onRowsPerPageChange={onRowsPerPageChange}
       rowsPerPageOptions={rowsPerPageOptions}
       labelRowsPerPage={labelRowsPerPage}

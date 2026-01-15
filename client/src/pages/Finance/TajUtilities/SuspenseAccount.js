@@ -28,7 +28,8 @@ import {
   InputLabel,
   Select,
   CircularProgress,
-  Collapse
+  Collapse,
+  Autocomplete
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -37,13 +38,14 @@ import {
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  SwapHoriz as TransferIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import { useDeposits } from '../../../hooks/useDeposits';
 
-const Deposits = () => {
+const SuspenseAccount = () => {
   const {
     loading,
     deposits,
@@ -80,17 +82,29 @@ const Deposits = () => {
     handleCreateDepositSubmit,
     unknownResidents,
     loadingResidents,
+    transferDialog,
+    setTransferDialog,
+    transferringDeposit,
+    setTransferringDeposit,
+    transferResidentSearch,
+    setTransferResidentSearch,
+    transferResidentId,
+    setTransferResidentId,
+    transferResidents,
+    loadingTransferResidents,
+    handleTransferDeposit,
+    handleTransferDepositSubmit,
     PAYMENT_METHODS,
     formatCurrency,
     renderBankField
-  } = useDeposits();
+  } = useDeposits({ suspenseAccount: true });
 
   const bankFieldConfig = renderBankField(editForm, setEditForm);
 
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom fontWeight={600}>
-        Deposits
+        Suspense Account
       </Typography>
 
       {error && (
@@ -108,10 +122,10 @@ const Deposits = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
-                placeholder="Search by resident name, transaction number, or description"
+                placeholder="Search by transaction number or description"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 InputProps={{
@@ -119,7 +133,7 @@ const Deposits = () => {
                 }}
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <TextField
                 fullWidth
                 label="Start Date"
@@ -129,7 +143,7 @@ const Deposits = () => {
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <TextField
                 fullWidth
                 label="End Date"
@@ -148,6 +162,17 @@ const Deposits = () => {
                 disabled={loading}
               >
                 Refresh
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Button
+                fullWidth
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleCreateDeposit}
+                disabled={loading}
+              >
+                Create Deposit
               </Button>
             </Grid>
           </Grid>
@@ -270,6 +295,16 @@ const Deposits = () => {
                             <TableCell>{deposit.description || '-'}</TableCell>
                             <TableCell align="right">
                               <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                <Tooltip title="Transfer to Resident">
+                                  <IconButton
+                                    size="small"
+                                    color="success"
+                                    onClick={() => handleTransferDeposit(deposit)}
+                                    disabled={loading}
+                                  >
+                                    <TransferIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                                 <Tooltip title="Edit Deposit">
                                   <IconButton
                                     size="small"
@@ -327,7 +362,7 @@ const Deposits = () => {
         });
       }} maxWidth="sm" fullWidth>
         <DialogTitle>
-          Edit Deposit - {editingDeposit?.resident?.name}
+          Edit Deposit - {editingDeposit?.resident?.name || 'Unknown Resident'}
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -423,7 +458,7 @@ const Deposits = () => {
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <FormControl fullWidth required>
+              <FormControl fullWidth>
                 <InputLabel>Resident</InputLabel>
                 <Select
                   value={createForm.residentId}
@@ -431,9 +466,10 @@ const Deposits = () => {
                   onChange={(e) => setCreateForm({ ...createForm, residentId: e.target.value })}
                   disabled={loadingResidents}
                 >
+                  <MenuItem value="new">Create New Unknown Resident</MenuItem>
                   {unknownResidents.map((resident) => (
                     <MenuItem key={resident._id} value={resident._id}>
-                      {resident.name || 'Unknown'} {resident.residentId ? `(${resident.residentId})` : ''}
+                      {resident.name || 'Unknown'} {resident.residentId ? `(${resident.residentId})` : '(No ID)'}
                     </MenuItem>
                   ))}
                 </Select>
@@ -525,9 +561,115 @@ const Deposits = () => {
           <Button 
             onClick={handleCreateDepositSubmit} 
             variant="contained" 
-            disabled={loading || !createForm.amount || !createForm.referenceNumberExternal || !createForm.depositDate || !createForm.residentId}
+            disabled={loading || !createForm.amount || !createForm.referenceNumberExternal || !createForm.depositDate}
           >
             Create
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Transfer Deposit Dialog */}
+      <Dialog open={transferDialog} onClose={() => {
+        setTransferDialog(false);
+        setTransferringDeposit(null);
+        setTransferResidentSearch('');
+        setTransferResidentId('');
+      }} maxWidth="sm" fullWidth>
+        <DialogTitle>Transfer Deposit to Resident</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <Alert severity="info">
+                Transferring deposit of {formatCurrency(transferringDeposit?.amount || 0)} from suspense account to a known resident.
+              </Alert>
+            </Grid>
+            <Grid item xs={12}>
+              <Autocomplete
+                fullWidth
+                options={transferResidents}
+                getOptionLabel={(option) => {
+                  if (typeof option === 'string') return option;
+                  return `${option.name || ''} (${option.residentId || ''})`;
+                }}
+                value={transferResidents.find(r => r._id === transferResidentId) || null}
+                onChange={(event, newValue) => {
+                  setTransferResidentId(newValue ? newValue._id : '');
+                }}
+                onInputChange={(event, newInputValue, reason) => {
+                  // Only update search on user input, not on selection
+                  if (reason === 'input') {
+                    setTransferResidentSearch(newInputValue);
+                  }
+                }}
+                loading={loadingTransferResidents}
+                filterOptions={(options) => {
+                  // Disable all client-side filtering - we use server-side search only
+                  return options;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Search and Select Resident"
+                    placeholder="Type name or resident ID to search..."
+                    required
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <>
+                          <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                          {params.InputProps.startAdornment}
+                        </>
+                      ),
+                      endAdornment: (
+                        <>
+                          {loadingTransferResidents ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      )
+                    }}
+                  />
+                )}
+                renderOption={(props, resident) => (
+                  <Box component="li" {...props} key={resident._id}>
+                    <Box>
+                      <Typography variant="body2">{resident.name || 'Unknown'}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Resident ID: {resident.residentId || 'N/A'}
+                        {resident.contactNumber && ` • ${resident.contactNumber}`}
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
+                isOptionEqualToValue={(option, value) => String(option._id) === String(value._id)}
+                noOptionsText={loadingTransferResidents ? 'Loading residents...' : 'No residents found. Try a different search term.'}
+                ListboxProps={{
+                  style: { maxHeight: '300px' }
+                }}
+              />
+            </Grid>
+            {transferResidentId && (
+              <Grid item xs={12}>
+                <Alert severity="success">
+                  Deposit will be transferred to: {transferResidents.find(r => r._id === transferResidentId)?.name || ''} ({transferResidents.find(r => r._id === transferResidentId)?.residentId || ''})
+                </Alert>
+              </Grid>
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setTransferDialog(false);
+            setTransferringDeposit(null);
+            setTransferResidentSearch('');
+            setTransferResidentId('');
+          }}>Cancel</Button>
+          <Button 
+            onClick={handleTransferDepositSubmit} 
+            variant="contained" 
+            disabled={loading || !transferResidentId}
+            color="success"
+          >
+            Transfer
           </Button>
         </DialogActions>
       </Dialog>
@@ -535,5 +677,4 @@ const Deposits = () => {
   );
 };
 
-export default Deposits;
-
+export default SuspenseAccount;

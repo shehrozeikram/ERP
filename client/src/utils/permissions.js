@@ -207,6 +207,7 @@ export const SUBMODULES = {
     'taj_residents',
     'taj_properties',
     'taj_deposits',
+    'taj_suspense_account',
     'taj_invoices'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
@@ -522,8 +523,16 @@ export const MODULES = {
             path: '/finance/taj-utilities-charges/invoices'
           },
           {
+            name: 'Open Invoices',
+            path: '/finance/taj-utilities-charges/open-invoices'
+          },
+          {
             name: 'Deposits',
             path: '/finance/taj-utilities-charges/deposits'
+          },
+          {
+            name: 'Suspense Account',
+            path: '/finance/taj-utilities-charges/suspense-account'
           }
         ]
       },
@@ -765,18 +774,20 @@ export const getModuleMenuItems = (userRole) => {
   const accessibleModules = getAccessibleModules(userRole);
   
   // Define allowed submodules for TCM Manager
-  const tcmManagerAllowedSubmodules = [
-    '/finance/taj-utilities-charges',
-    '/finance/taj-utilities-charges/cam-charges',
-    '/finance/taj-utilities-charges/electricity-bills',
-    '/finance/taj-utilities-charges/rental-agreements',
-    '/finance/taj-utilities-charges/rental-management',
-    '/finance/taj-utilities-charges/taj-residents',
-    '/finance/taj-utilities-charges/taj-properties',
-    '/finance/taj-utilities-charges/charges-slabs',
-    '/finance/taj-utilities-charges/invoices',
-    '/finance/taj-utilities-charges/deposits'
-  ];
+    const tcmManagerAllowedSubmodules = [
+      '/finance/taj-utilities-charges',
+      '/finance/taj-utilities-charges/cam-charges',
+      '/finance/taj-utilities-charges/electricity-bills',
+      '/finance/taj-utilities-charges/rental-agreements',
+      '/finance/taj-utilities-charges/rental-management',
+      '/finance/taj-utilities-charges/taj-residents',
+      '/finance/taj-utilities-charges/taj-properties',
+      '/finance/taj-utilities-charges/charges-slabs',
+      '/finance/taj-utilities-charges/invoices',
+      '/finance/taj-utilities-charges/open-invoices',
+      '/finance/taj-utilities-charges/deposits',
+      '/finance/taj-utilities-charges/suspense-account'
+    ];
   
   return accessibleModules.map(moduleKey => {
     const module = MODULES[moduleKey];
@@ -920,6 +931,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/taj-utilities-charges/taj-properties': 'taj_properties',
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
+      '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
@@ -1035,7 +1047,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
           '/finance/taj-utilities-charges/taj-properties',
           '/finance/taj-utilities-charges/charges-slabs',
           '/finance/taj-utilities-charges/invoices',
-          '/finance/taj-utilities-charges/deposits'
+          '/finance/taj-utilities-charges/deposits',
+          '/finance/taj-utilities-charges/suspense-account'
         ];
         
         // Check if path matches allowed paths or starts with them (for dynamic routes)

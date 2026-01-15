@@ -1491,6 +1491,95 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
   }
 }));
 
+// Create open invoice (without property) - for ground booking, billboard, events, etc.
+router.post('/', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const { 
+      invoiceNumber, 
+      invoiceDate, 
+      dueDate, 
+      periodFrom, 
+      periodTo, 
+      charges, 
+      customerName, 
+      customerEmail, 
+      customerPhone, 
+      customerAddress 
+    } = req.body;
+
+    if (!charges || !Array.isArray(charges) || charges.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one charge is required' });
+    }
+
+    // Calculate totals
+    const subtotal = charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+    const totalArrears = charges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+    const grandTotal = subtotal + totalArrears;
+
+    // Generate invoice number if not provided
+    let finalInvoiceNumber = invoiceNumber;
+    if (!finalInvoiceNumber) {
+      const now = dayjs();
+      finalInvoiceNumber = generateInvoiceNumber(
+        1, // Use default srNo for open invoices
+        now.year(),
+        now.month() + 1,
+        'GEN'
+      );
+    }
+
+    // Check for duplicate invoice number
+    const existingInvoice = await PropertyInvoice.findOne({ invoiceNumber: finalInvoiceNumber });
+    if (existingInvoice) {
+      const timestamp = Date.now().toString().slice(-4);
+      finalInvoiceNumber = `${finalInvoiceNumber}-${timestamp}`;
+    }
+
+    const invoiceData = {
+      property: null, // No property for open invoices
+      invoiceNumber: finalInvoiceNumber,
+      invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
+      dueDate: dueDate ? new Date(dueDate) : (periodTo ? dayjs(periodTo).add(15, 'day').toDate() : dayjs().add(30, 'day').toDate()),
+      periodFrom: periodFrom ? new Date(periodFrom) : undefined,
+      periodTo: periodTo ? new Date(periodTo) : undefined,
+      chargeTypes: [...new Set(charges.map(c => c.type))],
+      charges: charges.map(c => ({
+        type: c.type,
+        description: c.description || '',
+        amount: c.amount || 0,
+        arrears: c.arrears || 0,
+        total: (c.amount || 0) + (c.arrears || 0)
+      })),
+      subtotal,
+      totalArrears,
+      grandTotal,
+      amountInWords: numberToWords(grandTotal),
+      customerName: customerName || '',
+      customerEmail: customerEmail || '',
+      customerPhone: customerPhone || '',
+      customerAddress: customerAddress || '',
+      totalPaid: 0,
+      balance: grandTotal,
+      status: 'Issued',
+      paymentStatus: 'unpaid',
+      createdBy: req.user.id
+    };
+
+    const invoice = new PropertyInvoice(invoiceData);
+    await invoice.save();
+
+    // Don't create AR entry for open invoices (no property/resident)
+
+    res.status(201).json({
+      success: true,
+      message: 'Invoice created successfully',
+      data: invoice.toObject()
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get invoice by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {
@@ -1630,7 +1719,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invoice not found' });
     }
 
-    const { invoiceNumber, invoiceDate, dueDate, periodFrom, periodTo, charges, subtotal, totalArrears, grandTotal } = req.body;
+    const { invoiceNumber, invoiceDate, dueDate, periodFrom, periodTo, charges, subtotal, totalArrears, grandTotal, customerName, customerEmail, customerPhone, customerAddress } = req.body;
 
     // Check for duplicate invoices if periodTo or periodFrom is being updated
     const updatedPeriodFrom = periodFrom !== undefined ? (periodFrom ? new Date(periodFrom) : null) : invoice.periodFrom;
@@ -1742,13 +1831,22 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
     if (dueDate !== undefined) invoice.dueDate = dueDate ? new Date(dueDate) : invoice.dueDate;
     if (periodFrom !== undefined) invoice.periodFrom = periodFrom ? new Date(periodFrom) : invoice.periodFrom;
     if (periodTo !== undefined) invoice.periodTo = periodTo ? new Date(periodTo) : invoice.periodTo;
-    if (charges !== undefined) invoice.charges = charges;
+    if (charges !== undefined) {
+      invoice.charges = charges;
+      // Update chargeTypes based on charges
+      invoice.chargeTypes = [...new Set(charges.map(c => c.type))];
+    }
     if (subtotal !== undefined) invoice.subtotal = subtotal;
     if (totalArrears !== undefined) invoice.totalArrears = totalArrears;
     if (grandTotal !== undefined) {
       invoice.grandTotal = grandTotal;
       invoice.amountInWords = numberToWords(grandTotal);
     }
+    // Update customer fields for open invoices
+    if (customerName !== undefined) invoice.customerName = customerName;
+    if (customerEmail !== undefined) invoice.customerEmail = customerEmail;
+    if (customerPhone !== undefined) invoice.customerPhone = customerPhone;
+    if (customerAddress !== undefined) invoice.customerAddress = customerAddress;
 
     invoice.updatedBy = req.user.id;
     invoice.updatedAt = new Date();
@@ -1791,7 +1889,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     const skip = (page - 1) * limit;
     
     // OPTIMIZATION: Check cache first (only if no filters and default pagination)
-    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType || req.query.residentId || req.query.sector || req.query.search || req.query.monthYear;
+    const hasFilters = req.query.propertyId || req.query.status || req.query.paymentStatus || req.query.chargeType || req.query.residentId || req.query.sector || req.query.search || req.query.monthYear || req.query.openInvoices;
     const isDefaultPagination = page === 1 && limit === 50;
     const cacheKey = (hasFilters || !isDefaultPagination) ? null : CACHE_KEYS.INVOICES_OVERVIEW;
     
@@ -1803,10 +1901,21 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       }
     }
     
-    const { propertyId, status, paymentStatus, chargeType, residentId, sector, search, monthYear } = req.query;
+    const { propertyId, status, paymentStatus, chargeType, residentId, sector, search, monthYear, openInvoices } = req.query;
     const filter = {};
     
-    if (propertyId) filter.property = propertyId;
+    // Filter: openInvoices=true shows only invoices without properties, openInvoices=false or undefined shows only invoices with properties
+    if (openInvoices === 'true') {
+      filter.property = null; // Only open invoices (no property)
+    } else {
+      // Only property-based invoices (exclude open invoices)
+      // But if propertyId is specified, use that instead
+      if (propertyId) {
+        filter.property = propertyId;
+      } else {
+        filter.property = { $ne: null }; // Exclude open invoices
+      }
+    }
     if (status) filter.status = status;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
     if (chargeType) filter.chargeTypes = { $in: [chargeType] };
@@ -1855,47 +1964,60 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
         { invoiceNumber: searchPattern }
       ];
       
-      // Find properties matching owner name
-      const matchingProperties = await TajProperty.find({
-        ownerName: searchPattern
-      }).select('_id').lean();
-      propertyIdsFromSearch = matchingProperties.map(p => p._id);
-      
-      // Find residents matching name, residentId, or CNIC
-      const matchingResidents = await TajResident.find({
-        $or: [
-          { name: searchPattern },
-          { residentId: searchPattern },
-          { cnic: searchPattern }
-        ]
-      }).select('_id').lean();
-      residentIdsFromSearch = matchingResidents.map(r => r._id);
-      
-      // Find properties for matching residents
-      if (residentIdsFromSearch.length > 0) {
-        const propertiesForResidents = await TajProperty.find({
-          resident: { $in: residentIdsFromSearch }
-        }).select('_id').lean();
-        const propertyIdsFromResidents = propertiesForResidents.map(p => p._id);
-        propertyIdsFromSearch = [...new Set([...propertyIdsFromSearch, ...propertyIdsFromResidents])];
+      // For open invoices (when openInvoices=true or when filtering for null property), search customer fields
+      if (openInvoices === 'true' || filter.property === null) {
+        searchFilter.$or.push(
+          { customerName: searchPattern },
+          { customerEmail: searchPattern },
+          { customerPhone: searchPattern },
+          { customerAddress: searchPattern }
+        );
       }
       
-      // Add property IDs to search filter
-      if (propertyIdsFromSearch.length > 0) {
-        searchFilter.$or.push({ property: { $in: propertyIdsFromSearch } });
+      // For property-based invoices, search property and resident fields
+      if (openInvoices !== 'true' && filter.property !== null) {
+        // Find properties matching owner name
+        const matchingProperties = await TajProperty.find({
+          ownerName: searchPattern
+        }).select('_id').lean();
+        propertyIdsFromSearch = matchingProperties.map(p => p._id);
+        
+        // Find residents matching name, residentId, or CNIC
+        const matchingResidents = await TajResident.find({
+          $or: [
+            { name: searchPattern },
+            { residentId: searchPattern },
+            { cnic: searchPattern }
+          ]
+        }).select('_id').lean();
+        residentIdsFromSearch = matchingResidents.map(r => r._id);
+        
+        // Find properties for matching residents
+        if (residentIdsFromSearch.length > 0) {
+          const propertiesForResidents = await TajProperty.find({
+            resident: { $in: residentIdsFromSearch }
+          }).select('_id').lean();
+          const propertyIdsFromResidents = propertiesForResidents.map(p => p._id);
+          propertyIdsFromSearch = [...new Set([...propertyIdsFromSearch, ...propertyIdsFromResidents])];
+        }
+        
+        // Add property IDs to search filter
+        if (propertyIdsFromSearch.length > 0) {
+          searchFilter.$or.push({ property: { $in: propertyIdsFromSearch } });
+        }
       }
     }
 
     // Combine filters
     const combinedFilter = { ...filter, ...searchFilter };
 
-    // Get total count for pagination (before applying resident/sector filters)
+    // Get total count for pagination (before applying resident/sector filters and in-memory filtering)
     let total = await PropertyInvoice.countDocuments(combinedFilter);
 
     // OPTIMIZATION: Select only needed fields and use lean with pagination
     // Fetch all matching invoices first (for search across all pages)
     let invoices = await PropertyInvoice.find(combinedFilter)
-      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy')
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy customerName customerEmail customerPhone customerAddress')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName resident sector areaValue areaUnit',
@@ -1908,28 +2030,32 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       .sort({ invoiceDate: -1 })
       .lean();
     
-    // Additional filtering for search (to ensure we catch all matches)
-    if (search) {
+    // Additional filtering for property-based invoices search (to ensure we catch all matches)
+    // For open invoices, search is already done at database level
+    if (search && openInvoices !== 'true' && filter.property !== null) {
       const searchLower = search.toLowerCase();
       invoices = invoices.filter(invoice => {
-        // Search invoice number
+        // Search invoice number (already handled in DB query, but double-check)
         if (invoice.invoiceNumber?.toLowerCase().includes(searchLower)) return true;
         
-        // Search property owner name
-        if (invoice.property?.ownerName?.toLowerCase().includes(searchLower)) return true;
-        
-        // Search resident name
-        if (invoice.property?.resident?.name?.toLowerCase().includes(searchLower)) return true;
-        
-        // Search resident ID (check both string and number formats)
-        const residentId = invoice.property?.resident?.residentId;
-        if (residentId) {
-          const residentIdStr = String(residentId).toLowerCase();
-          if (residentIdStr.includes(searchLower)) return true;
+        // For property-based invoices, search property/resident fields
+        if (invoice.property) {
+          // Search property owner name
+          if (invoice.property?.ownerName?.toLowerCase().includes(searchLower)) return true;
+          
+          // Search resident name
+          if (invoice.property?.resident?.name?.toLowerCase().includes(searchLower)) return true;
+          
+          // Search resident ID (check both string and number formats)
+          const residentId = invoice.property?.resident?.residentId;
+          if (residentId) {
+            const residentIdStr = String(residentId).toLowerCase();
+            if (residentIdStr.includes(searchLower)) return true;
+          }
+          
+          // Search CNIC
+          if (invoice.property?.resident?.cnic?.toLowerCase().includes(searchLower)) return true;
         }
-        
-        // Search CNIC
-        if (invoice.property?.resident?.cnic?.toLowerCase().includes(searchLower)) return true;
         
         return false;
       });
@@ -1950,8 +2076,8 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       });
     }
     
-    // Apply sector filter if provided
-    if (sector) {
+    // Apply sector filter if provided (only for property-based invoices)
+    if (sector && openInvoices !== 'true') {
       invoices = invoices.filter(invoice => {
         const propertySector = invoice.property?.sector;
         if (!propertySector) return false;
@@ -1963,7 +2089,15 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     }
     
     // Get total count after all filters (search, resident, sector)
-    total = invoices.length;
+    // Update total if we did in-memory filtering
+    if (search && openInvoices !== 'true' && filter.property !== null) {
+      // Property-based invoices: search was done in-memory, update total
+      total = invoices.length;
+    } else if (residentId || (sector && openInvoices !== 'true')) {
+      // Resident or sector filters are applied in-memory, update total
+      total = invoices.length;
+    }
+    // For open invoices with DB-level search, total from countDocuments is already correct
     
     // Apply pagination after all filtering
     invoices = invoices.slice(skip, skip + limit);

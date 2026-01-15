@@ -107,6 +107,7 @@ const chargesSlabsRoutes = require('./routes/chargesSlabs');
 const waterUtilitySlabsRoutes = require('./routes/waterUtilitySlabs');
 const tajResidentsRoutes = require('./routes/tajResidents');
 const tajSectorsRoutes = require('./routes/tajSectors');
+const chargeTypesRoutes = require('./routes/chargeTypes');
 const documentTrackingRoutes = require('./routes/documentTracking');
 const evaluationDocumentsRoutes = require('./routes/evaluationDocuments');
 const evaluationLevel0AuthoritiesRoutes = require('./routes/evaluationLevel0Authorities');
@@ -536,6 +537,7 @@ app.use('/api/taj-utilities/charges-slabs', authMiddleware, activityLogger, char
 app.use('/api/taj-utilities/water-utility-slabs', authMiddleware, activityLogger, waterUtilitySlabsRoutes);
 app.use('/api/taj-utilities/residents', authMiddleware, activityLogger, tajResidentsRoutes);
 app.use('/api/taj-utilities/sectors', authMiddleware, activityLogger, tajSectorsRoutes);
+app.use('/api/taj-utilities/charge-types', authMiddleware, activityLogger, chargeTypesRoutes);
 app.use('/api/document-tracking', authMiddleware, activityLogger, documentTrackingRoutes);
 app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationDocumentsRoutes);
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);

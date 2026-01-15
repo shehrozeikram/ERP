@@ -11,8 +11,9 @@ const tajResidentSchema = new mongoose.Schema(
     // Basic Information
     name: {
       type: String,
-      required: true,
-      trim: true
+      required: false, // Allow empty for suspense account
+      trim: true,
+      default: ''
     },
     accountType: {
       type: String,
@@ -83,7 +84,15 @@ tajResidentSchema.index({ isActive: 1 });
 tajResidentSchema.index({ residentId: 1 });
 
 // Pre-save middleware to auto-generate Resident ID
+// Skip auto-generation for suspense account residents (no name and no residentId)
 tajResidentSchema.pre('save', async function(next) {
+  // Don't auto-generate residentId for suspense account residents (unknown residents)
+  // These are residents with empty/null name and no residentId
+  if (!this.residentId && (!this.name || this.name.trim() === '')) {
+    // This is a suspense account resident, skip residentId generation
+    return next();
+  }
+  
   if (!this.residentId) {
     try {
       const allResidents = await this.constructor.find({}, { residentId: 1 }).lean();

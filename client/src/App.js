@@ -50,8 +50,10 @@ import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
 import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
 import Invoices from './pages/Finance/TajUtilities/Invoices';
+import OpenInvoices from './pages/Finance/TajUtilities/OpenInvoices';
 import TajResidents from './pages/Finance/TajUtilities/TajResidents';
 import Deposits from './pages/Finance/TajUtilities/Deposits';
+import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
@@ -979,10 +981,26 @@ function App() {
               }
             />
             <Route
+              path="/finance/taj-utilities-charges/open-invoices"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <OpenInvoices />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/finance/taj-utilities-charges/deposits"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <Deposits />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/suspense-account"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <SuspenseAccount />
                 </ProtectedRoute>
               }
             />

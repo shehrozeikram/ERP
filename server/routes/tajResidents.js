@@ -269,7 +269,7 @@ router.post(
   '/',
   authMiddleware,
   [
-    body('name').trim().notEmpty().withMessage('Name is required'),
+    body('name').optional().trim(), // Allow empty name for suspense account
     body('accountType').optional().isIn(['Resident', 'Property Dealer', 'Other']),
     body('balance').optional().isFloat({ min: 0 })
   ],
@@ -394,6 +394,7 @@ router.get('/:id/transactions', authMiddleware, asyncHandler(async (req, res) =>
     .populate('resident', 'name accountType')
     .populate('targetResident', 'name accountType')
     .populate('createdBy', 'firstName lastName')
+    .populate('updatedBy', 'firstName lastName')
     .sort({ createdAt: -1 })
     .limit(limit * 1)
     .skip((page - 1) * limit);
@@ -686,6 +687,118 @@ router.put(
       data: {
         transaction,
         newBalance: resident.balance
+      }
+    });
+  })
+);
+
+// Transfer deposit from suspense account to a known resident
+router.post(
+  '/deposits/:transactionId/transfer',
+  authMiddleware,
+  [
+    body('targetResidentId').notEmpty().withMessage('Target resident ID is required'),
+    body('targetResidentName').optional().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const { targetResidentId, targetResidentName } = req.body;
+    const transactionId = req.params.transactionId;
+
+    // Find the deposit transaction
+    const deposit = await TajTransaction.findById(transactionId)
+      .populate('resident', 'name residentId balance');
+    
+    if (!deposit) {
+      return res.status(404).json({ success: false, message: 'Deposit not found' });
+    }
+
+    if (deposit.transactionType !== 'deposit') {
+      return res.status(400).json({ success: false, message: 'Transaction is not a deposit' });
+    }
+
+    // Find target resident
+    let targetResident;
+    if (targetResidentId.match(/^[0-9a-fA-F]{24}$/)) {
+      // It's an ObjectId
+      targetResident = await TajResident.findById(targetResidentId);
+    } else {
+      // It's a resident ID or name - search for it
+      targetResident = await TajResident.findOne({
+        $or: [
+          { residentId: targetResidentId },
+          { name: { $regex: new RegExp(`^${targetResidentId}$`, 'i') } }
+        ]
+      });
+    }
+
+    if (!targetResident) {
+      return res.status(404).json({ success: false, message: 'Target resident not found' });
+    }
+
+    // Check if source resident is unknown (suspense account)
+    const sourceResident = deposit.resident;
+    const isUnknownResident = !sourceResident.name || sourceResident.name.trim() === '' || 
+                              !sourceResident.residentId || sourceResident.residentId.trim() === '';
+    
+    if (!isUnknownResident) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'This deposit is not from a suspense account. Only suspense account deposits can be transferred.' 
+      });
+    }
+
+    // Check if target resident is known (has name and residentId)
+    if (!targetResident.name || targetResident.name.trim() === '' || 
+        !targetResident.residentId || targetResident.residentId.trim() === '') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Target resident must be a known resident (with name and resident ID)' 
+      });
+    }
+
+    // Update balances
+    const depositAmount = deposit.amount || 0;
+    
+    // Remove from source (unknown) resident balance
+    const sourceBalanceBefore = sourceResident.balance || 0;
+    const sourceBalanceAfter = Math.max(0, sourceBalanceBefore - depositAmount);
+    sourceResident.balance = sourceBalanceAfter;
+    sourceResident.updatedBy = req.user.id;
+    await sourceResident.save();
+
+    // Add to target (known) resident balance
+    const targetBalanceBefore = targetResident.balance || 0;
+    const targetBalanceAfter = targetBalanceBefore + depositAmount;
+    targetResident.balance = targetBalanceAfter;
+    targetResident.updatedBy = req.user.id;
+    await targetResident.save();
+
+    // Update deposit transaction to point to target resident
+    deposit.resident = targetResident._id;
+    deposit.balanceBefore = targetBalanceBefore;
+    deposit.balanceAfter = targetBalanceAfter;
+    deposit.description = deposit.description 
+      ? `${deposit.description} (Transferred from suspense account)`
+      : `Transferred from suspense account to ${targetResident.name}`;
+    deposit.updatedBy = req.user.id;
+    await deposit.save();
+
+    await deposit.populate('resident', 'name residentId accountType');
+    await deposit.populate('createdBy', 'firstName lastName');
+    await deposit.populate('updatedBy', 'firstName lastName');
+
+    res.json({
+      success: true,
+      message: 'Deposit transferred successfully',
+      data: {
+        transaction: deposit,
+        sourceBalance: sourceBalanceAfter,
+        targetBalance: targetBalanceAfter
       }
     });
   })
@@ -1200,7 +1313,7 @@ router.post(
 
 // Get all deposits across all residents (for Deposits page)
 router.get('/deposits/all', authMiddleware, asyncHandler(async (req, res) => {
-  const { page = 1, limit = 50, search, startDate, endDate } = req.query;
+  const { page = 1, limit = 50, search, startDate, endDate, suspenseAccount } = req.query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   // Build query (exclude reversal transactions)
@@ -1213,6 +1326,46 @@ router.get('/deposits/all', authMiddleware, asyncHandler(async (req, res) => {
     ]
   };
 
+  // Suspense Account filter: deposits where resident or residentId is unknown
+  if (suspenseAccount === 'true') {
+    // Find residents with missing name or residentId
+    const unknownResidents = await TajResident.find({
+      $or: [
+        { name: { $exists: false } },
+        { name: null },
+        { name: '' },
+        { residentId: { $exists: false } },
+        { residentId: null },
+        { residentId: '' }
+      ]
+    }).select('_id').lean();
+    const unknownResidentIds = unknownResidents.map(r => r._id);
+    
+    if (unknownResidentIds.length > 0) {
+      query.resident = { $in: unknownResidentIds };
+    } else {
+      // No unknown residents found, return empty result
+      query.resident = { $in: [] };
+    }
+  } else {
+    // Exclude suspense account deposits (unknown residents) from regular deposits
+    const unknownResidents = await TajResident.find({
+      $or: [
+        { name: { $exists: false } },
+        { name: null },
+        { name: '' },
+        { residentId: { $exists: false } },
+        { residentId: null },
+        { residentId: '' }
+      ]
+    }).select('_id').lean();
+    const unknownResidentIds = unknownResidents.map(r => r._id);
+    
+    if (unknownResidentIds.length > 0) {
+      query.resident = { $nin: unknownResidentIds }; // Exclude unknown residents
+    }
+  }
+
   // Date filter
   if (startDate || endDate) {
     query.createdAt = {};
@@ -1222,19 +1375,38 @@ router.get('/deposits/all', authMiddleware, asyncHandler(async (req, res) => {
 
   // Search filter (by resident name, transaction number, or description)
   if (search) {
-    const residents = await TajResident.find({
-      $or: [
-        { name: { $regex: search, $options: 'i' } },
-        { residentId: { $regex: search, $options: 'i' } }
-      ]
-    }).select('_id').lean();
-    const residentIds = residents.map(r => r._id);
-    
-    query.$or = [
-      { referenceNumberExternal: { $regex: search, $options: 'i' } },
-      { description: { $regex: search, $options: 'i' } },
-      { resident: { $in: residentIds } }
+    const searchPattern = { $regex: search, $options: 'i' };
+    const searchConditions = [
+      { referenceNumberExternal: searchPattern },
+      { description: searchPattern }
     ];
+    
+    // For suspense account, search in transaction fields only
+    // For regular deposits, also search by resident
+    if (suspenseAccount !== 'true') {
+      const residents = await TajResident.find({
+        $or: [
+          { name: searchPattern },
+          { residentId: searchPattern }
+        ]
+      }).select('_id').lean();
+      const residentIds = residents.map(r => r._id);
+      if (residentIds.length > 0) {
+        searchConditions.push({ resident: { $in: residentIds } });
+      }
+    }
+    
+    // Combine with existing $or conditions (for reversal filter)
+    const existingOrConditions = query.$or || [];
+    if (existingOrConditions.length > 0) {
+      query.$and = [
+        { $or: existingOrConditions },
+        { $or: searchConditions }
+      ];
+      delete query.$or;
+    } else {
+      query.$or = searchConditions;
+    }
   }
 
   // Get total count
@@ -1245,6 +1417,7 @@ router.get('/deposits/all', authMiddleware, asyncHandler(async (req, res) => {
     .select('_id amount description paymentMethod bank referenceNumberExternal createdAt balanceBefore balanceAfter')
     .populate('resident', 'name residentId accountType')
     .populate('createdBy', 'firstName lastName')
+    .populate('updatedBy', 'firstName lastName')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(parseInt(limit))

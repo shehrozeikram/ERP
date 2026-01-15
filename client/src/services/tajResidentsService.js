@@ -50,3 +50,5 @@ export const getUnassignedProperties = (params = {}) =>
 export const fetchAllDeposits = (params = {}) =>
   api.get(`${base}/deposits/all`, { params });
 
+export const transferDeposit = (transactionId, data) =>
+  api.post(`${base}/deposits/${transactionId}/transfer`, data);

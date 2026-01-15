@@ -1,11 +1,28 @@
 const mongoose = require('mongoose');
 
 const propertyInvoiceSchema = new mongoose.Schema({
-  // Property Reference
+  // Property Reference (optional for open invoices like ground booking, billboard, events)
   property: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TajProperty',
-    required: true
+    required: false
+  },
+  // Customer/Client details for non-property invoices
+  customerName: {
+    type: String,
+    trim: true
+  },
+  customerEmail: {
+    type: String,
+    trim: true
+  },
+  customerPhone: {
+    type: String,
+    trim: true
+  },
+  customerAddress: {
+    type: String,
+    trim: true
   },
   // Invoice Details
   invoiceNumber: {
@@ -31,7 +48,7 @@ const propertyInvoiceSchema = new mongoose.Schema({
   // Charge Types Included
   chargeTypes: [{
     type: String,
-    enum: ['CAM', 'ELECTRICITY', 'RENT'],
+    // Allow any string for flexibility (especially for open invoices with custom types)
     required: true
   }],
   // Source References
@@ -55,7 +72,7 @@ const propertyInvoiceSchema = new mongoose.Schema({
   charges: [{
     type: {
       type: String,
-      enum: ['CAM', 'ELECTRICITY', 'RENT'],
+      // Allow any string for flexibility (especially for open invoices with custom types)
       required: true
     },
     description: {

@@ -2,8 +2,14 @@ import api from './api';
 
 const base = '/taj-utilities/invoices';
 
-export const createInvoice = (propertyId, data) =>
-  api.post(`${base}/property/${propertyId}`, data);
+export const createInvoice = (propertyId, data) => {
+  if (propertyId) {
+    return api.post(`${base}/property/${propertyId}`, data);
+  } else {
+    // Create open invoice without property
+    return api.post(base, data);
+  }
+};
 
 export const fetchInvoice = (invoiceId) =>
   api.get(`${base}/${invoiceId}`);
