@@ -80,8 +80,8 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
   const roundedFcSurcharge = Math.round(fcSurcharge * 100) / 100;
   const roundedNjSurcharge = 0; // Always 0 now
   
-  // Subtotal before taxes (removed meterRent and njSurcharge from calculation)
-  const subtotal = roundedElectricityCost + roundedFcSurcharge + fixRate;
+  // Subtotal before taxes (removed meterRent, njSurcharge, and fixedCharges from calculation)
+  const subtotal = roundedElectricityCost + roundedFcSurcharge;
   
   // Taxes
   const gst = Math.round((roundedElectricityCost * 0.18) * 100) / 100; // 18% of electricity cost only
@@ -101,7 +101,7 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
     gst: gst,
     electricityDuty: electricityDuty,
     tvFee: 0, // Always 0 now
-    fixedCharges: fixRate,
+    fixedCharges: 0, // Removed from calculation
     totalBill: roundedTotalBill,
     withSurcharge: roundedTotalBill // Rounded to nearest integer
   };

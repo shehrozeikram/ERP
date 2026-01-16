@@ -129,7 +129,19 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   
   const unitsConsumed = calcData.unitsConsumed !== undefined ? calcData.unitsConsumed : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
   const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
-  const arrears = calcData.previousArrears !== undefined ? calcData.previousArrears : (electricityCharge?.arrears !== undefined ? electricityCharge.arrears : (electricityBill.arrears || invoice.totalArrears || 0));
+  
+  // Get arrears from multiple sources - prioritize invoice charge data, then calculation data, then electricity bill, then invoice totalArrears
+  let arrears = 0;
+  if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
+    arrears = electricityCharge.arrears;
+  } else if (invoice.totalArrears !== undefined && invoice.totalArrears !== null) {
+    arrears = invoice.totalArrears;
+  } else if (calcData.previousArrears !== undefined && calcData.previousArrears !== null) {
+    arrears = calcData.previousArrears;
+  } else if (electricityBill.arrears !== undefined && electricityBill.arrears !== null) {
+    arrears = electricityBill.arrears;
+  }
+  
   const amountReceived = electricityBill.receivedAmount || 0;
   const totalPaid = invoice.totalPaid || amountReceived || 0;
   const grandTotal = invoice.grandTotal || (totalBill + arrears);
@@ -193,22 +205,19 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
     const fcSurcharge = charges.fcSurcharge !== undefined ? charges.fcSurcharge : (electricityBill.fcSurcharge || 0);
     const gst = charges.gst !== undefined ? charges.gst : (electricityBill.gst || 0);
     const electricityDuty = charges.electricityDuty !== undefined ? charges.electricityDuty : (electricityBill.electricityDuty || 0);
-    const fixedCharges = charges.fixedCharges !== undefined ? charges.fixedCharges : (calcData.slab?.fixRate !== undefined ? calcData.slab.fixRate : (electricityBill.fixedCharges || 0));
-    
     const rows = [
       { label: 'Unit price', value: formatRate(unitRate) },
       { label: 'Share of IESCO Supply Cost Rate', value: formatAmount(electricityCost) },
       { label: 'FC Surcharge', value: formatAmount(fcSurcharge) },
       { label: 'Sales Tax', value: formatAmount(gst) },
       { label: 'Electricity Duty', value: formatAmount(electricityDuty) },
-      { label: 'Fixed Charges', value: formatAmount(fixedCharges) },
       { label: 'Charges for the Month', value: formatAmount(totalBill) },
       { label: 'Arrears', value: formatAmount(arrears) },
-      { label: 'Paid Amount', value: totalPaid > 0 ? formatAmount(totalPaid) : '-' },
-      { label: 'Remaining Balance', value: formatAmount(balance) },
       { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
       { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge) },
-      { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate) }
+      { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate) },
+      { label: 'Paid Amount', value: totalPaid > 0 ? formatAmount(totalPaid) : '-' },
+      { label: 'Remaining Balance', value: formatAmount(balance) }
     ];
 
     const rowHeight = 6;
@@ -275,7 +284,6 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
       ['Floor', floor],
       ['Address', address],
       ['Size', propertySize],
-      ['Account No.', 'PK68ABPA0010035700420129'],
       ['Period From', periodFrom],
       ['Period To', periodTo],
       ['Invoice No.', invoiceNumber],
@@ -435,10 +443,10 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
       ['CAM Charges', formatMoney(camAmount)],
       ['Charges for the Month', formatMoney(camAmount)],
       ['Arrears', formatMoney(arrears)],
-      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
-      ['Remaining Balance', formatMoney(balance)],
       ['Payable Within Due Date', formatMoney(payableWithinDue)],
-      ['Payable After Due Date', formatMoney(payableAfterDue)]
+      ['Payable After Due Date', formatMoney(payableAfterDue)],
+      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
+      ['Remaining Balance', formatMoney(balance)]
     ];
 
     rows.forEach((row) => {
@@ -509,7 +517,6 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
       ['Address', propertyAddress],
       ['Sector', propertySector],
       ['Size', propertySize],
-      ['Account No.', 'PK68ABPA0010035700420129'],
       ['Period From', periodFrom],
       ['Period To', periodTo],
       ['Invoice No.', invoiceNumber],
@@ -647,10 +654,10 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
       ['Monthly Rent', formatMoney(rentAmount)],
       ['Charges for the Month', formatMoney(rentAmount)],
       ['Arrears', formatMoney(arrears)],
-      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
-      ['Remaining Balance', formatMoney(balance)],
       ['Payable Within Due Date', formatMoney(payableWithinDue)],
-      ['Payable After Due Date', formatMoney(payableAfterDue)]
+      ['Payable After Due Date', formatMoney(payableAfterDue)],
+      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
+      ['Remaining Balance', formatMoney(balance)]
     ];
 
     rows.forEach((row) => {
@@ -721,7 +728,6 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
       ['Address', propertyAddress],
       ['Sector', propertySector],
       ['Size', propertySize],
-      ['Account No.', 'PK68ABPA0010035700420129'],
       ['Period From', periodFrom],
       ['Period To', periodTo],
       ['Invoice No.', invoiceNumber],
@@ -882,10 +888,10 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
     const rows = [
       ['Charges for the Month', formatMoney(totalChargesAmount)],
       ['Arrears', formatMoney(totalArrears)],
-      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
-      ['Remaining Balance', formatMoney(balance)],
       ['Payable Within Due Date', formatMoney(payableWithinDue)],
-      ['Payable After Due Date', formatMoney(payableAfterDue)]
+      ['Payable After Due Date', formatMoney(payableAfterDue)],
+      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
+      ['Remaining Balance', formatMoney(balance)]
     ];
 
     rows.forEach((row) => {
@@ -956,7 +962,6 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
       ['Address', propertyAddress],
       ['Sector', propertySector],
       ['Size', propertySize],
-      ['Account No.', 'PK68ABPA0010035700420129'],
       ['Period From', periodFrom],
       ['Period To', periodTo],
       ['Invoice No.', invoiceNumber],
