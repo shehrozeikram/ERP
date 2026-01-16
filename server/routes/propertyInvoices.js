@@ -41,6 +41,65 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuf
   return `${prefix}-${year}-${paddedMonth}-${paddedIndex}${suffix}`;
 };
 
+/**
+ * Calculate arrears from overdue invoices (unpaid or partially paid invoices past due date)
+ * For each overdue invoice, calculates: Charges for the Month + Arrears + Late Payment Surcharge (10% of Charges for the Month)
+ * @param {ObjectId} propertyId - Property ID
+ * @param {Date} currentDate - Current date (defaults to now)
+ * @returns {Number} Total arrears amount to be added to new invoice
+ */
+const calculateOverdueArrears = async (propertyId, currentDate = new Date()) => {
+  if (!propertyId) return 0;
+  
+  try {
+    // Find all previous invoices for this property that are overdue and have outstanding balance
+    const overdueInvoices = await PropertyInvoice.find({
+      property: propertyId,
+      dueDate: { $lt: currentDate }, // Past due date
+      balance: { $gt: 0 }, // Has outstanding balance
+      paymentStatus: { $in: ['unpaid', 'partial_paid'] }, // Unpaid or partially paid
+      status: { $ne: 'Cancelled' } // Not cancelled
+    })
+    .select('charges subtotal totalArrears grandTotal balance')
+    .sort({ dueDate: 1 }) // Oldest first
+    .lean();
+    
+    if (!overdueInvoices || overdueInvoices.length === 0) {
+      return 0;
+    }
+    
+    let totalOverdueArrears = 0;
+    
+    overdueInvoices.forEach(invoice => {
+      // Calculate "Charges for the Month" - sum of all charge amounts (excluding arrears)
+      const chargesForMonth = invoice.charges?.reduce((sum, charge) => sum + (charge.amount || 0), 0) || invoice.subtotal || 0;
+      
+      // Get existing arrears from the invoice
+      const existingArrears = invoice.totalArrears || 0;
+      
+      // Calculate late payment surcharge: 10% of "Charges for the Month"
+      const lateSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+      
+      // Calculate "Payable After Due Date" = Charges for the Month + Arrears + Late Surcharge
+      const payableAfterDue = chargesForMonth + existingArrears + lateSurcharge;
+      
+      // Add the outstanding balance (what's actually unpaid) to total arrears
+      // But we need to account for the late surcharge that should be added
+      // The balance already includes the original charges + arrears - payments
+      // So we add the late surcharge to the balance
+      const overdueAmount = invoice.balance + lateSurcharge;
+      
+      totalOverdueArrears += overdueAmount;
+    });
+    
+    // Round to 2 decimal places
+    return Math.round(totalOverdueArrears * 100) / 100;
+  } catch (error) {
+    console.error('Error calculating overdue arrears:', error);
+    return 0; // Return 0 on error to prevent invoice creation from failing
+  }
+};
+
 // Helper: Normalize readings map from various input formats
 const normalizeReadingsMap = (meterReadings, currentReading, metersToProcess) => {
   const readingsMap = {};
@@ -1127,6 +1186,17 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       }
     }
 
+    // Calculate overdue arrears from previous invoices (after due date amounts)
+    const overdueArrears = await calculateOverdueArrears(property._id, new Date());
+    
+    // Add overdue arrears to the first charge (or distribute as needed)
+    // For now, we'll add it to the first charge's arrears, or create a separate arrears entry
+    if (overdueArrears > 0 && charges.length > 0) {
+      // Add overdue arrears to the first charge's arrears
+      charges[0].arrears = (charges[0].arrears || 0) + overdueArrears;
+      charges[0].total = (charges[0].amount || 0) + (charges[0].arrears || 0);
+    }
+    
     // Calculate totals
     const subtotal = charges.reduce((sum, charge) => sum + charge.amount, 0);
     const totalArrears = charges.reduce((sum, charge) => sum + charge.arrears, 0);
@@ -1721,12 +1791,24 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
 
     const { invoiceNumber, invoiceDate, dueDate, periodFrom, periodTo, charges, subtotal, totalArrears, grandTotal, customerName, customerEmail, customerPhone, customerAddress } = req.body;
 
-    // Check for duplicate invoices if periodTo or periodFrom is being updated
+    // Check for duplicate invoices ONLY if periodTo or periodFrom is being changed to a different month
     const updatedPeriodFrom = periodFrom !== undefined ? (periodFrom ? new Date(periodFrom) : null) : invoice.periodFrom;
     const updatedPeriodTo = periodTo !== undefined ? (periodTo ? new Date(periodTo) : null) : invoice.periodTo;
     const updatedCharges = charges !== undefined ? charges : invoice.charges;
     
-    if (updatedPeriodTo || updatedPeriodFrom) {
+    // Only check for duplicates if the period is actually being changed to a different month
+    const originalPeriodTo = invoice.periodTo ? dayjs(invoice.periodTo) : null;
+    const originalPeriodFrom = invoice.periodFrom ? dayjs(invoice.periodFrom) : null;
+    const newPeriodTo = updatedPeriodTo ? dayjs(updatedPeriodTo) : null;
+    const newPeriodFrom = updatedPeriodFrom ? dayjs(updatedPeriodFrom) : null;
+    
+    // Check if period month/year has actually changed
+    const periodChanged = (periodTo !== undefined && newPeriodTo && (!originalPeriodTo || 
+      newPeriodTo.month() !== originalPeriodTo.month() || newPeriodTo.year() !== originalPeriodTo.year())) ||
+      (periodFrom !== undefined && newPeriodFrom && (!originalPeriodFrom || 
+      newPeriodFrom.month() !== originalPeriodFrom.month() || newPeriodFrom.year() !== originalPeriodFrom.year()));
+    
+    if (periodChanged && (updatedPeriodTo || updatedPeriodFrom)) {
       const periodDate = updatedPeriodTo ? dayjs(updatedPeriodTo) : dayjs(updatedPeriodFrom);
       const periodYear = periodDate.year();
       const periodMonth = periodDate.month() + 1;

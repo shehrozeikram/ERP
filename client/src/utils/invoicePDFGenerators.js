@@ -129,11 +129,15 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   
   const unitsConsumed = calcData.unitsConsumed !== undefined ? calcData.unitsConsumed : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
   const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
-  const arrears = calcData.previousArrears !== undefined ? calcData.previousArrears : (electricityCharge?.arrears !== undefined ? electricityCharge.arrears : (electricityBill.arrears || 0));
+  const arrears = calcData.previousArrears !== undefined ? calcData.previousArrears : (electricityCharge?.arrears !== undefined ? electricityCharge.arrears : (electricityBill.arrears || invoice.totalArrears || 0));
   const amountReceived = electricityBill.receivedAmount || 0;
+  const totalPaid = invoice.totalPaid || amountReceived || 0;
+  const grandTotal = invoice.grandTotal || (totalBill + arrears);
+  const balance = invoice.balance !== undefined ? invoice.balance : (grandTotal - totalPaid);
   const payableWithinDueDate = totalBill + arrears - amountReceived;
-  const latePaymentSurcharge = Math.max(Math.round(payableWithinDueDate * 0.1), 0);
-  const payableAfterDueDate = payableWithinDueDate + latePaymentSurcharge;
+  // Late payment surcharge is 10% of "Charges for the Month" (totalBill), then added to arrears
+  const latePaymentSurcharge = Math.max(Math.round(totalBill * 0.1), 0);
+  const payableAfterDueDate = totalBill + arrears + latePaymentSurcharge - amountReceived;
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);
@@ -199,6 +203,9 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
       { label: 'Electricity Duty', value: formatAmount(electricityDuty) },
       { label: 'Fixed Charges', value: formatAmount(fixedCharges) },
       { label: 'Charges for the Month', value: formatAmount(totalBill) },
+      { label: 'Arrears', value: formatAmount(arrears) },
+      { label: 'Paid Amount', value: totalPaid > 0 ? formatAmount(totalPaid) : '-' },
+      { label: 'Remaining Balance', value: formatAmount(balance) },
       { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
       { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge) },
       { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate) }
@@ -343,7 +350,10 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
   
   const camCharge = invoice.charges?.find(c => c.type === 'CAM');
   const camAmount = camCharge?.amount || 0;
-  const arrears = camCharge?.arrears || 0;
+  const arrears = camCharge?.arrears || invoice.totalArrears || 0;
+  const totalPaid = invoice.totalPaid || 0;
+  const grandTotal = invoice.grandTotal || (camAmount + arrears);
+  const balance = invoice.balance !== undefined ? invoice.balance : (grandTotal - totalPaid);
 
   const pdf = new jsPDF('landscape', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -384,8 +394,9 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
   }
 
   const payableWithinDue = invoice?.grandTotal || (camAmount + arrears);
-  const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
-  const payableAfterDue = payableWithinDue + lateSurcharge;
+  // Late payment surcharge is 10% of "Charges for the Month" (camAmount), then added to arrears
+  const lateSurcharge = Math.max(Math.round(camAmount * 0.1), 0);
+  const payableAfterDue = camAmount + arrears + lateSurcharge;
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);
@@ -423,7 +434,9 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
     const rows = [
       ['CAM Charges', formatMoney(camAmount)],
       ['Charges for the Month', formatMoney(camAmount)],
-      ['Arrears', invoice.totalArrears ? formatMoney(invoice.totalArrears) : '-'],
+      ['Arrears', formatMoney(arrears)],
+      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
+      ['Remaining Balance', formatMoney(balance)],
       ['Payable Within Due Date', formatMoney(payableWithinDue)],
       ['Payable After Due Date', formatMoney(payableAfterDue)]
     ];
@@ -549,7 +562,10 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
   
   const rentCharge = invoice.charges?.find(c => c.type === 'RENT');
   const rentAmount = rentCharge?.amount || 0;
-  const arrears = rentCharge?.arrears || 0;
+  const arrears = rentCharge?.arrears || invoice.totalArrears || 0;
+  const totalPaid = invoice.totalPaid || 0;
+  const grandTotal = invoice.grandTotal || (rentAmount + arrears);
+  const balance = invoice.balance !== undefined ? invoice.balance : (grandTotal - totalPaid);
 
   const pdf = new jsPDF('landscape', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -590,8 +606,9 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
   }
 
   const payableWithinDue = invoice?.grandTotal || (rentAmount + arrears);
-  const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
-  const payableAfterDue = payableWithinDue + lateSurcharge;
+  // Late payment surcharge is 10% of "Charges for the Month" (rentAmount), then added to arrears
+  const lateSurcharge = Math.max(Math.round(rentAmount * 0.1), 0);
+  const payableAfterDue = rentAmount + arrears + lateSurcharge;
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);
@@ -629,7 +646,9 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
     const rows = [
       ['Monthly Rent', formatMoney(rentAmount)],
       ['Charges for the Month', formatMoney(rentAmount)],
-      ['Arrears', arrears ? formatMoney(arrears) : '-'],
+      ['Arrears', formatMoney(arrears)],
+      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
+      ['Remaining Balance', formatMoney(balance)],
       ['Payable Within Due Date', formatMoney(payableWithinDue)],
       ['Payable After Due Date', formatMoney(payableAfterDue)]
     ];
@@ -803,11 +822,17 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
   const subtotal = invoice.subtotal || 0;
   const totalArrears = invoice.totalArrears || 0;
   const grandTotal = invoice.grandTotal || 0;
+  const totalPaid = invoice.totalPaid || 0;
+  const balance = invoice.balance !== undefined ? invoice.balance : (grandTotal - totalPaid);
+  
+  // Calculate total charges amount (Charges for the Month)
+  const totalChargesAmount = charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
   
   // Calculate payable amounts
   const payableWithinDue = grandTotal;
-  const lateSurcharge = Math.max(Math.round(payableWithinDue * 0.1), 0);
-  const payableAfterDue = payableWithinDue + lateSurcharge;
+  // Late payment surcharge is 10% of "Charges for the Month" (totalChargesAmount), then added to arrears
+  const lateSurcharge = Math.max(Math.round(totalChargesAmount * 0.1), 0);
+  const payableAfterDue = totalChargesAmount + totalArrears + lateSurcharge;
 
   // Get charge type name for invoice title
   const chargeTypeName = invoice.chargeType || 'CHARGES';
@@ -856,7 +881,9 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
 
     const rows = [
       ['Charges for the Month', formatMoney(totalChargesAmount)],
-      ['Arrears', totalArrears > 0 ? formatMoney(totalArrears) : '-'],
+      ['Arrears', formatMoney(totalArrears)],
+      ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
+      ['Remaining Balance', formatMoney(balance)],
       ['Payable Within Due Date', formatMoney(payableWithinDue)],
       ['Payable After Due Date', formatMoney(payableAfterDue)]
     ];

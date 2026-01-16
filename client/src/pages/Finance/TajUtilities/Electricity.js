@@ -343,11 +343,162 @@ const Electricity = () => {
   };
 
   const handleEditInvoice = async (property, invoice) => {
-    setInvoiceProperty(property);
-    setInvoiceData(invoice);
-    setInvoiceError('');
-    setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
-    setInvoiceDialogOpen(true);
+    try {
+      setInvoiceLoading(true);
+      setInvoiceError('');
+      
+      // Fetch full property details including meters array
+      const propertyResponse = await fetchPropertyById(property._id);
+      const fullProperty = propertyResponse.data?.data || property;
+      setInvoiceProperty(fullProperty);
+      
+      // Extract meter number from invoice number if it has suffix (e.g., INV-ELC-2026-01-1113-M2)
+      const invoiceNumber = invoice.invoiceNumber || '';
+      const meterSuffixMatch = invoiceNumber.match(/-M(\d+)$/);
+      const meterIndex = meterSuffixMatch ? parseInt(meterSuffixMatch[1]) - 1 : 0; // M2 = index 1, M3 = index 2, etc.
+      
+      // Get active meters
+      const activeMeters = (fullProperty.meters || []).filter(m => m.isActive !== false);
+      const hasMultipleMeters = activeMeters.length > 1;
+      
+      // Determine which meter this invoice is for
+      let targetMeter = null;
+      let meterNo = '';
+      
+      if (hasMultipleMeters && meterIndex >= 0 && meterIndex < activeMeters.length) {
+        targetMeter = activeMeters[meterIndex];
+        meterNo = String(targetMeter?.meterNo || '');
+      } else if (invoice.electricityBill?.meterNo) {
+        // Fallback: use meter number from electricity bill
+        meterNo = String(invoice.electricityBill.meterNo);
+        targetMeter = activeMeters.find(m => String(m.meterNo) === meterNo) || activeMeters[0];
+      } else if (activeMeters.length > 0) {
+        // Fallback: use first meter
+        targetMeter = activeMeters[0];
+        meterNo = String(targetMeter?.meterNo || '');
+      } else {
+        // Legacy: use property meter fields
+        meterNo = String(fullProperty.meterNumber || fullProperty.electricityWaterMeterNo || '');
+      }
+      
+      // Load electricity bill data and calculation data for this specific meter
+      let previousArrears = 0;
+      let previousReading = 0;
+      let calculationData = invoice.calculationData || null;
+      
+      // If invoice has electricityBill populated, use its arrears
+      if (invoice.electricityBill?.arrears !== undefined) {
+        previousArrears = invoice.electricityBill.arrears || 0;
+      } else if (invoice.charges?.find(c => c.type === 'ELECTRICITY')?.arrears !== undefined) {
+        previousArrears = invoice.charges.find(c => c.type === 'ELECTRICITY').arrears || 0;
+      } else if (invoice.totalArrears !== undefined) {
+        previousArrears = invoice.totalArrears || 0;
+      }
+      
+      // Try to get calculation data from invoice, or fetch it
+      if (!calculationData && meterNo) {
+        try {
+          const readingResponse = await getElectricityCalculation(fullProperty._id, undefined, meterNo);
+          previousReading = readingResponse.data?.data?.previousReading || 0;
+          previousArrears = readingResponse.data?.data?.previousArrears || previousArrears;
+          // Build calculation data from invoice electricity bill if available
+          if (invoice.electricityBill) {
+            calculationData = {
+              meterNo: meterNo,
+              previousReading: invoice.electricityBill.prvReading || previousReading,
+              currentReading: invoice.electricityBill.curReading || 0,
+              unitsConsumed: invoice.electricityBill.unitsConsumed || 0,
+              previousArrears: previousArrears,
+              slab: {
+                unitsSlab: invoice.electricityBill.iescoSlabs || '',
+                unitRate: invoice.electricityBill.iescoUnitPrice || 0,
+                fixRate: invoice.electricityBill.fixedCharges || 0
+              },
+              charges: {
+                electricityCost: invoice.electricityBill.electricityCost || 0,
+                fcSurcharge: invoice.electricityBill.fcSurcharge || 0,
+                gst: invoice.electricityBill.gst || 0,
+                electricityDuty: invoice.electricityBill.electricityDuty || 0,
+                fixedCharges: invoice.electricityBill.fixedCharges || 0,
+                withSurcharge: invoice.electricityBill.totalBill || invoice.electricityBill.amount || 0
+              }
+            };
+          }
+        } catch (err) {
+          console.error('Error fetching reading data for edit:', err);
+        }
+      } else if (calculationData) {
+        // Use existing calculation data
+        previousReading = calculationData.previousReading || 0;
+        previousArrears = calculationData.previousArrears || previousArrears;
+      }
+      
+      // Set reading data for the target meter
+      setReadingData({
+        previousReading: previousReading,
+        previousArrears: previousArrears,
+        meterNo: meterNo,
+        meterSelectValue: targetMeter ? `${meterNo}|${fullProperty.meters.findIndex(m => m === targetMeter)}` : meterNo
+      });
+      
+      // If multiple meters, populate meterReadings for all meters
+      if (hasMultipleMeters) {
+        const meterReadingsData = {};
+        for (const meter of activeMeters) {
+          const mNo = String(meter.meterNo || '');
+          if (mNo === meterNo && calculationData) {
+            // This is the meter for this invoice
+            meterReadingsData[mNo] = {
+              previousReading: calculationData.previousReading || 0,
+              previousArrears: calculationData.previousArrears || previousArrears,
+              currentReading: calculationData.currentReading || (invoice.electricityBill?.curReading || ''),
+              calculationData: calculationData,
+              meter: meter
+            };
+          } else {
+            // Fetch data for other meters
+            try {
+              const readingResponse = await getElectricityCalculation(fullProperty._id, undefined, mNo);
+              meterReadingsData[mNo] = {
+                previousReading: readingResponse.data?.data?.previousReading || 0,
+                previousArrears: readingResponse.data?.data?.previousArrears || 0,
+                currentReading: '',
+                meter: meter
+              };
+            } catch (err) {
+              console.error(`Error fetching reading for meter ${mNo}:`, err);
+              meterReadingsData[mNo] = {
+                previousReading: 0,
+                previousArrears: 0,
+                currentReading: '',
+                meter: meter
+              };
+            }
+          }
+        }
+        setMeterReadings(meterReadingsData);
+      }
+      
+      // Update invoice data with calculation data
+      const updatedInvoiceData = {
+        ...invoice,
+        calculationData: calculationData
+      };
+      
+      setInvoiceData(updatedInvoiceData);
+      setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
+      setInvoiceDialogOpen(true);
+    } catch (err) {
+      console.error('Error loading invoice for edit:', err);
+      setInvoiceError(err.response?.data?.message || 'Failed to load invoice data');
+      // Still open dialog with basic invoice data
+      setInvoiceProperty(property);
+      setInvoiceData(invoice);
+      setInvoiceWasSaved(true);
+      setInvoiceDialogOpen(true);
+    } finally {
+      setInvoiceLoading(false);
+    }
   };
 
   const handleCreateInvoice = async (property) => {
@@ -2977,12 +3128,13 @@ const Electricity = () => {
                   const activeMeters = (invoiceProperty?.meters || []).filter(m => m.isActive !== false);
                   const hasMultipleMeters = activeMeters.length > 1;
                   
-                  // For multiple meters, don't show combined totals - each meter has its own amounts displayed above
-                  if (hasMultipleMeters) {
+                  // For multiple meters when editing, show arrears field if invoice exists
+                  // For multiple meters when creating new, don't show combined totals - each meter has its own amounts displayed above
+                  if (hasMultipleMeters && !invoiceData._id) {
                     return null;
                   }
                   
-                  // For single meter, show the original combined totals
+                  // For single meter or editing multiple meter invoice, show the original combined totals
                   return (
                     <>
                 {electricityCharge && (
