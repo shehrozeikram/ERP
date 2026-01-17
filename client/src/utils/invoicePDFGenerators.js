@@ -213,7 +213,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
       { label: 'Electricity Duty', value: formatAmount(electricityDuty) },
       { label: 'Charges for the Month', value: formatAmount(totalBill) },
       { label: 'Arrears', value: formatAmount(arrears) },
-      { label: 'Payable Within Due Date', value: formatAmount(payableWithinDueDate) },
+      { label: 'Payable', value: formatAmount(payableWithinDueDate) },
       { label: 'Late Payment Surcharge', value: formatAmount(latePaymentSurcharge) },
       { label: 'Payable After Due Date', value: formatAmount(payableAfterDueDate) },
       { label: 'Paid Amount', value: totalPaid > 0 ? formatAmount(totalPaid) : '-' },
@@ -225,7 +225,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
     pdf.setFontSize(7);
     rows.forEach((row, idx) => {
       const y = startY + idx * rowHeight;
-      pdf.setFont('helvetica', idx >= rows.length - 2 ? 'bold' : 'normal');
+      pdf.setFont('helvetica', idx >= rows.length - 3 ? 'bold' : 'normal');
       pdf.text(row.label, startX, y + 4);
       pdf.text(String(row.value), startX + availableWidth, y + 4, { align: 'right' });
       pdf.line(startX, y + rowHeight, startX + availableWidth, y + rowHeight);
@@ -443,16 +443,17 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
       ['CAM Charges', formatMoney(camAmount)],
       ['Charges for the Month', formatMoney(camAmount)],
       ['Arrears', formatMoney(arrears)],
-      ['Payable Within Due Date', formatMoney(payableWithinDue)],
+      ['Payable', formatMoney(payableWithinDue)],
       ['Payable After Due Date', formatMoney(payableAfterDue)],
       ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
       ['Remaining Balance', formatMoney(balance)]
     ];
 
-    rows.forEach((row) => {
+    rows.forEach((row, idx) => {
+      const isBoldRow = row[0] === 'Payable After Due Date' || row[0] === 'Paid Amount' || row[0] === 'Remaining Balance';
       pdf.setDrawColor(210);
       pdf.rect(startX, y - 5, width, 7);
-      pdf.setFont('helvetica', 'bold');
+      pdf.setFont('helvetica', isBoldRow ? 'bold' : 'normal');
       pdf.setFontSize(7);
       pdf.text(row[0], startX + 2, y - 1);
       pdf.setFont('helvetica', 'normal');
@@ -654,16 +655,17 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
       ['Monthly Rent', formatMoney(rentAmount)],
       ['Charges for the Month', formatMoney(rentAmount)],
       ['Arrears', formatMoney(arrears)],
-      ['Payable Within Due Date', formatMoney(payableWithinDue)],
+      ['Payable', formatMoney(payableWithinDue)],
       ['Payable After Due Date', formatMoney(payableAfterDue)],
       ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
       ['Remaining Balance', formatMoney(balance)]
     ];
 
-    rows.forEach((row) => {
+    rows.forEach((row, idx) => {
+      const isBoldRow = row[0] === 'Payable After Due Date' || row[0] === 'Paid Amount' || row[0] === 'Remaining Balance';
       pdf.setDrawColor(210);
       pdf.rect(startX, y - 5, width, 7);
-      pdf.setFont('helvetica', 'bold');
+      pdf.setFont('helvetica', isBoldRow ? 'bold' : 'normal');
       pdf.setFontSize(7);
       pdf.text(row[0], startX + 2, y - 1);
       pdf.setFont('helvetica', 'normal');
@@ -888,16 +890,17 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
     const rows = [
       ['Charges for the Month', formatMoney(totalChargesAmount)],
       ['Arrears', formatMoney(totalArrears)],
-      ['Payable Within Due Date', formatMoney(payableWithinDue)],
+      ['Payable', formatMoney(payableWithinDue)],
       ['Payable After Due Date', formatMoney(payableAfterDue)],
       ['Paid Amount', totalPaid > 0 ? formatMoney(totalPaid) : '-'],
       ['Remaining Balance', formatMoney(balance)]
     ];
 
-    rows.forEach((row) => {
+    rows.forEach((row, idx) => {
+      const isBoldRow = row[0] === 'Payable After Due Date' || row[0] === 'Paid Amount' || row[0] === 'Remaining Balance';
       pdf.setDrawColor(210);
       pdf.rect(startX, y - 5, width, 7);
-      pdf.setFont('helvetica', 'bold');
+      pdf.setFont('helvetica', isBoldRow ? 'bold' : 'normal');
       pdf.setFontSize(7);
       pdf.text(row[0], startX + 2, y - 1);
       pdf.setFont('helvetica', 'normal');
