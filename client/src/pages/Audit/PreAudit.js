@@ -166,7 +166,11 @@ const PreAudit = () => {
       setError(null);
       const doc = approveDialog.document;
       
-      if (doc.isWorkflowDocument) {
+      if (doc.isPurchaseOrder) {
+        await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
+          approvalComments
+        });
+      } else if (doc.isWorkflowDocument) {
         // For workflow documents, approve via payment settlement API
         await api.patch(`/payment-settlements/${doc._id}/approve`, {
           comments: approvalComments
@@ -208,7 +212,11 @@ const PreAudit = () => {
       setError(null);
       const doc = returnDialog.document;
       
-      if (doc.isWorkflowDocument) {
+      if (doc.isPurchaseOrder) {
+        await api.put(`/procurement/purchase-orders/${doc._id}/audit-return`, {
+          returnComments
+        });
+      } else if (doc.isWorkflowDocument) {
         // For workflow documents, change status back to Draft or previous status
         await api.patch(`/payment-settlements/${doc._id}/workflow-status`, {
           workflowStatus: 'Draft',
@@ -248,12 +256,19 @@ const PreAudit = () => {
         return;
       }
 
-      await api.put(`/pre-audit/${doc._id}/reject`, {
-        rejectionComments: rejectionComments || 'Rejected with observations',
-        observations: observations.length > 0 ? observations : undefined
-      });
-      
-      setSuccess('Document rejected and returned to initiator. They can correct and resend.');
+      if (doc.isPurchaseOrder) {
+        await api.put(`/procurement/purchase-orders/${doc._id}/audit-reject`, {
+          rejectionComments: rejectionComments || 'Rejected with observations',
+          observations: observations.length > 0 ? observations : undefined
+        });
+        setSuccess('Purchase order rejected successfully.');
+      } else {
+        await api.put(`/pre-audit/${doc._id}/reject`, {
+          rejectionComments: rejectionComments || 'Rejected with observations',
+          observations: observations.length > 0 ? observations : undefined
+        });
+        setSuccess('Document rejected and returned to initiator. They can correct and resend.');
+      }
       setRejectDialog({ open: false, document: null });
       setRejectionComments('');
       setRejectObservations([{ observation: '', severity: 'medium' }]);

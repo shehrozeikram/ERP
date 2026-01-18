@@ -2133,6 +2133,191 @@ This is an automated email from SGC ERP System.
 Please complete all evaluations at your earliest convenience.
     `;
   }
+
+  // Send requisition email to vendor
+  async sendRequisitionEmail(vendor, requisition, token) {
+    try {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const quotationLink = `${frontendUrl}/public-quotation/${token}`;
+      
+      const htmlContent = this.generateRequisitionEmailHTML(vendor, requisition, quotationLink);
+      const textContent = this.generateRequisitionEmailText(vendor, requisition, quotationLink);
+      
+      const mailOptions = {
+        from: `"SGC Procurement Team" <${this.getFromAddress()}>`,
+        to: vendor.email,
+        subject: `📋 Request for Quotation - Requisition ${requisition.indentNumber}`,
+        html: htmlContent,
+        text: textContent
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Requisition email sent to ${vendor.email}: ${result.messageId}`);
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        email: vendor.email,
+        deliveryStatus: 'delivered'
+      };
+    } catch (error) {
+      console.error(`❌ Failed to send requisition email to ${vendor.email}:`, error.message);
+      return {
+        success: false,
+        error: error.message,
+        email: vendor.email,
+        deliveryStatus: 'failed'
+      };
+    }
+  }
+
+  // Generate requisition email HTML
+  generateRequisitionEmailHTML(vendor, requisition, quotationLink) {
+    const itemsList = requisition.items.map((item, idx) => `
+      <tr>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">${idx + 1}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">${item.itemName}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.unit || 'pcs'}</td>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${item.estimatedCost ? `PKR ${item.estimatedCost.toLocaleString()}` : 'N/A'}</td>
+      </tr>
+    `).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Request for Quotation</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+          .info-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+          .table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; }
+          .table th { background: #f5f5f5; padding: 12px; text-align: left; border-bottom: 2px solid #ddd; font-weight: bold; }
+          .table td { padding: 8px; border-bottom: 1px solid #ddd; }
+          .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+          .highlight { background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>📋 Request for Quotation</h1>
+            <p>Requisition ${requisition.indentNumber}</p>
+          </div>
+          
+          <div class="content">
+            <p>Dear <strong>${vendor.contactPerson}</strong>,</p>
+            
+            <p>We hope this email finds you well. We are pleased to invite you to submit a quotation for the following requisition:</p>
+            
+            <div class="info-box">
+              <h3>📋 Requisition Details</h3>
+              <p><strong>Requisition Number:</strong> ${requisition.indentNumber}</p>
+              <p><strong>Title:</strong> ${requisition.title}</p>
+              <p><strong>Department:</strong> ${requisition.department?.name || 'N/A'}</p>
+              <p><strong>Priority:</strong> ${requisition.priority || 'Medium'}</p>
+              <p><strong>Required Date:</strong> ${requisition.requiredDate ? new Date(requisition.requiredDate).toLocaleDateString() : 'As soon as possible'}</p>
+              ${requisition.description ? `<p><strong>Description:</strong> ${requisition.description}</p>` : ''}
+            </div>
+
+            <div class="info-box">
+              <h3>📦 Items Required</h3>
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Item Name</th>
+                    <th style="text-align: center;">Quantity</th>
+                    <th style="text-align: center;">Unit</th>
+                    <th style="text-align: right;">Estimated Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${itemsList}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="highlight">
+              <h3>📝 Next Steps</h3>
+              <p>Please review the items above and submit your quotation at your earliest convenience. We look forward to receiving your competitive pricing and terms.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${quotationLink}" style="display: inline-block; background: #4caf50; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                  📋 Submit Quotation
+                </a>
+              </div>
+              <p style="font-size: 12px; color: #666; text-align: center; margin-top: 15px;">
+                <strong>Important:</strong> This link can only be used once. Please complete your quotation before the link expires.
+              </p>
+              <p><strong>Contact Information:</strong></p>
+              <p>If you have any questions or need clarification, please contact our procurement team.</p>
+            </div>
+
+            <div class="info-box">
+              <h3>📞 Contact Us</h3>
+              <p>For any inquiries regarding this requisition, please contact:</p>
+              <p><strong>Email:</strong> procurement@sgc.international</p>
+              <p><strong>Phone:</strong> +92-XXX-XXXXXXX</p>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated message from SGC ERP System</p>
+            <p>Please do not reply to this email. For inquiries, contact our procurement team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // Generate requisition email text
+  generateRequisitionEmailText(vendor, requisition, quotationLink) {
+    const itemsList = requisition.items.map((item, idx) => 
+      `${idx + 1}. ${item.itemName} - Quantity: ${item.quantity} ${item.unit || 'pcs'}${item.estimatedCost ? ` - Estimated Cost: PKR ${item.estimatedCost.toLocaleString()}` : ''}`
+    ).join('\n');
+
+    return `
+Request for Quotation - Requisition ${requisition.indentNumber}
+
+Dear ${vendor.contactPerson},
+
+We hope this email finds you well. We are pleased to invite you to submit a quotation for the following requisition:
+
+REQUISITION DETAILS:
+- Requisition Number: ${requisition.indentNumber}
+- Title: ${requisition.title}
+- Department: ${requisition.department?.name || 'N/A'}
+- Priority: ${requisition.priority || 'Medium'}
+- Required Date: ${requisition.requiredDate ? new Date(requisition.requiredDate).toLocaleDateString() : 'As soon as possible'}
+${requisition.description ? `- Description: ${requisition.description}` : ''}
+
+ITEMS REQUIRED:
+${itemsList}
+
+NEXT STEPS:
+Please review the items above and submit your quotation at your earliest convenience. We look forward to receiving your competitive pricing and terms.
+
+TO SUBMIT YOUR QUOTATION:
+Please click the link below to access the quotation form:
+${quotationLink}
+
+IMPORTANT: This link can only be used once. Please complete your quotation before the link expires.
+
+CONTACT INFORMATION:
+For any inquiries regarding this requisition, please contact:
+- Email: procurement@sgc.international
+- Phone: +92-XXX-XXXXXXX
+
+This is an automated message from SGC ERP System
+Please do not reply to this email. For inquiries, contact our procurement team.
+    `;
+  }
 }
 
 module.exports = new EmailService(); 

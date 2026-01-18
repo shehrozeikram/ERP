@@ -48,6 +48,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
 import paymentSettlementService from '../../../services/paymentSettlementService';
+import api from '../../../services/api';
 import dayjs from 'dayjs';
 import toast from 'react-hot-toast';
 import { formatPKR } from '../../../utils/currency';
@@ -123,9 +124,10 @@ const IndentsDashboard = () => {
       setLoading(true);
       setError('');
 
-      const [indentsResponse, paymentsResponse] = await Promise.allSettled([
+      const [indentsResponse, paymentsResponse, poResponse] = await Promise.allSettled([
         indentService.getDashboardStats(),
-        paymentSettlementService.getPaymentSettlements({ page: 1, limit: 50 })
+        paymentSettlementService.getPaymentSettlements({ page: 1, limit: 50 }),
+        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } }))
       ]);
 
       if (indentsResponse.status === 'fulfilled') {
@@ -135,11 +137,23 @@ const IndentsDashboard = () => {
         setMyIndents(data.myIndents || []);
       }
 
-      if (paymentsResponse.status === 'fulfilled') {
-        const payments = paymentsResponse.value.data?.settlements || [];
-        // Filter only "Forwarded to CEO" payments for CEO review
+      if (paymentsResponse.status === 'fulfilled' || poResponse.status === 'fulfilled') {
+        let payments = paymentsResponse.status === 'fulfilled' ? (paymentsResponse.value.data?.settlements || []) : [];
+        const poList = (poResponse.status === 'fulfilled' && poResponse.value?.data?.data) ? poResponse.value.data.data : [];
+        const poFormatted = poList.filter(p => p.status === 'Forwarded to CEO').map(po => ({
+          _id: po._id,
+          workflowStatus: 'Forwarded to CEO',
+          isPurchaseOrder: true,
+          referenceNumber: po.orderNumber,
+          forWhat: po.notes,
+          toWhomPaid: po.vendor?.name,
+          grandTotal: po.totalAmount,
+          amount: po.totalAmount,
+          fromDepartment: 'Procurement',
+          ...po
+        }));
+        payments = [...payments, ...poFormatted];
         const forwardedPayments = payments.filter(p => p.workflowStatus === 'Forwarded to CEO');
-        // Get recent payments (last 10)
         setRecentPayments(forwardedPayments.slice(0, 10));
       }
 
@@ -245,6 +259,28 @@ const IndentsDashboard = () => {
       return;
     }
 
+    if (approvePaymentDialog.payment?.isPurchaseOrder) {
+      try {
+        setPaymentActionLoading(true);
+        const response = await api.put(`/procurement/purchase-orders/${approvePaymentDialog.payment._id}/ceo-approve`, {
+          approvalComments,
+          digitalSignature: approvalSignature
+        });
+        let successMessage = 'Purchase order approved successfully';
+        if (response.data?.accountsPayableCreated) successMessage += ' and added to Accounts Payable';
+        toast.success(successMessage);
+        setApprovePaymentDialog({ open: false, payment: null });
+        setApprovalComments('');
+        setApprovalSignature('');
+        loadDashboardData();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to approve purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setPaymentActionLoading(true);
       const response = await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
@@ -275,6 +311,26 @@ const IndentsDashboard = () => {
       return;
     }
 
+    if (rejectPaymentDialog.payment?.isPurchaseOrder) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/procurement/purchase-orders/${rejectPaymentDialog.payment._id}/ceo-reject`, {
+          rejectionComments,
+          digitalSignature: rejectionSignature
+        });
+        toast.success('Purchase order rejected successfully');
+        setRejectPaymentDialog({ open: false, payment: null });
+        setRejectionComments('');
+        setRejectionSignature('');
+        loadDashboardData();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to reject purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setPaymentActionLoading(true);
       await paymentSettlementService.rejectPayment(rejectPaymentDialog.payment._id, {
@@ -296,6 +352,26 @@ const IndentsDashboard = () => {
   const handleReturnPayment = async () => {
     if (!returnSignature.trim() || !returnComments.trim()) {
       toast.error('Please provide objection comments and digital signature');
+      return;
+    }
+
+    if (returnPaymentDialog.payment?.isPurchaseOrder) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/procurement/purchase-orders/${returnPaymentDialog.payment._id}/ceo-return`, {
+          returnComments,
+          digitalSignature: returnSignature
+        });
+        toast.success('Purchase order returned successfully');
+        setReturnPaymentDialog({ open: false, payment: null });
+        setReturnComments('');
+        setReturnSignature('');
+        loadDashboardData();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to return purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
       return;
     }
 
@@ -429,13 +505,23 @@ const IndentsDashboard = () => {
                               size="small"
                               color="primary"
                               onClick={async () => {
-                                try {
-                                  // Fetch full settlement details
-                                  const response = await paymentSettlementService.getPaymentSettlement(payment._id);
-                                  setViewDialog({ open: true, settlement: response.data.data || response.data });
-                                } catch (error) {
-                                  console.error('Error fetching settlement details:', error);
-                                  toast.error('Failed to load payment details');
+                                if (payment.isPurchaseOrder) {
+                                  try {
+                                    const r = await api.get(`/procurement/purchase-orders/${payment._id}`);
+                                    const d = r.data.data;
+                                    setViewDialog({ open: true, settlement: { ...d, workflowStatus: d.status, referenceNumber: d.orderNumber, toWhomPaid: d.vendor?.name, forWhat: d.notes || 'Purchase Order', amount: d.totalAmount, grandTotal: d.totalAmount, date: d.orderDate, fromDepartment: 'Procurement', isPurchaseOrder: true } });
+                                  } catch (e) {
+                                    console.error('Error fetching purchase order details:', e);
+                                    toast.error('Failed to load purchase order details');
+                                  }
+                                } else {
+                                  try {
+                                    const response = await paymentSettlementService.getPaymentSettlement(payment._id);
+                                    setViewDialog({ open: true, settlement: response.data.data || response.data });
+                                  } catch (error) {
+                                    console.error('Error fetching settlement details:', error);
+                                    toast.error('Failed to load payment details');
+                                  }
                                 }
                               }}
                             >

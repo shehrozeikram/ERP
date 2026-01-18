@@ -44,7 +44,8 @@ import { fetchSectors } from '../../../services/tajSectorsService';
 import { 
   generateElectricityInvoicePDF, 
   generateCAMInvoicePDF, 
-  generateRentInvoicePDF 
+  generateRentInvoicePDF,
+  generateGeneralInvoicePDF
 } from '../../../utils/invoicePDFGenerators';
 
 const formatCurrency = (value) =>
@@ -107,7 +108,14 @@ const Invoices = () => {
       if (statusFilter !== 'all') params.status = statusFilter;
       if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
       if (propertyFilter) params.propertyId = propertyFilter;
-      if (chargeTypeFilter !== 'all') params.chargeType = chargeTypeFilter;
+      
+      // Handle "Open Invoice" filter option
+      if (chargeTypeFilter === 'OPEN_INVOICE') {
+        params.openInvoices = 'true';
+      } else if (chargeTypeFilter !== 'all') {
+        params.chargeType = chargeTypeFilter;
+      }
+      
       // Send resident and sector filters to backend
       if (residentFilter) params.residentId = residentFilter;
       if (sectorFilter) params.sector = sectorFilter;
@@ -196,17 +204,22 @@ const Invoices = () => {
     if (invoice.property?._id) {
       navigate(`/finance/taj-utilities-charges/taj-properties/${invoice.property._id}?invoiceId=${invoice._id}`);
     } else {
-      // If no property, show error
-      setError('Property information not available for this invoice');
+      // For open invoices (no property), download the PDF instead
+      handleDownloadInvoice(invoice);
     }
   };
 
   // Use the shared PDF generation functions from the utility file
 
   const generateInvoicePDF = async (invoice) => {
-    if (!invoice || !invoice.property) {
-      setError('Invoice or property data is missing');
+    if (!invoice) {
+      setError('Invoice data is missing');
       return;
+    }
+
+    // For open invoices (no property), use generateGeneralInvoicePDF
+    if (!invoice.property) {
+      return await generateGeneralInvoicePDF(invoice, null);
     }
 
     let property = invoice.property;
@@ -747,6 +760,7 @@ const Invoices = () => {
               <MenuItem value="ELECTRICITY">Electricity</MenuItem>
               <MenuItem value="CAM">CAM</MenuItem>
               <MenuItem value="RENT">Rent</MenuItem>
+              <MenuItem value="OPEN_INVOICE">Open Invoice</MenuItem>
             </Select>
           </FormControl>
           <Autocomplete
@@ -941,10 +955,15 @@ const Invoices = () => {
                       </TableHead>
                       <TableBody>
                         {monthGroup.invoices.map((invoice) => {
-                          // Get Resident ID from invoice property
-                          const residentId = invoice.property?.resident?.residentId || 
-                                           invoice.property?.residentId || 
-                                           '—';
+                          // Check if this is an open invoice (no property)
+                          const isOpenInvoice = !invoice.property;
+                          
+                          // Get Resident ID from invoice property (for property-based invoices)
+                          const residentId = isOpenInvoice 
+                            ? '—' 
+                            : (invoice.property?.resident?.residentId || 
+                               invoice.property?.residentId || 
+                               '—');
                           
                           return (
                             <TableRow key={invoice._id} hover>
@@ -959,16 +978,31 @@ const Invoices = () => {
                                 </Typography>
                               </TableCell>
                               <TableCell>
-                                <Typography variant="body2">
-                                  {invoice.property?.propertyName || invoice.property?.plotNumber || 'N/A'}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {invoice.property?.address || '—'}
-                                </Typography>
+                                {isOpenInvoice ? (
+                                  <>
+                                    <Typography variant="body2">
+                                      {invoice.customerName || 'Open Invoice'}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {invoice.customerAddress || '—'}
+                                    </Typography>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Typography variant="body2">
+                                      {invoice.property?.propertyName || invoice.property?.plotNumber || 'N/A'}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {invoice.property?.address || '—'}
+                                    </Typography>
+                                  </>
+                                )}
                               </TableCell>
                               <TableCell>
                                 <Typography variant="body2">
-                                  {invoice.property?.ownerName || '—'}
+                                  {isOpenInvoice 
+                                    ? (invoice.customerName || '—')
+                                    : (invoice.property?.ownerName || '—')}
                                 </Typography>
                               </TableCell>
                               <TableCell>

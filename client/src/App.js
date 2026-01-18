@@ -58,9 +58,14 @@ import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
+import Requisitions from './pages/Procurement/Requisitions';
+import Quotations from './pages/Procurement/Quotations';
 import PurchaseOrders from './pages/Procurement/PurchaseOrders';
 import Vendors from './pages/Procurement/Vendors';
 import Inventory from './pages/Procurement/Inventory';
+import GoodsReceive from './pages/Procurement/GoodsReceive';
+import GoodsIssue from './pages/Procurement/GoodsIssue';
+import CostCenters from './pages/Procurement/CostCenters';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import SalesOrders from './pages/Sales/SalesOrders';
 import SalesCustomers from './pages/Sales/SalesCustomers';
@@ -224,6 +229,7 @@ import OfferAcceptance from './pages/Public/OfferAcceptance';
 import PublicJoiningDocument from './pages/Public/PublicJoiningDocument';
 import PublicEmployeeOnboarding from './pages/Public/PublicEmployeeOnboarding';
 import PublicEvaluationForm from './pages/Public/PublicEvaluationForm';
+import PublicQuotationForm from './pages/Public/PublicQuotationForm';
 import RegisterComplaint from './pages/Public/RegisterComplaint';
 import MyComplaints from './pages/Public/MyComplaints';
 import TajComplaintsPortal from './pages/Public/TajComplaintsPortal';
@@ -395,6 +401,7 @@ function App() {
           <Route path="/public-joining-document/:approvalId" element={<PublicJoiningDocument />} />
           <Route path="/public-employee-onboarding/:id" element={<PublicEmployeeOnboarding />} />
           <Route path="/hr/evaluation-appraisal/fill/:id" element={<PublicEvaluationForm />} />
+          <Route path="/public-quotation/:token" element={<PublicQuotationForm />} />
           <Route path="/taj-complaints" element={<TajComplaintsPortal />} />
           <Route path="/taj-complaints/register" element={<RegisterComplaint />} />
           <Route path="/taj-complaints/my" element={<MyComplaints />} />
@@ -585,6 +592,7 @@ function App() {
               path="/general/indents"
               element={<ProtectedRoute><IndentsList /></ProtectedRoute>}
             />
+            
             <Route
               path="/general/ceo-secretariat/payments"
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><Payments /></ProtectedRoute>}
@@ -1011,6 +1019,14 @@ function App() {
               element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} 
             />
             <Route 
+              path="/procurement/requisitions" 
+              element={<ProtectedRoute><Requisitions /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/quotations" 
+              element={<ProtectedRoute><Quotations /></ProtectedRoute>} 
+            />
+            <Route 
               path="/procurement/purchase-orders" 
               element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} 
             />
@@ -1021,6 +1037,18 @@ function App() {
             <Route 
               path="/procurement/inventory" 
               element={<ProtectedRoute><Inventory /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/goods-receive" 
+              element={<ProtectedRoute><GoodsReceive /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/goods-issue" 
+              element={<ProtectedRoute><GoodsIssue /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/cost-centers" 
+              element={<ProtectedRoute><CostCenters /></ProtectedRoute>} 
             />
 
             {/* Sales Module */}
@@ -1687,6 +1715,16 @@ function App() {
             <Route 
               path="/taj-complaints/my" 
               element={<MyComplaints />} 
+            />
+
+            {/* Public Routes (accessible to authenticated users) */}
+            <Route 
+              path="/public-quotation/:token" 
+              element={
+                <NoChromeLayout>
+                  <PublicQuotationForm />
+                </NoChromeLayout>
+              } 
             />
 
             {/* Default redirects */}

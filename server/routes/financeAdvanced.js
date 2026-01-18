@@ -921,7 +921,12 @@ router.post('/accounts-payable',
       });
     }
 
-    // Use FinanceHelper to create AP and post to GL
+    // Use FinanceHelper to create AP and post to GL (lineItems from form; same pattern as REF-FINAL-001)
+    const lineItems = (req.body.lineItems || []).map(li => ({
+      description: li.description || 'Line item',
+      quantity: Number(li.quantity) || 1,
+      unitPrice: Number(li.unitPrice) ?? Number(li.amount) ?? 0
+    })).filter(li => li.unitPrice >= 0);
     const apEntry = await FinanceHelper.createAPFromBill({
       vendorName: req.body.vendor.name,
       vendorEmail: req.body.vendor.email || '',
@@ -933,6 +938,7 @@ router.post('/accounts-payable',
       department: req.body.department || 'general',
       module: 'general',
       referenceId: null,
+      lineItems: lineItems.length > 0 ? lineItems : undefined,
       createdBy: req.user._id
     });
 

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const purchaseOrderSchema = new mongoose.Schema({
   orderNumber: {
     type: String,
-    required: true,
+    required: false, // Auto-generated in pre-save hook
     unique: true,
     trim: true
   },
@@ -23,9 +23,58 @@ const purchaseOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Pending Approval', 'Approved', 'Ordered', 'Partially Received', 'Received', 'Cancelled'],
+    enum: ['Draft', 'Pending Audit', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
     default: 'Draft'
   },
+  indent: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Indent'
+  },
+  quotation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Quotation'
+  },
+  auditApprovedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  auditApprovedAt: {
+    type: Date
+  },
+  auditRemarks: String,
+  auditObservations: [{
+    observation: { type: String, required: true },
+    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    addedAt: { type: Date, default: Date.now }
+  }],
+  auditReturnedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  auditReturnedAt: { type: Date },
+  auditReturnComments: { type: String },
+  auditRejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  auditRejectedAt: { type: Date },
+  auditRejectionComments: { type: String },
+  auditRejectObservations: [{ observation: String, severity: String }],
+  ceoForwardedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ceoForwardedAt: { type: Date },
+  ceoApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ceoApprovedAt: { type: Date },
+  ceoApprovalComments: { type: String },
+  ceoDigitalSignature: { type: String },
+  ceoRejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ceoRejectedAt: { type: Date },
+  ceoRejectionComments: { type: String },
+  ceoReturnedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ceoReturnedAt: { type: Date },
+  ceoReturnComments: { type: String },
+  financeApprovedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  financeApprovedAt: {
+    type: Date
+  },
+  financeRemarks: String,
   priority: {
     type: String,
     enum: ['Low', 'Medium', 'High', 'Urgent'],

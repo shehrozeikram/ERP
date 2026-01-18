@@ -167,9 +167,14 @@ const Sidebar = () => {
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
+      '/procurement/requisitions': 'requisitions',
+      '/procurement/quotations': 'quotations',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
       '/procurement/inventory': 'inventory',
+      '/procurement/goods-receive': 'inventory',
+      '/procurement/goods-issue': 'inventory',
+      '/procurement/cost-centers': 'inventory',
       '/procurement/reports': 'procurement_reports',
       
       // Sales Module

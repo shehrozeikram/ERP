@@ -278,7 +278,7 @@ const SuspenseAccount = () => {
                           <TableRow key={deposit._id} hover>
                             <TableCell>{dayjs(deposit.createdAt).format('DD MMM YYYY HH:mm')}</TableCell>
                             <TableCell>{deposit.resident?.name || '-'}</TableCell>
-                            <TableCell>{deposit.resident?.residentId || '-'}</TableCell>
+                            <TableCell>-</TableCell>
                             <TableCell align="right">{formatCurrency(deposit.amount)}</TableCell>
                             <TableCell align="right">
                               <Typography

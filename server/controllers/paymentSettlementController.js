@@ -650,18 +650,20 @@ const approveDocument = asyncHandler(async (req, res) => {
               return validDepartments.find(valid => deptLower === valid || deptLower.includes(valid)) || 'general';
             };
 
-            // Create Accounts Payable entry using FinanceHelper
+            // Create Accounts Payable entry using FinanceHelper (same pattern as REF-FINAL-001: bill + lineItems + GL)
             const apEntry = await FinanceHelper.createAPFromBill({
               vendorName: settlement.toWhomPaid || settlement.subsidiaryName || 'Unknown Vendor',
-              vendorEmail: '', // Not available in settlement
-              vendorId: null, // Not available in settlement
-              billNumber: billNumber,
-              billDate: billDate,
-              dueDate: dueDate,
+              vendorEmail: '',
+              vendorId: null,
+              billNumber,
+              billDate,
+              dueDate,
               amount: numericAmount,
               department: mapDepartment(settlement.fromDepartment),
               module: 'general',
               referenceId: settlement._id,
+              referenceType: 'manual',
+              lineDescription: `Settlement ${settlement.referenceNumber || billNumber}`,
               createdBy: req.user.id
             });
             

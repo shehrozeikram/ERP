@@ -41,7 +41,8 @@ import {
   Close as CloseIcon,
   Search as SearchIcon,
   FilterList as FilterIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Send as SendIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -220,6 +221,17 @@ const PurchaseOrders = () => {
     }
   };
 
+  const handleSendToAudit = async (id) => {
+    try {
+      await api.put(`/procurement/purchase-orders/${id}/send-to-audit`);
+      setSuccess('Purchase order sent to audit successfully. It will appear in the Pre-Audit page.');
+      loadPurchaseOrders();
+      loadStatistics();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send purchase order to audit');
+    }
+  };
+
   const addItem = () => {
     setFormData(prev => ({
       ...prev,
@@ -258,11 +270,19 @@ const PurchaseOrders = () => {
     const colors = {
       'Draft': 'default',
       'Pending Approval': 'warning',
+      'Pending Audit': 'warning',
+      'Pending Finance': 'info',
+      'Send to CEO Office': 'info',
+      'Forwarded to CEO': 'primary',
       'Approved': 'success',
       'Ordered': 'info',
       'Partially Received': 'secondary',
       'Received': 'success',
-      'Cancelled': 'error'
+      'Cancelled': 'error',
+      'Rejected': 'error',
+      'Returned from Audit': 'error',
+      'Returned from CEO Office': 'warning',
+      'Returned from CEO Secretariat': 'error'
     };
     return colors[status] || 'default';
   };
@@ -409,10 +429,18 @@ const PurchaseOrders = () => {
               <MenuItem value="">All Statuses</MenuItem>
               <MenuItem value="Draft">Draft</MenuItem>
               <MenuItem value="Pending Approval">Pending Approval</MenuItem>
+              <MenuItem value="Pending Audit">Pending Audit</MenuItem>
+              <MenuItem value="Pending Finance">Pending Finance</MenuItem>
               <MenuItem value="Approved">Approved</MenuItem>
               <MenuItem value="Ordered">Ordered</MenuItem>
               <MenuItem value="Partially Received">Partially Received</MenuItem>
               <MenuItem value="Received">Received</MenuItem>
+              <MenuItem value="Returned from Audit">Returned from Audit</MenuItem>
+              <MenuItem value="Send to CEO Office">Send to CEO Office</MenuItem>
+              <MenuItem value="Forwarded to CEO">Forwarded to CEO</MenuItem>
+              <MenuItem value="Rejected">Rejected</MenuItem>
+              <MenuItem value="Returned from CEO Office">Returned from CEO Office</MenuItem>
+              <MenuItem value="Returned from CEO Secretariat">Returned from CEO Secretariat</MenuItem>
               <MenuItem value="Cancelled">Cancelled</MenuItem>
             </TextField>
           </Grid>
@@ -494,10 +522,17 @@ const PurchaseOrders = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {order.status === 'Draft' && (
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat') && (
                         <Tooltip title="Edit">
                           <IconButton size="small" onClick={() => handleEdit(order)}>
                             <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat') && (
+                        <Tooltip title="Send to Audit">
+                          <IconButton size="small" color="primary" onClick={() => handleSendToAudit(order._id)}>
+                            <SendIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
@@ -578,6 +613,32 @@ const PurchaseOrders = () => {
                 <MenuItem value="Urgent">Urgent</MenuItem>
               </TextField>
             </Grid>
+            {formDialog.mode === 'edit' && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  select
+                  label="Status"
+                  value={formData.status || 'Draft'}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <MenuItem value="Draft">Draft</MenuItem>
+                  <MenuItem value="Pending Audit">Pending Audit</MenuItem>
+                  <MenuItem value="Pending Finance">Pending Finance</MenuItem>
+                  <MenuItem value="Send to CEO Office">Send to CEO Office</MenuItem>
+                  <MenuItem value="Forwarded to CEO">Forwarded to CEO</MenuItem>
+                  <MenuItem value="Approved">Approved</MenuItem>
+                  <MenuItem value="Ordered">Ordered</MenuItem>
+                  <MenuItem value="Partially Received">Partially Received</MenuItem>
+                  <MenuItem value="Received">Received</MenuItem>
+                  <MenuItem value="Rejected">Rejected</MenuItem>
+                  <MenuItem value="Returned from Audit">Returned from Audit</MenuItem>
+                  <MenuItem value="Returned from CEO Office">Returned from CEO Office</MenuItem>
+                  <MenuItem value="Returned from CEO Secretariat">Returned from CEO Secretariat</MenuItem>
+                  <MenuItem value="Cancelled">Cancelled</MenuItem>
+                </TextField>
+              </Grid>
+            )}
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth

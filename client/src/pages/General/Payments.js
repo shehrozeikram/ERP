@@ -133,9 +133,27 @@ const Payments = () => {
         fromDepartment: departmentFilter || undefined
       };
 
-      // Don't filter by workflowStatus in params - we'll do client-side filtering for better control
-      const response = await paymentSettlementService.getPaymentSettlements(params);
-      let allSettlements = response.data.settlements || [];
+      // Fetch payment settlements and purchase orders for CEO Secretariat in parallel
+      const [settlementsRes, poRes] = await Promise.all([
+        paymentSettlementService.getPaymentSettlements(params),
+        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } }))
+      ]);
+      let allSettlements = settlementsRes.data?.settlements || [];
+      const poList = poRes.data?.data || [];
+      const poFormatted = poList.map(po => ({
+        _id: po._id,
+        workflowStatus: po.status,
+        isPurchaseOrder: true,
+        referenceNumber: po.orderNumber,
+        date: po.orderDate,
+        toWhomPaid: po.vendor?.name,
+        forWhat: po.notes || 'Purchase Order',
+        amount: po.totalAmount,
+        grandTotal: po.totalAmount,
+        fromDepartment: 'Procurement',
+        ...po
+      }));
+      allSettlements = [...allSettlements, ...poFormatted];
       
       // Client-side filtering based on tab with proper status categorization
       // Document Flow Logic:
@@ -204,6 +222,29 @@ const Payments = () => {
       return;
     }
 
+    if (approveDialog.settlement?.isPurchaseOrder) {
+      try {
+        setActionLoading(true);
+        setError(null);
+        await api.put(`/procurement/purchase-orders/${approveDialog.settlement._id}/forward-to-ceo`, {
+          comments: approvalComments,
+          digitalSignature: approvalSignature
+        });
+        toast.success('Purchase order forwarded to CEO successfully');
+        setApproveDialog({ open: false, settlement: null });
+        setApprovalComments('');
+        setApprovalSignature('');
+        setApprovalAgree(false);
+        fetchSettlements();
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to forward purchase order');
+        toast.error('Failed to forward purchase order');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setActionLoading(true);
       setError(null);
@@ -242,6 +283,31 @@ const Payments = () => {
         severity: obs.severity
       }));
 
+    if (rejectDialog.settlement?.isPurchaseOrder) {
+      try {
+        setActionLoading(true);
+        setError(null);
+        await api.put(`/procurement/purchase-orders/${rejectDialog.settlement._id}/ceo-secretariat-reject`, {
+          rejectionComments,
+          digitalSignature: rejectionSignature,
+          observations: observations.length > 0 ? observations : undefined
+        });
+        toast.success('Purchase order rejected successfully');
+        setRejectDialog({ open: false, settlement: null });
+        setRejectionComments('');
+        setRejectionSignature('');
+        setRejectionAgree(false);
+        setRejectObservations([{ observation: '', severity: 'medium' }]);
+        fetchSettlements();
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to reject purchase order');
+        toast.error('Failed to reject purchase order');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setActionLoading(true);
       setError(null);
@@ -279,6 +345,31 @@ const Payments = () => {
         observation: obs.observation,
         severity: obs.severity
       }));
+
+    if (returnDialog.settlement?.isPurchaseOrder) {
+      try {
+        setActionLoading(true);
+        setError(null);
+        await api.put(`/procurement/purchase-orders/${returnDialog.settlement._id}/ceo-secretariat-return`, {
+          returnComments,
+          digitalSignature: returnSignature,
+          observations: observations.length > 0 ? observations : undefined
+        });
+        toast.success('Purchase order returned to procurement successfully');
+        setReturnDialog({ open: false, settlement: null });
+        setReturnComments('');
+        setReturnSignature('');
+        setReturnAgree(false);
+        setReturnObservations([{ observation: '', severity: 'medium' }]);
+        fetchSettlements();
+      } catch (error) {
+        setError(error.response?.data?.message || 'Failed to return purchase order');
+        toast.error('Failed to return purchase order');
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
 
     try {
       setActionLoading(true);
@@ -644,22 +735,30 @@ const Payments = () => {
                                                   <IconButton
                                                     size="small"
                                                     onClick={async () => {
-                                                      try {
-                                                        // Fetch full settlement details to ensure workflowHistory is populated
-                                                        const response = await paymentSettlementService.getPaymentSettlement(settlement._id);
-                                                        setViewDialog({ open: true, settlement: response.data.data || response.data });
-                                                      } catch (error) {
-                                                        console.error('Error fetching settlement details:', error);
-                                                        // Fallback to using settlement from list
-                                                        setViewDialog({ open: true, settlement });
+                                                      if (settlement.isPurchaseOrder) {
+                                                        try {
+                                                          const r = await api.get(`/procurement/purchase-orders/${settlement._id}`);
+                                                          const d = r.data.data;
+                                                          setViewDialog({ open: true, settlement: { ...d, workflowStatus: d.status, referenceNumber: d.orderNumber, toWhomPaid: d.vendor?.name, forWhat: d.notes || 'Purchase Order', amount: d.totalAmount, grandTotal: d.totalAmount, date: d.orderDate, fromDepartment: 'Procurement', isPurchaseOrder: true } });
+                                                        } catch (e) {
+                                                          console.error('Error fetching purchase order details:', e);
+                                                          setViewDialog({ open: true, settlement });
+                                                        }
+                                                      } else {
+                                                        try {
+                                                          const response = await paymentSettlementService.getPaymentSettlement(settlement._id);
+                                                          setViewDialog({ open: true, settlement: response.data.data || response.data });
+                                                        } catch (error) {
+                                                          console.error('Error fetching settlement details:', error);
+                                                          setViewDialog({ open: true, settlement });
+                                                        }
                                                       }
                                                     }}
                                                   >
                                                     <ViewIcon fontSize="small" />
                                                   </IconButton>
                                                 </Tooltip>
-                                                {/* Show action buttons for "Send to CEO Office" status (Pending tab) - Coordinator actions */}
-                                                {/* Forwarded tab (tabValue === 1) shows documents already forwarded, no actions needed */}
+                                                {/* Pending tab (tabValue === 0): Forward, Reject, Return with Observations */}
                                                 {tabValue === 0 && settlement.workflowStatus === 'Send to CEO Office' && (
                                                   <>
                                                     <Tooltip title="Forward to CEO">
@@ -680,7 +779,28 @@ const Payments = () => {
                                                         <CancelIcon fontSize="small" />
                                                       </IconButton>
                                                     </Tooltip>
+                                                    <Tooltip title="Return with Observations">
+                                                      <IconButton
+                                                        size="small"
+                                                        color="warning"
+                                                        onClick={() => setReturnDialog({ open: true, settlement })}
+                                                      >
+                                                        <WarningIcon fontSize="small" />
+                                                      </IconButton>
+                                                    </Tooltip>
                                                   </>
+                                                )}
+                                                {/* Returned tab (tabValue === 2): Forward again when CEO returned */}
+                                                {tabValue === 2 && settlement.workflowStatus === 'Returned from CEO Office' && (
+                                                  <Tooltip title="Forward again to CEO">
+                                                    <IconButton
+                                                      size="small"
+                                                      color="primary"
+                                                      onClick={() => setApproveDialog({ open: true, settlement })}
+                                                    >
+                                                      <ArrowForwardIcon fontSize="small" />
+                                                    </IconButton>
+                                                  </Tooltip>
                                                 )}
                                               </Stack>
                                             </TableCell>
@@ -726,7 +846,7 @@ const Payments = () => {
             borderBottom: '1px solid #e0e0e0'
           }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
-              PAYMENT SETTLEMENT
+              {viewDialog.settlement?.isPurchaseOrder ? 'PURCHASE ORDER' : 'PAYMENT SETTLEMENT'}
             </Typography>
             <IconButton 
               size="small" 
@@ -1288,7 +1408,7 @@ const Payments = () => {
         <DialogTitle>Forward to CEO</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to forward payment settlement to CEO: <strong>{approveDialog.settlement?.referenceNumber}</strong>
+            You are about to forward {approveDialog.settlement?.isPurchaseOrder ? 'purchase order' : 'payment settlement'} to CEO: <strong>{approveDialog.settlement?.referenceNumber}</strong>
           </Typography>
           
           <TextField
@@ -1318,7 +1438,7 @@ const Payments = () => {
                 onChange={(e) => setApprovalAgree(e.target.checked)}
               />
             }
-            label="I confirm that I have reviewed all payment details and forward this payment settlement to CEO"
+            label={approveDialog.settlement?.isPurchaseOrder ? 'I confirm that I have reviewed all details and forward this purchase order to CEO' : 'I confirm that I have reviewed all payment details and forward this payment settlement to CEO'}
           />
         </DialogContent>
         <DialogActions>
@@ -1486,10 +1606,10 @@ const Payments = () => {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>Return Payment with Observations</DialogTitle>
+        <DialogTitle>{returnDialog.settlement?.isPurchaseOrder ? 'Return Purchase Order with Observations' : 'Return Payment with Observations'}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to return payment settlement: <strong>{returnDialog.settlement?.referenceNumber}</strong> with observations
+            You are about to return {returnDialog.settlement?.isPurchaseOrder ? 'purchase order' : 'payment settlement'}: <strong>{returnDialog.settlement?.referenceNumber}</strong> with observations
           </Typography>
           
           <TextField
@@ -1575,7 +1695,7 @@ const Payments = () => {
                 onChange={(e) => setReturnAgree(e.target.checked)}
               />
             }
-            label="I confirm that I have reviewed all payment details and return this payment settlement with observations"
+            label={returnDialog.settlement?.isPurchaseOrder ? 'I confirm that I have reviewed all details and return this purchase order with observations' : 'I confirm that I have reviewed all payment details and return this payment settlement with observations'}
           />
         </DialogContent>
         <DialogActions>

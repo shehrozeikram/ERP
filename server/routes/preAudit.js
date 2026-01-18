@@ -248,6 +248,59 @@ router.get('/',
         console.error(`Error fetching workflow documents from ${submodule}:`, error);
       }
     }
+
+    // Fetch Purchase Orders sent to audit (Pending Audit, Pending Finance, Returned from Audit)
+    try {
+      const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+      const poQuery = { status: { $in: ['Pending Audit', 'Pending Finance', 'Returned from Audit'] } };
+      if (search) {
+        poQuery.$and = [
+          { status: { $in: ['Pending Audit', 'Pending Finance', 'Returned from Audit'] } },
+          { $or: [
+            { orderNumber: { $regex: search, $options: 'i' } },
+            { notes: { $regex: search, $options: 'i' } },
+            { internalNotes: { $regex: search, $options: 'i' } }
+          ]}
+        ];
+        delete poQuery.status;
+      }
+      const poDocs = await PurchaseOrder.find(poQuery)
+        .populate('vendor', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('auditObservations.addedBy', 'firstName lastName email')
+        .sort({ createdAt: -1 })
+        .lean();
+      for (const doc of poDocs) {
+        let preAuditStatus = 'pending';
+        if (doc.status === 'Pending Finance') preAuditStatus = 'approved';
+        else if (doc.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        workflowDocs.push({
+          _id: doc._id,
+          documentNumber: doc.orderNumber || doc._id.toString(),
+          title: `Purchase Order: ${doc.orderNumber || 'PO'}`,
+          description: doc.notes || (doc.vendor ? `PO from ${doc.vendor.name}` : 'Purchase Order'),
+          sourceModule: 'procurement',
+          sourceDepartmentName: 'Procurement',
+          sourceDepartment: null,
+          documentType: 'other',
+          documentDate: doc.orderDate || doc.createdAt,
+          amount: doc.totalAmount || 0,
+          referenceNumber: doc.orderNumber || '',
+          status: preAuditStatus,
+          priority: (doc.priority || 'Medium').toLowerCase(),
+          isWorkflowDocument: true,
+          isPurchaseOrder: true,
+          originalDocument: doc,
+          createdAt: doc.createdAt,
+          updatedAt: doc.updatedAt,
+          createdBy: doc.createdBy,
+          workflowHistory: [],
+          auditObservations: doc.auditObservations || []
+        });
+      }
+    } catch (poErr) {
+      console.error('Error fetching purchase orders for pre-audit:', poErr);
+    }
     
     // Combine Pre Audit and workflow documents
     const allDocuments = [
@@ -309,7 +362,7 @@ router.get('/:id',
   authMiddleware,
   authorize('super_admin', 'audit_manager', 'auditor'),
   asyncHandler(async (req, res) => {
-    const document = await PreAudit.findById(req.params.id)
+    let document = await PreAudit.findById(req.params.id)
       .populate('sourceDepartment', 'name')
       .populate('submittedBy', 'firstName lastName email')
       .populate('reviewedBy', 'firstName lastName email')
@@ -322,6 +375,40 @@ router.get('/:id',
       .populate('departmentResponse.respondedBy', 'firstName lastName email');
 
     if (!document) {
+      // Try Purchase Order (sent to audit)
+      const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+      const po = await PurchaseOrder.findById(req.params.id)
+        .populate('vendor', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('auditApprovedBy', 'firstName lastName email')
+        .populate('auditReturnedBy', 'firstName lastName email')
+        .populate('auditObservations.addedBy', 'firstName lastName email')
+        .lean();
+      if (po && ['Pending Audit', 'Pending Finance', 'Returned from Audit'].includes(po.status)) {
+        let preAuditStatus = 'pending';
+        if (po.status === 'Pending Finance') preAuditStatus = 'approved';
+        else if (po.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        return res.json({
+          success: true,
+          data: {
+            _id: po._id,
+            documentNumber: po.orderNumber,
+            title: `Purchase Order: ${po.orderNumber || 'PO'}`,
+            description: po.notes || (po.vendor ? `PO from ${po.vendor.name}` : 'Purchase Order'),
+            sourceModule: 'procurement',
+            sourceDepartmentName: 'Procurement',
+            documentType: 'other',
+            documentDate: po.orderDate,
+            amount: po.totalAmount,
+            referenceNumber: po.orderNumber,
+            status: preAuditStatus,
+            isWorkflowDocument: true,
+            isPurchaseOrder: true,
+            originalDocument: po,
+            auditObservations: po.auditObservations || []
+          }
+        });
+      }
       return res.status(404).json({
         success: false,
         message: 'Pre-audit document not found'
@@ -534,6 +621,30 @@ router.put('/:id/add-observation',
       });
     }
 
+    // Check if it's a Purchase Order (Pending Audit)
+    const PurchaseOrderModel = require('../models/procurement/PurchaseOrder');
+    const po = await PurchaseOrderModel.findById(req.params.id);
+    if (po && po.status === 'Pending Audit') {
+      po.auditObservations = po.auditObservations || [];
+      po.auditObservations.push({
+        observation,
+        severity: severity || 'medium',
+        addedBy: req.user.id,
+        addedAt: new Date()
+      });
+      po.updatedBy = req.user.id;
+      await po.save();
+      return res.json({
+        success: true,
+        message: 'Observation added successfully',
+        data: {
+          _id: po._id,
+          isPurchaseOrder: true,
+          observation: { observation, severity: severity || 'medium', addedBy: req.user, addedAt: new Date() }
+        }
+      });
+    }
+
     // Handle regular Pre Audit documents
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
@@ -633,6 +744,23 @@ router.put('/:id/return',
           isWorkflowDocument: true,
           workflowStatus: workflowDocument[workflowConfig.workflowStatusField]
         }
+      });
+    }
+
+    // Check if it's a Purchase Order (Pending Audit)
+    const PurchaseOrderForReturn = require('../models/procurement/PurchaseOrder');
+    const poForReturn = await PurchaseOrderForReturn.findById(req.params.id);
+    if (poForReturn && poForReturn.status === 'Pending Audit') {
+      poForReturn.status = 'Returned from Audit';
+      poForReturn.auditReturnedBy = req.user.id;
+      poForReturn.auditReturnedAt = new Date();
+      poForReturn.auditReturnComments = returnComments || '';
+      poForReturn.updatedBy = req.user.id;
+      await poForReturn.save();
+      return res.json({
+        success: true,
+        message: 'Purchase order returned to procurement successfully. They can correct and resend to Pre Audit.',
+        data: { _id: poForReturn._id, isPurchaseOrder: true, status: 'Returned from Audit' }
       });
     }
 

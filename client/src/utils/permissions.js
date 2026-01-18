@@ -548,9 +548,14 @@ export const MODULES = {
     roles: ['super_admin', 'admin', 'procurement_manager'],
     subItems: [
       { name: 'Procurement Dashboard', path: '/procurement' },
+      { name: 'Procurement Requisitions', path: '/procurement/requisitions' },
+      { name: 'Quotations', path: '/procurement/quotations' },
       { name: 'Purchase Orders', path: '/procurement/purchase-orders' },
       { name: 'Vendors', path: '/procurement/vendors' },
-      { name: 'Inventory', path: '/procurement/inventory' }
+      { name: 'Inventory', path: '/procurement/inventory' },
+      { name: 'Goods Receive', path: '/procurement/goods-receive' },
+      { name: 'Goods Issue', path: '/procurement/goods-issue' },
+      { name: 'Cost Centers', path: '/procurement/cost-centers' }
     ]
   },
   
@@ -935,6 +940,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
+      '/procurement/requisitions': 'procurement_requisitions',
+      '/procurement/quotations': 'quotations',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
       '/procurement/inventory': 'inventory',

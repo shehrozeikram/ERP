@@ -1986,17 +1986,16 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     const { propertyId, status, paymentStatus, chargeType, residentId, sector, search, monthYear, openInvoices } = req.query;
     const filter = {};
     
-    // Filter: openInvoices=true shows only invoices without properties, openInvoices=false or undefined shows only invoices with properties
+    // Filter: openInvoices=true shows only invoices without properties
+    // If openInvoices is not set and no propertyId is specified, show ALL invoices (both property-based and open)
     if (openInvoices === 'true') {
       filter.property = null; // Only open invoices (no property)
+    } else if (propertyId) {
+      // If propertyId is specified, filter by that property
+      filter.property = propertyId;
     } else {
-      // Only property-based invoices (exclude open invoices)
-      // But if propertyId is specified, use that instead
-      if (propertyId) {
-        filter.property = propertyId;
-      } else {
-        filter.property = { $ne: null }; // Exclude open invoices
-      }
+      // No filter on property - this will return both property-based and open invoices
+      // This allows the Invoices page to show all invoices
     }
     if (status) filter.status = status;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
@@ -2046,8 +2045,16 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
         { invoiceNumber: searchPattern }
       ];
       
-      // For open invoices (when openInvoices=true or when filtering for null property), search customer fields
-      if (openInvoices === 'true' || filter.property === null) {
+      // Determine if we should search open invoices
+      // Search open invoices when: openInvoices=true, OR when showing all invoices (filter.property is undefined)
+      const shouldSearchOpenInvoices = openInvoices === 'true' || filter.property === undefined;
+      
+      // Determine if we should search property-based invoices
+      // Search property-based invoices when: openInvoices is not 'true', AND (filter.property is undefined OR filter.property is set)
+      const shouldSearchPropertyInvoices = openInvoices !== 'true' && (filter.property === undefined || filter.property !== null);
+      
+      // For open invoices, search customer fields
+      if (shouldSearchOpenInvoices) {
         searchFilter.$or.push(
           { customerName: searchPattern },
           { customerEmail: searchPattern },
@@ -2057,7 +2064,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       }
       
       // For property-based invoices, search property and resident fields
-      if (openInvoices !== 'true' && filter.property !== null) {
+      if (shouldSearchPropertyInvoices) {
         // Find properties matching owner name
         const matchingProperties = await TajProperty.find({
           ownerName: searchPattern
@@ -2114,7 +2121,8 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     
     // Additional filtering for property-based invoices search (to ensure we catch all matches)
     // For open invoices, search is already done at database level
-    if (search && openInvoices !== 'true' && filter.property !== null) {
+    // This in-memory filter is mainly for property-based invoices when filtering by propertyId
+    if (search && openInvoices !== 'true' && filter.property !== null && filter.property !== undefined) {
       const searchLower = search.toLowerCase();
       invoices = invoices.filter(invoice => {
         // Search invoice number (already handled in DB query, but double-check)
@@ -2172,7 +2180,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     
     // Get total count after all filters (search, resident, sector)
     // Update total if we did in-memory filtering
-    if (search && openInvoices !== 'true' && filter.property !== null) {
+    if (search && openInvoices !== 'true' && filter.property !== null && filter.property !== undefined) {
       // Property-based invoices: search was done in-memory, update total
       total = invoices.length;
     } else if (residentId || (sector && openInvoices !== 'true')) {

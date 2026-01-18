@@ -45,6 +45,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
 import paymentSettlementService from '../../../services/paymentSettlementService';
+import api from '../../../services/api';
 import dayjs from 'dayjs';
 import toast from 'react-hot-toast';
 
@@ -118,8 +119,26 @@ const IndentsList = () => {
         ...(departmentFilter && { fromDepartment: departmentFilter })
       };
 
-      const response = await paymentSettlementService.getPaymentSettlements(params);
-      const allPayments = response.data?.settlements || [];
+      const [settlementsRes, poRes] = await Promise.all([
+        paymentSettlementService.getPaymentSettlements(params),
+        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } }))
+      ]);
+      let allPayments = settlementsRes.data?.settlements || [];
+      const poList = poRes.data?.data || [];
+      const poFormatted = poList.filter(p => p.status === 'Forwarded to CEO').map(po => ({
+        _id: po._id,
+        workflowStatus: 'Forwarded to CEO',
+        isPurchaseOrder: true,
+        referenceNumber: po.orderNumber,
+        forWhat: po.notes,
+        toWhomPaid: po.vendor?.name,
+        grandTotal: po.totalAmount,
+        amount: po.totalAmount,
+        fromDepartment: 'Procurement',
+        date: po.orderDate,
+        ...po
+      }));
+      allPayments = [...allPayments, ...poFormatted];
       
       // Filter only "Forwarded to CEO" payments for CEO review
       let filteredPayments = allPayments.filter(p => p.workflowStatus === 'Forwarded to CEO');
@@ -192,6 +211,28 @@ const IndentsList = () => {
       return;
     }
 
+    if (approvePaymentDialog.payment?.isPurchaseOrder) {
+      try {
+        setPaymentActionLoading(true);
+        const response = await api.put(`/procurement/purchase-orders/${approvePaymentDialog.payment._id}/ceo-approve`, {
+          approvalComments,
+          digitalSignature: approvalSignature
+        });
+        let successMessage = 'Purchase order approved successfully';
+        if (response.data?.accountsPayableCreated) successMessage += ' and added to Accounts Payable';
+        toast.success(successMessage);
+        setApprovePaymentDialog({ open: false, payment: null });
+        setApprovalComments('');
+        setApprovalSignature('');
+        loadPayments();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to approve purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setPaymentActionLoading(true);
       const response = await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
@@ -222,6 +263,26 @@ const IndentsList = () => {
       return;
     }
 
+    if (rejectPaymentDialog.payment?.isPurchaseOrder) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/procurement/purchase-orders/${rejectPaymentDialog.payment._id}/ceo-reject`, {
+          rejectionComments,
+          digitalSignature: rejectionSignature
+        });
+        toast.success('Purchase order rejected successfully');
+        setRejectPaymentDialog({ open: false, payment: null });
+        setRejectionComments('');
+        setRejectionSignature('');
+        loadPayments();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to reject purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
+      return;
+    }
+
     try {
       setPaymentActionLoading(true);
       await paymentSettlementService.rejectPayment(rejectPaymentDialog.payment._id, {
@@ -243,6 +304,26 @@ const IndentsList = () => {
   const handleReturnPayment = async () => {
     if (!returnSignature.trim() || !returnComments.trim()) {
       toast.error('Please provide objection comments and digital signature');
+      return;
+    }
+
+    if (returnPaymentDialog.payment?.isPurchaseOrder) {
+      try {
+        setPaymentActionLoading(true);
+        await api.put(`/procurement/purchase-orders/${returnPaymentDialog.payment._id}/ceo-return`, {
+          returnComments,
+          digitalSignature: returnSignature
+        });
+        toast.success('Purchase order returned successfully');
+        setReturnPaymentDialog({ open: false, payment: null });
+        setReturnComments('');
+        setReturnSignature('');
+        loadPayments();
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to return purchase order');
+      } finally {
+        setPaymentActionLoading(false);
+      }
       return;
     }
 

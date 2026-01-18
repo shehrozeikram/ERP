@@ -186,7 +186,8 @@ const FinanceHelper = {
   },
 
   /**
-   * Create Accounts Payable from a source
+   * Create Accounts Payable from a source (CEO-approved indent, PO, or manual).
+   * Matches REF-FINAL-001 style: creates bill with lineItems, posts to GL, so it shows in AP and impacts other finance modules.
    */
   createAPFromBill: async (options) => {
     try {
@@ -194,13 +195,26 @@ const FinanceHelper = {
         vendorName, vendorEmail, vendorId,
         billNumber, billDate, dueDate,
         amount, department, module, referenceId,
-        createdBy
+        createdBy,
+        referenceType = 'manual',
+        lineItems: optsLineItems,
+        lineDescription
       } = options;
+
+      // Normalize billDate to start of day so the bill appears in default date filters (e.g. current month)
+      let billDateNorm = billDate ? new Date(billDate) : new Date();
+      if (isNaN(billDateNorm.getTime())) billDateNorm = new Date();
+      billDateNorm.setHours(0, 0, 0, 0);
+
+      // Default line item so the bill matches working bills (e.g. REF-FINAL-001) and flows through finance modules
+      const lineItems = optsLineItems && optsLineItems.length > 0
+        ? optsLineItems
+        : [{ description: lineDescription || `Amount as per approved document`, quantity: 1, unitPrice: amount }];
 
       const apEntry = new AccountsPayable({
         vendor: { name: vendorName, email: vendorEmail, vendorId: vendorId },
         billNumber,
-        billDate: billDate || new Date(),
+        billDate: billDateNorm,
         dueDate,
         totalAmount: amount,
         subtotal: amount,
@@ -208,7 +222,8 @@ const FinanceHelper = {
         department,
         module,
         referenceId,
-        referenceType: 'manual',
+        referenceType: referenceType,
+        lineItems,
         createdBy
       });
 
@@ -219,7 +234,7 @@ const FinanceHelper = {
 
       if (apAccount && expAccount) {
         await FinanceHelper.createAndPostJournalEntry({
-          date: billDate,
+          date: billDateNorm,
           reference: billNumber,
           description: `AP Bill: ${billNumber} from ${vendorName}`,
           department,
