@@ -87,9 +87,12 @@ tajResidentSchema.index({ residentId: 1 });
 // Skip auto-generation for suspense account residents (no name and no residentId)
 tajResidentSchema.pre('save', async function(next) {
   // Don't auto-generate residentId for suspense account residents (unknown residents)
-  // These are residents with empty/null name and no residentId
-  if (!this.residentId && (!this.name || this.name.trim() === '')) {
+  // These are residents with empty/null/undefined name and no residentId
+  const hasName = this.name !== null && this.name !== undefined && String(this.name).trim() !== '';
+  if (!this.residentId && !hasName) {
     // This is a suspense account resident, skip residentId generation
+    // Explicitly set residentId to null/empty to prevent any generation
+    this.residentId = undefined;
     return next();
   }
   
