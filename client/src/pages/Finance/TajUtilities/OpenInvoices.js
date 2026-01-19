@@ -39,10 +39,11 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
-import { fetchAllInvoices } from '../../../services/propertyInvoiceService';
+import { fetchAllInvoices, deleteInvoice } from '../../../services/propertyInvoiceService';
 import { useInvoiceCreation } from '../../../hooks/useInvoiceCreation';
 import { generateGeneralInvoicePDF } from '../../../utils/invoicePDFGenerators';
 import { fetchChargeTypes, deleteChargeType, createChargeType } from '../../../services/chargeTypeService';
+import { fetchSectors } from '../../../services/tajSectorsService';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -147,6 +148,26 @@ const OpenInvoices = () => {
     await generateGeneralInvoicePDF(invoiceData, invoiceProperty);
   };
 
+  const handleDeleteInvoice = async (invoice) => {
+    if (!window.confirm(`Are you sure you want to delete invoice ${invoice.invoiceNumber}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      await deleteInvoice(invoice._id);
+      setSuccess('Invoice deleted successfully');
+      loadInvoices(true);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete invoice');
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeleteChargeType = async (id, name) => {
     if (!window.confirm(`Are you sure you want to delete the charge type "${name}"?`)) {
       return;
@@ -176,6 +197,8 @@ const OpenInvoices = () => {
   const [showAddChargeTypeDialog, setShowAddChargeTypeDialog] = useState(false);
   const [newChargeType, setNewChargeType] = useState('');
   const [chargeIndexForNewType, setChargeIndexForNewType] = useState(null);
+  const [sectors, setSectors] = useState([]);
+  const [sectorsLoading, setSectorsLoading] = useState(false);
   
   // Load charge types from API
   const loadChargeTypes = useCallback(async () => {
@@ -193,9 +216,23 @@ const OpenInvoices = () => {
     }
   }, []);
 
+  // Load sectors from API
+  const loadSectors = useCallback(async () => {
+    try {
+      setSectorsLoading(true);
+      const response = await fetchSectors({ isActive: 'true' });
+      setSectors(response.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load sectors:', err);
+    } finally {
+      setSectorsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadChargeTypes();
-  }, [loadChargeTypes]);
+    loadSectors();
+  }, [loadChargeTypes, loadSectors]);
 
   return (
     <Box>
@@ -371,6 +408,16 @@ const OpenInvoices = () => {
                                   <DownloadIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
+                              <Tooltip title="Delete Invoice">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => handleDeleteInvoice(invoice)}
+                                  disabled={loading}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Stack>
                           </TableCell>
                         </TableRow>
@@ -465,6 +512,26 @@ const OpenInvoices = () => {
                         fullWidth
                         size="small"
                       />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Sector</InputLabel>
+                        <Select
+                          value={invoiceData.sector || ''}
+                          label="Sector"
+                          onChange={(e) => handleInvoiceFieldChange('sector', e.target.value)}
+                          disabled={sectorsLoading}
+                        >
+                          <MenuItem value="">
+                            <em>None</em>
+                          </MenuItem>
+                          {sectors.map((sector) => (
+                            <MenuItem key={sector._id || sector.name} value={sector.name}>
+                              {sector.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
                     </Grid>
                   </Grid>
                 </Box>

@@ -80,6 +80,7 @@ const Deposits = () => {
     handleCreateDepositSubmit,
     unknownResidents,
     loadingResidents,
+    suspenseAccountTotals,
     PAYMENT_METHODS,
     formatCurrency,
     renderBankField
@@ -205,10 +206,18 @@ const Deposits = () => {
                       <Stack direction="row" spacing={3}>
                         <Box>
                           <Typography variant="caption" color="text.secondary">
-                            Total Amount
+                            Suspense Account
+                          </Typography>
+                          <Typography variant="body2" fontWeight={600} color="warning.main">
+                            {formatCurrency(suspenseAccountTotals.totalAmount)}
+                          </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Total Amount (Suspense + Deposits)
                           </Typography>
                           <Typography variant="body2" fontWeight={600}>
-                            {formatCurrency(monthGroup.totalAmount)}
+                            {formatCurrency(suspenseAccountTotals.totalAmount + monthGroup.totalAmount)}
                           </Typography>
                         </Box>
                         <Box>
@@ -216,7 +225,7 @@ const Deposits = () => {
                             Remaining
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="success.main">
-                            {formatCurrency(monthGroup.totalRemaining)}
+                            {formatCurrency(suspenseAccountTotals.totalRemaining + monthGroup.totalRemaining)}
                           </Typography>
                         </Box>
                         <Box>
@@ -224,7 +233,7 @@ const Deposits = () => {
                             Used
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="text.secondary">
-                            {formatCurrency(monthGroup.totalUsed)}
+                            {formatCurrency(suspenseAccountTotals.totalUsed + monthGroup.totalUsed)}
                           </Typography>
                         </Box>
                       </Stack>
@@ -323,7 +332,8 @@ const Deposits = () => {
           paymentMethod: 'Cash',
           bank: '',
           referenceNumberExternal: '',
-          description: ''
+          description: '',
+          depositDate: ''
         });
       }} maxWidth="sm" fullWidth>
         <DialogTitle>
@@ -343,6 +353,17 @@ const Deposits = () => {
                 type="number"
                 value={editForm.amount}
                 onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Deposit Date"
+                type="date"
+                value={editForm.depositDate}
+                onChange={(e) => setEditForm({ ...editForm, depositDate: e.target.value })}
+                InputLabelProps={{ shrink: true }}
                 required
               />
             </Grid>
@@ -397,10 +418,11 @@ const Deposits = () => {
               paymentMethod: 'Cash',
               bank: '',
               referenceNumberExternal: '',
-              description: ''
+              description: '',
+              depositDate: ''
             });
           }}>Cancel</Button>
-          <Button onClick={handleUpdate} variant="contained" disabled={loading || !editForm.amount || !editForm.referenceNumberExternal}>
+          <Button onClick={handleUpdate} variant="contained" disabled={loading || !editForm.amount || !editForm.referenceNumberExternal || !editForm.depositDate}>
             Update
           </Button>
         </DialogActions>

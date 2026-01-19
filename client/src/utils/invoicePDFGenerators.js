@@ -804,9 +804,10 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
   const monthLabel = (periodToRaw ? dayjs(periodToRaw) : invoice?.invoiceDate ? dayjs(invoice.invoiceDate) : dayjs()).format('MMM-YY').toUpperCase();
 
   // Handle invoices with or without properties
+  const isOpenInvoice = !property; // Open invoice has no property
   const ownerName = property?.ownerName || invoice?.customerName || '—';
   const propertyAddress = property?.fullAddress || property?.address || invoice?.customerAddress || [property?.plotNumber ? `Plot No ${property.plotNumber}` : '', property?.street].filter(Boolean).join(', ') || '—';
-  const propertySector = property?.sector || '—';
+  const propertySector = isOpenInvoice ? (invoice?.sector || '—') : (property?.sector || '—');
   
   // For open invoices, property may be null, so we need to handle that case
   const sourceProperty = property 
@@ -959,18 +960,22 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
     pdf.text(monthValue, centerX - totalWidth / 2 + prefixWidth, cursorY);
     cursorY += 6;
 
-    const inlineRows = [
-      ['Resident ID', residentId],
-      ['Residents Name', residentName],
-      ['Address', propertyAddress],
-      ['Sector', propertySector],
-      ['Size', propertySize],
-      ['Period From', periodFrom],
-      ['Period To', periodTo],
-      ['Invoice No.', invoiceNumber],
-      ['Invoicing Date', invoicingDate],
-      ['Due Date', dueDate]
-    ];
+    // For open invoices, exclude Resident ID and Size
+    const inlineRows = [];
+    if (!isOpenInvoice) {
+      inlineRows.push(['Resident ID', residentId]);
+    }
+    inlineRows.push(['Residents Name', residentName]);
+    inlineRows.push(['Address', propertyAddress]);
+    inlineRows.push(['Sector', propertySector]);
+    if (!isOpenInvoice) {
+      inlineRows.push(['Size', propertySize]);
+    }
+    inlineRows.push(['Period From', periodFrom]);
+    inlineRows.push(['Period To', periodTo]);
+    inlineRows.push(['Invoice No.', invoiceNumber]);
+    inlineRows.push(['Invoicing Date', invoicingDate]);
+    inlineRows.push(['Due Date', dueDate]);
 
     inlineRows.forEach(([label, value]) => {
       cursorY = drawInlineField(label, value, startX, cursorY);

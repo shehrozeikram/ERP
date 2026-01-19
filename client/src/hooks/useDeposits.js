@@ -24,6 +24,11 @@ export const useDeposits = (options = {}) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [expandedMonths, setExpandedMonths] = useState([]);
+  const [suspenseAccountTotals, setSuspenseAccountTotals] = useState({
+    totalAmount: 0,
+    totalRemaining: 0,
+    totalUsed: 0
+  });
 
   // Pagination
   const pagination = usePagination({
@@ -42,7 +47,8 @@ export const useDeposits = (options = {}) => {
     paymentMethod: 'Cash',
     bank: '',
     referenceNumberExternal: '',
-    description: ''
+    description: '',
+    depositDate: ''
   });
 
   // Create deposit dialog state
@@ -95,6 +101,39 @@ export const useDeposits = (options = {}) => {
         // Fallback: use deposits length if pagination not available
         setTotal(depositsData.length);
       }
+
+      // If not in suspense account mode, also fetch suspense account totals
+      if (!suspenseAccount) {
+        try {
+          const suspenseParams = {
+            page: 1,
+            limit: 10000 // Get all suspense account deposits to calculate totals
+          };
+          if (startDate) suspenseParams.startDate = startDate;
+          if (endDate) suspenseParams.endDate = endDate;
+          suspenseParams.suspenseAccount = 'true';
+
+          const suspenseResponse = await fetchAllDeposits(suspenseParams);
+          const suspenseDeposits = suspenseResponse.data?.data?.deposits || [];
+          
+          // Calculate suspense account totals
+          const suspenseTotalAmount = suspenseDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
+          const suspenseTotalRemaining = suspenseDeposits.reduce((sum, d) => sum + (d.remainingAmount || 0), 0);
+          const suspenseTotalUsed = suspenseDeposits.reduce((sum, d) => sum + (d.totalUsed || 0), 0);
+          
+          setSuspenseAccountTotals({
+            totalAmount: suspenseTotalAmount,
+            totalRemaining: suspenseTotalRemaining,
+            totalUsed: suspenseTotalUsed
+          });
+        } catch (suspenseErr) {
+          console.error('Failed to load suspense account totals:', suspenseErr);
+          setSuspenseAccountTotals({ totalAmount: 0, totalRemaining: 0, totalUsed: 0 });
+        }
+      } else {
+        // If in suspense account mode, set suspense totals to 0
+        setSuspenseAccountTotals({ totalAmount: 0, totalRemaining: 0, totalUsed: 0 });
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load deposits');
     } finally {
@@ -109,12 +148,16 @@ export const useDeposits = (options = {}) => {
   // Handle edit
   const handleEdit = useCallback((deposit) => {
     setEditingDeposit(deposit);
+    const depositDate = deposit.createdAt 
+      ? dayjs(deposit.createdAt).format('YYYY-MM-DD')
+      : dayjs().format('YYYY-MM-DD');
     setEditForm({
       amount: deposit.amount || '',
       paymentMethod: deposit.paymentMethod || 'Cash',
       bank: deposit.bank || '',
       referenceNumberExternal: deposit.referenceNumberExternal || '',
-      description: deposit.description || ''
+      description: deposit.description || '',
+      depositDate: depositDate
     });
     setEditDialog(true);
   }, []);
@@ -135,7 +178,8 @@ export const useDeposits = (options = {}) => {
         paymentMethod: 'Cash',
         bank: '',
         referenceNumberExternal: '',
-        description: ''
+        description: '',
+        depositDate: ''
       });
       loadDeposits();
       setTimeout(() => setSuccess(''), 3000);
@@ -148,17 +192,27 @@ export const useDeposits = (options = {}) => {
 
   // Handle delete
   const handleDelete = useCallback(async (deposit) => {
-    if (!window.confirm(`Are you sure you want to delete this deposit of ${formatCurrency(deposit.amount)}? This action cannot be undone.`)) {
+    const totalUsed = deposit.totalUsed || 0;
+    const hasPayments = totalUsed > 0;
+    
+    let confirmMessage = `Are you sure you want to delete this deposit of ${formatCurrency(deposit.amount)}?`;
+    if (hasPayments) {
+      confirmMessage += `\n\n⚠️ WARNING: This deposit has been used in payment(s) (${formatCurrency(totalUsed)} used). Deleting this deposit will also automatically delete all associated payments and reverse their effects on invoices and resident balances.`;
+    }
+    confirmMessage += '\n\nThis action cannot be undone.';
+    
+    if (!window.confirm(confirmMessage)) {
       return;
     }
 
     try {
       setLoading(true);
       setError('');
-      await deleteDeposit(deposit.resident._id, deposit._id);
-      setSuccess('Deposit deleted successfully');
+      const response = await deleteDeposit(deposit.resident._id, deposit._id);
+      const message = response?.data?.message || 'Deposit deleted successfully';
+      setSuccess(message);
       loadDeposits();
-      setTimeout(() => setSuccess(''), 3000);
+      setTimeout(() => setSuccess(''), 5000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete deposit');
     } finally {
@@ -484,6 +538,7 @@ export const useDeposits = (options = {}) => {
     loadingTransferResidents,
     handleTransferDeposit,
     handleTransferDepositSubmit,
+    suspenseAccountTotals,
     // Constants
     PAYMENT_METHODS,
     formatCurrency,

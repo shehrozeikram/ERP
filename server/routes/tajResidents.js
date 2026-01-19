@@ -37,14 +37,26 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   const { search, accountType, isActive } = req.query;
   const query = {};
 
+  // Exclude suspense account residents (those without name or residentId)
+  // These should only appear in the Suspense Account page, not in the main residents list
+  query.$and = [
+    {
+      $or: [
+        { name: { $exists: true, $ne: null, $ne: '' } },
+        { residentId: { $exists: true, $ne: null, $ne: '' } }
+      ]
+    }
+  ];
+
   if (search) {
-    query.$or = [
+    const searchConditions = [
       { name: new RegExp(search, 'i') },
       { cnic: new RegExp(search, 'i') },
       { contactNumber: new RegExp(search, 'i') },
       { email: new RegExp(search, 'i') },
       { residentId: new RegExp(search, 'i') }
     ];
+    query.$and.push({ $or: searchConditions });
   }
 
   if (accountType) query.accountType = accountType;
@@ -666,11 +678,6 @@ router.put(
     if (bank !== undefined) transaction.bank = bank;
     if (referenceNumberExternal !== undefined) transaction.referenceNumberExternal = referenceNumberExternal;
     
-    // Update deposit date if provided
-    if (depositDate !== undefined) {
-      transaction.createdAt = new Date(depositDate);
-    }
-
     // Validate bank is provided for bank-related payment methods
     if ((transaction.paymentMethod === 'Bank Transfer' || transaction.paymentMethod === 'Cheque' || transaction.paymentMethod === 'Online') && !transaction.bank) {
       return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
@@ -678,14 +685,53 @@ router.put(
 
     await transaction.save();
 
-    await transaction.populate('resident', 'name accountType');
-    await transaction.populate('createdBy', 'firstName lastName');
+    // Update deposit date if provided (must use direct MongoDB collection update to bypass Mongoose timestamps)
+    let finalTransaction = transaction;
+    if (depositDate !== undefined && depositDate !== null && depositDate !== '') {
+      // Parse the date - handle both ISO string and date string formats
+      // If it's a date string like "2024-01-15", create a Date object at midnight local time
+      let newDate;
+      if (typeof depositDate === 'string' && depositDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Format: YYYY-MM-DD - parse as local midnight to preserve the selected date
+        const [year, month, day] = depositDate.split('-').map(Number);
+        newDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+      } else {
+        newDate = depositDate instanceof Date ? depositDate : new Date(depositDate);
+      }
+      
+      // Validate the date
+      if (isNaN(newDate.getTime())) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Invalid deposit date format' 
+        });
+      }
+      
+      // Use direct MongoDB collection update to bypass Mongoose timestamp management
+      // This directly updates the database field without Mongoose interference
+      const mongoose = require('mongoose');
+      const updateResult = await TajTransaction.collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(transaction._id) },
+        { $set: { createdAt: newDate } }
+      );
+      
+      if (updateResult.modifiedCount === 0) {
+        console.warn('⚠️ Deposit date update: No document was modified. Transaction ID:', transaction._id);
+      }
+      
+      // Fetch the updated transaction to get the new createdAt
+      // Use findById to get fresh data from database
+      finalTransaction = await TajTransaction.findById(transaction._id);
+    }
+
+    await finalTransaction.populate('resident', 'name accountType');
+    await finalTransaction.populate('createdBy', 'firstName lastName');
 
     res.json({
       success: true,
       message: 'Deposit updated successfully',
       data: {
-        transaction,
+        transaction: finalTransaction,
         newBalance: resident.balance
       }
     });
@@ -832,13 +878,89 @@ router.delete(
     // Check if this deposit has been used in any payments
     const usedInPayments = await TajTransaction.find({
       'depositUsages.depositId': transaction._id
-    });
+    }).populate('resident', 'name balance');
 
+    let deletedPaymentsCount = 0;
+    const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
+
+    // If deposit has been used in payments, delete those payments and reverse their effects
     if (usedInPayments.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot delete deposit that has been used in ${usedInPayments.length} payment(s). Please remove the payments first.`
-      });
+      for (const payment of usedInPayments) {
+        // Reverse the payment effects on resident balance
+        const paymentResident = payment.resident;
+        if (paymentResident) {
+          const paymentAmount = payment.amount || 0;
+          const currentBalance = paymentResident.balance || 0;
+          const newBalance = currentBalance + paymentAmount; // Add back the payment amount
+          
+          paymentResident.balance = newBalance;
+          paymentResident.updatedBy = req.user.id;
+          await paymentResident.save();
+        }
+
+        // If payment is linked to an invoice, remove it from invoice and recalculate
+        if (payment.referenceId && require('mongoose').Types.ObjectId.isValid(payment.referenceId)) {
+          try {
+            const invoice = await PropertyInvoice.findById(payment.referenceId);
+            if (invoice && invoice.payments && invoice.payments.length > 0) {
+              // Find and remove the payment entry that matches this transaction
+              // Match by amount and payment date (within same day), or by description/notes
+              const paymentDate = payment.createdAt || new Date();
+              const paymentAmount = payment.amount || 0;
+              
+              // Try to find matching payment - check multiple criteria
+              let paymentToRemove = invoice.payments.find(p => {
+                const pDate = p.paymentDate || p.recordedAt;
+                const sameDate = pDate && paymentDate && 
+                  new Date(pDate).toDateString() === new Date(paymentDate).toDateString();
+                const sameAmount = Math.abs((p.amount || p.totalAmount || 0) - paymentAmount) < 0.01;
+                
+                // Also check if description mentions the transaction ID
+                const notesMatch = p.notes && payment._id && 
+                  p.notes.toString().includes(payment._id.toString());
+                
+                return (sameDate && sameAmount) || notesMatch;
+              });
+
+              // If no exact match, try to find by amount only (within tolerance)
+              if (!paymentToRemove) {
+                paymentToRemove = invoice.payments.find(p => {
+                  const pAmount = p.amount || p.totalAmount || 0;
+                  return Math.abs(pAmount - paymentAmount) < 0.01;
+                });
+              }
+
+              if (paymentToRemove) {
+                invoice.payments.pull(paymentToRemove._id);
+                
+                // Recalculate totals
+                const totalPaid = invoice.payments.reduce((sum, p) => sum + (p.totalAmount || p.amount || 0), 0);
+                invoice.totalPaid = totalPaid;
+                invoice.balance = invoice.grandTotal - totalPaid;
+
+                // Update payment status
+                if (invoice.balance <= 0 && totalPaid > 0) {
+                  invoice.paymentStatus = 'paid';
+                } else if (totalPaid > 0) {
+                  invoice.paymentStatus = 'partial_paid';
+                } else {
+                  invoice.paymentStatus = 'unpaid';
+                }
+
+                invoice.updatedBy = req.user.id;
+                invoice.updatedAt = new Date();
+                await invoice.save();
+              }
+            }
+          } catch (invoiceError) {
+            console.error('Error updating invoice when deleting payment:', invoiceError);
+          }
+        }
+
+        // Delete the payment transaction
+        await TajTransaction.findByIdAndDelete(payment._id);
+        deletedPaymentsCount++;
+      }
     }
 
     // Recalculate resident balance (subtract the deposit amount)
@@ -847,14 +969,19 @@ router.delete(
     resident.updatedBy = req.user.id;
     await resident.save();
 
-    // Delete the transaction
+    // Delete the deposit transaction
     await TajTransaction.findByIdAndDelete(transaction._id);
+
+    const message = deletedPaymentsCount > 0
+      ? `Deposit deleted successfully. ${deletedPaymentsCount} associated payment(s) were also deleted and their effects reversed.`
+      : 'Deposit deleted successfully';
 
     res.json({
       success: true,
-      message: 'Deposit deleted successfully',
+      message,
       data: {
-        newBalance: resident.balance
+        newBalance: resident.balance,
+        deletedPaymentsCount
       }
     });
   })

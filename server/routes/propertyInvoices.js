@@ -1574,7 +1574,8 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       customerName, 
       customerEmail, 
       customerPhone, 
-      customerAddress 
+      customerAddress,
+      sector
     } = req.body;
 
     if (!charges || !Array.isArray(charges) || charges.length === 0) {
@@ -1586,23 +1587,75 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
     const totalArrears = charges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
     const grandTotal = subtotal + totalArrears;
 
-    // Generate invoice number if not provided
+    // Generate invoice number if not provided or empty
     let finalInvoiceNumber = invoiceNumber;
-    if (!finalInvoiceNumber) {
+    if (!finalInvoiceNumber || finalInvoiceNumber.trim() === '') {
       const now = dayjs();
+      const currentYear = now.year();
+      const currentMonth = now.month() + 1;
+      
+      // Find the last open invoice (property: null) for the current month/year with GEN type
+      const lastInvoice = await PropertyInvoice.findOne({
+        property: null,
+        invoiceNumber: { $regex: `^INV-GEN-${currentYear}-${String(currentMonth).padStart(2, '0')}-` }
+      })
+        .sort({ invoiceNumber: -1 })
+        .select('invoiceNumber')
+        .lean();
+      
+      let nextIndex = 1;
+      if (lastInvoice && lastInvoice.invoiceNumber) {
+        // Extract the index from the last invoice number
+        // Format: INV-GEN-YYYY-MM-XXXX
+        const parts = lastInvoice.invoiceNumber.split('-');
+        if (parts.length >= 5) {
+          const lastIndex = parseInt(parts[4], 10);
+          if (!isNaN(lastIndex)) {
+            nextIndex = lastIndex + 1;
+          }
+        }
+      }
+      
       finalInvoiceNumber = generateInvoiceNumber(
-        1, // Use default srNo for open invoices
-        now.year(),
-        now.month() + 1,
+        nextIndex,
+        currentYear,
+        currentMonth,
         'GEN'
       );
     }
 
-    // Check for duplicate invoice number
+    // Check for duplicate invoice number (fallback safety check)
     const existingInvoice = await PropertyInvoice.findOne({ invoiceNumber: finalInvoiceNumber });
     if (existingInvoice) {
-      const timestamp = Date.now().toString().slice(-4);
-      finalInvoiceNumber = `${finalInvoiceNumber}-${timestamp}`;
+      // If duplicate exists, find the highest index and increment
+      const now = dayjs();
+      const currentYear = now.year();
+      const currentMonth = now.month() + 1;
+      const basePattern = `INV-GEN-${currentYear}-${String(currentMonth).padStart(2, '0')}-`;
+      
+      const allInvoices = await PropertyInvoice.find({
+        invoiceNumber: { $regex: `^${basePattern}` }
+      })
+        .select('invoiceNumber')
+        .lean();
+      
+      let maxIndex = 0;
+      allInvoices.forEach(inv => {
+        const parts = inv.invoiceNumber.split('-');
+        if (parts.length >= 5) {
+          const index = parseInt(parts[4], 10);
+          if (!isNaN(index) && index > maxIndex) {
+            maxIndex = index;
+          }
+        }
+      });
+      
+      finalInvoiceNumber = generateInvoiceNumber(
+        maxIndex + 1,
+        currentYear,
+        currentMonth,
+        'GEN'
+      );
     }
 
     const invoiceData = {
@@ -1628,6 +1681,7 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       customerEmail: customerEmail || '',
       customerPhone: customerPhone || '',
       customerAddress: customerAddress || '',
+      sector: sector || '',
       totalPaid: 0,
       balance: grandTotal,
       status: 'Issued',
@@ -1789,7 +1843,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invoice not found' });
     }
 
-    const { invoiceNumber, invoiceDate, dueDate, periodFrom, periodTo, charges, subtotal, totalArrears, grandTotal, customerName, customerEmail, customerPhone, customerAddress } = req.body;
+    const { invoiceNumber, invoiceDate, dueDate, periodFrom, periodTo, charges, subtotal, totalArrears, grandTotal, customerName, customerEmail, customerPhone, customerAddress, sector } = req.body;
 
     // Check for duplicate invoices ONLY if periodTo or periodFrom is being changed to a different month
     const updatedPeriodFrom = periodFrom !== undefined ? (periodFrom ? new Date(periodFrom) : null) : invoice.periodFrom;
@@ -1929,6 +1983,7 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
     if (customerEmail !== undefined) invoice.customerEmail = customerEmail;
     if (customerPhone !== undefined) invoice.customerPhone = customerPhone;
     if (customerAddress !== undefined) invoice.customerAddress = customerAddress;
+    if (sector !== undefined) invoice.sector = sector;
 
     invoice.updatedBy = req.user.id;
     invoice.updatedAt = new Date();
@@ -2106,7 +2161,7 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     // OPTIMIZATION: Select only needed fields and use lean with pagination
     // Fetch all matching invoices first (for search across all pages)
     let invoices = await PropertyInvoice.find(combinedFilter)
-      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy customerName customerEmail customerPhone customerAddress')
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy customerName customerEmail customerPhone customerAddress sector')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName resident sector areaValue areaUnit',

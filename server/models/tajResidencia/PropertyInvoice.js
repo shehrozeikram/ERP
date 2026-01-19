@@ -24,6 +24,10 @@ const propertyInvoiceSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  sector: {
+    type: String,
+    trim: true
+  },
   // Invoice Details
   invoiceNumber: {
     type: String,

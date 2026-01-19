@@ -97,7 +97,8 @@ export const useInvoiceCreation = (options = {}) => {
         customerName: '',
         customerEmail: '',
         customerPhone: '',
-        customerAddress: ''
+        customerAddress: '',
+        sector: ''
       });
     } catch (err) {
       setInvoiceError(err.response?.data?.message || 'Failed to prepare invoice');
@@ -132,7 +133,8 @@ export const useInvoiceCreation = (options = {}) => {
         customerName: '',
         customerEmail: '',
         customerPhone: '',
-        customerAddress: ''
+        customerAddress: '',
+        sector: ''
       });
     } finally {
       setInvoiceLoading(false);
@@ -259,6 +261,7 @@ export const useInvoiceCreation = (options = {}) => {
           updateData.customerEmail = invoiceData.customerEmail || '';
           updateData.customerPhone = invoiceData.customerPhone || '';
           updateData.customerAddress = invoiceData.customerAddress || '';
+          updateData.sector = invoiceData.sector || '';
         }
 
         const response = await updateInvoice(invoiceData._id, updateData);
@@ -298,9 +301,9 @@ export const useInvoiceCreation = (options = {}) => {
         const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
         setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
       } else {
-        // Open invoice (no property)
+        // Open invoice (no property) - let backend auto-generate invoice number with increment
         const response = await createInvoice(null, {
-          invoiceNumber: invoiceData.invoiceNumber,
+          invoiceNumber: '', // Empty string to let backend auto-generate with increment
           invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
           periodFrom: invoiceData.periodFrom,
           periodTo: invoiceData.periodTo,
@@ -309,7 +312,8 @@ export const useInvoiceCreation = (options = {}) => {
           customerName: invoiceData.customerName || '',
           customerEmail: invoiceData.customerEmail || '',
           customerPhone: invoiceData.customerPhone || '',
-          customerAddress: invoiceData.customerAddress || ''
+          customerAddress: invoiceData.customerAddress || '',
+          sector: invoiceData.sector || ''
         });
 
         const savedInvoice = response.data?.data || invoiceData;
