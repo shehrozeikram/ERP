@@ -217,10 +217,18 @@ const PreAudit = () => {
           returnComments
         });
       } else if (doc.isWorkflowDocument) {
-        // For workflow documents, change status back to Draft or previous status
-        await api.patch(`/payment-settlements/${doc._id}/workflow-status`, {
-          workflowStatus: 'Draft',
-          comments: returnComments
+        // For workflow documents, return to "Returned from Audit" status
+        // Collect observations from the document if they exist
+        const observations = doc.observations && doc.observations.length > 0
+          ? doc.observations.map(obs => ({
+              observation: obs.observation || obs.text || obs,
+              severity: obs.severity || 'medium'
+            }))
+          : [];
+        
+        await api.put(`/pre-audit/${doc._id}/return`, {
+          returnComments,
+          observations: observations.length > 0 ? observations : undefined
         });
       } else {
         // For regular Pre Audit documents

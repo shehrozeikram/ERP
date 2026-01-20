@@ -155,6 +155,44 @@ const paymentSettlementSchema = new mongoose.Schema({
     default: 'Draft',
     index: true
   },
+  // Observations from audit/return
+  observations: [{
+    observation: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    severity: {
+      type: String,
+      enum: ['low', 'medium', 'high', 'critical'],
+      default: 'medium'
+    },
+    addedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now
+    },
+    // Answer to the observation
+    answer: {
+      type: String,
+      trim: true
+    },
+    answeredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    answeredAt: {
+      type: Date
+    },
+    resolved: {
+      type: Boolean,
+      default: false
+    }
+  }],
   // Workflow history tracking
   workflowHistory: [{
     fromStatus: String,

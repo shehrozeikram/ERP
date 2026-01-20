@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { ROLE_MODULE_ACCESS } = require('../config/permissions');
 
 // Helper functions
 const sendError = (res, status, message) => res.status(status).json({ success: false, message });
@@ -8,6 +9,21 @@ const isDbError = (error) =>
   error.name === 'MongoNetworkError' || 
   error.message?.includes('timeout') || 
   error.message?.includes('connection');
+
+// Normalize role name for comparison (handle case and spaces)
+const normalizeRole = (role) => {
+  if (!role) return '';
+  return String(role).toLowerCase().replace(/\s+/g, '_');
+};
+
+// Get role config from permissions, checking multiple variations
+const getRoleConfig = (role) => {
+  if (!role) return null;
+  return ROLE_MODULE_ACCESS[role] || 
+         ROLE_MODULE_ACCESS[normalizeRole(role)] ||
+         ROLE_MODULE_ACCESS[role.toLowerCase()] ||
+         null;
+};
 
 const verifyToken = (token) => {
   try {
@@ -82,6 +98,10 @@ const optionalAuth = async (req, res, next) => {
 
 // Role-based authorization middleware
 const authorize = (...roles) => {
+  // Pre-normalize allowed roles once
+  const normalizedAllowedRoles = roles.map(normalizeRole);
+  const requiresHrManager = normalizedAllowedRoles.includes('hr_manager');
+  
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
@@ -90,19 +110,31 @@ const authorize = (...roles) => {
       });
     }
 
+    const userRole = req.user.role;
+    
     // Super Admin and Higher Management have access to everything
-    if (req.user.role === 'super_admin' || req.user.role === 'higher_management') {
+    if (userRole === 'super_admin' || userRole === 'higher_management') {
       return next();
     }
 
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Insufficient permissions.'
-      });
+    // Check exact match (normalized)
+    if (normalizedAllowedRoles.includes(normalizeRole(userRole))) {
+      return next();
     }
-
-    next();
+    
+    // If route requires hr_manager, check if user's role has HR module access
+    if (requiresHrManager) {
+      const roleConfig = getRoleConfig(userRole);
+      if (roleConfig?.modules?.includes('hr')) {
+        return next();
+      }
+    }
+    
+    // Access denied
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Insufficient permissions.'
+    });
   };
 };
 

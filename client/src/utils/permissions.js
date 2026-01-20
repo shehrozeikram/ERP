@@ -65,6 +65,24 @@ export const PERMISSIONS = {
     description: 'HR module management, event management, and general module'
   },
   
+  // HR General Manager has access to HR module only
+  'Hr General Manager': {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.HR],
+    description: 'HR module access only'
+  },
+  // Also support lowercase/underscore variations
+  'hr_general_manager': {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.HR],
+    description: 'HR module access only'
+  },
+  'hr general manager': {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.HR],
+    description: 'HR module access only'
+  },
+  
   // Finance Manager has access to Finance module
   [ROLES.FINANCE_MANAGER]: {
     canAccessAll: false,
@@ -389,7 +407,7 @@ export const MODULES = {
     path: '/hr',
     icon: 'People',
     description: 'Human Resources management',
-    roles: ['super_admin', 'admin', 'hr_manager'],
+    roles: ['super_admin', 'admin', 'hr_manager', 'Hr General Manager', 'hr_general_manager', 'hr general manager'],
     subItems: [
       { name: 'HR Dashboard', path: '/hr' },
       { name: 'Employees', path: '/hr/employees' },
@@ -765,8 +783,42 @@ export const canAccessModule = (userRole, moduleName) => {
 export const getAccessibleModules = (userRole) => {
   if (!userRole) return [];
   
-  const userPermissions = PERMISSIONS[userRole];
-  if (!userPermissions) return [];
+  // Try exact match first
+  let userPermissions = PERMISSIONS[userRole];
+  
+  // If not found, try case-insensitive and normalized lookup
+  if (!userPermissions) {
+    const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
+    const roleWithSpaces = String(userRole).toLowerCase();
+    
+    // Try normalized versions
+    userPermissions = PERMISSIONS[normalizedRole] || PERMISSIONS[roleWithSpaces];
+    
+    // If still not found, try case-insensitive lookup
+    if (!userPermissions) {
+      const roleKeys = Object.keys(PERMISSIONS);
+      const matchingKey = roleKeys.find(key => {
+        const keyLower = key.toLowerCase();
+        const keyNormalized = keyLower.replace(/\s+/g, '_');
+        return keyLower === normalizedRole || 
+               keyLower === roleWithSpaces ||
+               keyNormalized === normalizedRole ||
+               key.toLowerCase() === userRole.toLowerCase();
+      });
+      if (matchingKey) {
+        userPermissions = PERMISSIONS[matchingKey];
+      }
+    }
+    
+    // If still not found and role contains "hr" and "general" and "manager", give HR access
+    if (!userPermissions && normalizedRole.includes('hr') && normalizedRole.includes('general') && normalizedRole.includes('manager')) {
+      return [MODULE_KEYS.HR];
+    }
+  }
+  
+  if (!userPermissions) {
+    return [];
+  }
   
   if (userPermissions.canAccessAll) {
     return Object.keys(MODULES);

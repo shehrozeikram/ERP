@@ -148,6 +148,8 @@ const getPaymentSettlements = asyncHandler(async (req, res) => {
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
       .populate('workflowHistory.changedBy', 'firstName lastName email')
+      .populate('observations.addedBy', 'firstName lastName email')
+      .populate('observations.answeredBy', 'firstName lastName email')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -184,7 +186,9 @@ const getPaymentSettlement = asyncHandler(async (req, res) => {
     const settlement = await PaymentSettlement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email');
+      .populate('workflowHistory.changedBy', 'firstName lastName email')
+      .populate('observations.addedBy', 'firstName lastName email')
+      .populate('observations.answeredBy', 'firstName lastName email');
 
     if (!settlement) {
       return res.status(404).json({
@@ -500,6 +504,23 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
       });
     }
 
+    // Handle answers to observations when resubmitting from "Returned from Audit"
+    if (settlement.workflowStatus === 'Returned from Audit' && workflowStatus === 'Send to Audit') {
+      const { observationAnswers } = req.body; // Array of { observationId, answer }
+      
+      if (observationAnswers && Array.isArray(observationAnswers) && settlement.observations) {
+        observationAnswers.forEach(({ observationId, answer }) => {
+          const observation = settlement.observations.id(observationId);
+          if (observation && answer && answer.trim()) {
+            observation.answer = answer.trim();
+            observation.answeredBy = req.user.id;
+            observation.answeredAt = new Date();
+            observation.resolved = true;
+          }
+        });
+      }
+    }
+
     // Build final comments with observations and digital signature if provided
     let finalComments = comments || '';
     if (observations && Array.isArray(observations) && observations.length > 0) {
@@ -508,6 +529,18 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
       ).join('; ');
       finalComments = finalComments ? `${finalComments}. Observations: ${observationTexts}` : `Observations: ${observationTexts}`;
     }
+    
+    // Include observation answers in comments when resubmitting
+    if (settlement.observations && settlement.observations.length > 0) {
+      const answeredObservations = settlement.observations.filter(obs => obs.answer && obs.resolved);
+      if (answeredObservations.length > 0) {
+        const answerTexts = answeredObservations.map((obs, idx) => 
+          `Observation ${idx + 1} Answer: ${obs.answer}`
+        ).join('; ');
+        finalComments = finalComments ? `${finalComments}. ${answerTexts}` : answerTexts;
+      }
+    }
+    
     if (digitalSignature) {
       finalComments = finalComments ? `${finalComments} [Digital Signature: ${digitalSignature}]` : `[Digital Signature: ${digitalSignature}]`;
     }
@@ -533,7 +566,9 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
     const updatedSettlement = await PaymentSettlement.findById(req.params.id)
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email');
+      .populate('workflowHistory.changedBy', 'firstName lastName email')
+      .populate('observations.addedBy', 'firstName lastName email')
+      .populate('observations.answeredBy', 'firstName lastName email');
 
     res.json({
       success: true,

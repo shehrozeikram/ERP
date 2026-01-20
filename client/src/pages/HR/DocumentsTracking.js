@@ -169,7 +169,8 @@ const DocumentsTracking = () => {
 
   useEffect(() => {
     loadDocuments();
-  }, [loadDocuments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, rowsPerPage, search, statusFilter, categoryFilter, departmentFilter]);
 
   useEffect(() => {
     const loadEvaluationDocs = async () => {

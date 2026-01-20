@@ -49,6 +49,8 @@ const EmployeeList = () => {
   const { employees, departments, projects, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, errors } = useData();
   const [paginationLoading, setPaginationLoading] = useState(false);
   const fetchAttemptedRef = useRef(false);
+  const departmentsFetchAttemptedRef = useRef(false);
+  const projectsFetchAttemptedRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -82,28 +84,36 @@ const EmployeeList = () => {
   useEffect(() => {
     if (employees.length === 0 && !dataLoading.employees && !errors.employees && !fetchAttemptedRef.current) {
       fetchAttemptedRef.current = true;
-      console.log('🔄 EmployeeList: Employees empty, attempting fetch...');
-      fetchEmployees(true).catch(err => {
-        console.error('Error fetching employees in EmployeeList:', err);
+      fetchEmployees(true).catch(() => {
         fetchAttemptedRef.current = false; // Allow retry on error
       });
-    } else if (employees.length > 0) {
-      fetchAttemptedRef.current = false; // Reset if we have employees
     }
   }, [employees.length, dataLoading.employees, errors.employees, fetchEmployees]);
 
-  // Fetch departments and projects if they're empty
+  // Fetch departments and projects if they're empty (only once, prevent infinite loops)
   useEffect(() => {
-    if (departments.length === 0 && !dataLoading.departments) {
-      fetchDepartments();
+    if (departments.length === 0 && !dataLoading.departments && !departmentsFetchAttemptedRef.current && !errors.departments) {
+      departmentsFetchAttemptedRef.current = true;
+      fetchDepartments().catch(err => {
+        // If 403 error, don't retry; otherwise allow retry
+        if (err.response?.status !== 403) {
+          departmentsFetchAttemptedRef.current = false;
+        }
+      });
     }
-  }, [departments.length, dataLoading.departments, fetchDepartments]);
+  }, [departments.length, dataLoading.departments, errors.departments, fetchDepartments]);
 
   useEffect(() => {
-    if (projects.length === 0 && !dataLoading.projects) {
-      fetchProjects();
+    if (projects.length === 0 && !dataLoading.projects && !projectsFetchAttemptedRef.current && !errors.projects) {
+      projectsFetchAttemptedRef.current = true;
+      fetchProjects().catch(err => {
+        // If 403 error, don't retry; otherwise allow retry
+        if (err.response?.status !== 403) {
+          projectsFetchAttemptedRef.current = false;
+        }
+      });
     }
-  }, [projects.length, dataLoading.projects, fetchProjects]);
+  }, [projects.length, dataLoading.projects, errors.projects, fetchProjects]);
 
   // Pagination handlers
   const handleChangePage = useCallback((event, newPage) => {

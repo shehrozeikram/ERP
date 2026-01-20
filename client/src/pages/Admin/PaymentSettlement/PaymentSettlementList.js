@@ -85,7 +85,9 @@ const PaymentSettlementList = () => {
   const [workflowStatusDialog, setWorkflowStatusDialog] = useState({ 
     open: false, 
     settlement: null,
-    comments: ''
+    workflowStatus: '',
+    comments: '',
+    observationAnswers: {} // Map of observationId -> answer
   });
   
   // Dialog state
@@ -202,15 +204,31 @@ const PaymentSettlementList = () => {
     }
 
     try {
+      const payload = {
+        workflowStatus: workflowStatusDialog.workflowStatus,
+        comments: workflowStatusDialog.comments || ''
+      };
+
+      // If resubmitting from "Returned from Audit" to "Send to Audit", include observation answers
+      if (workflowStatusDialog.settlement.workflowStatus === 'Returned from Audit' && 
+          workflowStatusDialog.workflowStatus === 'Send to Audit' &&
+          workflowStatusDialog.settlement.observations &&
+          workflowStatusDialog.settlement.observations.length > 0) {
+        const observationAnswers = Object.entries(workflowStatusDialog.observationAnswers)
+          .filter(([_, answer]) => answer && answer.trim())
+          .map(([observationId, answer]) => ({
+            observationId,
+            answer: answer.trim()
+          }));
+        payload.observationAnswers = observationAnswers;
+      }
+
       await paymentSettlementService.updateWorkflowStatus(
         workflowStatusDialog.settlement._id,
-        {
-          workflowStatus: workflowStatusDialog.workflowStatus,
-          comments: workflowStatusDialog.comments || ''
-        }
+        payload
       );
       toast.success('Workflow status updated successfully');
-      setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' });
+      setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '', observationAnswers: {} });
       loadSettlements();
       loadStats();
     } catch (error) {
@@ -880,12 +898,24 @@ const PaymentSettlementList = () => {
                           <Tooltip title="Change Workflow Status">
                             <IconButton
                               size="small"
-                              onClick={() => setWorkflowStatusDialog({ 
-                                open: true, 
-                                settlement,
-                                workflowStatus: settlement.workflowStatus || 'Draft',
-                                comments: ''
-                              })}
+                              onClick={() => {
+                                // Initialize observation answers if document has observations
+                                const observationAnswers = {};
+                                if (settlement.observations && settlement.observations.length > 0) {
+                                  settlement.observations.forEach(obs => {
+                                    if (obs.answer) {
+                                      observationAnswers[obs._id] = obs.answer;
+                                    }
+                                  });
+                                }
+                                setWorkflowStatusDialog({ 
+                                  open: true, 
+                                  settlement,
+                                  workflowStatus: settlement.workflowStatus || 'Draft',
+                                  comments: '',
+                                  observationAnswers
+                                });
+                              }}
                               color="primary"
                             >
                               <ScheduleIcon />
@@ -1251,13 +1281,15 @@ const PaymentSettlementList = () => {
 
               {/* Observations Section */}
               {(() => {
-                // Extract observations from workflowHistory
-                const observations = viewDialog.settlement.workflowHistory?.filter(entry => 
-                  entry.comments && (
-                    entry.comments.toLowerCase().includes('observation') || 
-                    entry.comments.toLowerCase().includes('returned from pre audit with observations')
-                  )
-                ) || [];
+                // Get observations from observations field (preferred) or extract from workflowHistory
+                const observations = viewDialog.settlement.observations && viewDialog.settlement.observations.length > 0
+                  ? viewDialog.settlement.observations
+                  : viewDialog.settlement.workflowHistory?.filter(entry => 
+                      entry.comments && (
+                        entry.comments.toLowerCase().includes('observation') || 
+                        entry.comments.toLowerCase().includes('returned from pre audit with observations')
+                      )
+                    ) || [];
 
                 if (observations.length === 0) return null;
 
@@ -1288,74 +1320,103 @@ const PaymentSettlementList = () => {
                       background: '#ffebee',
                       borderRadius: '4px'
                     }}>
-                      {observations.map((entry, index) => {
-                        const observationMatch = entry.comments.match(/Observation\s*\(([^)]+)\):\s*(.+)/i);
-                        const returnedMatch = entry.comments.match(/Returned from Pre Audit with observations:\s*(.+)/i);
-                        
-                        let observationText = entry.comments;
-                        let severity = 'medium';
-                        if (observationMatch) {
-                          observationText = observationMatch[2];
-                          severity = observationMatch[1].toLowerCase();
-                        } else if (returnedMatch) {
-                          observationText = returnedMatch[1];
-                        }
+                      {observations.map((obs, index) => {
+                        // Handle both observation objects and workflow history entries
+                        const isObservationObject = obs.observation !== undefined;
+                        const observationText = isObservationObject ? obs.observation : (obs.comments || '');
+                        const severity = isObservationObject ? (obs.severity || 'medium') : 'medium';
+                        const addedBy = isObservationObject ? obs.addedBy : obs.changedBy;
+                        const addedAt = isObservationObject ? obs.addedAt : obs.changedAt;
+                        const answer = isObservationObject ? obs.answer : null;
+                        const answeredBy = isObservationObject ? obs.answeredBy : null;
+                        const answeredAt = isObservationObject ? obs.answeredAt : null;
+                        const resolved = isObservationObject ? obs.resolved : false;
 
                         const isCritical = severity.includes('high') || severity.includes('critical') || severity.includes('urgent');
 
                         return (
-                          <Box key={index} sx={{ 
+                          <Box key={obs._id || index} sx={{ 
                             mb: index < observations.length - 1 ? 2.5 : 0,
                             p: 1.5,
                             background: isCritical ? '#ffcdd2' : '#fff',
                             border: `1px solid ${isCritical ? '#d32f2f' : '#ef5350'}`,
                             borderRadius: '4px'
                           }}>
-                            {isCritical && (
-                              <Chip
-                                label="CRITICAL"
-                                size="small"
-                                sx={{
-                                  mb: 1,
-                                  background: '#d32f2f',
-                                  color: '#fff',
-                                  fontWeight: 700,
-                                  fontSize: '10px'
-                                }}
-                              />
-                            )}
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                              {isCritical && (
+                                <Chip
+                                  label={severity.toUpperCase()}
+                                  size="small"
+                                  sx={{
+                                    background: '#d32f2f',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    fontSize: '10px'
+                                  }}
+                                />
+                              )}
+                              {resolved && (
+                                <Chip
+                                  label="RESOLVED"
+                                  size="small"
+                                  color="success"
+                                  sx={{ fontSize: '10px' }}
+                                />
+                              )}
+                            </Box>
                             <Typography variant="body2" sx={{ 
                               fontSize: '12px',
                               whiteSpace: 'pre-wrap',
                               lineHeight: 1.7,
                               color: '#c62828',
-                              fontWeight: 500
+                              fontWeight: 500,
+                              mb: answer ? 2 : 0
                             }}>
                               {observationText}
                             </Typography>
-                            {entry.changedBy && (
+                            {addedBy && (
                               <Typography variant="caption" sx={{ 
                                 display: 'block',
                                 mt: 1,
                                 color: '#d32f2f',
                                 fontSize: '11px'
                               }}>
-                                — {entry.changedBy.firstName} {entry.changedBy.lastName}
-                                {(() => {
-                                  // Extract department from workflowStatus
-                                  let department = '';
-                                  if (entry.toStatus) {
-                                    if (entry.toStatus.includes('AM Admin')) department = 'AM Admin';
-                                    else if (entry.toStatus.includes('HOD Admin')) department = 'HOD Admin';
-                                    else if (entry.toStatus.includes('Audit')) department = 'Audit';
-                                    else if (entry.toStatus.includes('Finance')) department = 'Finance';
-                                    else if (entry.toStatus.includes('CEO Office')) department = 'CEO Office';
-                                    else if (entry.toStatus.includes('Pre Audit')) department = 'Pre Audit';
-                                  }
-                                  return department ? ` (${department})` : '';
-                                })()}
-                                {entry.changedAt && ` • ${formatDate(entry.changedAt)}`}
+                                — Added by: {addedBy.firstName} {addedBy.lastName}
+                                {addedAt && ` • ${formatDate(addedAt)}`}
                               </Typography>
+                            )}
+                            {answer && (
+                              <Box sx={{ 
+                                mt: 2, 
+                                pt: 2, 
+                                borderTop: '1px solid #4caf50',
+                                background: '#e8f5e9',
+                                p: 1.5,
+                                borderRadius: '4px'
+                              }}>
+                                <Typography variant="subtitle2" sx={{ color: '#2e7d32', fontWeight: 'bold', mb: 1 }}>
+                                  Answer:
+                                </Typography>
+                                <Typography variant="body2" sx={{ 
+                                  fontSize: '12px',
+                                  whiteSpace: 'pre-wrap',
+                                  lineHeight: 1.7,
+                                  color: '#1b5e20'
+                                }}>
+                                  {answer}
+                                </Typography>
+                                {answeredBy && (
+                                  <Typography variant="caption" sx={{ 
+                                    display: 'block',
+                                    mt: 1,
+                                    color: '#2e7d32',
+                                    fontSize: '11px'
+                                  }}>
+                                    — Answered by: {answeredBy.firstName} {answeredBy.lastName}
+                                    {answeredAt && ` • ${formatDate(answeredAt)}`}
+                                  </Typography>
+                                )}
+                              </Box>
                             )}
                             {index < observations.length - 1 && (
                               <Box sx={{ borderTop: '1px dashed #ef5350', mt: 2, pt: 2 }} />
@@ -1537,8 +1598,8 @@ const PaymentSettlementList = () => {
       {/* Workflow Status Dialog */}
       <Dialog
         open={workflowStatusDialog.open}
-        onClose={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' })}
-        maxWidth="sm"
+        onClose={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '', observationAnswers: {} })}
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>Change Workflow Status</DialogTitle>
@@ -1561,6 +1622,78 @@ const PaymentSettlementList = () => {
                 ))}
               </Select>
             </FormControl>
+
+            {/* Show Observations if document is returned from audit */}
+            {workflowStatusDialog.settlement?.workflowStatus === 'Returned from Audit' &&
+             workflowStatusDialog.settlement?.observations &&
+             workflowStatusDialog.settlement.observations.length > 0 && (
+              <Box sx={{ mb: 3, mt: 2 }}>
+                <Typography variant="h6" sx={{ mb: 2, color: 'error.main', fontWeight: 'bold' }}>
+                  {workflowStatusDialog.workflowStatus === 'Send to Audit' 
+                    ? 'Observations - Please provide answers:' 
+                    : 'Observations - Please review and provide answers when resubmitting:'}
+                </Typography>
+                {workflowStatusDialog.settlement.observations.map((obs, index) => (
+                  <Card key={obs._id || index} sx={{ mb: 2, border: '1px solid', borderColor: 'error.light' }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                          Observation {index + 1}
+                        </Typography>
+                        <Chip 
+                          label={obs.severity || 'medium'} 
+                          size="small" 
+                          color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                        />
+                      </Box>
+                      <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+                        {obs.observation}
+                      </Typography>
+                      {obs.addedBy && (
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
+                          Added by: {obs.addedBy?.firstName} {obs.addedBy?.lastName} on {new Date(obs.addedAt).toLocaleDateString()}
+                        </Typography>
+                      )}
+                      {obs.answer && (
+                        <Box sx={{ mb: 2, p: 1.5, bgcolor: 'success.light', borderRadius: 1 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+                            Previous Answer:
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: 'text.primary' }}>
+                            {obs.answer}
+                          </Typography>
+                          {obs.answeredBy && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                              Answered by: {obs.answeredBy?.firstName} {obs.answeredBy?.lastName} on {obs.answeredAt ? new Date(obs.answeredAt).toLocaleDateString() : 'N/A'}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                      {workflowStatusDialog.workflowStatus === 'Send to Audit' && (
+                        <TextField
+                          fullWidth
+                          multiline
+                          rows={3}
+                          label={`Answer to Observation ${index + 1}${obs.answer ? ' (Update existing answer)' : ''}`}
+                          value={workflowStatusDialog.observationAnswers[obs._id] || obs.answer || ''}
+                          onChange={(e) => setWorkflowStatusDialog({
+                            ...workflowStatusDialog,
+                            observationAnswers: {
+                              ...workflowStatusDialog.observationAnswers,
+                              [obs._id]: e.target.value
+                            }
+                          })}
+                          placeholder="Provide your answer/resolution to this observation..."
+                          required
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+            )}
+
             <TextField
               fullWidth
               multiline
@@ -1576,13 +1709,23 @@ const PaymentSettlementList = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '' })}>
+          <Button onClick={() => setWorkflowStatusDialog({ open: false, settlement: null, workflowStatus: '', comments: '', observationAnswers: {} })}>
             Cancel
           </Button>
           <Button 
             onClick={handleWorkflowStatusChange} 
             variant="contained"
-            disabled={!workflowStatusDialog.workflowStatus}
+            disabled={
+              !workflowStatusDialog.workflowStatus ||
+              // Require answers for all observations when resubmitting from "Returned from Audit" to "Send to Audit"
+              (workflowStatusDialog.settlement?.workflowStatus === 'Returned from Audit' && 
+               workflowStatusDialog.workflowStatus === 'Send to Audit' &&
+               workflowStatusDialog.settlement?.observations &&
+               workflowStatusDialog.settlement.observations.some(obs => 
+                 !workflowStatusDialog.observationAnswers[obs._id] || 
+                 !workflowStatusDialog.observationAnswers[obs._id].trim()
+               ))
+            }
           >
             Update Status
           </Button>

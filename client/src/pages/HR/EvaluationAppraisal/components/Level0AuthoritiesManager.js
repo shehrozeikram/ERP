@@ -126,7 +126,8 @@ const Level0AuthoritiesManager = () => {
     fetchUsers();
     fetchProjects();
     fetchDepartments();
-  }, [fetchAuthorities, fetchUsers, fetchProjects, fetchDepartments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   const handleOpenDialog = (authority = null) => {
     if (authority) {

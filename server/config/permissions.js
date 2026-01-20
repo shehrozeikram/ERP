@@ -183,6 +183,24 @@ const ROLE_MODULE_ACCESS = {
     description: 'HR module management and event management'
   },
   
+  // HR General Manager has access to HR module only
+  'Hr General Manager': {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'HR module access only'
+  },
+  // Also support lowercase/underscore variations
+  'hr_general_manager': {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'HR module access only'
+  },
+  'hr general manager': {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'HR module access only'
+  },
+  
   [ROLES.FINANCE_MANAGER]: {
     canAccessAll: false,
     modules: [MODULES.FINANCE],

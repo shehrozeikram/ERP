@@ -157,6 +157,8 @@ router.get('/',
           .populate('createdBy', 'firstName lastName email')
           .populate('updatedBy', 'firstName lastName email')
           .populate('workflowHistory.changedBy', 'firstName lastName email')
+          .populate('observations.addedBy', 'firstName lastName email')
+          .populate('observations.answeredBy', 'firstName lastName email')
           .sort({ createdAt: -1 })
           .lean();
         
@@ -587,7 +589,17 @@ router.put('/:id/add-observation',
     }
 
     if (isWorkflowDocument) {
-      // For workflow documents, add observation as a comment in workflow history
+      // For workflow documents, add observation to observations field
+      workflowDocument.observations = workflowDocument.observations || [];
+      workflowDocument.observations.push({
+        observation: observation,
+        severity: severity || 'medium',
+        addedBy: req.user.id,
+        addedAt: new Date(),
+        resolved: false
+      });
+      
+      // Also add observation as a comment in workflow history for tracking
       workflowDocument.workflowHistory = workflowDocument.workflowHistory || [];
       workflowDocument.workflowHistory.push({
         fromStatus: workflowDocument[workflowConfig.workflowStatusField],
@@ -602,7 +614,8 @@ router.put('/:id/add-observation',
       
       await workflowDocument.populate([
         { path: 'workflowHistory.changedBy', select: 'firstName lastName email' },
-        { path: 'createdBy', select: 'firstName lastName email' }
+        { path: 'createdBy', select: 'firstName lastName email' },
+        { path: 'observations.addedBy', select: 'firstName lastName email' }
       ]);
 
       return res.json({
@@ -690,7 +703,7 @@ router.put('/:id/return',
   authMiddleware,
   authorize('super_admin', 'audit_manager', 'auditor'),
   asyncHandler(async (req, res) => {
-    const { returnComments } = req.body;
+    const { returnComments, observations } = req.body;
 
     // Check if it's a workflow document
     let isWorkflowDocument = false;
@@ -720,6 +733,21 @@ router.put('/:id/return',
       // For workflow documents, set status to "Returned from Audit" so initiator can see it in Admin Dashboard
       workflowDocument[workflowConfig.workflowStatusField] = 'Returned from Audit';
       workflowDocument.workflowHistory = workflowDocument.workflowHistory || [];
+      
+      // Store observations if provided
+      if (observations && Array.isArray(observations) && observations.length > 0) {
+        workflowDocument.observations = workflowDocument.observations || [];
+        observations.forEach(obs => {
+          workflowDocument.observations.push({
+            observation: obs.observation || obs.text || obs,
+            severity: obs.severity || 'medium',
+            addedBy: req.user.id,
+            addedAt: new Date(),
+            resolved: false
+          });
+        });
+      }
+      
       workflowDocument.workflowHistory.push({
         fromStatus: 'Send to Audit',
         toStatus: 'Returned from Audit',

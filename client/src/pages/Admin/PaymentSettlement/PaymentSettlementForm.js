@@ -19,7 +19,7 @@ import {
   ListItemText,
   ListItemSecondaryAction,
   IconButton,
-  Chip
+  Chip,
 } from '@mui/material';
 import { Save, Cancel, AttachFile, Delete, CloudUpload } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -312,12 +312,12 @@ const PaymentSettlementForm = ({
         const id = settlement?._id || settlementId;
         await paymentSettlementService.updatePaymentSettlement(id, formData, newAttachments);
         toast.success('Payment settlement updated successfully');
+        onSave && onSave();
       } else {
         await paymentSettlementService.createPaymentSettlement(formData, newAttachments);
         toast.success('Payment settlement created successfully');
+        onSave && onSave();
       }
-      
-      onSave && onSave();
     } catch (error) {
       if (error.response?.data?.errors) {
         const serverErrors = {};
@@ -646,12 +646,17 @@ const PaymentSettlementForm = ({
                 startIcon={<CloudUpload />}
                 sx={{ mb: 2 }}
               >
-                Upload Documents
+                Upload Documents (Multiple Files)
               </Button>
             </label>
-            <Typography variant="caption" display="block" color="text.secondary">
-              Supported formats: PDF, DOC, DOCX, JPG, PNG, GIF, TXT (Max 10MB each)
+            <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 1 }}>
+              You can select multiple files at once. Supported formats: PDF, DOC, DOCX, JPG, PNG, GIF, TXT (Max 10MB each)
             </Typography>
+            {attachments.length > 0 && (
+              <Typography variant="caption" display="block" color="primary.main" sx={{ fontWeight: 'bold' }}>
+                {attachments.length} file(s) attached
+              </Typography>
+            )}
           </Box>
 
           {/* Attachments List */}
