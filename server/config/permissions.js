@@ -237,6 +237,24 @@ const ROLE_MODULE_ACCESS = {
     description: 'Audit execution and reporting'
   },
   
+  // Audit Director has full access to Audit module
+  'Audit Director': {
+    canAccessAll: false,
+    modules: [MODULES.AUDIT],
+    description: 'Full audit module access with all permissions'
+  },
+  // Also support lowercase/underscore variations
+  'audit_director': {
+    canAccessAll: false,
+    modules: [MODULES.AUDIT],
+    description: 'Full audit module access with all permissions'
+  },
+  'audit director': {
+    canAccessAll: false,
+    modules: [MODULES.AUDIT],
+    description: 'Full audit module access with all permissions'
+  },
+  
   [ROLES.IT_MANAGER]: {
     canAccessAll: false,
     modules: [MODULES.IT],
@@ -425,21 +443,21 @@ const PERMISSION_MAPPINGS = {
   'admin.payment_settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   
   // Audit Module Permissions
-  'audit.schedule.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER],
-  'audit.schedule.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
-  'audit.schedule.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER],
-  'audit.schedule.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER],
+  'audit.schedule.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, 'Audit Director', 'audit_director'],
+  'audit.schedule.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
+  'audit.schedule.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, 'Audit Director', 'audit_director'],
+  'audit.schedule.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, 'Audit Director', 'audit_director'],
   
-  'audit.findings.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
-  'audit.findings.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
-  'audit.findings.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
+  'audit.findings.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
+  'audit.findings.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
+  'audit.findings.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
   
-  'audit.reports.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
-  'audit.reports.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
+  'audit.reports.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
+  'audit.reports.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
   
-  'audit.corrective_actions.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER],
-  'audit.corrective_actions.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR],
-  'audit.corrective_actions.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER],
+  'audit.corrective_actions.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, 'Audit Director', 'audit_director'],
+  'audit.corrective_actions.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, ROLES.AUDITOR, 'Audit Director', 'audit_director'],
+  'audit.corrective_actions.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.AUDIT_MANAGER, 'Audit Director', 'audit_director'],
   
   // Talent Acquisition Permissions
   'hr.talent_acquisition': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],

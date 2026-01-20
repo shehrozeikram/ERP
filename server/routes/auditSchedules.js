@@ -20,7 +20,7 @@ const populateAuditSchedule = (query) => query
 // @route   GET /api/audit/schedules
 // @desc    Get all audit schedules with filters and pagination
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   const { status, leadAuditor, scheduledDate, search, page = 1, limit = 10 } = req.query;
 
   const query = {};
@@ -61,7 +61,7 @@ router.get('/', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandl
 // @route   GET /api/audit/schedules/:id
 // @desc    Get single audit schedule by ID
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/:id', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/:id', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Invalid schedule ID' });
   }
@@ -78,7 +78,7 @@ router.get('/:id', authorize('super_admin', 'audit_manager', 'auditor'), asyncHa
 // @route   POST /api/audit/schedules
 // @desc    Create a new audit schedule
 // @access  Private (Super Admin, Audit Manager)
-router.post('/', authorize('super_admin', 'audit_manager'), [
+router.post('/', authorize('super_admin', 'audit_manager', 'audit_director'), [
   body('audit').isMongoId().withMessage('Valid audit ID is required'),
   body('scheduledDate').isISO8601().withMessage('Valid scheduled date is required'),
   body('leadAuditor').isMongoId().withMessage('Valid lead auditor ID is required'),
@@ -127,7 +127,7 @@ router.post('/', authorize('super_admin', 'audit_manager'), [
 // @route   PUT /api/audit/schedules/:id
 // @desc    Update an audit schedule
 // @access  Private (Super Admin, Audit Manager)
-router.put('/:id', authorize('super_admin', 'audit_manager'), [
+router.put('/:id', authorize('super_admin', 'audit_manager', 'audit_director'), [
   body('scheduledDate').optional().isISO8601().withMessage('Valid scheduled date is required'),
   body('leadAuditor').optional().isMongoId().withMessage('Valid lead auditor ID is required'),
   body('teamAuditors').optional().isArray().withMessage('Team auditors must be an array'),
@@ -176,7 +176,7 @@ router.put('/:id', authorize('super_admin', 'audit_manager'), [
 // @route   DELETE /api/audit/schedules/:id
 // @desc    Delete an audit schedule
 // @access  Private (Super Admin, Audit Manager)
-router.delete('/:id', authorize('super_admin', 'audit_manager'), asyncHandler(async (req, res) => {
+router.delete('/:id', authorize('super_admin', 'audit_manager', 'audit_director'), asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Invalid schedule ID' });
   }
@@ -193,7 +193,7 @@ router.delete('/:id', authorize('super_admin', 'audit_manager'), asyncHandler(as
 // @route   GET /api/audit/schedules/upcoming
 // @desc    Get upcoming audit schedules
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/upcoming', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/upcoming', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   const { days = 7 } = req.query;
   
   const today = new Date();
@@ -213,7 +213,7 @@ router.get('/upcoming', authorize('super_admin', 'audit_manager', 'auditor'), as
 // @route   GET /api/audit/schedules/overdue
 // @desc    Get overdue audit schedules
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/overdue', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/overdue', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   const today = new Date();
 
   const schedules = await populateAuditSchedule(

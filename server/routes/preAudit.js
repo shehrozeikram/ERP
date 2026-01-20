@@ -54,7 +54,7 @@ const upload = multer({
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.get('/', 
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -362,7 +362,7 @@ router.get('/',
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.get('/:id',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     let document = await PreAudit.findById(req.params.id)
       .populate('sourceDepartment', 'name')
@@ -509,7 +509,7 @@ router.post('/',
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/:id/approve',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { approvalComments } = req.body;
 
@@ -553,7 +553,7 @@ router.put('/:id/approve',
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/:id/add-observation',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { observation, severity } = req.body;
 
@@ -701,7 +701,7 @@ router.put('/:id/add-observation',
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/:id/return',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { returnComments, observations } = req.body;
 
@@ -834,7 +834,7 @@ router.put('/:id/return',
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/:id/reject',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { rejectionComments, observations } = req.body;
 
@@ -1050,7 +1050,7 @@ router.put('/:id/respond',
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/:id',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
@@ -1087,7 +1087,7 @@ router.put('/:id',
 // @access  Private (Super Admin, Audit Manager)
 router.delete('/:id',
   authMiddleware,
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const document = await PreAudit.findById(req.params.id);
     if (!document) {

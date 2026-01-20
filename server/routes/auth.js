@@ -7,7 +7,7 @@ const permissions = require('../middleware/permissions');
 const User = require('../models/User');
 const Department = require('../models/hr/Department');
 const SubRole = require('../models/SubRole');
-const { ROLE_VALUES } = require('../config/permissions');
+const { ROLE_VALUES, ROLE_MODULE_ACCESS } = require('../config/permissions');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -579,7 +579,25 @@ router.post('/users', [
     .withMessage('Employee ID is required'),
   body('role')
     .optional()
-    .isIn(ROLE_VALUES)
+    .custom((value) => {
+      if (!value) return true; // Allow empty/undefined for optional field
+      
+      // Check if role is in predefined ROLE_VALUES
+      if (ROLE_VALUES.includes(value)) {
+        return true;
+      }
+      // Check if role exists in ROLE_MODULE_ACCESS (for custom roles like "Audit Director", "Hr General Manager")
+      if (ROLE_MODULE_ACCESS[value]) {
+        return true;
+      }
+      // Also check normalized variations (handle case and spaces)
+      const normalized = String(value).toLowerCase().replace(/\s+/g, '_');
+      const lowerCase = String(value).toLowerCase();
+      if (ROLE_MODULE_ACCESS[normalized] || ROLE_MODULE_ACCESS[lowerCase]) {
+        return true;
+      }
+      throw new Error('Invalid role');
+    })
     .withMessage('Invalid role'),
   body('subRoles')
     .optional()
@@ -758,7 +776,25 @@ router.put('/users/:id', [
     .withMessage('Last name must be between 2 and 50 characters'),
   body('role')
     .optional()
-    .isIn(ROLE_VALUES)
+    .custom((value) => {
+      if (!value) return true; // Allow empty/undefined for optional field
+      
+      // Check if role is in predefined ROLE_VALUES
+      if (ROLE_VALUES.includes(value)) {
+        return true;
+      }
+      // Check if role exists in ROLE_MODULE_ACCESS (for custom roles like "Audit Director", "Hr General Manager")
+      if (ROLE_MODULE_ACCESS[value]) {
+        return true;
+      }
+      // Also check normalized variations (handle case and spaces)
+      const normalized = String(value).toLowerCase().replace(/\s+/g, '_');
+      const lowerCase = String(value).toLowerCase();
+      if (ROLE_MODULE_ACCESS[normalized] || ROLE_MODULE_ACCESS[lowerCase]) {
+        return true;
+      }
+      throw new Error('Invalid role');
+    })
     .withMessage('Invalid role'),
   body('department')
     .optional()
@@ -815,7 +851,27 @@ router.patch('/users/:id/role', [
   authMiddleware,
   permissions.checkSubRolePermission('admin', 'user_management', 'update'),
   body('role')
-    .isIn(ROLE_VALUES)
+    .custom((value) => {
+      if (!value) {
+        throw new Error('Role is required');
+      }
+      
+      // Check if role is in predefined ROLE_VALUES
+      if (ROLE_VALUES.includes(value)) {
+        return true;
+      }
+      // Check if role exists in ROLE_MODULE_ACCESS (for custom roles like "Audit Director", "Hr General Manager")
+      if (ROLE_MODULE_ACCESS[value]) {
+        return true;
+      }
+      // Also check normalized variations (handle case and spaces)
+      const normalized = String(value).toLowerCase().replace(/\s+/g, '_');
+      const lowerCase = String(value).toLowerCase();
+      if (ROLE_MODULE_ACCESS[normalized] || ROLE_MODULE_ACCESS[lowerCase]) {
+        return true;
+      }
+      throw new Error('Invalid role');
+    })
     .withMessage('Invalid role')
 ], asyncHandler(async (req, res) => {
   // Check for validation errors

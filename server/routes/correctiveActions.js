@@ -20,7 +20,7 @@ const populateCorrectiveAction = (query) => query
 // @route   GET /api/audit/corrective-actions
 // @desc    Get all corrective actions with filters and pagination
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   const { auditFinding, status, responsiblePerson, dueDate, search, page = 1, limit = 10 } = req.query;
 
   const query = {};
@@ -56,7 +56,7 @@ router.get('/', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandl
 // @route   GET /api/audit/corrective-actions/:id
 // @desc    Get single corrective action by ID
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/:id', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/:id', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Invalid corrective action ID' });
   }
@@ -73,7 +73,7 @@ router.get('/:id', authorize('super_admin', 'audit_manager', 'auditor'), asyncHa
 // @route   POST /api/audit/corrective-actions
 // @desc    Create a new corrective action
 // @access  Private (Super Admin, Audit Manager)
-router.post('/', authorize('super_admin', 'audit_manager'), [
+router.post('/', authorize('super_admin', 'audit_manager', 'audit_director'), [
   body('auditFinding').isMongoId().withMessage('Valid audit finding ID is required'),
   body('description').notEmpty().withMessage('Description is required'),
   body('responsiblePerson').isMongoId().withMessage('Valid responsible person ID is required'),
@@ -112,7 +112,7 @@ router.post('/', authorize('super_admin', 'audit_manager'), [
 // @route   PUT /api/audit/corrective-actions/:id
 // @desc    Update a corrective action
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.put('/:id', authorize('super_admin', 'audit_manager', 'auditor'), [
+router.put('/:id', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), [
   body('description').optional().notEmpty().withMessage('Description cannot be empty'),
   body('responsiblePerson').optional().isMongoId().withMessage('Valid responsible person ID is required'),
   body('dueDate').optional().isISO8601().withMessage('Valid due date is required'),
@@ -151,7 +151,7 @@ router.put('/:id', authorize('super_admin', 'audit_manager', 'auditor'), [
 // @route   DELETE /api/audit/corrective-actions/:id
 // @desc    Delete a corrective action
 // @access  Private (Super Admin, Audit Manager)
-router.delete('/:id', authorize('super_admin', 'audit_manager'), asyncHandler(async (req, res) => {
+router.delete('/:id', authorize('super_admin', 'audit_manager', 'audit_director'), asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
     return res.status(400).json({ success: false, message: 'Invalid corrective action ID' });
   }
@@ -168,7 +168,7 @@ router.delete('/:id', authorize('super_admin', 'audit_manager'), asyncHandler(as
 // @route   POST /api/audit/corrective-actions/:id/comments
 // @desc    Add a comment to a corrective action
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.post('/:id/comments', authorize('super_admin', 'audit_manager', 'auditor'), [
+router.post('/:id/comments', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), [
   body('text').notEmpty().withMessage('Comment text is required'),
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);

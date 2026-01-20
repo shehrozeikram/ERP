@@ -101,6 +101,7 @@ const authorize = (...roles) => {
   // Pre-normalize allowed roles once
   const normalizedAllowedRoles = roles.map(normalizeRole);
   const requiresHrManager = normalizedAllowedRoles.includes('hr_manager');
+  const requiresAuditManager = normalizedAllowedRoles.includes('audit_manager');
   
   return (req, res, next) => {
     if (!req.user) {
@@ -126,6 +127,14 @@ const authorize = (...roles) => {
     if (requiresHrManager) {
       const roleConfig = getRoleConfig(userRole);
       if (roleConfig?.modules?.includes('hr')) {
+        return next();
+      }
+    }
+    
+    // If route requires audit_manager, check if user's role has Audit module access
+    if (requiresAuditManager) {
+      const roleConfig = getRoleConfig(userRole);
+      if (roleConfig?.modules?.includes('audit')) {
         return next();
       }
     }

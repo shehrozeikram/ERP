@@ -2,7 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Alert } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
-import { isRouteAccessible } from '../utils/permissions';
+import { isRouteAccessible, hasModuleAccess, PERMISSIONS } from '../utils/permissions';
 
 const ProtectedRoute = ({ children, requiredRole = null }) => {
   const { user, loading } = useAuth();
@@ -67,26 +67,47 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
   // Check specific role requirement if provided
   if (requiredRole) {
     const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    if (!allowedRoles.includes(user.role)) {
-      return (
-        <Box
-          display="flex"
-          justifyContent="center"
-          alignItems="center"
-          minHeight="100vh"
-          sx={{ p: 3 }}
-        >
-          <Alert severity="error" sx={{ maxWidth: 600 }}>
-            <Typography variant="h6" gutterBottom>
-              Insufficient Permissions
-            </Typography>
-            <Typography variant="body1">
-              This page requires one of the following roles: <strong>{allowedRoles.join(', ')}</strong>.
-              Your current role is <strong>{user.role}</strong>.
-            </Typography>
-          </Alert>
-        </Box>
-      );
+    const userRole = user.role;
+    
+    // Check exact role match
+    if (allowedRoles.includes(userRole)) {
+      // User has exact role match, allow access
+    } else {
+      // Check if user's role has module access for audit_manager or hr_manager requirements
+      let hasModuleAccessForRole = false;
+      
+      // If route requires audit_manager, check if user has audit module access
+      if (allowedRoles.includes('audit_manager')) {
+        hasModuleAccessForRole = hasModuleAccess(userRole, 'audit');
+      }
+      
+      // If route requires hr_manager, check if user has hr module access
+      if (allowedRoles.includes('hr_manager') && !hasModuleAccessForRole) {
+        hasModuleAccessForRole = hasModuleAccess(userRole, 'hr');
+      }
+      
+      // If no match found, deny access
+      if (!hasModuleAccessForRole) {
+        return (
+          <Box
+            display="flex"
+            justifyContent="center"
+            alignItems="center"
+            minHeight="100vh"
+            sx={{ p: 3 }}
+          >
+            <Alert severity="error" sx={{ maxWidth: 600 }}>
+              <Typography variant="h6" gutterBottom>
+                Insufficient Permissions
+              </Typography>
+              <Typography variant="body1">
+                This page requires one of the following roles: <strong>{allowedRoles.join(', ')}</strong>.
+                Your current role is <strong>{user.role}</strong>.
+              </Typography>
+            </Alert>
+          </Box>
+        );
+      }
     }
   }
 

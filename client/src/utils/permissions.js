@@ -125,6 +125,24 @@ export const PERMISSIONS = {
     description: 'Audit execution and reporting'
   },
   
+  // Audit Director has full access to Audit module
+  'Audit Director': {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.AUDIT],
+    description: 'Full audit module access with all permissions'
+  },
+  // Also support lowercase/underscore variations
+  'audit_director': {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.AUDIT],
+    description: 'Full audit module access with all permissions'
+  },
+  'audit director': {
+    canAccessAll: false,
+    modules: [MODULE_KEYS.AUDIT],
+    description: 'Full audit module access with all permissions'
+  },
+  
   // IT Manager has access to IT module
   [ROLES.IT_MANAGER]: {
     canAccessAll: false,
@@ -656,7 +674,7 @@ export const MODULES = {
     path: '/audit',
     icon: 'Security',
     description: 'Audit and compliance management',
-    roles: ['super_admin', 'audit_manager', 'auditor'],
+    roles: ['super_admin', 'audit_manager', 'auditor', 'Audit Director', 'audit_director', 'audit director'],
     subItems: [
       { name: 'Audit Dashboard', path: '/audit' },
       { name: 'Audit Management', path: '/audit/list' },

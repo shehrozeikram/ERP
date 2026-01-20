@@ -11,7 +11,7 @@ const router = express.Router();
 // @route   GET /api/audit/reports
 // @desc    Generate audit reports
 // @access  Private (Super Admin, Audit Manager, Auditor)
-router.get('/', authorize('super_admin', 'audit_manager', 'auditor'), asyncHandler(async (req, res) => {
+router.get('/', authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'), asyncHandler(async (req, res) => {
   const { reportType, startDate, endDate } = req.query;
 
   let reportData = {};

@@ -40,7 +40,7 @@ const upload = multer({
 // @desc    Get all audit findings with filtering and pagination
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.get('/', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -120,7 +120,7 @@ router.get('/',
 // @desc    Get audit findings statistics
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.get('/findings/statistics', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { audit, auditType, module, department, startDate, endDate } = req.query;
     
@@ -170,7 +170,7 @@ router.get('/findings/statistics',
 // @desc    Get single audit finding by ID
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.get('/:id', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const finding = await AuditFinding.findById(req.params.id)
       .populate('audit', 'title auditNumber auditType department')
@@ -198,7 +198,7 @@ router.get('/:id',
 // @desc    Create new audit finding
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.post('/', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   upload.array('attachments', 10),
   [
     body('title').trim().notEmpty().withMessage('Finding title is required'),
@@ -297,7 +297,7 @@ router.post('/',
 // @desc    Update audit finding
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/:id', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   upload.array('attachments', 10),
   [
     body('title').optional().trim().notEmpty().withMessage('Finding title cannot be empty'),
@@ -384,7 +384,7 @@ router.put('/:id',
 // @desc    Assign finding to a user
 // @access  Private (Super Admin, Audit Manager)
 router.put('/findings/:id/assign', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   [
     body('assignedTo').isMongoId().withMessage('Valid assigned user is required'),
     body('targetResolutionDate').optional().isISO8601().withMessage('Valid target resolution date is required')
@@ -457,7 +457,7 @@ router.put('/findings/:id/assign',
 // @desc    Update finding status
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.put('/findings/:id/status', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   [
     body('status').isIn(['open', 'under_investigation', 'pending_review', 'approved', 'closed', 'rejected']).withMessage('Valid status is required'),
     body('comments').optional().isString().withMessage('Comments must be a string')
@@ -530,7 +530,7 @@ router.put('/findings/:id/status',
 // @desc    Delete audit finding (soft delete)
 // @access  Private (Super Admin, Audit Manager)
 router.delete('/:id', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const finding = await AuditFinding.findById(req.params.id);
     if (!finding) {

@@ -60,9 +60,9 @@ const upload = multer({
 
 // @route   GET /api/audit
 // @desc    Get all audits with filtering and pagination
-// @access  Private (Super Admin, Audit Manager, Auditor)
+// @access  Private (Super Admin, Audit Manager, Auditor, Audit Director)
 router.get('/', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -228,9 +228,9 @@ router.get('/:id',
 
 // @route   POST /api/audit
 // @desc    Create new audit
-// @access  Private (Super Admin, Audit Manager)
+// @access  Private (Super Admin, Audit Manager, Audit Director)
 router.post('/', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   upload.array('attachments', 10),
   [
     body('title').trim().notEmpty().withMessage('Audit title is required'),
@@ -460,9 +460,9 @@ router.delete('/:id',
 
 // @route   PUT /api/audit/:id/status
 // @desc    Update audit status
-// @access  Private (Super Admin, Audit Manager, Auditor)
+// @access  Private (Super Admin, Audit Manager, Auditor, Audit Director)
 router.put('/:id/status', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   [
     body('status').isIn(['planned', 'in_progress', 'under_review', 'completed', 'cancelled']).withMessage('Valid status is required'),
     body('comments').optional().isString().withMessage('Comments must be a string')

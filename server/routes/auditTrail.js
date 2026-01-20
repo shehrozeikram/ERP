@@ -12,7 +12,7 @@ const AuditTrail = require('../models/audit/AuditTrail');
 // @desc    Get audit trail logs with filtering and pagination
 // @access  Private (Super Admin, Audit Manager)
 router.get('/', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const {
       page = 1,
@@ -97,7 +97,7 @@ router.get('/',
 // @desc    Get audit trail statistics
 // @access  Private (Super Admin, Audit Manager)
 router.get('/statistics', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { module, action, startDate, endDate, userId } = req.query;
     
@@ -163,7 +163,7 @@ router.get('/statistics',
 // @desc    Get user activity summary
 // @access  Private (Super Admin, Audit Manager)
 router.get('/trail/user/:userId', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { userId } = req.params;
     const { days = 30 } = req.query;
@@ -181,7 +181,7 @@ router.get('/trail/user/:userId',
 // @desc    Detect anomalies in audit trail
 // @access  Private (Super Admin, Audit Manager)
 router.get('/trail/anomalies', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { hours = 24 } = req.query;
 
@@ -198,7 +198,7 @@ router.get('/trail/anomalies',
 // @desc    Get audit trail for a specific entity
 // @access  Private (Super Admin, Audit Manager, Auditor)
 router.get('/trail/entity/:entityType/:entityId', 
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { entityType, entityId } = req.params;
     const { page = 1, limit = 20 } = req.query;
@@ -243,7 +243,7 @@ router.get('/trail/entity/:entityType/:entityId',
 // @desc    Export audit trail to CSV
 // @access  Private (Super Admin, Audit Manager)
 router.get('/trail/export', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const {
       startDate,
@@ -323,7 +323,7 @@ router.get('/trail/export',
 // @desc    Get real-time audit trail updates (for dashboard)
 // @access  Private (Super Admin, Audit Manager)
 router.get('/realtime', 
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { limit = 50 } = req.query;
 
