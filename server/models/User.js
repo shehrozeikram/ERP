@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { ROLE_VALUES } = require('../config/permissions');
 
 const userSchema = new mongoose.Schema({
   firstName: {
@@ -34,8 +33,9 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ROLE_VALUES,
+    required: true,
     default: 'employee'
+    // Note: Role validation is handled at route level to support custom roles
   },
   // New role reference (for future use)
   roleRef: {
