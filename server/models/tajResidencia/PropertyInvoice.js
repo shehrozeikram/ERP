@@ -208,7 +208,58 @@ propertyInvoiceSchema.pre('save', function(next) {
   // Calculate total paid
   this.totalPaid = (this.payments || []).reduce((sum, payment) => sum + (payment.amount || 0), 0);
   
-  // Calculate balance
+  // Check if invoice is overdue and unpaid/partially paid
+  const now = new Date();
+  const dueDateObj = this.dueDate ? new Date(this.dueDate) : null;
+  const isOverdue = dueDateObj && now > dueDateObj;
+  const isUnpaid = this.paymentStatus === 'unpaid' || this.paymentStatus === 'partial_paid' || this.totalPaid < this.grandTotal;
+  
+  // Calculate late payment surcharge if overdue and unpaid
+  let latePaymentSurcharge = 0;
+  if (isOverdue && isUnpaid) {
+    // Calculate surcharge based on charges for the month (not including arrears)
+    // 10% of charges for the month
+    const chargesForMonth = this.subtotal || 0;
+    // If invoice has charges array, sum up the amount (not arrears) for each charge
+    if (this.charges && Array.isArray(this.charges) && this.charges.length > 0) {
+      const totalChargesAmount = this.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      if (totalChargesAmount > 0) {
+        latePaymentSurcharge = Math.max(Math.round(totalChargesAmount * 0.1), 0);
+      } else if (chargesForMonth > 0) {
+        latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+      }
+    } else if (chargesForMonth > 0) {
+      latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+    }
+  }
+  
+  // Store late payment surcharge in calculationData if not already set
+  if (!this.calculationData) {
+    this.calculationData = {};
+  }
+  if (latePaymentSurcharge > 0) {
+    this.calculationData.latePaymentSurcharge = latePaymentSurcharge;
+    // Update grandTotal to include surcharge if not already included
+    // Only add surcharge to grandTotal if it hasn't been added before
+    const originalGrandTotal = (this.subtotal || 0) + (this.totalArrears || 0);
+    if (this.grandTotal <= originalGrandTotal) {
+      this.grandTotal = originalGrandTotal + latePaymentSurcharge;
+    }
+  } else {
+    // If not overdue or already paid, ensure grandTotal doesn't include surcharge
+    const originalGrandTotal = (this.subtotal || 0) + (this.totalArrears || 0);
+    if (this.grandTotal > originalGrandTotal) {
+      // Check if the difference is a surcharge (approximately 10% of subtotal)
+      const difference = this.grandTotal - originalGrandTotal;
+      const expectedSurcharge = Math.round((this.subtotal || 0) * 0.1);
+      if (Math.abs(difference - expectedSurcharge) < 1) {
+        // It's a surcharge, remove it if invoice is no longer overdue
+        this.grandTotal = originalGrandTotal;
+      }
+    }
+  }
+  
+  // Calculate balance (after adjusting grandTotal for surcharge)
   this.balance = this.grandTotal - this.totalPaid;
   
   // Update payment status
@@ -220,7 +271,7 @@ propertyInvoiceSchema.pre('save', function(next) {
     this.status = 'Partially Paid';
   } else {
     this.paymentStatus = 'unpaid';
-    if (this.status === 'Issued' && new Date() > this.dueDate) {
+    if (this.status === 'Issued' && isOverdue) {
       this.status = 'Overdue';
     }
   }

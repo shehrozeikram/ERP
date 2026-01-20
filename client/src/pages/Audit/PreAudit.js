@@ -107,11 +107,13 @@ const PreAudit = () => {
   const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [approveDialog, setApproveDialog] = useState({ open: false, document: null });
+  const [forwardDialog, setForwardDialog] = useState({ open: false, document: null });
   const [observationDialog, setObservationDialog] = useState({ open: false, document: null });
   const [returnDialog, setReturnDialog] = useState({ open: false, document: null });
   const [rejectDialog, setRejectDialog] = useState({ open: false, document: null });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [approvalComments, setApprovalComments] = useState('');
+  const [forwardComments, setForwardComments] = useState('');
   const [observation, setObservation] = useState({ text: '', severity: 'medium' });
   const [returnComments, setReturnComments] = useState('');
   const [rejectionComments, setRejectionComments] = useState('');
@@ -141,8 +143,10 @@ const PreAudit = () => {
       } else if (tabValue === 1) {
         params.set('status', 'under_review');
       } else if (tabValue === 2) {
-        params.set('status', 'approved');
+        params.set('status', 'forwarded_to_director');
       } else if (tabValue === 3) {
+        params.set('status', 'approved');
+      } else if (tabValue === 4) {
         params.set('status', 'returned_with_observations');
       }
       
@@ -161,17 +165,42 @@ const PreAudit = () => {
     }
   };
 
+  const handleForward = async () => {
+    try {
+      setError(null);
+      const doc = forwardDialog.document;
+      
+      // Forward to Audit Director - works for both PreAudit and workflow documents
+      await api.put(`/pre-audit/${doc._id}/forward`, {
+        forwardComments
+      });
+      
+      setSuccess('Document forwarded to Audit Director successfully');
+      setForwardDialog({ open: false, document: null });
+      setForwardComments('');
+      fetchDocuments();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to forward document');
+    }
+  };
+
   const handleApprove = async () => {
     try {
       setError(null);
       const doc = approveDialog.document;
       
-      if (doc.isPurchaseOrder) {
+      // If document is forwarded to director, always use pre-audit approve route
+      // This route handles both PreAudit and workflow documents without sub-role permission checks
+      if (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') {
+        await api.put(`/pre-audit/${doc._id}/approve`, {
+          approvalComments
+        });
+      } else if (doc.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
           approvalComments
         });
       } else if (doc.isWorkflowDocument) {
-        // For workflow documents, approve via payment settlement API
+        // For workflow documents that are not forwarded, use payment settlement API
         await api.patch(`/payment-settlements/${doc._id}/approve`, {
           comments: approvalComments
         });
@@ -304,6 +333,7 @@ const PreAudit = () => {
     const colors = {
       pending: 'warning',
       under_review: 'info',
+      forwarded_to_director: 'primary',
       approved: 'success',
       returned_with_observations: 'error',
       rejected: 'error'
@@ -400,6 +430,7 @@ const PreAudit = () => {
                   <MenuItem value="">All</MenuItem>
                   <MenuItem value="pending">Pending</MenuItem>
                   <MenuItem value="under_review">Under Review</MenuItem>
+                  <MenuItem value="forwarded_to_director">Forwarded to Director</MenuItem>
                   <MenuItem value="approved">Approved</MenuItem>
                   <MenuItem value="returned_with_observations">Returned</MenuItem>
                 </Select>
@@ -468,6 +499,7 @@ const PreAudit = () => {
           <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} sx={{ mb: 2 }}>
             <Tab label="Pending" />
             <Tab label="Under Review" />
+            <Tab label="Forwarded to Director" />
             <Tab label="Approved" />
             <Tab label="Returned" />
           </Tabs>
@@ -618,7 +650,7 @@ const PreAudit = () => {
                                             </TableCell>
                                             <TableCell>
                                               <Chip
-                                                label={doc.status.replace('_', ' ')}
+                                                label={doc.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                                                 size="small"
                                                 color={getStatusColor(doc.status)}
                                               />
@@ -658,17 +690,33 @@ const PreAudit = () => {
                                                     <ViewIcon fontSize="small" />
                                                   </IconButton>
                                                 </Tooltip>
+                                                {/* Action buttons based on status and user role */}
                                                 {doc.status === 'pending' || doc.status === 'under_review' ? (
                                                   <>
-                                                    <Tooltip title="Approve">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="success"
-                                                        onClick={() => setApproveDialog({ open: true, document: doc })}
-                                                      >
-                                                        <CheckCircleIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
+                                                    {/* Audit Manager: Can forward to Audit Director */}
+                                                    {(user?.role === 'audit_manager' || user?.role === 'super_admin') && (
+                                                      <Tooltip title="Forward to Audit Director">
+                                                        <IconButton
+                                                          size="small"
+                                                          color="primary"
+                                                          onClick={() => setForwardDialog({ open: true, document: doc })}
+                                                        >
+                                                          <SendIcon fontSize="small" />
+                                                        </IconButton>
+                                                      </Tooltip>
+                                                    )}
+                                                    {/* Approve button - available to audit_manager, super_admin, and auditor */}
+                                                    {(user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
+                                                      <Tooltip title="Approve">
+                                                        <IconButton
+                                                          size="small"
+                                                          color="success"
+                                                          onClick={() => setApproveDialog({ open: true, document: doc })}
+                                                        >
+                                                          <CheckCircleIcon fontSize="small" />
+                                                        </IconButton>
+                                                      </Tooltip>
+                                                    )}
                                                     <Tooltip title="Add Observation">
                                                       <IconButton
                                                         size="small"
@@ -697,6 +745,32 @@ const PreAudit = () => {
                                                           <SendIcon fontSize="small" />
                                                         </IconButton>
                                                       </Tooltip>
+                                                    )}
+                                                  </>
+                                                ) : (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') ? (
+                                                  <>
+                                                    {/* Audit Director: Can approve/reject forwarded documents */}
+                                                    {(user?.role === 'Audit Director' || user?.role === 'audit_director' || user?.role === 'super_admin') && (
+                                                      <>
+                                                        <Tooltip title="Approve">
+                                                          <IconButton
+                                                            size="small"
+                                                            color="success"
+                                                            onClick={() => setApproveDialog({ open: true, document: doc })}
+                                                          >
+                                                            <CheckCircleIcon fontSize="small" />
+                                                          </IconButton>
+                                                        </Tooltip>
+                                                        <Tooltip title="Reject with Observation">
+                                                          <IconButton
+                                                            size="small"
+                                                            color="error"
+                                                            onClick={() => setRejectDialog({ open: true, document: doc })}
+                                                          >
+                                                            <CancelIcon fontSize="small" />
+                                                          </IconButton>
+                                                        </Tooltip>
+                                                      </>
                                                     )}
                                                   </>
                                                 ) : null}
@@ -1470,6 +1544,38 @@ const PreAudit = () => {
             </Typography>
           </Box>
         </Box>
+      </Dialog>
+
+      {/* Forward to Audit Director Dialog */}
+      <Dialog
+        open={forwardDialog.open}
+        onClose={() => {
+          setForwardDialog({ open: false, document: null });
+          setForwardComments('');
+        }}
+      >
+        <DialogTitle>Forward to Audit Director</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Forward Comments (Optional)"
+            value={forwardComments}
+            onChange={(e) => setForwardComments(e.target.value)}
+            sx={{ mt: 2, minWidth: 400 }}
+            placeholder="Add any comments for the Audit Director..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setForwardDialog({ open: false, document: null });
+            setForwardComments('');
+          }}>Cancel</Button>
+          <Button onClick={handleForward} variant="contained" color="primary">
+            Forward to Audit Director
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Approve Dialog */}

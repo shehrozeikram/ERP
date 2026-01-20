@@ -910,6 +910,41 @@ const CAMCharges = () => {
     }
   };
 
+  // Helper function to calculate adjusted grandTotal for overdue unpaid invoices
+  const getAdjustedGrandTotal = (invoice) => {
+    if (!invoice) return 0;
+    
+    // Check if invoice is overdue and unpaid/partially paid
+    const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
+    const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
+    const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
+    
+    // If not overdue or already paid, return original grandTotal
+    if (!isOverdue || !isUnpaid) {
+      return invoice.grandTotal || 0;
+    }
+    
+    // Calculate late payment surcharge (10% of charges for the month)
+    let chargesForMonth = invoice.subtotal || 0;
+    
+    // If invoice has charges array, sum up the amount (not arrears) for each charge
+    if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
+      const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      if (totalChargesAmount > 0) {
+        chargesForMonth = totalChargesAmount;
+      }
+    }
+    
+    // Calculate late payment surcharge
+    const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+    
+    // Calculate original grandTotal (without surcharge)
+    const originalGrandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0));
+    
+    // Return adjusted grandTotal (original + surcharge)
+    return originalGrandTotal + latePaymentSurcharge;
+  };
+
   const handleOpenPaymentDialog = (property) => {
     setSelectedProperty(property);
     const baseCharge = Number(property.camAmount || 0);
@@ -2042,9 +2077,9 @@ const CAMCharges = () => {
                                         <TableCell>
                                           {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
                                         </TableCell>
-                                        <TableCell align="right">{formatCurrency(invoice.grandTotal || 0)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(getAdjustedGrandTotal(invoice))}</TableCell>
                                         <TableCell align="right">{formatCurrency(invoice.totalPaid || 0)}</TableCell>
-                                        <TableCell align="right">{formatCurrency(invoice.balance || 0)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0))}</TableCell>
                         <TableCell>
                           {(() => {
                                             const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');

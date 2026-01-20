@@ -602,21 +602,38 @@ const approveDocument = asyncHandler(async (req, res) => {
     // Check if user has permission to approve
     const userRole = req.user.role;
     const userEmail = req.user.email;
-    const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
+    const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
     
-    // If user is assigned to a specific status, they can only approve documents assigned to them
-    if (userWorkflowStatus && settlement.workflowStatus !== userWorkflowStatus) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only approve documents assigned to you'
-      });
+    // If document is forwarded to Audit Director, allow Audit Director to approve
+    if (settlement.workflowStatus === 'Forwarded to Audit Director') {
+      if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only Audit Director can approve documents forwarded to them'
+        });
+      }
+      // Skip sub-role check for Audit Director approving forwarded documents
+    } else {
+      // For other statuses, check workflow status assignment
+      const userWorkflowStatus = getWorkflowStatusForUserAndRole(userEmail, userRole);
+      
+      // If user is assigned to a specific status, they can only approve documents assigned to them
+      if (userWorkflowStatus && settlement.workflowStatus !== userWorkflowStatus) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only approve documents assigned to you'
+        });
+      }
     }
 
-    // Check if document can be approved (must be in a "Send to" status or "Forwarded to CEO")
-    if (!settlement.workflowStatus || (!settlement.workflowStatus.includes('Send to') && settlement.workflowStatus !== 'Forwarded to CEO')) {
+    // Check if document can be approved (must be in a "Send to" status, "Forwarded to CEO", or "Forwarded to Audit Director")
+    if (!settlement.workflowStatus || 
+        (!settlement.workflowStatus.includes('Send to') && 
+         settlement.workflowStatus !== 'Forwarded to CEO' && 
+         settlement.workflowStatus !== 'Forwarded to Audit Director')) {
       return res.status(400).json({
         success: false,
-        message: 'Document must be in a "Send to" status or "Forwarded to CEO" status to be approved'
+        message: 'Document must be in a "Send to" status, "Forwarded to CEO", or "Forwarded to Audit Director" status to be approved'
       });
     }
 

@@ -82,7 +82,7 @@ const preAuditSchema = new mongoose.Schema({
   // Status and Workflow
   status: {
     type: String,
-    enum: ['pending', 'under_review', 'approved', 'returned_with_observations', 'rejected'],
+    enum: ['pending', 'under_review', 'forwarded_to_director', 'approved', 'returned_with_observations', 'rejected'],
     default: 'pending',
     index: true
   },
@@ -94,6 +94,19 @@ const preAuditSchema = new mongoose.Schema({
   },
   reviewedAt: Date,
   reviewComments: String,
+  
+  // Forward to Audit Director
+  forwardedTo: {
+    type: String,
+    enum: ['audit_director', null],
+    default: null
+  },
+  forwardedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  forwardedAt: Date,
+  forwardComments: String,
   
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,

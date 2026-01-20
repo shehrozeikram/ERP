@@ -69,6 +69,41 @@ const getPaymentStatusConfig = (status) => {
   }
 };
 
+// Helper function to calculate adjusted grandTotal for overdue unpaid invoices
+const getAdjustedGrandTotal = (invoice) => {
+  if (!invoice) return 0;
+  
+  // Check if invoice is overdue and unpaid/partially paid
+  const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
+  const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
+  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
+  
+  // If not overdue or already paid, return original grandTotal
+  if (!isOverdue || !isUnpaid) {
+    return invoice.grandTotal || 0;
+  }
+  
+  // Calculate late payment surcharge (10% of charges for the month)
+  let chargesForMonth = invoice.subtotal || 0;
+  
+  // If invoice has charges array, sum up the amount (not arrears) for each charge
+  if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
+    const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+    if (totalChargesAmount > 0) {
+      chargesForMonth = totalChargesAmount;
+    }
+  }
+  
+  // Calculate late payment surcharge
+  const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+  
+  // Calculate original grandTotal (without surcharge)
+  const originalGrandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0));
+  
+  // Return adjusted grandTotal (original + surcharge)
+  return originalGrandTotal + latePaymentSurcharge;
+};
+
 const Invoices = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -625,9 +660,12 @@ const Invoices = () => {
       }
       
       grouped[monthKey].invoices.push(invoice);
-      grouped[monthKey].total += invoice.grandTotal || 0;
+      const adjustedGrandTotal = getAdjustedGrandTotal(invoice);
+      grouped[monthKey].total += adjustedGrandTotal;
       grouped[monthKey].paid += invoice.totalPaid || 0;
-      grouped[monthKey].balance += invoice.balance || 0;
+      // Calculate balance based on adjusted grandTotal
+      const adjustedBalance = adjustedGrandTotal - (invoice.totalPaid || 0);
+      grouped[monthKey].balance += adjustedBalance;
     });
     
     // Sort months in descending order (newest first)
@@ -839,7 +877,7 @@ const Invoices = () => {
           <CardContent>
             <Typography variant="caption" color="text.secondary">Total Amount</Typography>
             <Typography variant="h5" fontWeight={600}>
-              {formatCurrency(invoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0))}
+              {formatCurrency(invoices.reduce((sum, inv) => sum + getAdjustedGrandTotal(inv), 0))}
             </Typography>
           </CardContent>
         </Card>
@@ -1021,7 +1059,7 @@ const Invoices = () => {
                               </TableCell>
                               <TableCell align="right">
                                 <Typography fontWeight={600}>
-                                  {formatCurrency(invoice.grandTotal || 0)}
+                                  {formatCurrency(getAdjustedGrandTotal(invoice))}
                                 </Typography>
                               </TableCell>
                               <TableCell align="right">
@@ -1030,9 +1068,9 @@ const Invoices = () => {
                               <TableCell align="right">
                                 <Typography
                                   fontWeight={600}
-                                  color={invoice.balance > 0 ? 'error.main' : 'success.main'}
+                                  color={(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0)) > 0 ? 'error.main' : 'success.main'}
                                 >
-                                  {formatCurrency(invoice.balance || 0)}
+                                  {formatCurrency(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0))}
                                 </Typography>
                               </TableCell>
                               <TableCell>

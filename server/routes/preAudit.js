@@ -132,7 +132,9 @@ router.get('/',
         // IMPORTANT: Use exact match for "Send to Audit" and "Returned from Audit" to avoid partial matches
         const statusConditions = [
           { [config.workflowStatusField]: 'Send to Audit' },
+          { [config.workflowStatusField]: 'Forwarded to Audit Director' },
           { [config.workflowStatusField]: { $regex: /^Approved \(from Send to Audit\)/ } },
+          { [config.workflowStatusField]: { $regex: /^Approved \(from Forwarded to Audit Director\)/ } },
           { [config.workflowStatusField]: 'Returned from Audit' },
           { [config.workflowStatusField]: { $regex: /^Rejected \(from Send to Audit\)/ } }
         ];
@@ -172,11 +174,17 @@ router.get('/',
           let preAuditStatus = 'pending';
           
           // Check for approved status first (must be explicitly approved from audit)
-          // Must match exactly: "Approved (from Send to Audit)" or start with it
+          // Must match exactly: "Approved (from Send to Audit)" or "Approved (from Forwarded to Audit Director)" or start with it
           if (workflowStatus && 
               (workflowStatus === 'Approved (from Send to Audit)' || 
-               workflowStatus.startsWith('Approved (from Send to Audit)'))) {
+               workflowStatus === 'Approved (from Forwarded to Audit Director)' ||
+               workflowStatus.startsWith('Approved (from Send to Audit)') ||
+               workflowStatus.startsWith('Approved (from Forwarded to Audit Director)'))) {
             preAuditStatus = 'approved';
+          }
+          // Check for forwarded to director status
+          else if (workflowStatus === 'Forwarded to Audit Director') {
+            preAuditStatus = 'forwarded_to_director';
           }
           // Check for returned/rejected status
           else if (workflowStatus === 'Returned from Audit' || 
@@ -504,15 +512,110 @@ router.post('/',
   })
 );
 
-// @route   PUT /api/pre-audit/:id/approve
-// @desc    Approve a pre-audit document
-// @access  Private (Super Admin, Audit Manager, Auditor)
-router.put('/:id/approve',
+// @route   PUT /api/pre-audit/:id/forward
+// @desc    Forward a pre-audit document to Audit Director (works for both Pre Audit and workflow documents)
+// @access  Private (Audit Manager only)
+router.put('/:id/forward',
   authMiddleware,
-  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
+  authorize('super_admin', 'audit_manager'),
   asyncHandler(async (req, res) => {
-    const { approvalComments } = req.body;
+    const { forwardComments } = req.body;
 
+    // Check if it's a workflow document by trying to find it in workflow modules
+    let isWorkflowDocument = false;
+    let workflowDocument = null;
+    let workflowConfig = null;
+    
+    const workflowModules = getWorkflowModules();
+    for (const submodule of workflowModules) {
+      const config = getModuleConfig(submodule);
+      if (!config) continue;
+      
+      try {
+        const Model = require(config.modelPath);
+        const doc = await Model.findById(req.params.id);
+        if (doc) {
+          // Check if document is in a status that can be forwarded (Send to Audit) or already forwarded
+          const workflowStatus = doc[config.workflowStatusField];
+          if (workflowStatus === 'Send to Audit' || workflowStatus === 'Forwarded to Audit Director') {
+            isWorkflowDocument = true;
+            workflowDocument = doc;
+            workflowConfig = config;
+            break;
+          }
+        }
+      } catch (error) {
+        // Continue to next module
+        console.error(`Error checking workflow module ${submodule}:`, error.message);
+      }
+    }
+
+    // Check if it's a Purchase Order (Pending Audit)
+    if (!isWorkflowDocument) {
+      const PurchaseOrderModel = require('../models/procurement/PurchaseOrder');
+      const po = await PurchaseOrderModel.findById(req.params.id);
+      if (po && po.status === 'Pending Audit') {
+        // For Purchase Orders, we can't forward them the same way
+        // They would need to be handled differently or we skip forwarding for POs
+        return res.status(400).json({
+          success: false,
+          message: 'Purchase orders cannot be forwarded to Audit Director. Please approve or return them directly.'
+        });
+      }
+    }
+
+    if (isWorkflowDocument) {
+      // For workflow documents, update status to "Forwarded to Audit Director"
+      if (workflowDocument[workflowConfig.workflowStatusField] === 'Forwarded to Audit Director') {
+        return res.status(400).json({
+          success: false,
+          message: 'Document is already forwarded to Audit Director'
+        });
+      }
+
+      if (workflowDocument[workflowConfig.workflowStatusField] === 'Approved (from Send to Audit)') {
+        return res.status(400).json({
+          success: false,
+          message: 'Document is already approved'
+        });
+      }
+
+      // Update workflow status
+      workflowDocument[workflowConfig.workflowStatusField] = 'Forwarded to Audit Director';
+      
+      // Add forwarding information to workflow history if it exists
+      if (workflowDocument.workflowHistory && Array.isArray(workflowDocument.workflowHistory)) {
+        workflowDocument.workflowHistory.push({
+          fromStatus: 'Send to Audit',
+          toStatus: 'Forwarded to Audit Director',
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: forwardComments || 'Forwarded to Audit Director for approval'
+        });
+      }
+
+      workflowDocument.updatedBy = req.user.id;
+      await workflowDocument.save();
+      
+      await workflowDocument.populate([
+        { path: 'updatedBy', select: 'firstName lastName email' },
+        { path: 'createdBy', select: 'firstName lastName email' }
+      ]);
+
+      return res.json({
+        success: true,
+        message: 'Document forwarded to Audit Director successfully',
+        data: {
+          _id: workflowDocument._id,
+          isWorkflowDocument: true,
+          workflowSubmodule: workflowConfig.submodule,
+          status: 'Forwarded to Audit Director',
+          workflowStatus: workflowDocument[workflowConfig.workflowStatusField]
+        }
+      });
+    }
+
+    // Handle regular Pre Audit documents
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
       return res.status(404).json({
@@ -528,6 +631,156 @@ router.put('/:id/approve',
       });
     }
 
+    if (document.status === 'forwarded_to_director') {
+      return res.status(400).json({
+        success: false,
+        message: 'Document is already forwarded to Audit Director'
+      });
+    }
+
+    document.status = 'forwarded_to_director';
+    document.forwardedTo = 'audit_director';
+    document.forwardedBy = req.user.id;
+    document.forwardedAt = new Date();
+    document.forwardComments = forwardComments;
+    document.updatedBy = req.user.id;
+
+    await document.save();
+    await document.populate([
+      { path: 'forwardedBy', select: 'firstName lastName email' },
+      { path: 'sourceDepartment', select: 'name' }
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Document forwarded to Audit Director successfully',
+      data: document
+    });
+  })
+);
+
+// @route   PUT /api/pre-audit/:id/approve
+// @desc    Approve a pre-audit document (can be done by Audit Manager or Audit Director)
+// @access  Private (Super Admin, Audit Manager, Auditor, Audit Director)
+router.put('/:id/approve',
+  authMiddleware,
+  authorize('super_admin', 'audit_manager', 'auditor', 'audit_director'),
+  asyncHandler(async (req, res) => {
+    const { approvalComments } = req.body;
+
+    // Check if it's a workflow document by trying to find it in workflow modules
+    let isWorkflowDocument = false;
+    let workflowDocument = null;
+    let workflowConfig = null;
+    
+    const workflowModules = getWorkflowModules();
+    for (const submodule of workflowModules) {
+      const config = getModuleConfig(submodule);
+      if (!config) continue;
+      
+      try {
+        const Model = require(config.modelPath);
+        const doc = await Model.findById(req.params.id);
+        if (doc && (doc[config.workflowStatusField] === 'Send to Audit' || 
+                    doc[config.workflowStatusField] === 'Forwarded to Audit Director')) {
+          isWorkflowDocument = true;
+          workflowDocument = doc;
+          workflowConfig = config;
+          break;
+        }
+      } catch (error) {
+        // Continue to next module
+      }
+    }
+
+    if (isWorkflowDocument) {
+      // For workflow documents, check if forwarded and only Audit Director can approve
+      if (workflowDocument[workflowConfig.workflowStatusField] === 'Forwarded to Audit Director') {
+        const userRole = req.user.role;
+        const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
+        if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
+          return res.status(403).json({
+            success: false,
+            message: 'Only Audit Director can approve documents forwarded to them'
+          });
+        }
+      }
+
+      // Check if already approved
+      if (workflowDocument[workflowConfig.workflowStatusField] && 
+          workflowDocument[workflowConfig.workflowStatusField].includes('Approved')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Document is already approved'
+        });
+      }
+
+      // Store the source status for display
+      const sourceStatus = workflowDocument[workflowConfig.workflowStatusField];
+      
+      // Update workflow status to "Approved (from {sourceStatus})"
+      workflowDocument[workflowConfig.workflowStatusField] = `Approved (from ${sourceStatus})`;
+      
+      // Add to workflow history
+      if (workflowDocument.workflowHistory && Array.isArray(workflowDocument.workflowHistory)) {
+        workflowDocument.workflowHistory.push({
+          fromStatus: sourceStatus,
+          toStatus: `Approved (from ${sourceStatus})`,
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: approvalComments || 'Document approved'
+        });
+      }
+
+      workflowDocument.updatedBy = req.user.id;
+      await workflowDocument.save();
+      
+      await workflowDocument.populate([
+        { path: 'updatedBy', select: 'firstName lastName email' },
+        { path: 'createdBy', select: 'firstName lastName email' }
+      ]);
+
+      return res.json({
+        success: true,
+        message: 'Document approved successfully',
+        data: {
+          _id: workflowDocument._id,
+          isWorkflowDocument: true,
+          workflowSubmodule: workflowConfig.submodule,
+          status: 'approved',
+          workflowStatus: workflowDocument[workflowConfig.workflowStatusField]
+        }
+      });
+    }
+
+    // Handle regular Pre Audit documents
+    const document = await PreAudit.findById(req.params.id);
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pre-audit document not found'
+      });
+    }
+
+    if (document.status === 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Document is already approved'
+      });
+    }
+
+    // If document is forwarded to director, only Audit Director can approve
+    if (document.status === 'forwarded_to_director') {
+      const userRole = req.user.role;
+      const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
+      if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only Audit Director can approve documents forwarded to them'
+        });
+      }
+    }
+
     document.status = 'approved';
     document.approvedBy = req.user.id;
     document.approvedAt = new Date();
@@ -537,6 +790,7 @@ router.put('/:id/approve',
     await document.save();
     await document.populate([
       { path: 'approvedBy', select: 'firstName lastName email' },
+      { path: 'forwardedBy', select: 'firstName lastName email' },
       { path: 'sourceDepartment', select: 'name' }
     ]);
 

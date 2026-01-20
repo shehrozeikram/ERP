@@ -58,8 +58,31 @@ router.patch('/:id/workflow-status', permissions.checkSubRolePermission('admin',
 
 // @desc    Approve document
 // @route   PATCH /api/payment-settlements/:id/approve
-// @access  Private (Admin)
-router.patch('/:id/approve', permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve'), approveDocument);
+// @access  Private (Admin, Audit Director for forwarded documents)
+router.patch('/:id/approve', 
+  authMiddleware,
+  async (req, res, next) => {
+    // Check if document is forwarded to Audit Director - allow Audit Director to bypass sub-role check
+    try {
+      const PaymentSettlement = require('../models/hr/PaymentSettlement');
+      const settlement = await PaymentSettlement.findById(req.params.id);
+      if (settlement && settlement.workflowStatus === 'Forwarded to Audit Director') {
+        const userRole = req.user.role;
+        const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
+        // Allow Audit Director or super_admin to approve forwarded documents
+        if (userRole === 'super_admin' || normalizedRole === 'audit_director' || userRole === 'Audit Director') {
+          return next(); // Skip sub-role check
+        }
+      }
+      // For other cases, use sub-role permission check
+      return permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve')(req, res, next);
+    } catch (error) {
+      // If error checking document, fall back to sub-role check
+      return permissions.checkSubRolePermission('admin', 'payment_settlement', 'approve')(req, res, next);
+    }
+  },
+  approveDocument
+);
 
 // @desc    Reject document
 // @route   PATCH /api/payment-settlements/:id/reject

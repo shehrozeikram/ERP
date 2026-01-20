@@ -1403,16 +1403,52 @@ router.post(
       try {
         const invoice = await PropertyInvoice.findById(referenceId);
         if (invoice) {
+          // Check if due date has passed and invoice is unpaid/partially paid
+          const paymentDateObj = paymentDate ? new Date(paymentDate) : new Date();
+          const dueDateObj = invoice.dueDate ? new Date(invoice.dueDate) : null;
+          const isOverdue = dueDateObj && paymentDateObj > dueDateObj;
+          const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid';
+          
+          // Calculate late payment surcharge if overdue and unpaid
+          let latePaymentSurcharge = 0;
+          if (isOverdue && isUnpaid) {
+            // Calculate surcharge based on charges for the month (not including arrears)
+            // For electricity: 10% of totalBill
+            // For CAM: 10% of CAM amount
+            // For Rent: 10% of rent amount
+            // For general invoices: 10% of subtotal (charges for the month)
+            
+            const chargesForMonth = invoice.subtotal || 0;
+            // If invoice has charges array, sum up the amount (not arrears) for each charge
+            if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
+              const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+              if (totalChargesAmount > 0) {
+                latePaymentSurcharge = Math.max(Math.round(totalChargesAmount * 0.1), 0);
+              } else if (chargesForMonth > 0) {
+                latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+              }
+            } else if (chargesForMonth > 0) {
+              latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+            }
+            
+            // Store surcharge in payment notes if applicable
+            if (latePaymentSurcharge > 0) {
+              const existingNotes = description || `Payment from deposit - ${transaction._id}`;
+              description = `${existingNotes} (Includes late payment surcharge: ${latePaymentSurcharge.toFixed(2)})`;
+            }
+          }
+          
           // Add payment to invoice
           const paymentEntry = {
             amount: amountNum,
-            paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+            paymentDate: paymentDateObj,
             paymentMethod: paymentMethod || 'Bank Transfer',
             bankName: bankName || '',
             reference: bankReference || referenceNumber || '',
             notes: description || `Payment from deposit - ${transaction._id}`,
             recordedBy: req.user.id,
-            recordedAt: new Date()
+            recordedAt: new Date(),
+            latePaymentSurcharge: latePaymentSurcharge > 0 ? latePaymentSurcharge : undefined
           };
           
           invoice.payments.push(paymentEntry);
