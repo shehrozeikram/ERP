@@ -66,6 +66,7 @@ import {
   getUnassignedProperties
 } from '../../../services/tajResidentsService';
 import { fetchInvoicesForProperty } from '../../../services/propertyReceiptService';
+import { fetchAllInvoices } from '../../../services/propertyInvoiceService';
 import api from '../../../services/api';
 
 // Constants
@@ -129,12 +130,16 @@ const getDepositAvailableAmount = (deposit) =>
   deposit.remainingAmount !== undefined ? deposit.remainingAmount : (deposit.amount || 0);
 
 // Helper function to determine invoice type from chargeTypes
+// Must return one of: 'CAM', 'Electricity', 'Water', 'RENT', 'ELECTRICITY', 'Other'
 const getInvoiceTypeFromCharges = (chargeTypes) => {
-  if (!chargeTypes || !Array.isArray(chargeTypes)) return 'CAM';
+  if (!chargeTypes || !Array.isArray(chargeTypes)) return 'Other';
   if (chargeTypes.includes('ELECTRICITY')) return 'ELECTRICITY';
   if (chargeTypes.includes('RENT')) return 'RENT';
   if (chargeTypes.includes('CAM')) return 'CAM';
-  return chargeTypes[0] || 'CAM';
+  if (chargeTypes.includes('Water')) return 'Water';
+  if (chargeTypes.includes('Electricity')) return 'Electricity';
+  // For any other charge types (e.g., 'Ground Booking', 'Billboard', 'Events', etc.), return 'Other'
+  return 'Other';
 };
 
 const TajResidents = () => {
@@ -414,74 +419,135 @@ const TajResidents = () => {
   const handlePay = useCallback(async (resident) => {
     setSelectedResident(resident);
     
-    // Load all deposits for this resident and open deposit payment dialog directly
-    try {
-      setDepositsLoading(true);
-      // Request all deposits by setting a high limit and filtering by transactionType
-      const response = await fetchResidentTransactions(resident._id, {
-        transactionType: 'deposit',
-        limit: 1000 // Get all deposits (adjust if needed)
+    // Check if this is TAJ MANAGEMENT (TCM) - residentId 00434
+    const isTajManagement = resident.residentId === '00434' || 
+                           resident.residentId === 434 || 
+                           resident.name?.toUpperCase().includes('TAJ MANAGEMENT') ||
+                           resident.name?.toUpperCase().includes('TCM');
+    
+    if (isTajManagement) {
+      // For TAJ MANAGEMENT, open regular pay dialog and load open invoices
+      setPayDialog(true);
+      setSelectedProperty(null);
+      setInvoices([]);
+      setAllocations([]);
+      setPayForm({
+        amount: '',
+        paymentDate: dayjs().format('YYYY-MM-DD'),
+        description: '',
+        bankName: '',
+        bankReference: '',
+        paymentMethod: 'Bank Transfer'
       });
-      const allDeposits = (response.data.data.transactions || []).filter(
-        txn => txn.transactionType === 'deposit' && 
-               (!txn.referenceNumberExternal || !txn.referenceNumberExternal.startsWith('REV-'))
-      );
-      // Ensure remainingAmount is preserved (should already be included from backend)
-      // Log for debugging if needed
-      // console.log('Loaded deposits with remainingAmount:', allDeposits.map(d => ({ 
-      //   id: d._id, 
-      //   amount: d.amount, 
-      //   remainingAmount: d.remainingAmount 
-      // })));
-      setSelectedDeposits(allDeposits);
-      setDeposits(allDeposits);
       
-      // Initialize deposit usage - all deposits start with 0 usage
-      const initialUsage = {};
-      allDeposits.forEach(dep => {
-        initialUsage[dep._id] = 0;
-      });
-      setDepositUsage(initialUsage);
-    } catch (err) {
-      handleError(err, 'Failed to load deposit transactions');
-      setSelectedDeposits([]);
-      setDeposits([]);
-      setDepositUsage({});
-    } finally {
-      setDepositsLoading(false);
-    }
-    
-    // Open deposit payment dialog directly
-    setDepositPaymentDialog(true);
-    setSelectedProperty(null);
-    setDepositPaymentAllocations([]);
-    setDepositPaymentForm({
-      receiptDate: dayjs().format('YYYY-MM-DD'),
-      bankName: '',
-      bankReference: '',
-      description: '',
-      paymentMethod: 'Cash'
-    });
-    
-    // Refresh resident data to get latest balance
-    try {
-      await loadResidents();
-      // Update selectedResident with latest balance
-      const response = await fetchResidents({});
-      const updatedResident = response.data.data.find(r => r._id === resident._id);
-      if (updatedResident) {
-        setSelectedResident(updatedResident);
+      // Load open invoices (invoices without property) that are unpaid or partially paid
+      try {
+        setLoadingInvoices(true);
+        // Fetch open invoices with paymentStatus filter (backend now supports comma-separated values)
+        const response = await fetchAllInvoices({
+          openInvoices: 'true',
+          paymentStatus: 'unpaid,partial_paid',
+          limit: 1000 // Get all open invoices
+        });
+        // Filter for invoices with balance > 0 (backend should already filter by paymentStatus)
+        const openInvoicesList = (response.data?.data || []).filter(
+          inv => inv && (inv.balance || 0) > 0
+        );
+        setInvoices(openInvoicesList);
+        
+        const outstandingInvoices = openInvoicesList.filter(inv => (inv.balance || 0) > 0);
+        setAllocations(outstandingInvoices.map(inv => ({
+          invoice: inv._id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+          balance: inv.balance || 0,
+          allocatedAmount: 0,
+          remaining: inv.balance || 0
+        })));
+      } catch (err) {
+        console.error('Error loading open invoices:', err);
+        handleError(err, 'Failed to load open invoices');
+        setInvoices([]);
+        setAllocations([]);
+      } finally {
+        setLoadingInvoices(false);
       }
-    } catch (err) {
-      console.error('Error refreshing resident data:', err);
-    }
-    
-    // Load properties
-    try {
-      const response = await api.get('/taj-utilities/properties');
-      setProperties(response.data?.data || []);
-    } catch (err) {
-      console.error('Error loading properties:', err);
+      
+      // Refresh resident data to get latest balance
+      try {
+        await loadResidents();
+        const response = await fetchResidents({});
+        const updatedResident = response.data.data.find(r => r._id === resident._id);
+        if (updatedResident) {
+          setSelectedResident(updatedResident);
+        }
+      } catch (err) {
+        console.error('Error refreshing resident data:', err);
+      }
+    } else {
+      // For other residents, use deposit payment dialog (existing flow)
+      // Load all deposits for this resident and open deposit payment dialog directly
+      try {
+        setDepositsLoading(true);
+        // Request all deposits by setting a high limit and filtering by transactionType
+        const response = await fetchResidentTransactions(resident._id, {
+          transactionType: 'deposit',
+          limit: 1000 // Get all deposits (adjust if needed)
+        });
+        const allDeposits = (response.data.data.transactions || []).filter(
+          txn => txn.transactionType === 'deposit' && 
+                 (!txn.referenceNumberExternal || !txn.referenceNumberExternal.startsWith('REV-'))
+        );
+        setSelectedDeposits(allDeposits);
+        setDeposits(allDeposits);
+        
+        // Initialize deposit usage - all deposits start with 0 usage
+        const initialUsage = {};
+        allDeposits.forEach(dep => {
+          initialUsage[dep._id] = 0;
+        });
+        setDepositUsage(initialUsage);
+      } catch (err) {
+        handleError(err, 'Failed to load deposit transactions');
+        setSelectedDeposits([]);
+        setDeposits([]);
+        setDepositUsage({});
+      } finally {
+        setDepositsLoading(false);
+      }
+      
+      // Open deposit payment dialog directly
+      setDepositPaymentDialog(true);
+      setSelectedProperty(null);
+      setDepositPaymentAllocations([]);
+      setDepositPaymentForm({
+        receiptDate: dayjs().format('YYYY-MM-DD'),
+        bankName: '',
+        bankReference: '',
+        description: '',
+        paymentMethod: 'Cash'
+      });
+      
+      // Refresh resident data to get latest balance
+      try {
+        await loadResidents();
+        // Update selectedResident with latest balance
+        const response = await fetchResidents({});
+        const updatedResident = response.data.data.find(r => r._id === resident._id);
+        if (updatedResident) {
+          setSelectedResident(updatedResident);
+        }
+      } catch (err) {
+        console.error('Error refreshing resident data:', err);
+      }
+      
+      // Load properties
+      try {
+        const response = await api.get('/taj-utilities/properties');
+        setProperties(response.data?.data || []);
+      } catch (err) {
+        console.error('Error loading properties:', err);
+      }
     }
   }, [handleError, loadResidents]);
 
@@ -1010,7 +1076,13 @@ const TajResidents = () => {
   }, [editingDeposit, depositForm, selectedResident, updateDeposit, submitTransaction, depositMoney, loadResidents, depositsDialog, fetchResidentTransactions, showSuccess, handleError]);
 
   const submitPay = useCallback(async () => {
-    if (!selectedProperty) {
+    // Check if this is TAJ MANAGEMENT (TCM) - property selection not required for open invoices
+    const isTajManagement = selectedResident?.residentId === '00434' || 
+                           selectedResident?.residentId === 434 || 
+                           selectedResident?.name?.toUpperCase().includes('TAJ MANAGEMENT') ||
+                           selectedResident?.name?.toUpperCase().includes('TCM');
+    
+    if (!isTajManagement && !selectedProperty) {
       setError('Please select a property');
       return;
     }
@@ -1037,6 +1109,12 @@ const TajResidents = () => {
       return;
     }
 
+    // Validate bank name for payment methods that require it
+    if (BANK_REQUIRED_METHODS.includes(payForm.paymentMethod) && !payForm.bankName) {
+      setError('Bank selection is required for this payment method');
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
@@ -1052,8 +1130,8 @@ const TajResidents = () => {
               referenceNumber: invoice.invoiceNumber || '',
               description: `${allocation.invoiceType} - ${getInvoiceDescription(invoice)}`,
               paymentDate: payForm.paymentDate,
-              bankName: payForm.bankName,
-              bankReference: payForm.bankReference,
+              bankName: payForm.bankName || '',
+              bankReference: payForm.bankReference || '',
               paymentMethod: payForm.paymentMethod
             });
           }
@@ -1066,7 +1144,35 @@ const TajResidents = () => {
       loadResidents();
       
       // Reload invoices to get updated totalPaid and balance
-      if (selectedProperty?._id) {
+      if (isTajManagement) {
+        // For TAJ MANAGEMENT, reload open invoices
+        try {
+          const response = await fetchAllInvoices({
+            openInvoices: 'true',
+            paymentStatus: 'unpaid,partial_paid',
+            limit: 1000 // Get all open invoices
+          });
+          // Filter for invoices with balance > 0 (backend should already filter by paymentStatus)
+          const openInvoicesList = (response.data?.data || []).filter(
+            inv => inv && (inv.balance || 0) > 0
+          );
+          setInvoices(openInvoicesList);
+          
+          const outstandingInvoices = openInvoicesList.filter(inv => (inv.balance || 0) > 0);
+          setAllocations(outstandingInvoices.map(inv => ({
+            invoice: inv._id,
+            invoiceNumber: inv.invoiceNumber,
+            invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+            balance: inv.balance || 0,
+            allocatedAmount: 0,
+            remaining: inv.balance || 0
+          })));
+        } catch (err) {
+          console.error('Error reloading open invoices:', err);
+          // Error reloading invoices - non-critical, continue
+        }
+      } else if (selectedProperty?._id) {
+        // For other residents, reload property invoices
         try {
           const response = await fetchInvoicesForProperty(selectedProperty._id);
           const invoiceList = response.data?.data || [];
@@ -1086,7 +1192,14 @@ const TajResidents = () => {
         }
       }
     } catch (err) {
-      handleError(err, 'Failed to pay invoices');
+      console.error('Payment error details:', err);
+      const errorMessage = err.response?.data?.message || 
+                          (err.response?.data?.errors && err.response.data.errors.length > 0 
+                            ? err.response.data.errors.map(e => e.msg || e.message).join(', ')
+                            : null) ||
+                          err.message || 
+                          'Failed to pay invoices';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -1622,7 +1735,17 @@ const TajResidents = () => {
       <Dialog open={payDialog} onClose={() => setPayDialog(false)} maxWidth="lg" fullWidth>
         <DialogTitle>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6">Pay Invoice - {selectedResident?.name}</Typography>
+            <Typography variant="h6">
+              {(() => {
+                const isTajManagement = selectedResident?.residentId === '00434' || 
+                                       selectedResident?.residentId === 434 || 
+                                       selectedResident?.name?.toUpperCase().includes('TAJ MANAGEMENT') ||
+                                       selectedResident?.name?.toUpperCase().includes('TCM');
+                return isTajManagement 
+                  ? `Pay Open Invoices - ${selectedResident?.name}` 
+                  : `Pay Invoice - ${selectedResident?.name}`;
+              })()}
+            </Typography>
             <IconButton onClick={() => setPayDialog(false)} size="small">
               <CloseIcon />
             </IconButton>
@@ -1635,19 +1758,32 @@ const TajResidents = () => {
                 Current Balance: {formatCurrency(selectedResident?.balance || 0)}
               </Alert>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <Autocomplete
-                options={selectedResident?.properties || []}
-                getOptionLabel={(option) => 
-                  `${option.propertyName || option.plotNumber || ''} - ${option.ownerName || ''}`
-                }
-                value={selectedProperty}
-                onChange={(e, newValue) => handlePropertyChange(newValue)}
-                renderInput={(params) => (
-                  <TextField {...params} label="Select Property" size="small" required />
-                )}
-              />
-            </Grid>
+            {/* Check if this is TAJ MANAGEMENT (TCM) - hide property selection for open invoices */}
+            {(() => {
+              const isTajManagement = selectedResident?.residentId === '00434' || 
+                                     selectedResident?.residentId === 434 || 
+                                     selectedResident?.name?.toUpperCase().includes('TAJ MANAGEMENT') ||
+                                     selectedResident?.name?.toUpperCase().includes('TCM');
+              
+              if (!isTajManagement) {
+                return (
+                  <Grid item xs={12} sm={6}>
+                    <Autocomplete
+                      options={selectedResident?.properties || []}
+                      getOptionLabel={(option) => 
+                        `${option.propertyName || option.plotNumber || ''} - ${option.ownerName || ''}`
+                      }
+                      value={selectedProperty}
+                      onChange={(e, newValue) => handlePropertyChange(newValue)}
+                      renderInput={(params) => (
+                        <TextField {...params} label="Select Property" size="small" required />
+                      )}
+                    />
+                  </Grid>
+                );
+              }
+              return null;
+            })()}
             <Grid item xs={12} sm={3}>
               <TextField
                 label="Date"
@@ -1808,13 +1944,35 @@ const TajResidents = () => {
                 </Stack>
               </Box>
             </>
-          ) : selectedProperty ? (
-            <Alert severity="info">No outstanding invoices found for this property.</Alert>
-          ) : null}
+          ) : (() => {
+            const isTajManagement = selectedResident?.residentId === '00434' || 
+                                   selectedResident?.residentId === 434 || 
+                                   selectedResident?.name?.toUpperCase().includes('TAJ MANAGEMENT') ||
+                                   selectedResident?.name?.toUpperCase().includes('TCM');
+            
+            if (isTajManagement) {
+              return <Alert severity="info">No outstanding open invoices found.</Alert>;
+            } else if (selectedProperty) {
+              return <Alert severity="info">No outstanding invoices found for this property.</Alert>;
+            }
+            return null;
+          })()}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPayDialog(false)}>Close</Button>
-          <Button onClick={submitPay} variant="contained" disabled={loading || !selectedProperty || totals.totalAllocated <= 0}>
+          <Button 
+            onClick={submitPay} 
+            variant="contained" 
+            disabled={loading || totals.totalAllocated <= 0 || (() => {
+              const isTajManagement = selectedResident?.residentId === '00434' || 
+                                     selectedResident?.residentId === 434 || 
+                                     selectedResident?.name?.toUpperCase().includes('TAJ MANAGEMENT') ||
+                                     selectedResident?.name?.toUpperCase().includes('TCM');
+              // For TAJ MANAGEMENT, property selection is not required
+              // For other residents, property selection is required
+              return !isTajManagement && !selectedProperty;
+            })()}
+          >
             {loading ? 'Paying...' : 'Pay Invoice'}
           </Button>
         </DialogActions>

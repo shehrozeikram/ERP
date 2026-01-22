@@ -2053,7 +2053,15 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
       // This allows the Invoices page to show all invoices
     }
     if (status) filter.status = status;
-    if (paymentStatus) filter.paymentStatus = paymentStatus;
+    if (paymentStatus) {
+      // Support comma-separated paymentStatus values (e.g., "unpaid,partial_paid")
+      if (paymentStatus.includes(',')) {
+        const statuses = paymentStatus.split(',').map(s => s.trim()).filter(s => s);
+        filter.paymentStatus = { $in: statuses };
+      } else {
+        filter.paymentStatus = paymentStatus;
+      }
+    }
     if (chargeType) filter.chargeTypes = { $in: [chargeType] };
     
     // Handle month/year filter
