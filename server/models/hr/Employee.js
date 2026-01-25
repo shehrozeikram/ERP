@@ -765,6 +765,122 @@ const employeeSchema = new mongoose.Schema({
     gpa: Number,
     certificate: String
   }],
+  // Academic Background (optional, shown when qualification is education)
+  academicBackground: [{
+    degree: {
+      type: String,
+      trim: true
+    },
+    institution: {
+      type: String,
+      trim: true
+    },
+    fieldOfStudy: {
+      type: String,
+      trim: true
+    },
+    graduationYear: {
+      type: Number,
+      min: 1900,
+      max: 2100
+    },
+    gpa: {
+      type: Number,
+      min: 0,
+      max: 4
+    },
+    percentage: {
+      type: Number,
+      min: 0,
+      max: 100
+    },
+    grade: {
+      type: String,
+      trim: true
+    },
+    certificate: {
+      type: String,
+      trim: true
+    }
+  }],
+  // Professional Education (optional, shown when qualification is education)
+  professionalEducation: [{
+    courseName: {
+      type: String,
+      trim: true
+    },
+    institution: {
+      type: String,
+      trim: true
+    },
+    certificationBody: {
+      type: String,
+      trim: true
+    },
+    completionDate: {
+      type: Date
+    },
+    expiryDate: {
+      type: Date
+    },
+    certificateNumber: {
+      type: String,
+      trim: true
+    },
+    certificate: {
+      type: String,
+      trim: true
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  }],
+  // Employment History (optional)
+  employmentHistory: [{
+    companyName: {
+      type: String,
+      trim: true
+    },
+    position: {
+      type: String,
+      trim: true
+    },
+    startDate: {
+      type: Date
+    },
+    endDate: {
+      type: Date
+    },
+    isCurrentJob: {
+      type: Boolean,
+      default: false
+    },
+    location: {
+      type: String,
+      trim: true
+    },
+    responsibilities: {
+      type: String,
+      trim: true
+    },
+    reasonForLeaving: {
+      type: String,
+      trim: true
+    },
+    salary: {
+      type: Number,
+      min: 0
+    },
+    supervisorName: {
+      type: String,
+      trim: true
+    },
+    supervisorContact: {
+      type: String,
+      trim: true
+    }
+  }],
   workExperience: [{
     company: String,
     position: String,
@@ -1029,7 +1145,90 @@ const employeeSchema = new mongoose.Schema({
       default: 'Active'
     },
     notes: String
-  }]
+  }],
+
+  // Joining Report Fields
+  joiningReport: {
+    documentNumber: {
+      type: String,
+      trim: true,
+      default: 'UD/HR/FRM-005'
+    },
+    revisionNumber: {
+      type: String,
+      trim: true,
+      default: '00'
+    },
+    issueDate: {
+      type: Date,
+      default: Date.now
+    },
+    employeeName: {
+      type: String,
+      trim: true
+    },
+    employmentPosition: {
+      type: String,
+      trim: true
+    },
+    employeeTitle: {
+      type: String,
+      enum: ['Mr.', 'Mrs.', 'Ms.'],
+      default: 'Mr.'
+    },
+    parentSpouseRelation: {
+      type: String,
+      enum: ['S/o', 'D/o', 'W/o'],
+      default: 'S/o'
+    },
+    parentSpouseName: {
+      type: String,
+      trim: true
+    },
+    cnic: {
+      type: String,
+      trim: true
+    },
+    contactNumber: {
+      type: String,
+      trim: true
+    },
+    reportingLocation: {
+      type: String,
+      trim: true
+    },
+    reportingDateTime: {
+      type: Date
+    },
+    employeeSignature: {
+      type: String,
+      trim: true
+    },
+    employeeSignatureDate: {
+      type: Date
+    },
+    // Verification (Concerned Department)
+    verificationDepartment: {
+      type: String,
+      trim: true
+    },
+    hodName: {
+      type: String,
+      trim: true
+    },
+    // For Official Use Only (HR Department)
+    joiningRemarks: {
+      type: String,
+      trim: true
+    },
+    hrSignature: {
+      type: String,
+      trim: true
+    },
+    hrSignatureDate: {
+      type: Date
+    }
+  }
 }, {
   timestamps: true
 });

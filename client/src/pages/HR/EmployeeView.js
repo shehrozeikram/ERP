@@ -33,7 +33,11 @@ import {
   AccountBalance as LoanIcon,
   Add as AddIcon,
   EventNote as EventNoteIcon,
-  Sync as SyncIcon
+  Sync as SyncIcon,
+  Description as DescriptionIcon,
+  Print as PrintIcon,
+  School as SchoolIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { formatPKR } from '../../utils/currency';
@@ -239,6 +243,325 @@ const EmployeeView = () => {
       return 'N/A';
     }
     return 'N/A';
+  };
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatDateLong = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const day = date.getDate();
+    const suffix = day === 1 || day === 21 || day === 31 ? 'st' : 
+                   day === 2 || day === 22 ? 'nd' : 
+                   day === 3 || day === 23 ? 'rd' : 'th';
+    return `${day}${suffix} ${date.toLocaleString('en-GB', { month: 'long', year: 'numeric' })}`;
+  };
+
+  const handlePrintJoiningReport = () => {
+    if (!employee?.joiningReport) return;
+
+    const report = employee.joiningReport;
+    const printWindow = window.open('', '_blank');
+    
+    // Helper functions for date formatting in print
+    const formatDateForPrint = (dateString) => {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
+
+    const formatDateTimeForPrint = (dateString) => {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      return date.toLocaleString('en-GB', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+
+    const formatDateLongForPrint = (dateString) => {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      const day = date.getDate();
+      const suffix = day === 1 || day === 21 || day === 31 ? 'st' : 
+                     day === 2 || day === 22 ? 'nd' : 
+                     day === 3 || day === 23 ? 'rd' : 'th';
+      return `${day}${suffix} ${date.toLocaleString('en-GB', { month: 'long', year: 'numeric' })}`;
+    };
+    
+    // Format all dates before creating the template string
+    const issueDateFormatted = report.issueDate ? formatDateLongForPrint(report.issueDate) : '2nd May, 2021';
+    const reportingDateTimeFormatted = report.reportingDateTime ? formatDateTimeForPrint(report.reportingDateTime) : '_________________________';
+    const employeeSignatureDateFormatted = report.employeeSignatureDate ? formatDateForPrint(report.employeeSignatureDate) : '_________________________';
+    const hrSignatureDateFormatted = report.hrSignatureDate ? formatDateForPrint(report.hrSignatureDate) : '_________________________';
+    
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Joining Report - ${employee.firstName} ${employee.lastName}</title>
+          <style>
+            @page {
+              margin: 20mm;
+              size: A4;
+            }
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            body {
+              font-family: 'Times New Roman', serif;
+              font-size: 12pt;
+              line-height: 1.6;
+              color: #000;
+              background: #fff;
+              padding: 20px;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 20px;
+            }
+            .company-logo {
+              margin-bottom: 10px;
+            }
+            .company-name {
+              font-size: 18pt;
+              font-weight: bold;
+              margin-bottom: 15px;
+              letter-spacing: 1px;
+            }
+            .document-info {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding: 8px 15px;
+              background-color: #f0f0f0;
+              border: 1px solid #000;
+              margin-bottom: 15px;
+              font-size: 10pt;
+            }
+            .document-info span {
+              font-weight: bold;
+            }
+            .report-title {
+              text-align: center;
+              font-size: 16pt;
+              font-weight: bold;
+              margin-bottom: 25px;
+              text-decoration: underline;
+            }
+            .section {
+              margin-bottom: 25px;
+            }
+            .section-title {
+              font-weight: bold;
+              font-size: 12pt;
+              margin-bottom: 10px;
+              text-decoration: underline;
+            }
+            .field-line {
+              margin-bottom: 12px;
+              line-height: 1.8;
+            }
+            .field-label {
+              display: inline;
+              font-weight: normal;
+            }
+            .field-value {
+              display: inline;
+              border-bottom: 1px solid #000;
+              min-width: 300px;
+              padding: 0 5px;
+              margin-left: 5px;
+            }
+            .field-blank {
+              display: inline-block;
+              border-bottom: 1px solid #000;
+              min-width: 400px;
+              margin-left: 5px;
+              height: 18px;
+            }
+            .signature-row {
+              display: flex;
+              justify-content: space-between;
+              margin-top: 30px;
+              margin-bottom: 20px;
+            }
+            .signature-box {
+              width: 45%;
+            }
+            .signature-line {
+              border-bottom: 1px solid #000;
+              margin-top: 40px;
+              padding-bottom: 5px;
+            }
+            .hr-section {
+              border-left: 3px solid #000;
+              padding-left: 15px;
+              margin-top: 20px;
+            }
+            .optional-note {
+              display: inline;
+              font-style: italic;
+              color: #666;
+              margin-left: 10px;
+            }
+            .footer {
+              position: fixed;
+              bottom: 20px;
+              left: 0;
+              right: 0;
+              text-align: center;
+              font-size: 9pt;
+              color: #333;
+              padding-top: 20px;
+              border-top: 1px solid #ccc;
+            }
+            @media print {
+              body {
+                padding: 0;
+              }
+              .no-print {
+                display: none;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="company-name">SARDAR GROUP OF COMPANIES</div>
+            <div class="document-info">
+              <span>Document No. ${report.documentNumber || 'UD/HR/FRM-005'}</span>
+              <span>Rev.#: ${report.revisionNumber || '00'}</span>
+              <span>Issue Date: ${issueDateFormatted}</span>
+            </div>
+            <div class="report-title">JOINING REPORT</div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Employee:</div>
+            <div class="field-line">
+              <span>Dear Sir</span>
+            </div>
+            <div class="field-line" style="margin-top: 15px;">
+              <span>With reference to your offer, For the employment as </span>
+              <span class="field-value">${report.employmentPosition || '_________________________'}</span>
+              <span> With Sardar Group of Companies</span>
+            </div>
+            <div class="field-line" style="margin-top: 15px;">
+              <span>I </span>
+              <span class="field-value" style="min-width: 80px;">${report.employeeTitle || 'Mr.'}</span>
+              <span class="field-value" style="min-width: 300px;">${report.employeeName || '_________________________'}</span>
+            </div>
+            <div class="field-line">
+              <span class="field-value" style="min-width: 60px;">${report.parentSpouseRelation || 'S/o'}</span>
+              <span class="field-value" style="min-width: 300px;">${report.parentSpouseName || '_________________________'}</span>
+            </div>
+            <div class="field-line">
+              <span>CNIC # </span>
+              <span class="field-value" style="min-width: 350px;">${report.cnic || '_________________________'}</span>
+            </div>
+            <div class="field-line">
+              <span>Contact No </span>
+              <span class="field-value" style="min-width: 350px;">${report.contactNumber || '_________________________'}</span>
+            </div>
+            <div class="field-line" style="margin-top: 20px;">
+              <span>Reported for duty, at </span>
+              <span class="field-value" style="min-width: 300px;">${report.reportingLocation || '_________________________'}</span>
+              <span> (location)</span>
+            </div>
+            <div class="field-line">
+              <span>On </span>
+              <span class="field-value" style="min-width: 400px;">${reportingDateTimeFormatted}</span>
+              <span> (Time & Date)</span>
+            </div>
+            <div class="signature-row">
+              <div class="signature-box">
+                <div class="field-line">
+                  <span>Signature </span>
+                  <span class="field-value" style="min-width: 250px;">${report.employeeSignature || '_________________________'}</span>
+                </div>
+              </div>
+              <div class="signature-box">
+                <div class="field-line">
+                  <span>Date </span>
+                  <span class="field-value" style="min-width: 250px;">${employeeSignatureDateFormatted}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Verification (Concerned Department):</div>
+            <div style="display: flex; justify-content: space-between; margin-top: 15px;">
+              <div style="width: 48%;">
+                <div class="field-line">
+                  <span>Department: </span>
+                  <span class="field-value" style="min-width: 200px;">${report.verificationDepartment || '_________________________'}</span>
+                </div>
+              </div>
+              <div style="width: 48%;">
+                <div class="field-line">
+                  <span>HOD Name: </span>
+                  <span class="field-value" style="min-width: 200px;">${report.hodName || '_________________________'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section hr-section">
+            <div class="section-title">
+              For Official Use Only (Human Resources Department):
+              <span class="optional-note">-> optional.</span>
+            </div>
+            <div class="field-line" style="margin-top: 15px;">
+              <span>Joining Remarks: </span>
+              <span class="field-value" style="min-width: 400px;">${report.joiningRemarks || '_________________________'}</span>
+            </div>
+            <div class="signature-row">
+              <div class="signature-box">
+                <div class="field-line">
+                  <span>Signature: </span>
+                  <span class="field-value" style="min-width: 250px;">${report.hrSignature || '_________________________'}</span>
+                </div>
+              </div>
+              <div class="signature-box">
+                <div class="field-line">
+                  <span>Date: </span>
+                  <span class="field-value" style="min-width: 250px;">${hrSignatureDateFormatted}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            This document is exclusive property of SGC. It is confidential and cannot be published, copied or multiplied without authorization.
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    // Wait for content to load, then print
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
 
@@ -462,6 +785,177 @@ const EmployeeView = () => {
           </Card>
         </Grid>
 
+        {/* Joining Report Section */}
+        {employee.joiningReport && (
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <DescriptionIcon />
+                    Joining Report
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<PrintIcon />}
+                    onClick={handlePrintJoiningReport}
+                  >
+                    Print Report
+                  </Button>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+                
+                {/* Document Information */}
+                {(employee.joiningReport.documentNumber || employee.joiningReport.revisionNumber || employee.joiningReport.issueDate) && (
+                  <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ mb: 0.5 }}>
+                      Document Information
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      {employee.joiningReport.documentNumber && `Document No: ${employee.joiningReport.documentNumber}`}
+                      {employee.joiningReport.documentNumber && employee.joiningReport.revisionNumber && ' | '}
+                      {employee.joiningReport.revisionNumber && `Rev.#: ${employee.joiningReport.revisionNumber}`}
+                      {employee.joiningReport.issueDate && (employee.joiningReport.documentNumber || employee.joiningReport.revisionNumber) && ' | '}
+                      {employee.joiningReport.issueDate && `Issue Date: ${formatDate(employee.joiningReport.issueDate)}`}
+                    </Typography>
+                  </Box>
+                )}
+                
+                <Grid container spacing={2}>
+                  {employee.joiningReport.employeeName && (
+                    <Grid item xs={12}>
+                      <Typography variant="body2" color="textSecondary">Employee Name</Typography>
+                      <Typography variant="body1">
+                        {employee.joiningReport.employeeTitle} {employee.joiningReport.employeeName}
+                      </Typography>
+                    </Grid>
+                  )}
+                  
+                  {employee.joiningReport.employmentPosition && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" color="textSecondary">Employment Position</Typography>
+                      <Typography variant="body1">{employee.joiningReport.employmentPosition}</Typography>
+                    </Grid>
+                  )}
+                  
+                  {(employee.joiningReport.parentSpouseRelation || employee.joiningReport.parentSpouseName) && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" color="textSecondary">Parent/Spouse</Typography>
+                      <Typography variant="body1">
+                        {employee.joiningReport.parentSpouseRelation} {employee.joiningReport.parentSpouseName}
+                      </Typography>
+                    </Grid>
+                  )}
+                  
+                  {employee.joiningReport.cnic && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" color="textSecondary">CNIC #</Typography>
+                      <Typography variant="body1">{employee.joiningReport.cnic}</Typography>
+                    </Grid>
+                  )}
+                  
+                  {employee.joiningReport.contactNumber && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" color="textSecondary">Contact Number</Typography>
+                      <Typography variant="body1">{employee.joiningReport.contactNumber}</Typography>
+                    </Grid>
+                  )}
+                  
+                  {employee.joiningReport.reportingLocation && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" color="textSecondary">Reporting Location</Typography>
+                      <Typography variant="body1">{employee.joiningReport.reportingLocation}</Typography>
+                    </Grid>
+                  )}
+                  
+                  {employee.joiningReport.reportingDateTime && (
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="body2" color="textSecondary">Reporting Date & Time</Typography>
+                      <Typography variant="body1">{formatDate(employee.joiningReport.reportingDateTime)}</Typography>
+                    </Grid>
+                  )}
+                  
+                  {(employee.joiningReport.employeeSignature || employee.joiningReport.employeeSignatureDate) && (
+                    <>
+                      <Grid item xs={12}>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle2" color="textSecondary" sx={{ mb: 1 }}>
+                          Employee Signature
+                        </Typography>
+                      </Grid>
+                      {employee.joiningReport.employeeSignature && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">Signature</Typography>
+                          <Typography variant="body1">{employee.joiningReport.employeeSignature}</Typography>
+                        </Grid>
+                      )}
+                      {employee.joiningReport.employeeSignatureDate && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">Date</Typography>
+                          <Typography variant="body1">{formatDate(employee.joiningReport.employeeSignatureDate)}</Typography>
+                        </Grid>
+                      )}
+                    </>
+                  )}
+                  
+                  {(employee.joiningReport.verificationDepartment || employee.joiningReport.hodName) && (
+                    <>
+                      <Grid item xs={12}>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle2" color="textSecondary" sx={{ mb: 1 }}>
+                          Verification (Department)
+                        </Typography>
+                      </Grid>
+                      {employee.joiningReport.verificationDepartment && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">Department</Typography>
+                          <Typography variant="body1">{employee.joiningReport.verificationDepartment}</Typography>
+                        </Grid>
+                      )}
+                      {employee.joiningReport.hodName && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">HOD Name</Typography>
+                          <Typography variant="body1">{employee.joiningReport.hodName}</Typography>
+                        </Grid>
+                      )}
+                    </>
+                  )}
+                  
+                  {(employee.joiningReport.joiningRemarks || employee.joiningReport.hrSignature || employee.joiningReport.hrSignatureDate) && (
+                    <>
+                      <Grid item xs={12}>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle2" color="textSecondary" sx={{ mb: 1 }}>
+                          HR Department (Official Use)
+                        </Typography>
+                      </Grid>
+                      {employee.joiningReport.joiningRemarks && (
+                        <Grid item xs={12}>
+                          <Typography variant="body2" color="textSecondary">Joining Remarks</Typography>
+                          <Typography variant="body1">{employee.joiningReport.joiningRemarks}</Typography>
+                        </Grid>
+                      )}
+                      {employee.joiningReport.hrSignature && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">HR Signature</Typography>
+                          <Typography variant="body1">{employee.joiningReport.hrSignature}</Typography>
+                        </Grid>
+                      )}
+                      {employee.joiningReport.hrSignatureDate && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="textSecondary">HR Date</Typography>
+                          <Typography variant="body1">{formatDate(employee.joiningReport.hrSignatureDate)}</Typography>
+                        </Grid>
+                      )}
+                    </>
+                  )}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
         {/* Employment Information */}
         <Grid item xs={12} md={6}>
           <Card>
@@ -593,6 +1087,247 @@ const EmployeeView = () => {
                       <Typography variant="body1">{safeRenderText(employee.placementLocation)}</Typography>
                     </Grid>
                   )}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* Academic Background Section */}
+        {employee.academicBackground && employee.academicBackground.length > 0 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <SchoolIcon />
+                  Academic Background
+                </Typography>
+                <Grid container spacing={2}>
+                  {employee.academicBackground.map((record, index) => (
+                    <Grid item xs={12} key={index}>
+                      <Paper sx={{ p: 2, backgroundColor: '#f8f9fa', mb: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                          Record #{index + 1}
+                        </Typography>
+                        <Grid container spacing={2}>
+                          {record.degree && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Degree</Typography>
+                              <Typography variant="body1">{record.degree}</Typography>
+                            </Grid>
+                          )}
+                          {record.institution && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Institution</Typography>
+                              <Typography variant="body1">{record.institution}</Typography>
+                            </Grid>
+                          )}
+                          {record.fieldOfStudy && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Field of Study</Typography>
+                              <Typography variant="body1">{record.fieldOfStudy}</Typography>
+                            </Grid>
+                          )}
+                          {record.graduationYear && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Graduation Year</Typography>
+                              <Typography variant="body1">{record.graduationYear}</Typography>
+                            </Grid>
+                          )}
+                          {record.gpa && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">GPA</Typography>
+                              <Typography variant="body1">{record.gpa}</Typography>
+                            </Grid>
+                          )}
+                          {record.percentage && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Percentage</Typography>
+                              <Typography variant="body1">{record.percentage}%</Typography>
+                            </Grid>
+                          )}
+                          {record.grade && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Grade</Typography>
+                              <Typography variant="body1">{record.grade}</Typography>
+                            </Grid>
+                          )}
+                          {record.certificate && (
+                            <Grid item xs={12}>
+                              <Typography variant="body2" color="textSecondary">Certificate</Typography>
+                              <Typography variant="body1">{record.certificate}</Typography>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* Professional Education Section */}
+        {employee.professionalEducation && employee.professionalEducation.length > 0 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <SchoolIcon />
+                  Professional Education
+                </Typography>
+                <Grid container spacing={2}>
+                  {employee.professionalEducation.map((course, index) => (
+                    <Grid item xs={12} key={index}>
+                      <Paper sx={{ p: 2, backgroundColor: '#f8f9fa', mb: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            Course #{index + 1}
+                          </Typography>
+                          {course.isActive && (
+                            <Chip label="Active" color="success" size="small" />
+                          )}
+                        </Box>
+                        <Grid container spacing={2}>
+                          {course.courseName && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Course Name</Typography>
+                              <Typography variant="body1">{course.courseName}</Typography>
+                            </Grid>
+                          )}
+                          {course.institution && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Institution</Typography>
+                              <Typography variant="body1">{course.institution}</Typography>
+                            </Grid>
+                          )}
+                          {course.certificationBody && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Certification Body</Typography>
+                              <Typography variant="body1">{course.certificationBody}</Typography>
+                            </Grid>
+                          )}
+                          {course.certificateNumber && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Certificate Number</Typography>
+                              <Typography variant="body1">{course.certificateNumber}</Typography>
+                            </Grid>
+                          )}
+                          {course.completionDate && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Completion Date</Typography>
+                              <Typography variant="body1">{formatDate(course.completionDate)}</Typography>
+                            </Grid>
+                          )}
+                          {course.expiryDate && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Expiry Date</Typography>
+                              <Typography variant="body1">{formatDate(course.expiryDate)}</Typography>
+                            </Grid>
+                          )}
+                          {course.certificate && (
+                            <Grid item xs={12}>
+                              <Typography variant="body2" color="textSecondary">Certificate</Typography>
+                              <Typography variant="body1">{course.certificate}</Typography>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* Employment History Section */}
+        {employee.employmentHistory && employee.employmentHistory.length > 0 && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HistoryIcon />
+                  Employment History
+                </Typography>
+                <Grid container spacing={2}>
+                  {employee.employmentHistory.map((record, index) => (
+                    <Grid item xs={12} key={index}>
+                      <Paper sx={{ p: 2, backgroundColor: '#f8f9fa', mb: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            Employment Record #{index + 1}
+                          </Typography>
+                          {record.isCurrentJob && (
+                            <Chip label="Current Job" color="primary" size="small" />
+                          )}
+                        </Box>
+                        <Grid container spacing={2}>
+                          {record.companyName && (
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="textSecondary">Company Name</Typography>
+                              <Typography variant="body1">{record.companyName}</Typography>
+                            </Grid>
+                          )}
+                          {record.position && (
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="textSecondary">Position</Typography>
+                              <Typography variant="body1">{record.position}</Typography>
+                            </Grid>
+                          )}
+                          {record.startDate && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Start Date</Typography>
+                              <Typography variant="body1">{formatDate(record.startDate)}</Typography>
+                            </Grid>
+                          )}
+                          {record.endDate && !record.isCurrentJob && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">End Date</Typography>
+                              <Typography variant="body1">{formatDate(record.endDate)}</Typography>
+                            </Grid>
+                          )}
+                          {record.location && (
+                            <Grid item xs={12} md={4}>
+                              <Typography variant="body2" color="textSecondary">Location</Typography>
+                              <Typography variant="body1">{record.location}</Typography>
+                            </Grid>
+                          )}
+                          {record.salary && (
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="textSecondary">Salary</Typography>
+                              <Typography variant="body1">{formatPKR(record.salary)}</Typography>
+                            </Grid>
+                          )}
+                          {record.supervisorName && (
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="textSecondary">Supervisor Name</Typography>
+                              <Typography variant="body1">{record.supervisorName}</Typography>
+                            </Grid>
+                          )}
+                          {record.supervisorContact && (
+                            <Grid item xs={12} md={6}>
+                              <Typography variant="body2" color="textSecondary">Supervisor Contact</Typography>
+                              <Typography variant="body1">{record.supervisorContact}</Typography>
+                            </Grid>
+                          )}
+                          {record.responsibilities && (
+                            <Grid item xs={12}>
+                              <Typography variant="body2" color="textSecondary">Responsibilities & Achievements</Typography>
+                              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{record.responsibilities}</Typography>
+                            </Grid>
+                          )}
+                          {record.reasonForLeaving && !record.isCurrentJob && (
+                            <Grid item xs={12}>
+                              <Typography variant="body2" color="textSecondary">Reason for Leaving</Typography>
+                              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{record.reasonForLeaving}</Typography>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  ))}
                 </Grid>
               </CardContent>
             </Card>

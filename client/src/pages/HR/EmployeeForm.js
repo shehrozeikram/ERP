@@ -26,7 +26,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  IconButton
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -38,7 +39,8 @@ import {
   AttachMoney as SalaryIcon,
   Add as AddIcon,
   PhotoCamera as PhotoCameraIcon,
-  Upload as UploadIcon
+  Upload as UploadIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useFormik } from 'formik';
@@ -48,7 +50,7 @@ import { formatPKR } from '../../utils/currency';
 import { useData } from '../../contexts/DataContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
 
-const steps = ['Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
+const steps = ['Joining Report', 'Personal Information', 'Employment Details', 'Contact & Address', 'Salary & Benefits'];
 
 const EmployeeForm = () => {
   const { id } = useParams();
@@ -146,6 +148,27 @@ const EmployeeForm = () => {
 
   // Validation schema
   const validationSchema = Yup.object({
+    joiningReport: Yup.object({
+      documentNumber: Yup.string().optional(),
+      revisionNumber: Yup.string().optional(),
+      issueDate: Yup.date().nullable().optional(),
+      employeeName: Yup.string().optional(),
+      employmentPosition: Yup.string().optional(),
+      employeeTitle: Yup.string().oneOf(['Mr.', 'Mrs.', 'Ms.']).optional(),
+      parentSpouseRelation: Yup.string().oneOf(['S/o', 'D/o', 'W/o']).optional(),
+      parentSpouseName: Yup.string().optional(),
+      cnic: Yup.string().optional(),
+      contactNumber: Yup.string().optional(),
+      reportingLocation: Yup.string().optional(),
+      reportingDateTime: Yup.date().nullable().optional(),
+      employeeSignature: Yup.string().optional(),
+      employeeSignatureDate: Yup.date().nullable().optional(),
+      verificationDepartment: Yup.string().optional(),
+      hodName: Yup.string().optional(),
+      joiningRemarks: Yup.string().optional(),
+      hrSignature: Yup.string().optional(),
+      hrSignatureDate: Yup.date().nullable().optional()
+    }),
     firstName: Yup.string().required('First name is required'),
     lastName: Yup.string(),
     email: Yup.string().nullable().email('Invalid email format').optional(),
@@ -228,7 +251,46 @@ const EmployeeForm = () => {
       city: Yup.string().required('City is required'),
       state: Yup.string().required('State is required'),
       country: Yup.string().required('Country is required')
-    })
+    }),
+    academicBackground: Yup.array().of(
+      Yup.object({
+        degree: Yup.string().optional(),
+        institution: Yup.string().optional(),
+        fieldOfStudy: Yup.string().optional(),
+        graduationYear: Yup.number().optional().min(1900).max(2100),
+        gpa: Yup.number().optional().min(0).max(4),
+        percentage: Yup.number().optional().min(0).max(100),
+        grade: Yup.string().optional(),
+        certificate: Yup.string().optional()
+      })
+    ).optional(),
+    professionalEducation: Yup.array().of(
+      Yup.object({
+        courseName: Yup.string().optional(),
+        institution: Yup.string().optional(),
+        certificationBody: Yup.string().optional(),
+        completionDate: Yup.date().nullable().optional(),
+        expiryDate: Yup.date().nullable().optional(),
+        certificateNumber: Yup.string().optional(),
+        certificate: Yup.string().optional(),
+        isActive: Yup.boolean().optional()
+      })
+    ).optional(),
+    employmentHistory: Yup.array().of(
+      Yup.object({
+        companyName: Yup.string().optional(),
+        position: Yup.string().optional(),
+        startDate: Yup.date().nullable().optional(),
+        endDate: Yup.date().nullable().optional(),
+        isCurrentJob: Yup.boolean().optional(),
+        location: Yup.string().optional(),
+        responsibilities: Yup.string().optional(),
+        reasonForLeaving: Yup.string().optional(),
+        salary: Yup.number().optional().min(0),
+        supervisorName: Yup.string().optional(),
+        supervisorContact: Yup.string().optional()
+      })
+    ).optional()
   });
 
   // Fetch departments
@@ -619,6 +681,27 @@ const EmployeeForm = () => {
           relationship: employeeData.emergencyContact?.relationship || '',
           phone: employeeData.emergencyContact?.phone || ''
         },
+        joiningReport: {
+          documentNumber: employeeData.joiningReport?.documentNumber || 'UD/HR/FRM-005',
+          revisionNumber: employeeData.joiningReport?.revisionNumber || '00',
+          issueDate: employeeData.joiningReport?.issueDate ? new Date(employeeData.joiningReport.issueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          employeeName: employeeData.joiningReport?.employeeName || '',
+          employmentPosition: employeeData.joiningReport?.employmentPosition || '',
+          employeeTitle: employeeData.joiningReport?.employeeTitle || 'Mr.',
+          parentSpouseRelation: employeeData.joiningReport?.parentSpouseRelation || 'S/o',
+          parentSpouseName: employeeData.joiningReport?.parentSpouseName || '',
+          cnic: employeeData.joiningReport?.cnic || '',
+          contactNumber: employeeData.joiningReport?.contactNumber || '',
+          reportingLocation: employeeData.joiningReport?.reportingLocation || '',
+          reportingDateTime: employeeData.joiningReport?.reportingDateTime ? new Date(employeeData.joiningReport.reportingDateTime).toISOString().slice(0, 16) : '',
+          employeeSignature: employeeData.joiningReport?.employeeSignature || '',
+          employeeSignatureDate: employeeData.joiningReport?.employeeSignatureDate ? new Date(employeeData.joiningReport.employeeSignatureDate).toISOString().split('T')[0] : '',
+          verificationDepartment: employeeData.joiningReport?.verificationDepartment || '',
+          hodName: employeeData.joiningReport?.hodName || '',
+          joiningRemarks: employeeData.joiningReport?.joiningRemarks || '',
+          hrSignature: employeeData.joiningReport?.hrSignature || '',
+          hrSignatureDate: employeeData.joiningReport?.hrSignatureDate ? new Date(employeeData.joiningReport.hrSignatureDate).toISOString().split('T')[0] : ''
+        },
         dateOfBirth: employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth).toISOString().split('T')[0] : '',
         hireDate: employeeData.hireDate ? new Date(employeeData.hireDate).toISOString().split('T')[0] : '',
         appointmentDate: employeeData.appointmentDate ? new Date(employeeData.appointmentDate).toISOString().split('T')[0] : '',
@@ -626,7 +709,22 @@ const EmployeeForm = () => {
         confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate).toISOString().split('T')[0] : '',
         isActive: employeeData.isActive !== undefined ? employeeData.isActive : true,
         employmentStatus: employeeData.employmentStatus || 'Draft',
-        profileImage: employeeData.profileImage || ''
+        profileImage: employeeData.profileImage || '',
+        academicBackground: (employeeData.academicBackground || []).map(bg => ({
+          ...bg,
+          graduationYear: bg.graduationYear || ''
+        })),
+        professionalEducation: (employeeData.professionalEducation || []).map(edu => ({
+          ...edu,
+          completionDate: edu.completionDate ? new Date(edu.completionDate).toISOString().split('T')[0] : '',
+          expiryDate: edu.expiryDate ? new Date(edu.expiryDate).toISOString().split('T')[0] : ''
+        })),
+        employmentHistory: (employeeData.employmentHistory || []).map(emp => ({
+          ...emp,
+          startDate: emp.startDate ? new Date(emp.startDate).toISOString().split('T')[0] : '',
+          endDate: emp.endDate ? new Date(emp.endDate).toISOString().split('T')[0] : '',
+          isCurrentJob: emp.isCurrentJob || false
+        }))
       };
       
       console.log('🔍 Form Data prepared:', formData);
@@ -748,6 +846,27 @@ const EmployeeForm = () => {
 
   const formik = useFormik({
     initialValues: {
+    joiningReport: {
+      documentNumber: 'UD/HR/FRM-005',
+      revisionNumber: '00',
+      issueDate: new Date().toISOString().split('T')[0],
+      employeeName: '',
+      employmentPosition: '',
+      employeeTitle: 'Mr.',
+      parentSpouseRelation: 'S/o',
+      parentSpouseName: '',
+      cnic: '',
+      contactNumber: '',
+      reportingLocation: '',
+      reportingDateTime: '',
+      employeeSignature: '',
+      employeeSignatureDate: '',
+      verificationDepartment: '',
+      hodName: '',
+      joiningRemarks: '',
+      hrSignature: '',
+      hrSignatureDate: ''
+    },
       firstName: '',
       lastName: '',
       email: '',
@@ -800,7 +919,10 @@ const EmployeeForm = () => {
       providentFund: {
         isActive: false,
         amount: 0
-      }
+      },
+      academicBackground: [],
+      professionalEducation: [],
+      employmentHistory: []
     },
     validationSchema,
     onSubmit: async (values) => {
@@ -1522,6 +1644,305 @@ const EmployeeForm = () => {
       case 0:
         return (
           <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ p: 3, backgroundColor: '#f8f9fa' }}>
+                <Box sx={{ textAlign: 'center', mb: 3 }}>
+                  <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
+                    SARDAR GROUP OF COMPANIES
+                  </Typography>
+                  <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 600 }}>
+                    JOINING REPORT
+                  </Typography>
+                  <Grid container spacing={2} sx={{ mt: 1, justifyContent: 'center' }}>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        name="joiningReport.documentNumber"
+                        label="Document No"
+                        value={formik.values.joiningReport?.documentNumber || 'UD/HR/FRM-005'}
+                        onChange={formik.handleChange}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={2}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        name="joiningReport.revisionNumber"
+                        label="Rev.#"
+                        value={formik.values.joiningReport?.revisionNumber || '00'}
+                        onChange={formik.handleChange}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        name="joiningReport.issueDate"
+                        label="Issue Date"
+                        type="date"
+                        value={formik.values.joiningReport?.issueDate || new Date().toISOString().split('T')[0]}
+                        onChange={formik.handleChange}
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+                  </Grid>
+                  {formik.values.joiningReport?.documentNumber && (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                      Document No: {formik.values.joiningReport.documentNumber} | Rev.#: {formik.values.joiningReport.revisionNumber || '00'} | Issue Date: {formik.values.joiningReport.issueDate ? new Date(formik.values.joiningReport.issueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Not set'}
+                    </Typography>
+                  )}
+                </Box>
+                
+                <Divider sx={{ my: 3 }} />
+                
+                {/* Employee Section */}
+                <Grid container spacing={3}>
+                  <Grid item xs={12}>
+                    <Typography variant="h6" gutterBottom>
+                      Employee Section
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                      Dear Sir,
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                      With reference to your offer, For the employment as
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.employmentPosition"
+                      label="Employment Position"
+                      value={formik.values.joiningReport?.employmentPosition || ''}
+                      onChange={formik.handleChange}
+                      placeholder="e.g., Software Engineer"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                      With Sardar Group of Companies
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                      I
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={3}>
+                    <FormControl fullWidth>
+                      <InputLabel>Title</InputLabel>
+                      <Select
+                        name="joiningReport.employeeTitle"
+                        value={formik.values.joiningReport?.employeeTitle || 'Mr.'}
+                        onChange={formik.handleChange}
+                        label="Title"
+                      >
+                        <MenuItem value="Mr.">Mr.</MenuItem>
+                        <MenuItem value="Mrs.">Mrs.</MenuItem>
+                        <MenuItem value="Ms.">Ms.</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={9}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.employeeName"
+                      label="Employee Name"
+                      value={formik.values.joiningReport?.employeeName || ''}
+                      onChange={formik.handleChange}
+                      placeholder="Enter employee full name"
+                      required
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={3}>
+                    <FormControl fullWidth>
+                      <InputLabel>Relation</InputLabel>
+                      <Select
+                        name="joiningReport.parentSpouseRelation"
+                        value={formik.values.joiningReport?.parentSpouseRelation || 'S/o'}
+                        onChange={formik.handleChange}
+                        label="Relation"
+                      >
+                        <MenuItem value="S/o">S/o (Son of)</MenuItem>
+                        <MenuItem value="D/o">D/o (Daughter of)</MenuItem>
+                        <MenuItem value="W/o">W/o (Wife of)</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.parentSpouseName"
+                      label="Parent/Spouse Name"
+                      value={formik.values.joiningReport?.parentSpouseName || ''}
+                      onChange={formik.handleChange}
+                      placeholder="Enter parent or spouse name"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.cnic"
+                      label="CNIC #"
+                      value={formik.values.joiningReport?.cnic || ''}
+                      onChange={formik.handleChange}
+                      placeholder="12345-1234567-1"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.contactNumber"
+                      label="Contact No"
+                      value={formik.values.joiningReport?.contactNumber || ''}
+                      onChange={formik.handleChange}
+                      placeholder="+92-300-1234567"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Typography variant="body2" sx={{ mb: 2, mt: 2 }}>
+                      Reported for duty, at
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.reportingLocation"
+                      label="Reporting Location"
+                      value={formik.values.joiningReport?.reportingLocation || ''}
+                      onChange={formik.handleChange}
+                      placeholder="e.g., Head Office, Lahore"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.reportingDateTime"
+                      label="On (Time & Date)"
+                      type="datetime-local"
+                      value={formik.values.joiningReport?.reportingDateTime || ''}
+                      onChange={formik.handleChange}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.employeeSignature"
+                      label="Employee Signature"
+                      value={formik.values.joiningReport?.employeeSignature || ''}
+                      onChange={formik.handleChange}
+                      placeholder="Employee signature"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.employeeSignatureDate"
+                      label="Date (Employee)"
+                      type="date"
+                      value={formik.values.joiningReport?.employeeSignatureDate || ''}
+                      onChange={formik.handleChange}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 3 }} />
+                    <Typography variant="h6" gutterBottom>
+                      Verification (Concerned Department)
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.verificationDepartment"
+                      label="Department"
+                      value={formik.values.joiningReport?.verificationDepartment || ''}
+                      onChange={formik.handleChange}
+                      placeholder="Department name"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.hodName"
+                      label="HOD Name"
+                      value={formik.values.joiningReport?.hodName || ''}
+                      onChange={formik.handleChange}
+                      placeholder="Head of Department name"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 3 }} />
+                    <Typography variant="h6" gutterBottom>
+                      For Official Use Only (Human Resources Department)
+                      <Chip label="Optional" size="small" sx={{ ml: 1 }} color="info" variant="outlined" />
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.joiningRemarks"
+                      label="Joining Remarks"
+                      value={formik.values.joiningReport?.joiningRemarks || ''}
+                      onChange={formik.handleChange}
+                      multiline
+                      rows={3}
+                      placeholder="Enter any remarks or notes"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.hrSignature"
+                      label="HR Signature"
+                      value={formik.values.joiningReport?.hrSignature || ''}
+                      onChange={formik.handleChange}
+                      placeholder="HR representative signature"
+                    />
+                  </Grid>
+                  
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      name="joiningReport.hrSignatureDate"
+                      label="Date (HR)"
+                      type="date"
+                      value={formik.values.joiningReport?.hrSignatureDate || ''}
+                      onChange={formik.handleChange}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                </Grid>
+              </Card>
+            </Grid>
+          </Grid>
+        );
+
+      case 1:
+        return (
+          <Grid container spacing={3}>
             {/* Status Indicator */}
             {id && id !== 'add' && (
               <Grid item xs={12}>
@@ -1752,7 +2173,7 @@ const EmployeeForm = () => {
           </Grid>
         );
 
-      case 1:
+      case 2:
         return (
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
@@ -1820,346 +2241,501 @@ const EmployeeForm = () => {
                 helperText={formik.touched.hireDate && formik.errors.hireDate}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                name="salary.gross"
-                label="Gross Salary"
-                type="number"
-                value={formik.values.salary?.gross || ''}
-                onChange={formik.handleChange}
-                error={formik.touched.salary?.gross && Boolean(formik.errors.salary?.gross)}
-                helperText={formik.touched.salary?.gross && formik.errors.salary?.gross}
-                InputProps={{
-                  startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                }}
-              />
-            </Grid>
-            {/* Flexible Allowances Section */}
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1 }}>
-                Allowances Management
-              </Typography>
-            </Grid>
-            
-            {/* Conveyance Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.conveyance?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.conveyance.isActive', e.target.checked)}
-                      name="allowances.conveyance.isActive"
-                    />
-                  }
-                  label="Conveyance Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.conveyance?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.conveyance.amount"
-                  label="Conveyance Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.conveyance?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            
 
-            
-            {/* Food Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.food?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.food.isActive', e.target.checked)}
-                      name="allowances.food.isActive"
-                    />
-                  }
-                  label="Food Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.food?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.food.amount"
-                  label="Food Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.food?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            
-            {/* Vehicle & Fuel Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.vehicleFuel?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.vehicleFuel.isActive', e.target.checked)}
-                      name="allowances.vehicleFuel.isActive"
-                    />
-                  }
-                  label="Vehicle & Fuel Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.vehicleFuel?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.vehicleFuel.amount"
-                  label="Vehicle & Fuel Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.vehicleFuel?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            
-            {/* Medical Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.medical?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.medical.isActive', e.target.checked)}
-                      name="allowances.medical.isActive"
-                    />
-                  }
-                  label="Medical Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.medical?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.medical.amount"
-                  label="Medical Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.medical?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            
-            {/* House Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.houseRent?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.houseRent.isActive', e.target.checked)}
-                      name="allowances.houseRent.isActive"
-                    />
-                  }
-                  label="House Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.houseRent?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.houseRent.amount"
-                  label="House Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.houseRent?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            
-            {/* Special Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.special?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.special.isActive', e.target.checked)}
-                      name="allowances.special.isActive"
-                    />
-                  }
-                  label="Special Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.special?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.special.amount"
-                  label="Special Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.special?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            
-            {/* Other Allowance */}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.allowances?.other?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('allowances.other.isActive', e.target.checked)}
-                      name="allowances.other.isActive"
-                    />
-                  }
-                  label="Other Allowance"
-                />
-              </FormControl>
-            </Grid>
-            {formik.values.allowances?.other?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="allowances.other.amount"
-                  label="Other Allowance Amount"
-                  type="number"
-                  value={formik.values.allowances?.other?.amount || ''}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                />
-              </Grid>
-            )}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.eobi?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('eobi.isActive', e.target.checked)}
-                      name="eobi.isActive"
-                    />
-                  }
-                  label="EOBI Active"
-                />
-                <FormHelperText>
-                  Employees' Old-Age Benefits Institution (6% of basic salary)
-                </FormHelperText>
-              </FormControl>
-            </Grid>
-            {formik.values.eobi?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="eobi.amount"
-                  label="EOBI Amount"
-                  type="number"
-                  value={formik.values.eobi?.amount || 370}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    readOnly: true,
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                  helperText="Fixed amount: Rs 370 (1% of minimum wage)"
-                />
-              </Grid>
-            )}
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formik.values.providentFund?.isActive || false}
-                      onChange={(e) => formik.setFieldValue('providentFund.isActive', e.target.checked)}
-                      name="providentFund.isActive"
-                    />
-                  }
-                  label="Provident Fund Active"
-                />
-                <FormHelperText>
-                                      Provident Fund (8.34% of basic salary)
-                </FormHelperText>
-              </FormControl>
-            </Grid>
-            {formik.values.providentFund?.isActive && (
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="providentFund.amount"
-                  label="Provident Fund Amount"
-                  type="number"
-                  value={formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6 * 0.08)}
-                  onChange={formik.handleChange}
-                  InputProps={{
-                    readOnly: true,
-                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
-                  }}
-                                      helperText="Auto-calculated: 8.34% of basic salary"
-                />
-              </Grid>
-            )}
-            
-            
-            <Grid item xs={12}>
-              <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
-                <Typography variant="h6" gutterBottom>
-                  Auto-Calculated Salary Breakdown
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Basic Salary (66.66%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6666))}
+            {/* Academic Background Section - Show when any qualification is selected */}
+            {formik.values.qualification && (
+              <>
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Academic Background (Optional)
                     </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      House Rent (23.34%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.2334))}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Total: {formatPKR(formik.values.salary?.gross || 0)}
-                    </Typography>
-                  </Grid>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        const currentBackground = formik.values.academicBackground || [];
+                        formik.setFieldValue('academicBackground', [
+                          ...currentBackground,
+                          {
+                            degree: '',
+                            institution: '',
+                            fieldOfStudy: '',
+                            graduationYear: '',
+                            gpa: '',
+                            percentage: '',
+                            grade: '',
+                            certificate: ''
+                          }
+                        ]);
+                      }}
+                    >
+                      Add Academic Record
+                    </Button>
+                  </Box>
                 </Grid>
-              </Card>
-            </Grid>
-            
+
+                {formik.values.academicBackground?.map((record, index) => (
+                  <React.Fragment key={index}>
+                    <Grid item xs={12}>
+                      <Paper sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            Academic Record #{index + 1}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              const updated = formik.values.academicBackground.filter((_, i) => i !== index);
+                              formik.setFieldValue('academicBackground', updated);
+                            }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.degree`}
+                              label="Degree"
+                              value={record.degree || ''}
+                              onChange={formik.handleChange}
+                              placeholder="e.g., BSc, MSc, PhD"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.institution`}
+                              label="Institution"
+                              value={record.institution || ''}
+                              onChange={formik.handleChange}
+                              placeholder="University/College name"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.fieldOfStudy`}
+                              label="Field of Study"
+                              value={record.fieldOfStudy || ''}
+                              onChange={formik.handleChange}
+                              placeholder="e.g., Computer Science"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.graduationYear`}
+                              label="Graduation Year"
+                              type="number"
+                              value={record.graduationYear || ''}
+                              onChange={formik.handleChange}
+                              inputProps={{ min: 1900, max: 2100 }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.gpa`}
+                              label="GPA"
+                              type="number"
+                              value={record.gpa || ''}
+                              onChange={formik.handleChange}
+                              inputProps={{ min: 0, max: 4, step: 0.01 }}
+                              placeholder="0.00 - 4.00"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.percentage`}
+                              label="Percentage"
+                              type="number"
+                              value={record.percentage || ''}
+                              onChange={formik.handleChange}
+                              inputProps={{ min: 0, max: 100 }}
+                              placeholder="0 - 100"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.grade`}
+                              label="Grade"
+                              value={record.grade || ''}
+                              onChange={formik.handleChange}
+                              placeholder="e.g., A, B+, First Division"
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              name={`academicBackground.${index}.certificate`}
+                              label="Certificate (URL or path)"
+                              value={record.certificate || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Certificate file path or URL"
+                            />
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  </React.Fragment>
+                ))}
+              </>
+            )}
+
+            {/* Professional Education Section - Show when any qualification is selected */}
+            {formik.values.qualification && (
+              <>
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Professional Education (Optional)
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        const currentEducation = formik.values.professionalEducation || [];
+                        formik.setFieldValue('professionalEducation', [
+                          ...currentEducation,
+                          {
+                            courseName: '',
+                            institution: '',
+                            certificationBody: '',
+                            completionDate: '',
+                            expiryDate: '',
+                            certificateNumber: '',
+                            certificate: '',
+                            isActive: true
+                          }
+                        ]);
+                      }}
+                    >
+                      Add Professional Course
+                    </Button>
+                  </Box>
+                </Grid>
+
+                {formik.values.professionalEducation?.map((course, index) => (
+                  <React.Fragment key={index}>
+                    <Grid item xs={12}>
+                      <Paper sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            Professional Course #{index + 1}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              const updated = formik.values.professionalEducation.filter((_, i) => i !== index);
+                              formik.setFieldValue('professionalEducation', updated);
+                            }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.courseName`}
+                              label="Course Name"
+                              value={course.courseName || ''}
+                              onChange={formik.handleChange}
+                              placeholder="e.g., PMP Certification, AWS Cloud"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.institution`}
+                              label="Institution"
+                              value={course.institution || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Training institute or organization"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.certificationBody`}
+                              label="Certification Body"
+                              value={course.certificationBody || ''}
+                              onChange={formik.handleChange}
+                              placeholder="e.g., PMI, AWS, Microsoft"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.certificateNumber`}
+                              label="Certificate Number"
+                              value={course.certificateNumber || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Certificate ID or number"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.completionDate`}
+                              label="Completion Date"
+                              type="date"
+                              value={course.completionDate || ''}
+                              onChange={formik.handleChange}
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.expiryDate`}
+                              label="Expiry Date (if applicable)"
+                              type="date"
+                              value={course.expiryDate || ''}
+                              onChange={formik.handleChange}
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <FormControlLabel
+                              control={
+                                <Switch
+                                  checked={course.isActive !== false}
+                                  onChange={(e) => {
+                                    formik.setFieldValue(`professionalEducation.${index}.isActive`, e.target.checked);
+                                  }}
+                                />
+                              }
+                              label="Active"
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              name={`professionalEducation.${index}.certificate`}
+                              label="Certificate (URL or path)"
+                              value={course.certificate || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Certificate file path or URL"
+                            />
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  </React.Fragment>
+                ))}
+              </>
+            )}
+
+            {/* Employment History Section */}
+            {formik.values.qualification && (
+              <>
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 3 }} />
+                  <Typography variant="h6" gutterBottom>
+                    Employment History
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Add previous employment records (optional)
+                  </Typography>
+                </Grid>
+
+                <Grid item xs={12}>
+                  <Box sx={{ mb: 2 }}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        const currentHistory = formik.values.employmentHistory || [];
+                        formik.setFieldValue('employmentHistory', [
+                          ...currentHistory,
+                          {
+                            companyName: '',
+                            position: '',
+                            startDate: '',
+                            endDate: '',
+                            isCurrentJob: false,
+                            location: '',
+                            responsibilities: '',
+                            reasonForLeaving: '',
+                            salary: '',
+                            supervisorName: '',
+                            supervisorContact: ''
+                          }
+                        ]);
+                      }}
+                    >
+                      Add Employment Record
+                    </Button>
+                  </Box>
+                </Grid>
+
+                {formik.values.employmentHistory?.map((record, index) => (
+                  <React.Fragment key={index}>
+                    <Grid item xs={12}>
+                      <Paper sx={{ p: 2, backgroundColor: '#f8f9fa' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            Employment Record #{index + 1}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              const updated = formik.values.employmentHistory.filter((_, i) => i !== index);
+                              formik.setFieldValue('employmentHistory', updated);
+                            }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.companyName`}
+                              label="Company Name"
+                              value={record.companyName || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Previous employer company name"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.position`}
+                              label="Position / Job Title"
+                              value={record.position || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Your position at this company"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.startDate`}
+                              label="Start Date"
+                              type="date"
+                              value={record.startDate || ''}
+                              onChange={formik.handleChange}
+                              InputLabelProps={{ shrink: true }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.endDate`}
+                              label="End Date"
+                              type="date"
+                              value={record.endDate || ''}
+                              onChange={formik.handleChange}
+                              InputLabelProps={{ shrink: true }}
+                              disabled={record.isCurrentJob}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <FormControlLabel
+                              control={
+                                <Switch
+                                  checked={record.isCurrentJob || false}
+                                  onChange={(e) => {
+                                    formik.setFieldValue(`employmentHistory.${index}.isCurrentJob`, e.target.checked);
+                                    if (e.target.checked) {
+                                      formik.setFieldValue(`employmentHistory.${index}.endDate`, '');
+                                    }
+                                  }}
+                                />
+                              }
+                              label="Current Job"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.location`}
+                              label="Location"
+                              value={record.location || ''}
+                              onChange={formik.handleChange}
+                              placeholder="City, Country"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.salary`}
+                              label="Salary (Optional)"
+                              type="number"
+                              value={record.salary || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Monthly salary"
+                              InputProps={{
+                                startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                              }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.supervisorName`}
+                              label="Supervisor Name (Optional)"
+                              value={record.supervisorName || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Direct supervisor or manager"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <TextField
+                              fullWidth
+                              name={`employmentHistory.${index}.supervisorContact`}
+                              label="Supervisor Contact (Optional)"
+                              value={record.supervisorContact || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Phone or email"
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={3}
+                              name={`employmentHistory.${index}.responsibilities`}
+                              label="Responsibilities & Achievements"
+                              value={record.responsibilities || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Describe your key responsibilities and achievements"
+                            />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={2}
+                              name={`employmentHistory.${index}.reasonForLeaving`}
+                              label="Reason for Leaving (Optional)"
+                              value={record.reasonForLeaving || ''}
+                              onChange={formik.handleChange}
+                              placeholder="Reason for leaving this position"
+                              disabled={record.isCurrentJob}
+                            />
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    </Grid>
+                  </React.Fragment>
+                ))}
+              </>
+            )}
             {/* Current Placement Summary */}
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 2, backgroundColor: '#e3f2fd' }}>
@@ -2211,46 +2787,6 @@ const EmployeeForm = () => {
                   </Grid>
                 </Grid>
               </Card>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth>
-                <InputLabel>Bank Name</InputLabel>
-                <Select
-                  name="bankName"
-                  value={safeFormValue(formik.values.bankName)}
-                  onChange={formik.handleChange}
-                  error={formik.touched.bankName && Boolean(formik.errors.bankName)}
-                  label="Bank Name"
-                >
-                  {banks.map((bank) => (
-                    <MenuItem key={bank._id} value={bank._id}>
-                      {safeRenderText(bank.name)} ({safeRenderText(bank.type)})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                name="bankAccountNumber"
-                label="Bank Account Number"
-                value={formik.values.bankAccountNumber}
-                onChange={formik.handleChange}
-                error={formik.touched.bankAccountNumber && Boolean(formik.errors.bankAccountNumber)}
-                helperText={formik.touched.bankAccountNumber && formik.errors.bankAccountNumber}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                name="foreignBankAccount"
-                label="Foreign Bank Account (Optional)"
-                value={formik.values.foreignBankAccount}
-                onChange={formik.handleChange}
-                error={formik.touched.foreignBankAccount && Boolean(formik.errors.foreignBankAccount)}
-                helperText={formik.touched.foreignBankAccount && formik.errors.foreignBankAccount}
-              />
             </Grid>
 
             {/* Placement Information */}
@@ -2737,7 +3273,7 @@ const EmployeeForm = () => {
           </Grid>
         );
 
-      case 2:
+      case 3:
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
@@ -2857,10 +3393,416 @@ const EmployeeForm = () => {
           </Grid>
         );
 
-      case 3:
+      case 4:
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Salary & Benefits
+              </Typography>
+            </Grid>
+            
+            {/* Gross Salary */}
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                name="salary.gross"
+                label="Gross Salary"
+                type="number"
+                value={formik.values.salary?.gross || ''}
+                onChange={formik.handleChange}
+                error={formik.touched.salary?.gross && Boolean(formik.errors.salary?.gross)}
+                helperText={formik.touched.salary?.gross && formik.errors.salary?.gross}
+                InputProps={{
+                  startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                }}
+                required
+              />
+            </Grid>
+            
+            {/* Flexible Allowances Section */}
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom sx={{ mt: 2, mb: 1 }}>
+                Allowances Management
+              </Typography>
+            </Grid>
+            
+            {/* Conveyance Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.conveyance?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.conveyance.isActive', e.target.checked)}
+                      name="allowances.conveyance.isActive"
+                    />
+                  }
+                  label="Conveyance Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.conveyance?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.conveyance.amount"
+                  label="Conveyance Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.conveyance?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Food Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.food?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.food.isActive', e.target.checked)}
+                      name="allowances.food.isActive"
+                    />
+                  }
+                  label="Food Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.food?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.food.amount"
+                  label="Food Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.food?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Vehicle & Fuel Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.vehicleFuel?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.vehicleFuel.isActive', e.target.checked)}
+                      name="allowances.vehicleFuel.isActive"
+                    />
+                  }
+                  label="Vehicle & Fuel Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.vehicleFuel?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.vehicleFuel.amount"
+                  label="Vehicle & Fuel Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.vehicleFuel?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Medical Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.medical?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.medical.isActive', e.target.checked)}
+                      name="allowances.medical.isActive"
+                    />
+                  }
+                  label="Medical Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.medical?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.medical.amount"
+                  label="Medical Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.medical?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* House Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.houseRent?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.houseRent.isActive', e.target.checked)}
+                      name="allowances.houseRent.isActive"
+                    />
+                  }
+                  label="House Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.houseRent?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.houseRent.amount"
+                  label="House Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.houseRent?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Special Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.special?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.special.isActive', e.target.checked)}
+                      name="allowances.special.isActive"
+                    />
+                  }
+                  label="Special Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.special?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.special.amount"
+                  label="Special Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.special?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* Other Allowance */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.allowances?.other?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('allowances.other.isActive', e.target.checked)}
+                      name="allowances.other.isActive"
+                    />
+                  }
+                  label="Other Allowance"
+                />
+              </FormControl>
+            </Grid>
+            {formik.values.allowances?.other?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="allowances.other.amount"
+                  label="Other Allowance Amount"
+                  type="number"
+                  value={formik.values.allowances?.other?.amount || ''}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                />
+              </Grid>
+            )}
+            
+            {/* EOBI and Provident Fund */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 3 }} />
+              <Typography variant="h6" gutterBottom>
+                Deductions
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.eobi?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('eobi.isActive', e.target.checked)}
+                      name="eobi.isActive"
+                    />
+                  }
+                  label="EOBI Active"
+                />
+                <FormHelperText>
+                  Employees' Old-Age Benefits Institution (6% of basic salary)
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.eobi?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="eobi.amount"
+                  label="EOBI Amount"
+                  type="number"
+                  value={formik.values.eobi?.amount || 370}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    readOnly: true,
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                  helperText="Fixed amount: Rs 370 (1% of minimum wage)"
+                />
+              </Grid>
+            )}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formik.values.providentFund?.isActive || false}
+                      onChange={(e) => formik.setFieldValue('providentFund.isActive', e.target.checked)}
+                      name="providentFund.isActive"
+                    />
+                  }
+                  label="Provident Fund Active"
+                />
+                <FormHelperText>
+                  Provident Fund (8.34% of basic salary)
+                </FormHelperText>
+              </FormControl>
+            </Grid>
+            {formik.values.providentFund?.isActive && (
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  name="providentFund.amount"
+                  label="Provident Fund Amount"
+                  type="number"
+                  value={formik.values.providentFund?.amount || Math.round((formik.values.salary?.gross || 0) * 0.6 * 0.08)}
+                  onChange={formik.handleChange}
+                  InputProps={{
+                    readOnly: true,
+                    startAdornment: <span style={{ marginRight: 8 }}>PKR</span>
+                  }}
+                  helperText="Auto-calculated: 8.34% of basic salary"
+                />
+              </Grid>
+            )}
+            
+            {/* Auto-Calculated Salary Breakdown */}
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ p: 2, backgroundColor: '#f8f9fa', mt: 2 }}>
+                <Typography variant="h6" gutterBottom>
+                  Auto-Calculated Salary Breakdown
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Basic Salary (66.66%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.6666))}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      House Rent (23.34%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.2334))}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Medical (10%): {formatPKR(Math.round((formik.values.salary?.gross || 0) * 0.1))}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total: {formatPKR(formik.values.salary?.gross || 0)}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Card>
+            </Grid>
+            
+            {/* Bank Information */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 3 }} />
+              <Typography variant="h6" gutterBottom>
+                Bank Information
+              </Typography>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Bank Name</InputLabel>
+                <Select
+                  name="bankName"
+                  value={safeFormValue(formik.values.bankName)}
+                  onChange={formik.handleChange}
+                  error={formik.touched.bankName && Boolean(formik.errors.bankName)}
+                  label="Bank Name"
+                >
+                  {banks.map((bank) => (
+                    <MenuItem key={bank._id} value={bank._id}>
+                      {safeRenderText(bank.name)} ({safeRenderText(bank.type)})
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                name="bankAccountNumber"
+                label="Bank Account Number"
+                value={formik.values.bankAccountNumber}
+                onChange={formik.handleChange}
+                error={formik.touched.bankAccountNumber && Boolean(formik.errors.bankAccountNumber)}
+                helperText={formik.touched.bankAccountNumber && formik.errors.bankAccountNumber}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                name="foreignBankAccount"
+                label="Foreign Bank Account (Optional)"
+                value={formik.values.foreignBankAccount}
+                onChange={formik.handleChange}
+                error={formik.touched.foreignBankAccount && Boolean(formik.errors.foreignBankAccount)}
+                helperText={formik.touched.foreignBankAccount && formik.errors.foreignBankAccount}
+              />
+            </Grid>
+            
+            <Grid item xs={12}>
+              <Divider sx={{ my: 3 }} />
               <Typography variant="h6" gutterBottom>
                 Salary & Benefits Summary
               </Typography>
