@@ -77,6 +77,14 @@ const vehicleMaintenanceSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  engineNo: {
+    type: String,
+    trim: true
+  },
+  chassisNo: {
+    type: String,
+    trim: true
+  },
   status: {
     type: String,
     enum: ['Scheduled', 'In Progress', 'Completed', 'Cancelled'],

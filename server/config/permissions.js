@@ -386,6 +386,11 @@ const PERMISSION_MAPPINGS = {
   'admin.vehicles.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.vehicles.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
+  // Vehicle maintenance permissions (aliases for vehicle routes)
+  'vehicle_create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE],
+  'vehicle_update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
+  'vehicle_delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
+  
   'admin.groceries.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.groceries.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.groceries.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],

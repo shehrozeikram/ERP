@@ -54,7 +54,9 @@ const VehicleMaintenanceForm = () => {
     status: 'Scheduled',
     priority: 'Medium',
     estimatedDuration: '',
-    notes: ''
+    notes: '',
+    engineNo: '',
+    chassisNo: ''
   });
 
   const [newPart, setNewPart] = useState({
@@ -101,7 +103,9 @@ const VehicleMaintenanceForm = () => {
         status: maintenance.status,
         priority: maintenance.priority,
         estimatedDuration: maintenance.estimatedDuration || '',
-        notes: maintenance.notes || ''
+        notes: maintenance.notes || '',
+        engineNo: maintenance.engineNo || '',
+        chassisNo: maintenance.chassisNo || ''
       });
     } catch (err) {
       setError('Failed to fetch maintenance record');
@@ -344,6 +348,26 @@ const VehicleMaintenanceForm = () => {
                   onChange={handleChange('mileageAtService')}
                   required
                   inputProps={{ min: 0 }}
+                />
+              </Grid>
+
+              {/* Engine No */}
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Engine No"
+                  value={formData.engineNo}
+                  onChange={handleChange('engineNo')}
+                />
+              </Grid>
+
+              {/* Chassis No */}
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label="Chassis No"
+                  value={formData.chassisNo}
+                  onChange={handleChange('chassisNo')}
                 />
               </Grid>
 
