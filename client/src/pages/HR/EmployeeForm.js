@@ -194,8 +194,8 @@ const EmployeeForm = () => {
     // Employment status
     employmentStatus: Yup.string().oneOf(['Draft', 'Active', 'Inactive', 'Terminated', 'Resigned', 'Retired'], 'Invalid employment status'),
     // Placement fields
-    placementCompany: Yup.string().required('Company is required'),
-    placementSector: Yup.string().required('Sector is required'),
+    placementCompany: Yup.string().optional(),
+    placementSector: Yup.string().optional(),
     placementProject: Yup.string(),
     placementDepartment: Yup.string(),
     placementSection: Yup.string(),
@@ -257,9 +257,59 @@ const EmployeeForm = () => {
         degree: Yup.string().optional(),
         institution: Yup.string().optional(),
         fieldOfStudy: Yup.string().optional(),
-        graduationYear: Yup.number().optional().min(1900).max(2100),
-        gpa: Yup.number().optional().min(0).max(4),
-        percentage: Yup.number().optional().min(0).max(100),
+        graduationYear: Yup.mixed()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            // Convert empty string, null, or undefined to undefined
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return undefined;
+            }
+            const num = Number(originalValue);
+            return isNaN(num) ? undefined : num;
+          })
+          .test('is-valid-year', 'Graduation year must be between 1900 and 2100', function(value) {
+            // If value is undefined/null/empty, it's valid (optional field)
+            if (value === undefined || value === null || value === '') {
+              return true;
+            }
+            const num = Number(value);
+            return !isNaN(num) && num >= 1900 && num <= 2100;
+          }),
+        gpa: Yup.mixed()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return undefined;
+            }
+            const num = Number(originalValue);
+            return isNaN(num) ? undefined : num;
+          })
+          .test('is-valid-gpa', 'GPA must be between 0 and 4', function(value) {
+            if (value === undefined || value === null || value === '') {
+              return true;
+            }
+            const num = Number(value);
+            return !isNaN(num) && num >= 0 && num <= 4;
+          }),
+        percentage: Yup.mixed()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return undefined;
+            }
+            const num = Number(originalValue);
+            return isNaN(num) ? undefined : num;
+          })
+          .test('is-valid-percentage', 'Percentage must be between 0 and 100', function(value) {
+            if (value === undefined || value === null || value === '') {
+              return true;
+            }
+            const num = Number(value);
+            return !isNaN(num) && num >= 0 && num <= 100;
+          }),
         grade: Yup.string().optional(),
         certificate: Yup.string().optional()
       })
@@ -269,8 +319,24 @@ const EmployeeForm = () => {
         courseName: Yup.string().optional(),
         institution: Yup.string().optional(),
         certificationBody: Yup.string().optional(),
-        completionDate: Yup.date().nullable().optional(),
-        expiryDate: Yup.date().nullable().optional(),
+        completionDate: Yup.date()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return null;
+            }
+            return value;
+          }),
+        expiryDate: Yup.date()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return null;
+            }
+            return value;
+          }),
         certificateNumber: Yup.string().optional(),
         certificate: Yup.string().optional(),
         isActive: Yup.boolean().optional()
@@ -280,13 +346,45 @@ const EmployeeForm = () => {
       Yup.object({
         companyName: Yup.string().optional(),
         position: Yup.string().optional(),
-        startDate: Yup.date().nullable().optional(),
-        endDate: Yup.date().nullable().optional(),
+        startDate: Yup.date()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return null;
+            }
+            return value;
+          }),
+        endDate: Yup.date()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return null;
+            }
+            return value;
+          }),
         isCurrentJob: Yup.boolean().optional(),
         location: Yup.string().optional(),
         responsibilities: Yup.string().optional(),
         reasonForLeaving: Yup.string().optional(),
-        salary: Yup.number().optional().min(0),
+        salary: Yup.mixed()
+          .nullable()
+          .optional()
+          .transform((value, originalValue) => {
+            if (originalValue === '' || originalValue === null || originalValue === undefined) {
+              return undefined;
+            }
+            const num = Number(originalValue);
+            return isNaN(num) ? undefined : num;
+          })
+          .test('is-valid-salary', 'Salary must be a positive number', function(value) {
+            if (value === undefined || value === null || value === '') {
+              return true;
+            }
+            const num = Number(value);
+            return !isNaN(num) && num >= 0;
+          }),
         supervisorName: Yup.string().optional(),
         supervisorContact: Yup.string().optional()
       })
@@ -299,7 +397,7 @@ const EmployeeForm = () => {
       const response = await api.get('/hr/departments');
       setDepartments(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching departments:', error);
+      // Error fetching departments
     }
   };
 
@@ -311,7 +409,7 @@ const EmployeeForm = () => {
       const response = await api.get('/hr/banks');
       setBanks(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching banks:', error);
+      // Error fetching banks
     }
   };
 
@@ -321,7 +419,7 @@ const EmployeeForm = () => {
       const response = await api.get('/hr/companies');
       setCompanies(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching companies:', error);
+      // Error fetching companies
     }
   };
 
@@ -331,7 +429,7 @@ const EmployeeForm = () => {
       const response = await api.get('/hr/sectors');
       setSectors(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching sectors:', error);
+      // Error fetching sectors
     }
   };
 
@@ -343,7 +441,7 @@ const EmployeeForm = () => {
       const response = await api.get('/projects');
       setProjects(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching projects:', error);
+      // Error fetching projects
     }
   };
 
@@ -353,7 +451,7 @@ const EmployeeForm = () => {
       const response = await api.get('/sections');
       setSections(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching sections:', error);
+      // Error fetching sections
     }
   };
 
@@ -363,7 +461,7 @@ const EmployeeForm = () => {
       const response = await api.get(`/sections?department=${departmentId}`);
       setSections(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching sections by department:', error);
+      // Error fetching sections by department
     }
   };
 
@@ -373,7 +471,7 @@ const EmployeeForm = () => {
       const response = await api.get(`/designations?section=${sectionId}`);
       setDesignations(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching designations by section:', error);
+      // Error fetching designations by section
     }
   };
 
@@ -383,7 +481,7 @@ const EmployeeForm = () => {
       const response = await api.get('/designations');
       setDesignations(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching designations:', error);
+      // Error fetching designations
     }
   };
 
@@ -399,11 +497,9 @@ const EmployeeForm = () => {
       if (formik.values.placementLocation && 
           formik.values.placementLocation !== 'add_new' &&
           !fetchedLocations.some(loc => loc._id === formik.values.placementLocation)) {
-        console.log('Clearing invalid placementLocation:', formik.values.placementLocation);
         formik.setFieldValue('placementLocation', '');
       }
     } catch (error) {
-      console.error('Error fetching locations:', error);
     }
   };
 
@@ -414,7 +510,7 @@ const EmployeeForm = () => {
       const fetchedQualifications = response.data.data || [];
       setQualifications(fetchedQualifications);
     } catch (error) {
-      console.error('Error fetching qualifications:', error);
+      // Error fetching qualifications
     }
   };
 
@@ -424,7 +520,7 @@ const EmployeeForm = () => {
       const response = await api.get('/countries');
       setCountries(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching countries:', error);
+      // Error fetching countries
     }
   };
 
@@ -434,7 +530,7 @@ const EmployeeForm = () => {
       const response = await api.get(url);
       setProvinces(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching provinces:', error);
+      // Error fetching provinces
     }
   };
 
@@ -444,7 +540,7 @@ const EmployeeForm = () => {
       const response = await api.get(url);
       setCities(response.data.data || []);
     } catch (error) {
-      console.error('Error fetching cities:', error);
+      // Error fetching cities
     }
   };
 
@@ -454,7 +550,7 @@ const EmployeeForm = () => {
       const response = await api.get('/hr/employees/next-id');
       setNextEmployeeId(response.data.data.nextEmployeeId);
     } catch (error) {
-      console.error('Error fetching next employee ID:', error);
+      // Error fetching next employee ID
     }
   };
 
@@ -484,8 +580,6 @@ const EmployeeForm = () => {
 
       const formData = new FormData();
       formData.append('profileImage', file);
-
-      console.log('📤 Uploading image:', file.name, 'Size:', file.size);
       
       const response = await api.post('/hr/upload-image', formData, {
         headers: {
@@ -495,16 +589,12 @@ const EmployeeForm = () => {
 
       if (response.data.success) {
         const imagePath = response.data.data.imagePath;
-        console.log('✅ Image uploaded successfully. Path:', imagePath);
         
         // Set the profileImage field in formik
         formik.setFieldValue('profileImage', imagePath);
-        console.log('✅ ProfileImage field set to:', imagePath);
         
         // Use the server URL for preview
-        const serverImageUrl = getImageUrl(imagePath);
-        console.log('✅ Image preview URL:', serverImageUrl);
-        setImagePreview(serverImageUrl);
+        setImagePreview(getImageUrl(imagePath));
         
         setSnackbar({
           open: true,
@@ -515,7 +605,6 @@ const EmployeeForm = () => {
         throw new Error(response.data.message || 'Image upload failed');
       }
     } catch (error) {
-      console.error('❌ Error uploading image:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Error uploading image';
       setSnackbar({
         open: true,
@@ -576,7 +665,6 @@ const EmployeeForm = () => {
     
     // Validate ID format before making request
     if (id && !/^[0-9a-fA-F]{24}$/.test(id)) {
-      console.error('❌ Invalid employee ID format:', id);
       setSnackbar({
         open: true,
         message: `Invalid employee ID format: ${id}. Please check the URL.`,
@@ -587,29 +675,9 @@ const EmployeeForm = () => {
     
     try {
       setLoading(true);
-      console.log('🔍 Fetching employee with ID:', id);
-      
-      // Check if token exists
-      const token = localStorage.getItem('token');
-      console.log('🔍 Token exists:', !!token);
-      console.log('🔍 API URL:', process.env.REACT_APP_API_URL || 'http://localhost:5001/api');
-      
-      // Test basic connectivity first
-      console.log('🔍 Testing basic connectivity...');
-      try {
-        const healthResponse = await api.get('/health');
-        console.log('🔍 Health check successful:', healthResponse.status);
-      } catch (healthError) {
-        console.error('🔍 Health check failed:', healthError);
-        console.error('🔍 Health error type:', healthError.name);
-        console.error('🔍 Health error message:', healthError.message);
-        if (healthError.code) console.error('🔍 Health error code:', healthError.code);
-      }
       
       const response = await api.get(`/hr/employees/${id}`);
-      console.log('🔍 API Response:', response);
       const employeeData = response.data.data;
-      console.log('🔍 Employee Data:', employeeData);
       setEmployee(employeeData);
       
       // Extract IDs from populated objects
@@ -727,61 +795,41 @@ const EmployeeForm = () => {
         }))
       };
       
-      console.log('🔍 Form Data prepared:', formData);
       formik.setValues(formData);
       
       // Set image preview if profileImage exists
       if (employeeData.profileImage) {
-        const imageUrl = getImageUrl(employeeData.profileImage);
-        console.log('📷 Setting image preview for existing employee:', imageUrl);
-        setImagePreview(imageUrl);
+        setImagePreview(getImageUrl(employeeData.profileImage));
       } else {
-        // Clear preview if no image exists
         setImagePreview(null);
       }
       
-      // Fetch dependent data if needed
+      // Fetch dependent data if needed (in parallel for faster loading)
+      const promises = [];
       if (formData.address.country) {
-        fetchProvinces(formData.address.country);
+        promises.push(fetchProvinces(formData.address.country));
       }
       if (formData.address.state) {
-        fetchCities(formData.address.state);
+        promises.push(fetchCities(formData.address.state));
       }
+      // Load sections and designations in parallel
+      promises.push(fetchSections());
+      promises.push(fetchDesignations());
       
-      // When editing an employee, load all sections and designations to ensure current values are available
-      // This handles cases where the employee's section/designation might not match the current department filter
-      await fetchSections(); // Load all sections
-      await fetchDesignations(); // Load all designations
+      await Promise.all(promises);
     } catch (error) {
-      console.error('Error fetching employee:', error);
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
-      console.error('Error code:', error.code);
-      console.error('Error response:', error.response);
-      console.error('Error status:', error.response?.status);
-      console.error('Error data:', error.response?.data);
-      console.error('Error config:', error.config);
-      
-      // Handle specific error cases
       if (error.name === 'NetworkError' || error.code === 'ERR_NETWORK') {
-        console.error('🔍 Network Error detected - possible causes:');
-        console.error('   - Server not running');
-        console.error('   - CORS issues');
-        console.error('   - Network connectivity problems');
-        console.error('   - Wrong API URL');
         setSnackbar({
           open: true,
           message: 'Network Error: Cannot connect to server. Please check if the server is running.',
           severity: 'error'
         });
       } else if (error.response?.status === 401) {
-        console.error('🔐 Authentication error - token might be invalid or expired');
         setSnackbar({
           open: true,
           message: 'Authentication error. Please log in again.',
           severity: 'error'
         });
-        // Redirect to login after a delay
         setTimeout(() => {
           localStorage.removeItem('token');
           window.location.href = '/login';
@@ -925,33 +973,13 @@ const EmployeeForm = () => {
       employmentHistory: []
     },
     validationSchema,
-    onSubmit: async (values) => {
+    onSubmit: async (values, { setSubmitting }) => {
       try {
-        console.log('🚀 Starting employee save...');
-        console.log('📝 Form values:', values);
-        console.log('🔍 Checking form validation...');
-        
-        // Check for validation errors
-        const errors = await formik.validateForm();
-        console.log('🔍 Validation errors found:', errors);
-        
-        if (Object.keys(errors).length > 0) {
-          console.error('❌ Validation errors:', errors);
-          setSnackbar({
-            open: true,
-            message: `Validation errors: ${Object.keys(errors).join(', ')}`,
-            severity: 'error'
-          });
-          return;
-        }
-        
-        console.log('✅ Form validation passed!');
-        
         setLoading(true);
+        setSubmitting(true);
         
         // Clean up values before submission
         const cleanedValues = { ...values };
-        console.log('🧹 Cleaned values:', cleanedValues);
         
         // Handle empty oldDesignation
         if (cleanedValues.oldDesignation === '' || cleanedValues.oldDesignation === undefined) {
@@ -959,16 +987,13 @@ const EmployeeForm = () => {
         }
         
         // Clean up empty placement fields (convert empty strings to undefined)
-                  const placementFields = [
-            'placementCompany', 'placementSector', 'placementProject', 
-            'placementDepartment', 'placementSection', 'placementDesignation', 'placementLocation'
-          ];
+        const placementFields = [
+          'placementCompany', 'placementSector', 'placementProject', 
+          'placementDepartment', 'placementSection', 'placementDesignation', 'placementLocation'
+        ];
         
-        console.log('🧹 Cleaning up placement fields...');
         placementFields.forEach(field => {
-          console.log(`🧹 Field ${field}:`, cleanedValues[field]);
           if (cleanedValues[field] === '' || cleanedValues[field] === null || cleanedValues[field] === undefined) {
-            console.log(`🧹 Deleting empty field: ${field}`);
             delete cleanedValues[field];
           }
         });
@@ -978,40 +1003,128 @@ const EmployeeForm = () => {
           'user', 'city', 'state', 'country', 'department', 'position', 'manager'
         ];
         
-        console.log('🧹 Cleaning up other ObjectId fields...');
         objectIdFields.forEach(field => {
-          console.log(`🧹 Field ${field}:`, cleanedValues[field]);
           if (cleanedValues[field] === '' || cleanedValues[field] === null || cleanedValues[field] === undefined) {
-            console.log(`🧹 Deleting empty field: ${field}`);
             delete cleanedValues[field];
           }
         });
         
         // Handle address ObjectId fields
         if (cleanedValues.address) {
-          console.log('🧹 Cleaning up address ObjectId fields...');
           if (cleanedValues.address.city === '' || cleanedValues.address.city === null || cleanedValues.address.city === undefined) {
-            console.log('🧹 Deleting empty address.city field');
             delete cleanedValues.address.city;
           }
           if (cleanedValues.address.state === '' || cleanedValues.address.state === null || cleanedValues.address.state === undefined) {
-            console.log('🧹 Deleting empty address.state field');
             delete cleanedValues.address.state;
           }
           if (cleanedValues.address.country === '' || cleanedValues.address.country === null || cleanedValues.address.country === undefined) {
-            console.log('🧹 Deleting empty address.country field');
             delete cleanedValues.address.country;
           }
         }
         
         // Ensure salary.gross is a number
-        console.log('🎯 Original salary value:', cleanedValues.salary);
         if (cleanedValues.salary?.gross !== undefined && cleanedValues.salary?.gross !== null && cleanedValues.salary?.gross !== '') {
           cleanedValues.salary.gross = parseFloat(cleanedValues.salary.gross);
-          console.log('🎯 Converted salary.gross to:', cleanedValues.salary.gross);
         } else {
-          console.log('🎯 Salary.gross is empty, removing salary object');
           delete cleanedValues.salary;
+        }
+        
+        // Process academicBackground array - filter out empty objects and convert dates
+        if (cleanedValues.academicBackground && Array.isArray(cleanedValues.academicBackground)) {
+          cleanedValues.academicBackground = cleanedValues.academicBackground
+            .filter(record => {
+              // Keep record if it has at least one non-empty field
+              return record.degree || record.institution || record.fieldOfStudy || 
+                     record.graduationYear || record.gpa || record.percentage || 
+                     record.grade || record.certificate;
+            })
+            .map(record => {
+              // Clean up the record - convert empty strings to undefined
+              const cleanedRecord = { ...record };
+              
+              // Handle graduationYear - convert empty string to undefined
+              if (cleanedRecord.graduationYear === '' || cleanedRecord.graduationYear === null) {
+                cleanedRecord.graduationYear = undefined;
+              } else if (cleanedRecord.graduationYear) {
+                const year = parseInt(cleanedRecord.graduationYear);
+                cleanedRecord.graduationYear = isNaN(year) ? undefined : year;
+              }
+              
+              // Handle gpa - convert empty string to undefined
+              if (cleanedRecord.gpa === '' || cleanedRecord.gpa === null) {
+                cleanedRecord.gpa = undefined;
+              } else if (cleanedRecord.gpa) {
+                const gpa = parseFloat(cleanedRecord.gpa);
+                cleanedRecord.gpa = isNaN(gpa) ? undefined : gpa;
+              }
+              
+              // Handle percentage - convert empty string to undefined
+              if (cleanedRecord.percentage === '' || cleanedRecord.percentage === null) {
+                cleanedRecord.percentage = undefined;
+              } else if (cleanedRecord.percentage) {
+                const percentage = parseFloat(cleanedRecord.percentage);
+                cleanedRecord.percentage = isNaN(percentage) ? undefined : percentage;
+              }
+              
+              return cleanedRecord;
+            });
+          // Always send array (even if empty) so backend can update it
+          if (!cleanedValues.academicBackground || cleanedValues.academicBackground.length === 0) {
+            cleanedValues.academicBackground = [];
+          }
+        } else if (cleanedValues.academicBackground === undefined) {
+          // Initialize if not present
+          cleanedValues.academicBackground = [];
+        }
+        
+        // Process professionalEducation array - filter out empty objects and convert dates
+        if (cleanedValues.professionalEducation && Array.isArray(cleanedValues.professionalEducation)) {
+          cleanedValues.professionalEducation = cleanedValues.professionalEducation
+            .filter(record => {
+              // Keep record if it has at least one non-empty field
+              return record.courseName || record.institution || record.certificationBody || 
+                     record.completionDate || record.expiryDate || record.certificateNumber || 
+                     record.certificate;
+            })
+            .map(record => ({
+              ...record,
+              completionDate: record.completionDate ? record.completionDate : undefined,
+              expiryDate: record.expiryDate ? record.expiryDate : undefined,
+              isActive: record.isActive !== undefined ? record.isActive : true
+            }));
+          // Always send array (even if empty) so backend can update it
+          if (!cleanedValues.professionalEducation || cleanedValues.professionalEducation.length === 0) {
+            cleanedValues.professionalEducation = [];
+          }
+        } else if (cleanedValues.professionalEducation === undefined) {
+          // Initialize if not present
+          cleanedValues.professionalEducation = [];
+        }
+        
+        // Process employmentHistory array - filter out empty objects and convert dates
+        if (cleanedValues.employmentHistory && Array.isArray(cleanedValues.employmentHistory)) {
+          cleanedValues.employmentHistory = cleanedValues.employmentHistory
+            .filter(record => {
+              // Keep record if it has at least one non-empty field
+              return record.companyName || record.position || record.startDate || 
+                     record.endDate || record.location || record.responsibilities || 
+                     record.reasonForLeaving || record.salary || record.supervisorName || 
+                     record.supervisorContact;
+            })
+            .map(record => ({
+              ...record,
+              startDate: record.startDate ? record.startDate : undefined,
+              endDate: record.endDate && !record.isCurrentJob ? record.endDate : undefined,
+              isCurrentJob: record.isCurrentJob !== undefined ? record.isCurrentJob : false,
+              salary: record.salary ? parseFloat(record.salary) : undefined
+            }));
+          // Always send array (even if empty) so backend can update it
+          if (!cleanedValues.employmentHistory || cleanedValues.employmentHistory.length === 0) {
+            cleanedValues.employmentHistory = [];
+          }
+        } else if (cleanedValues.employmentHistory === undefined) {
+          // Initialize if not present
+          cleanedValues.employmentHistory = [];
         }
         
         // Ensure profileImage is preserved (don't delete it even if empty string)
@@ -1019,21 +1132,23 @@ const EmployeeForm = () => {
         if (cleanedValues.profileImage === null || cleanedValues.profileImage === undefined) {
           delete cleanedValues.profileImage;
         }
-        console.log('📷 ProfileImage value to send:', cleanedValues.profileImage);
-        console.log('📷 ProfileImage exists in cleanedValues:', 'profileImage' in cleanedValues);
         
-        console.log('🧹 Final cleaned values to send:', cleanedValues);
+        // Ensure arrays are always present (even if empty) so backend can properly save them
+        if (!cleanedValues.academicBackground || !Array.isArray(cleanedValues.academicBackground)) {
+          cleanedValues.academicBackground = [];
+        }
+        if (!cleanedValues.professionalEducation || !Array.isArray(cleanedValues.professionalEducation)) {
+          cleanedValues.professionalEducation = [];
+        }
+        if (!cleanedValues.employmentHistory || !Array.isArray(cleanedValues.employmentHistory)) {
+          cleanedValues.employmentHistory = [];
+        }
         
         let employeeId = id;
         
         if (id && id !== 'add') {
-          console.log('🔄 Updating existing employee...');
-          console.log('🎯 Salary before sending:', cleanedValues.salary);
-          console.log('🎯 Salary.gross before sending:', cleanedValues.salary?.gross);
-          console.log('🎯 Salary.gross type:', typeof cleanedValues.salary?.gross);
           // Update existing employee
           const response = await api.put(`/hr/employees/${id}`, cleanedValues);
-          console.log('✅ Update response:', response);
           employeeId = response.data?.data?._id || id;
           setSnackbar({
             open: true,
@@ -1041,10 +1156,8 @@ const EmployeeForm = () => {
             severity: 'success'
           });
         } else {
-          console.log('🆕 Creating new employee...');
           // Create new employee
           const response = await api.post('/hr/employees', cleanedValues);
-          console.log('✅ Create response:', response);
           employeeId = response.data?.data?._id;
           setSnackbar({
             open: true,
@@ -1053,17 +1166,9 @@ const EmployeeForm = () => {
           });
         }
         
-        // Refresh employee data immediately
-        await fetchEmployees(true);
-        
-        setTimeout(() => {
-          // Navigate back to the employee list with the employee ID to scroll to it
-          navigate('/hr/employees', { state: { employeeId, page: savedPage } });
-        }, 1500);
+        // Navigate immediately without waiting for fetchEmployees
+        navigate('/hr/employees', { state: { employeeId, page: savedPage } });
       } catch (error) {
-        console.error('❌ Error saving employee:', error);
-        console.error('❌ Error response:', error.response);
-        console.error('❌ Error data:', error.response?.data);
         
         // Handle validation errors with specific field messages
         if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
@@ -1127,8 +1232,10 @@ const EmployeeForm = () => {
         }
       } finally {
         setLoading(false);
+        setSubmitting(false);
       }
-    }
+    },
+    enableReinitialize: true
   });
 
   const handleNext = () => {
@@ -1235,7 +1342,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('placementCompany', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding company:', error);
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error adding company',
@@ -1273,7 +1379,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('placementSector', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding sector:', error);
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error adding sector',
@@ -1319,7 +1424,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('placementProject', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding project:', error);
       const errorMessage = error.response?.data?.message || 
                           (error.response?.data?.errors?.[0]?.msg) ||
                           'Error adding project';
@@ -1360,7 +1464,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('placementDepartment', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding department:', error);
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error adding department',
@@ -1412,7 +1515,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('placementSection', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding section:', error);
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error adding section',
@@ -1469,7 +1571,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('employeeCategory', category);
       
     } catch (error) {
-      console.error('Error adding designation:', error);
       setSnackbar({
         open: true,
         message: error.response?.data?.message || 'Error adding designation',
@@ -1513,11 +1614,9 @@ const EmployeeForm = () => {
       formik.setFieldValue('placementLocation', response.data.data._id);
       
     } catch (error) {
-      console.error('Error adding location:', error);
       const errorMessage = error.response?.data?.message || 
                           (error.response?.data?.errors?.[0]?.msg) ||
                           'Error adding location';
-      console.error('Location creation error details:', error.response?.data);
       setSnackbar({
         open: true,
         message: errorMessage,
@@ -1560,7 +1659,6 @@ const EmployeeForm = () => {
       formik.setFieldValue('qualification', response.data.data.name);
       
     } catch (error) {
-      console.error('Error adding qualification:', error);
       const errorMessage = error.response?.data?.message || 
                           (error.response?.data?.errors?.[0]?.msg) ||
                           'Error adding qualification';
@@ -4053,10 +4151,33 @@ const EmployeeForm = () => {
           <Button
             variant="contained"
             startIcon={<SaveIcon />}
-            onClick={formik.handleSubmit}
-            disabled={loading}
+            onClick={async (e) => {
+              e.preventDefault();
+              
+              // Validate form first
+              const errors = await formik.validateForm();
+              
+              if (Object.keys(errors).length > 0) {
+                formik.setTouched(
+                  Object.keys(errors).reduce((acc, key) => {
+                    acc[key] = true;
+                    return acc;
+                  }, {})
+                );
+                setSnackbar({
+                  open: true,
+                  message: `Please fix validation errors: ${Object.keys(errors).join(', ')}`,
+                  severity: 'error'
+                });
+                return;
+              }
+              
+              // Submit the form
+              await formik.submitForm();
+            }}
+            disabled={loading || formik.isSubmitting}
           >
-            {loading ? 'Saving...' : 'Save Employee'}
+            {loading || formik.isSubmitting ? 'Saving...' : 'Save Employee'}
           </Button>
         </Box>
       </Box>
@@ -4090,10 +4211,33 @@ const EmployeeForm = () => {
             {activeStep === steps.length - 1 ? (
               <Button
                 variant="contained"
-                onClick={formik.handleSubmit}
-                disabled={loading}
+                onClick={async (e) => {
+                  e.preventDefault();
+                  
+                  // Validate form first
+                  const errors = await formik.validateForm();
+                  
+                  if (Object.keys(errors).length > 0) {
+                    formik.setTouched(
+                      Object.keys(errors).reduce((acc, key) => {
+                        acc[key] = true;
+                        return acc;
+                      }, {})
+                    );
+                    setSnackbar({
+                      open: true,
+                      message: `Please fix validation errors: ${Object.keys(errors).join(', ')}`,
+                      severity: 'error'
+                    });
+                    return;
+                  }
+                  
+                  // Submit the form
+                  await formik.submitForm();
+                }}
+                disabled={loading || formik.isSubmitting}
               >
-                {loading ? 'Saving...' : 'Save Employee'}
+                {loading || formik.isSubmitting ? 'Saving...' : 'Save Employee'}
               </Button>
             ) : (
               <Button

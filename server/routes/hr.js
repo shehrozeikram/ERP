@@ -456,6 +456,83 @@ router.post('/employees', [
       hireDate: new Date(req.body.hireDate),
       appointmentDate: new Date(req.body.appointmentDate)
     };
+    
+    // Process academicBackground array - convert date strings to Date objects
+    if (employeeData.academicBackground && Array.isArray(employeeData.academicBackground)) {
+      console.log('📚 Processing academicBackground:', employeeData.academicBackground.length, 'records');
+      employeeData.academicBackground = employeeData.academicBackground
+        .filter(record => {
+          // Keep record if it has at least one non-empty field
+          return record.degree || record.institution || record.fieldOfStudy || 
+                 record.graduationYear || record.gpa || record.percentage || 
+                 record.grade || record.certificate;
+        })
+        .map(record => ({
+          ...record,
+          graduationYear: record.graduationYear ? parseInt(record.graduationYear) : undefined,
+          gpa: record.gpa ? parseFloat(record.gpa) : undefined,
+          percentage: record.percentage ? parseFloat(record.percentage) : undefined
+        }));
+      console.log('📚 Processed academicBackground:', employeeData.academicBackground);
+    } else {
+      // Initialize as empty array if not provided
+      employeeData.academicBackground = [];
+    }
+    
+    // Process professionalEducation array - convert date strings to Date objects
+    if (employeeData.professionalEducation && Array.isArray(employeeData.professionalEducation)) {
+      console.log('🎓 Processing professionalEducation:', employeeData.professionalEducation.length, 'records');
+      employeeData.professionalEducation = employeeData.professionalEducation
+        .filter(record => {
+          // Keep record if it has at least one non-empty field
+          return record.courseName || record.institution || record.certificationBody || 
+                 record.completionDate || record.expiryDate || record.certificateNumber || 
+                 record.certificate;
+        })
+        .map(record => ({
+          ...record,
+          completionDate: record.completionDate ? new Date(record.completionDate) : undefined,
+          expiryDate: record.expiryDate ? new Date(record.expiryDate) : undefined,
+          isActive: record.isActive !== undefined ? record.isActive : true
+        }));
+      console.log('🎓 Processed professionalEducation:', employeeData.professionalEducation);
+    } else {
+      // Initialize as empty array if not provided
+      employeeData.professionalEducation = [];
+    }
+    
+    // Process employmentHistory array - convert date strings to Date objects
+    if (employeeData.employmentHistory && Array.isArray(employeeData.employmentHistory)) {
+      console.log('💼 Processing employmentHistory:', employeeData.employmentHistory.length, 'records');
+      employeeData.employmentHistory = employeeData.employmentHistory
+        .filter(record => {
+          // Keep record if it has at least one non-empty field
+          return record.companyName || record.position || record.startDate || 
+                 record.endDate || record.location || record.responsibilities || 
+                 record.reasonForLeaving || record.salary || record.supervisorName || 
+                 record.supervisorContact;
+        })
+        .map(record => ({
+          ...record,
+          startDate: record.startDate ? new Date(record.startDate) : undefined,
+          endDate: record.endDate && !record.isCurrentJob ? new Date(record.endDate) : undefined,
+          isCurrentJob: record.isCurrentJob !== undefined ? record.isCurrentJob : false,
+          salary: record.salary ? parseFloat(record.salary) : undefined
+        }));
+      console.log('💼 Processed employmentHistory:', employeeData.employmentHistory);
+    } else {
+      // Initialize as empty array if not provided
+      employeeData.employmentHistory = [];
+    }
+
+    console.log('📝 Final employeeData before save:', {
+      hasAcademicBackground: !!employeeData.academicBackground,
+      academicBackgroundCount: employeeData.academicBackground?.length || 0,
+      hasProfessionalEducation: !!employeeData.professionalEducation,
+      professionalEducationCount: employeeData.professionalEducation?.length || 0,
+      hasEmploymentHistory: !!employeeData.employmentHistory,
+      employmentHistoryCount: employeeData.employmentHistory?.length || 0
+    });
 
     // Handle empty or "add_new" placement fields
     const placementFields = [
@@ -939,10 +1016,102 @@ router.put('/employees/:id', [
     if (req.body.appointmentDate) {
       employeeData.appointmentDate = new Date(req.body.appointmentDate);
     }
+    
+    // Process academicBackground array - convert date strings to Date objects
+    if (employeeData.academicBackground && Array.isArray(employeeData.academicBackground)) {
+      employeeData.academicBackground = employeeData.academicBackground
+        .filter(record => {
+          // Keep record if it has at least one non-empty field
+          return record.degree || record.institution || record.fieldOfStudy || 
+                 record.graduationYear || record.gpa || record.percentage || 
+                 record.grade || record.certificate;
+        })
+        .map(record => ({
+          ...record,
+          graduationYear: record.graduationYear ? parseInt(record.graduationYear) : undefined,
+          gpa: record.gpa ? parseFloat(record.gpa) : undefined,
+          percentage: record.percentage ? parseFloat(record.percentage) : undefined
+        }));
+    } else if ('academicBackground' in req.body) {
+      // If explicitly provided in request but is empty/undefined, set to empty array
+      employeeData.academicBackground = [];
+    }
+    
+    // Process professionalEducation array - convert date strings to Date objects
+    if (employeeData.professionalEducation && Array.isArray(employeeData.professionalEducation)) {
+      employeeData.professionalEducation = employeeData.professionalEducation
+        .filter(record => {
+          // Keep record if it has at least one non-empty field
+          return record.courseName || record.institution || record.certificationBody || 
+                 record.completionDate || record.expiryDate || record.certificateNumber || 
+                 record.certificate;
+        })
+        .map(record => ({
+          ...record,
+          completionDate: record.completionDate ? new Date(record.completionDate) : undefined,
+          expiryDate: record.expiryDate ? new Date(record.expiryDate) : undefined,
+          isActive: record.isActive !== undefined ? record.isActive : true
+        }));
+    } else if ('professionalEducation' in req.body) {
+      // If explicitly provided in request but is empty/undefined, set to empty array
+      employeeData.professionalEducation = [];
+    }
+    
+    // Process employmentHistory array - convert date strings to Date objects
+    if (employeeData.employmentHistory && Array.isArray(employeeData.employmentHistory)) {
+      employeeData.employmentHistory = employeeData.employmentHistory
+        .filter(record => {
+          // Keep record if it has at least one non-empty field
+          return record.companyName || record.position || record.startDate || 
+                 record.endDate || record.location || record.responsibilities || 
+                 record.reasonForLeaving || record.salary || record.supervisorName || 
+                 record.supervisorContact;
+        })
+        .map(record => ({
+          ...record,
+          startDate: record.startDate ? new Date(record.startDate) : undefined,
+          endDate: record.endDate && !record.isCurrentJob ? new Date(record.endDate) : undefined,
+          isCurrentJob: record.isCurrentJob !== undefined ? record.isCurrentJob : false,
+          salary: record.salary ? parseFloat(record.salary) : undefined
+        }));
+    } else if ('employmentHistory' in req.body) {
+      // If explicitly provided in request but is empty/undefined, set to empty array
+      employeeData.employmentHistory = [];
+    }
 
+    // Explicitly handle array fields to ensure they're properly updated
+    const updateData = { ...employeeData };
+    
+    // Always include arrays if they were provided in the request (even if empty to clear)
+    // This ensures MongoDB properly updates the arrays
+    if ('academicBackground' in req.body) {
+      updateData.academicBackground = employeeData.academicBackground !== undefined 
+        ? employeeData.academicBackground 
+        : [];
+    }
+    if ('professionalEducation' in req.body) {
+      updateData.professionalEducation = employeeData.professionalEducation !== undefined 
+        ? employeeData.professionalEducation 
+        : [];
+    }
+    if ('employmentHistory' in req.body) {
+      updateData.employmentHistory = employeeData.employmentHistory !== undefined 
+        ? employeeData.employmentHistory 
+        : [];
+    }
+    
+    console.log('📝 Update data with arrays:', {
+      academicBackground: updateData.academicBackground?.length || 0,
+      professionalEducation: updateData.professionalEducation?.length || 0,
+      employmentHistory: updateData.employmentHistory?.length || 0,
+      academicBackgroundData: updateData.academicBackground,
+      professionalEducationData: updateData.professionalEducation,
+      employmentHistoryData: updateData.employmentHistory
+    });
+    
     const employee = await Employee.findOneAndUpdate(
       { _id: req.params.id, isDeleted: false },
-      employeeData,
+      updateData,
       { new: true, runValidators: true }
     );
 
