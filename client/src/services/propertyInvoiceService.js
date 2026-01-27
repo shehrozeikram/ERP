@@ -59,6 +59,9 @@ export const getElectricityCalculation = (propertyId, currentReading, meterNo, u
 export const getRentCalculation = (propertyId) =>
   api.get(`${base}/property/${propertyId}/rent-calculation`);
 
+export const getCAMCalculation = (propertyId) =>
+  api.get(`${base}/property/${propertyId}/cam-calculation`);
+
 const propertyInvoiceService = {
   createInvoice,
   fetchInvoice,
@@ -66,7 +69,10 @@ const propertyInvoiceService = {
   fetchAllInvoices,
   updateInvoice,
   deleteInvoice,
-  deletePaymentFromInvoice
+  deletePaymentFromInvoice,
+  getElectricityCalculation,
+  getRentCalculation,
+  getCAMCalculation
 };
 
 export default propertyInvoiceService;

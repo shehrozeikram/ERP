@@ -34,7 +34,8 @@ import {
   Cancel as CancelIcon,
   Send as SendIcon,
   ArrowBack as ArrowBackIcon,
-  Comment as CommentIcon
+  Comment as CommentIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -218,6 +219,13 @@ const IndentDetail = () => {
           </Box>
         </Stack>
         <Stack direction="row" spacing={2}>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={() => navigate(`/general/indents/${id}/print`)}
+          >
+            View/Print
+          </Button>
           {canEdit && (
             <Button
               variant="outlined"

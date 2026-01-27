@@ -43,6 +43,7 @@ import {
 import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchPropertyById, fetchInvoice, updatePaymentStatus } from '../../../services/tajRentalManagementService';
+import { generateRentInvoicePDF } from '../../../utils/invoicePDFGenerators';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -113,9 +114,46 @@ const RentalManagementDetail = () => {
     }
   };
 
-  const handleViewPaymentDetails = (payment) => {
+  const buildInvoiceForPdf = (invoiceData) => {
+    if (!invoiceData || !property) return null;
+    const amount = invoiceData.amount ?? invoiceData.totalAmount ?? 0;
+    const arrears = invoiceData.arrears ?? 0;
+    const totalAmount = (invoiceData.totalAmount ?? amount + arrears) || (amount + arrears);
+    return {
+      ...invoiceData,
+      property,
+      chargeTypes: ['RENT'],
+      charges: invoiceData.charges?.map((c) => ({ type: 'RENT', amount: c.amount ?? amount, arrears: c.arrears ?? arrears })) ?? [{ type: 'RENT', amount, arrears }],
+      periodFrom: invoiceData.periodFrom,
+      periodTo: invoiceData.periodTo,
+      grandTotal: totalAmount,
+      totalPaid: 0,
+      invoiceNumber: invoiceData.invoiceNumber,
+      dueDate: invoiceData.dueDate,
+      invoiceDate: invoiceData.invoicingDate ?? invoiceData.periodFrom,
+    };
+  };
+
+  const openInvoicePdfForPayment = async (payment) => {
+    try {
+      const response = await fetchInvoice(id, payment._id);
+      const invoiceForPdf = buildInvoiceForPdf(response.data?.data);
+      if (invoiceForPdf) await generateRentInvoicePDF(invoiceForPdf, property, { openInNewTab: true });
+    } catch (err) {
+      console.error('Error opening invoice PDF:', err);
+    }
+  };
+
+  const handleViewPaymentDetails = async (payment) => {
     setSelectedPayment(payment);
     setPaymentDetailsDialog(true);
+    await openInvoicePdfForPayment(payment);
+  };
+
+  const handleViewInvoicePDF = async () => {
+    if (!selectedPayment) return;
+    await openInvoicePdfForPayment(selectedPayment);
+    setPaymentDetailsDialog(false);
   };
 
   const handlePrintInvoice = async (paymentId) => {
@@ -1302,13 +1340,10 @@ const RentalManagementDetail = () => {
             </Button>
             <Button
               variant="contained"
-              startIcon={<PrintIcon />}
-              onClick={() => {
-                setPaymentDetailsDialog(false);
-                handlePrintInvoice(selectedPayment._id);
-              }}
+              startIcon={<VisibilityIcon />}
+              onClick={handleViewInvoicePDF}
             >
-              View Invoice
+              View Invoice (PDF)
             </Button>
           </DialogActions>
         </Dialog>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   Box,
   Button,
@@ -49,7 +49,8 @@ import {
   AttachFile as AttachFileIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -63,7 +64,7 @@ import {
   deletePayment
 } from '../../../services/tajRentalManagementService';
 import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getRentCalculation } from '../../../services/propertyInvoiceService';
-import { generateRentInvoicePDF as generateRentInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
+import { generateRentInvoicePDF as generateRentInvoicePDFUtil, outputPDF } from '../../../utils/invoicePDFGenerators';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
 const paymentMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
@@ -163,6 +164,19 @@ const RentalManagement = () => {
   const [loadingInvoices, setLoadingInvoices] = useState({});
   const [rentPaymentContext, setRentPaymentContext] = useState({ baseCharge: 0, baseArrears: 0 });
   const [paymentAttachment, setPaymentAttachment] = useState(null);
+  
+  // Bulk create state
+  const [bulkCreating, setBulkCreating] = useState(false);
+  const [bulkCreateDialogOpen, setBulkCreateDialogOpen] = useState(false);
+  const [bulkCreateInvoiceData, setBulkCreateInvoiceData] = useState({
+    invoiceDate: dayjs().format('YYYY-MM-DD'),
+    periodFrom: dayjs().startOf('month').format('YYYY-MM-DD'),
+    periodTo: dayjs().endOf('month').format('YYYY-MM-DD'),
+    dueDate: dayjs().endOf('month').add(15, 'day').format('YYYY-MM-DD')
+  });
+  // Track properties with invoices created (for visual indicator)
+  const [propertiesWithInvoicesCreated, setPropertiesWithInvoicesCreated] = useState(new Set());
+  const clearIndicatorsTimeoutRef = useRef(null);
 
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
@@ -265,9 +279,12 @@ const RentalManagement = () => {
   const handleViewInvoice = async (property, payment) => {
     try {
       const res = await fetchInvoice(property._id, payment._id);
-      setPaymentInvoiceData(res.data?.data);
-      setSelectedProperty(property);
-      setPaymentInvoiceDialog(true);
+      const invoiceData = res.data?.data;
+      if (invoiceData) {
+        handleDownloadPDF(invoiceData, property, { openInNewTab: true });
+      } else {
+        setError('Failed to load invoice');
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load invoice');
     }
@@ -613,12 +630,199 @@ const RentalManagement = () => {
     setInvoiceWasSaved(false); // Reset saved flag
   };
 
+  const handleOpenBulkCreateDialog = () => {
+    const now = dayjs();
+    const periodFrom = now.startOf('month');
+    const periodTo = now.endOf('month');
+    
+    setBulkCreateInvoiceData({
+      invoiceDate: now.format('YYYY-MM-DD'),
+      periodFrom: periodFrom.format('YYYY-MM-DD'),
+      periodTo: periodTo.format('YYYY-MM-DD'),
+      dueDate: periodTo.add(15, 'day').format('YYYY-MM-DD')
+    });
+    
+    setBulkCreateDialogOpen(true);
+  };
+
+  const handleBulkCreateInvoices = async () => {
+    if (!bulkCreateInvoiceData.periodFrom || !bulkCreateInvoiceData.periodTo) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setBulkCreating(true);
+      setError('');
+      setSuccess('');
+      setBulkCreateDialogOpen(false);
+      // Clear any existing indicators from previous bulk create
+      setPropertiesWithInvoicesCreated(new Set());
+      // Clear any existing timeout
+      if (clearIndicatorsTimeoutRef.current) {
+        clearTimeout(clearIndicatorsTimeoutRef.current);
+        clearIndicatorsTimeoutRef.current = null;
+      }
+
+      const periodFrom = new Date(bulkCreateInvoiceData.periodFrom);
+      const periodTo = new Date(bulkCreateInvoiceData.periodTo);
+      const invoiceDate = new Date(bulkCreateInvoiceData.invoiceDate);
+      const dueDate = new Date(bulkCreateInvoiceData.dueDate);
+
+      // Use filtered properties (already filtered by backend based on search/filters)
+      const propertiesToProcess = filteredProperties;
+      
+      if (propertiesToProcess.length === 0) {
+        setError('No properties found to create invoices for');
+        setBulkCreating(false);
+        return;
+      }
+
+      setSuccess(`Creating invoices for ${propertiesToProcess.length} property(ies)...`);
+
+      let createdCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
+
+      const batchSize = 10;
+      for (let i = 0; i < propertiesToProcess.length; i += batchSize) {
+        const batch = propertiesToProcess.slice(i, i + batchSize);
+        
+        await Promise.all(
+          batch.map(async (property) => {
+            try {
+              let invoices = propertyInvoices[property._id];
+              if (!invoices) {
+                try {
+                  const response = await fetchInvoicesForProperty(property._id);
+                  invoices = response.data?.data || [];
+                  setPropertyInvoices(prev => ({
+                    ...prev,
+                    [property._id]: invoices
+                  }));
+                } catch (err) {
+                  console.error(`Error loading invoices for property ${property._id}:`, err);
+                  invoices = [];
+                }
+              }
+
+              const invoiceExists = invoices.some((invoice) => {
+                if (!invoice.periodFrom || !invoice.periodTo) return false;
+                const invoicePeriodFrom = dayjs(invoice.periodFrom);
+                const invoicePeriodTo = dayjs(invoice.periodTo);
+                const targetPeriodFrom = dayjs(bulkCreateInvoiceData.periodFrom);
+                const targetPeriodTo = dayjs(bulkCreateInvoiceData.periodTo);
+                return invoicePeriodFrom.isSame(targetPeriodFrom, 'day') && invoicePeriodTo.isSame(targetPeriodTo, 'day');
+              });
+
+              if (invoiceExists) {
+                skippedCount++;
+                return;
+              }
+
+              // Fetch rent calculation (monthly rent + RENT-only arrears, same as individual create)
+              let monthlyRent = 0;
+              let arrears = 0;
+              let carryForwardArrears = 0;
+              try {
+                const rentRes = await getRentCalculation(property._id);
+                const rentData = rentRes?.data?.data;
+                if (rentData) {
+                  monthlyRent = rentData.monthlyRent || 0;
+                  arrears = rentData.totalArrears || 0;
+                  carryForwardArrears = rentData.carryForwardArrears || 0;
+                }
+              } catch (err) {
+                console.error(`Error fetching rent calculation for property ${property._id}:`, err);
+              }
+
+              const rentDescription = carryForwardArrears > 0 
+                ? 'Rental Charges (with Carry Forward Arrears)' 
+                : 'Rental Charges';
+
+              const charges = [{
+                type: 'RENT',
+                description: rentDescription,
+                amount: monthlyRent,
+                arrears: arrears,
+                total: monthlyRent + arrears
+              }];
+
+              // Create invoice (same payload as individual create)
+              await createInvoice(property._id, {
+                includeCAM: false,
+                includeElectricity: false,
+                includeRent: true,
+                invoiceDate: invoiceDate,
+                periodFrom: periodFrom,
+                periodTo: periodTo,
+                dueDate: dueDate,
+                charges
+              });
+
+              createdCount++;
+              
+              // Track this property as having invoice created (for visual indicator)
+              setPropertiesWithInvoicesCreated(prev => new Set([...prev, property._id]));
+              
+              try {
+                const invoiceResponse = await fetchInvoicesForProperty(property._id);
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: invoiceResponse.data?.data || []
+                }));
+              } catch (err) {
+                console.error(`Error refreshing invoices for property ${property._id}:`, err);
+              }
+            } catch (err) {
+              errorCount++;
+              console.error(`Error creating invoice for property ${property._id}:`, err);
+            }
+          })
+        );
+
+        if (i + batchSize < propertiesToProcess.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        setSuccess(`Creating invoices... ${Math.min(i + batch.length, propertiesToProcess.length)} of ${propertiesToProcess.length} processed`);
+      }
+
+      let resultMessage = `Successfully created ${createdCount} invoice(s)`;
+      if (skippedCount > 0) {
+        resultMessage += `, skipped ${skippedCount} (already exist)`;
+      }
+      if (errorCount > 0) {
+        resultMessage += `, ${errorCount} failed`;
+      }
+      setSuccess(resultMessage);
+
+      // Clear visual indicators after 2 minutes (120000 ms)
+      // Clear any existing timeout first
+      if (clearIndicatorsTimeoutRef.current) {
+        clearTimeout(clearIndicatorsTimeoutRef.current);
+      }
+      clearIndicatorsTimeoutRef.current = setTimeout(() => {
+        setPropertiesWithInvoicesCreated(new Set());
+        clearIndicatorsTimeoutRef.current = null;
+      }, 120000);
+
+    } catch (err) {
+      console.error('Bulk create error:', err);
+      setError('Failed to create invoices. Please try again.');
+    } finally {
+      setBulkCreating(false);
+    }
+  };
+
   const handlePrintInvoice = () => {
     window.print();
   };
 
-  const handleDownloadPDF = () => {
-    if (!paymentInvoiceData || !selectedProperty) return;
+  const handleDownloadPDF = (invoiceDataParam = null, propertyParam = null, options = {}) => {
+    const invoiceData = invoiceDataParam ?? paymentInvoiceData;
+    const property = propertyParam ?? selectedProperty;
+    if (!invoiceData || !property) return;
 
     const pdf = new jsPDF('portrait', 'mm', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -628,12 +832,12 @@ const RentalManagement = () => {
 
     const copies = ['Bank Copy', 'Office Copy', 'Client Copy'];
     const currentDate = new Date();
-    const invoiceDate = dayjs(paymentInvoiceData.invoicingDate || paymentInvoiceData.periodFrom);
-    const dueDate = dayjs(paymentInvoiceData.dueDate || paymentInvoiceData.periodTo);
-    const periodFrom = dayjs(paymentInvoiceData.periodFrom);
-    const periodTo = dayjs(paymentInvoiceData.periodTo);
+    const invoiceDate = dayjs(invoiceData.invoicingDate || invoiceData.periodFrom);
+    const dueDate = dayjs(invoiceData.dueDate || invoiceData.periodTo);
+    const periodFrom = dayjs(invoiceData.periodFrom);
+    const periodTo = dayjs(invoiceData.periodTo);
     const billMonth = invoiceDate.format('MMMM YYYY');
-    const currentAmount = selectedPayment?.amount || paymentInvoiceData.totalAmount || 0;
+    const currentAmount = selectedPayment?.amount || invoiceData.totalAmount || 0;
     const arrearsAmount = selectedPayment?.arrears || 0;
     const totalAmount = selectedPayment?.totalAmount || (currentAmount + arrearsAmount);
     const formattedCurrentAmount = currentAmount.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -676,13 +880,13 @@ const RentalManagement = () => {
       pdf.setFont('helvetica', 'bold');
       pdf.text('Client Name:', leftMargin, yPos);
       pdf.setFont('helvetica', 'normal');
-      pdf.text(paymentInvoiceData.tenantName || selectedProperty.tenantName || 'N/A', leftMargin + 30, yPos);
+      pdf.text(invoiceData.tenantName || property.tenantName || 'N/A', leftMargin + 30, yPos);
       
       yPos += 6;
       pdf.setFont('helvetica', 'bold');
       pdf.text('Client Location/Address:', leftMargin, yPos);
       pdf.setFont('helvetica', 'normal');
-      const addressLines = pdf.splitTextToSize(paymentInvoiceData.address || selectedProperty.fullAddress || 'N/A', 80);
+      const addressLines = pdf.splitTextToSize(invoiceData.address || property.fullAddress || 'N/A', 80);
       pdf.text(addressLines[0], leftMargin + 45, yPos);
       if (addressLines.length > 1) {
         yPos += 5;
@@ -693,7 +897,7 @@ const RentalManagement = () => {
       pdf.setFont('helvetica', 'bold');
       pdf.text('Unit:', leftMargin, yPos);
       pdf.setFont('helvetica', 'normal');
-      const unitInfo = selectedProperty.unit ? `(${selectedProperty.unit})` : '';
+      const unitInfo = property.unit ? `(${property.unit})` : '';
       pdf.text(unitInfo, leftMargin + 15, yPos);
 
       yPos += 6;
@@ -701,12 +905,12 @@ const RentalManagement = () => {
       pdf.text('Unit Address:', leftMargin, yPos);
       pdf.setFont('helvetica', 'normal');
       const unitAddress = [
-        selectedProperty.floor && `Floor: ${selectedProperty.floor}`,
-        selectedProperty.unit && `Unit: ${selectedProperty.unit}`,
-        selectedProperty.block && `Block: ${selectedProperty.block}`,
-        selectedProperty.street && `Street: ${selectedProperty.street}`,
-        selectedProperty.sector && `Sector: ${selectedProperty.sector}`
-      ].filter(Boolean).join(', ') || paymentInvoiceData.address || 'N/A';
+        property.floor && `Floor: ${property.floor}`,
+        property.unit && `Unit: ${property.unit}`,
+        property.block && `Block: ${property.block}`,
+        property.street && `Street: ${property.street}`,
+        property.sector && `Sector: ${property.sector}`
+      ].filter(Boolean).join(', ') || invoiceData.address || 'N/A';
       pdf.text(unitAddress, leftMargin + 30, yPos);
 
       yPos += 12;
@@ -730,7 +934,7 @@ const RentalManagement = () => {
       yPos += 6;
       pdf.setFont('helvetica', 'normal');
       pdf.rect(col1X, yPos - 3, 180, 6);
-      pdf.text(paymentInvoiceData.invoiceNumber || 'N/A', col1X + 2, yPos);
+      pdf.text(invoiceData.invoiceNumber || 'N/A', col1X + 2, yPos);
       pdf.text(billMonth, col2X + 2, yPos);
       pdf.text(invoiceDate.format('DD-MMM-YYYY'), col3X + 2, yPos);
       pdf.text(dueDate.format('DD-MMM-YYYY'), col4X + 2, yPos);
@@ -869,17 +1073,14 @@ const RentalManagement = () => {
       });
     });
 
-    pdf.save(`Rent-Invoice-${paymentInvoiceData.invoiceNumber || 'INV'}.pdf`);
+    outputPDF(pdf, `Rent-Invoice-${invoiceData.invoiceNumber || 'INV'}.pdf`, options);
   };
 
-  const generateRentInvoicePDF = async (propertyParam = null, invoiceParam = null) => {
+  const generateRentInvoicePDF = async (propertyParam = null, invoiceParam = null, options = {}) => {
     const invoice = invoiceParam || invoiceData;
     const property = invoice?.property || propertyParam || invoiceProperty;
-    
     if (!property || !invoice) return;
-    
-    // Use the shared utility function
-    return await generateRentInvoicePDFUtil(invoice, property);
+    return await generateRentInvoicePDFUtil(invoice, property, options);
   };
 
   const generateRentalPaymentReceiptPDF = (invoice, payment, property) => {
@@ -1613,6 +1814,17 @@ const RentalManagement = () => {
               </FormControl>
             </Grid>
           </Grid>
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleOpenBulkCreateDialog}
+              disabled={bulkCreating}
+              startIcon={<ReceiptLongIcon />}
+            >
+              {bulkCreating ? 'Creating Invoices...' : `Create Invoices for ${filteredProperties.length > 0 ? filteredProperties.length : properties.length} Properties`}
+            </Button>
+          </Box>
         </CardContent>
       </Card>
 
@@ -1685,10 +1897,19 @@ const RentalManagement = () => {
                         <Typography fontWeight={600}>{property.propertyCode}</Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography fontWeight={600}>{property.propertyName}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {property.propertyType} • {property.area?.value} {property.area?.unit}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box>
+                            <Typography fontWeight={600}>{property.propertyName}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {property.propertyType} • {property.area?.value} {property.area?.unit}
+                            </Typography>
+                          </Box>
+                          {propertiesWithInvoicesCreated.has(property._id) && (
+                            <Tooltip title="Invoice created successfully">
+                              <CheckCircleIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                            </Tooltip>
+                          )}
+                        </Box>
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">{property.fullAddress}</Typography>
@@ -1850,10 +2071,8 @@ const RentalManagement = () => {
                                             <IconButton
                                               size="small"
                                               color="primary"
-                                              onClick={() => {
-                                                setInvoiceProperty(property);
-                                                setInvoiceData(invoice);
-                                                setInvoiceDialogOpen(true);
+                                              onClick={async () => {
+                                                await generateRentInvoicePDF(property, invoice, { openInNewTab: true });
                                               }}
                                             >
                                               <VisibilityIcon fontSize="small" />
@@ -2720,6 +2939,86 @@ const RentalManagement = () => {
           </DialogActions>
         </Dialog>
       )}
+
+      {/* Bulk Create Invoices Dialog */}
+      <Dialog open={bulkCreateDialogOpen} onClose={() => setBulkCreateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Bulk Create Invoices - Common Fields</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              These fields will be applied to all invoices. Other fields (charges, amounts) will be calculated per property.
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Invoice Date"
+                  type="date"
+                  value={bulkCreateInvoiceData.invoiceDate}
+                  onChange={(e) => setBulkCreateInvoiceData(prev => ({ ...prev, invoiceDate: e.target.value }))}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Period From"
+                  type="date"
+                  value={bulkCreateInvoiceData.periodFrom}
+                  onChange={(e) => {
+                    const newPeriodFrom = e.target.value;
+                    setBulkCreateInvoiceData(prev => ({ ...prev, periodFrom: newPeriodFrom }));
+                    if (bulkCreateInvoiceData.periodTo) {
+                      const dueDate = dayjs(bulkCreateInvoiceData.periodTo).add(15, 'day').format('YYYY-MM-DD');
+                      setBulkCreateInvoiceData(prev => ({ ...prev, dueDate }));
+                    }
+                  }}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Period To"
+                  type="date"
+                  value={bulkCreateInvoiceData.periodTo}
+                  onChange={(e) => {
+                    const newPeriodTo = e.target.value;
+                    setBulkCreateInvoiceData(prev => ({ ...prev, periodTo: newPeriodTo }));
+                    const dueDate = dayjs(newPeriodTo).add(15, 'day').format('YYYY-MM-DD');
+                    setBulkCreateInvoiceData(prev => ({ ...prev, dueDate }));
+                  }}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Due Date"
+                  type="date"
+                  value={bulkCreateInvoiceData.dueDate}
+                  onChange={(e) => setBulkCreateInvoiceData(prev => ({ ...prev, dueDate: e.target.value }))}
+                  fullWidth
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Grid>
+            </Grid>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkCreateDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleBulkCreateInvoices}
+            disabled={bulkCreating || !bulkCreateInvoiceData.periodFrom || !bulkCreateInvoiceData.periodTo}
+          >
+            {bulkCreating ? 'Creating...' : 'Create All Invoices'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Invoice Print Dialog */}
       {paymentInvoiceData && (

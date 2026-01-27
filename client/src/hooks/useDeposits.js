@@ -102,8 +102,39 @@ export const useDeposits = (options = {}) => {
         setTotal(depositsData.length);
       }
 
-      // If not in suspense account mode, also fetch suspense account totals
-      if (!suspenseAccount) {
+      // Calculate totals from ALL deposits (not just current page)
+      if (suspenseAccount) {
+        // When in suspense account mode, fetch all deposits to calculate totals
+        try {
+          const allDepositsParams = {
+            page: 1,
+            limit: 10000 // Get all suspense account deposits to calculate totals
+          };
+          if (startDate) allDepositsParams.startDate = startDate;
+          if (endDate) allDepositsParams.endDate = endDate;
+          allDepositsParams.suspenseAccount = 'true';
+          // Don't include search in totals calculation - totals should be from all deposits
+          // if (search) allDepositsParams.search = search; // Commented out - totals should ignore search filter
+
+          const allDepositsResponse = await fetchAllDeposits(allDepositsParams);
+          const allDeposits = allDepositsResponse.data?.data?.deposits || [];
+          
+          // Calculate totals from ALL deposits
+          const totalAmount = allDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
+          const totalRemaining = allDeposits.reduce((sum, d) => sum + (d.remainingAmount || 0), 0);
+          const totalUsed = allDeposits.reduce((sum, d) => sum + (d.totalUsed || 0), 0);
+          
+          setSuspenseAccountTotals({
+            totalAmount,
+            totalRemaining,
+            totalUsed
+          });
+        } catch (totalsErr) {
+          console.error('Failed to load suspense account totals:', totalsErr);
+          setSuspenseAccountTotals({ totalAmount: 0, totalRemaining: 0, totalUsed: 0 });
+        }
+      } else {
+        // If not in suspense account mode, fetch suspense account totals separately
         try {
           const suspenseParams = {
             page: 1,
@@ -130,9 +161,6 @@ export const useDeposits = (options = {}) => {
           console.error('Failed to load suspense account totals:', suspenseErr);
           setSuspenseAccountTotals({ totalAmount: 0, totalRemaining: 0, totalUsed: 0 });
         }
-      } else {
-        // If in suspense account mode, set suspense totals to 0
-        setSuspenseAccountTotals({ totalAmount: 0, totalRemaining: 0, totalUsed: 0 });
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load deposits');

@@ -249,7 +249,11 @@ export const SUBMODULES = {
   [MODULE_KEYS.PROCUREMENT]: [
     'purchase_orders',
     'vendors',
+    'store',
     'inventory',
+    'goods_receive',
+    'goods_issue',
+    'cost_center',
     'procurement_reports'
   ],
   [MODULE_KEYS.SALES]: [
@@ -527,6 +531,10 @@ export const MODULES = {
         path: '/finance/taj-utilities-charges',
         subItems: [
           {
+            name: 'Dashboard',
+            path: '/finance/taj-utilities-charges/dashboard'
+          },
+          {
             name: 'CAM Charges',
             path: '/finance/taj-utilities-charges/cam-charges'
           },
@@ -586,12 +594,20 @@ export const MODULES = {
       { name: 'Procurement Dashboard', path: '/procurement' },
       { name: 'Procurement Requisitions', path: '/procurement/requisitions' },
       { name: 'Quotations', path: '/procurement/quotations' },
+      { name: 'Comparative Statements', path: '/procurement/comparative-statements' },
       { name: 'Purchase Orders', path: '/procurement/purchase-orders' },
       { name: 'Vendors', path: '/procurement/vendors' },
-      { name: 'Inventory', path: '/procurement/inventory' },
-      { name: 'Goods Receive', path: '/procurement/goods-receive' },
-      { name: 'Goods Issue', path: '/procurement/goods-issue' },
-      { name: 'Cost Centers', path: '/procurement/cost-centers' }
+      {
+        name: 'Store',
+        path: '/procurement/store',
+        subItems: [
+          { name: 'Store Dashboard', path: '/procurement/store' },
+          { name: 'Inventory', path: '/procurement/store/inventory' },
+          { name: 'Goods Receive', path: '/procurement/store/goods-receive' },
+          { name: 'Goods Issue', path: '/procurement/store/goods-issue' },
+          { name: 'Cost Center', path: '/procurement/store/cost-center' }
+        ]
+      }
     ]
   },
   
@@ -851,6 +867,7 @@ export const getModuleMenuItems = (userRole) => {
   // Define allowed submodules for TCM Manager
     const tcmManagerAllowedSubmodules = [
       '/finance/taj-utilities-charges',
+      '/finance/taj-utilities-charges/dashboard',
       '/finance/taj-utilities-charges/cam-charges',
       '/finance/taj-utilities-charges/electricity-bills',
       '/finance/taj-utilities-charges/rental-agreements',
@@ -998,6 +1015,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/banking': 'banking',
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
+      '/finance/taj-utilities-charges/dashboard': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
       '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
@@ -1014,7 +1032,11 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/procurement/quotations': 'quotations',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
-      '/procurement/inventory': 'inventory',
+      '/procurement/store': 'store',
+      '/procurement/store/inventory': 'inventory',
+      '/procurement/store/goods-receive': 'goods_receive',
+      '/procurement/store/goods-issue': 'goods_issue',
+      '/procurement/store/cost-center': 'cost_center',
       '/procurement/reports': 'procurement_reports',
       
       // Sales Module
@@ -1116,6 +1138,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       if (userRole === ROLES.TCM_MANAGER && moduleKey === MODULE_KEYS.FINANCE) {
         const allowedPaths = [
           '/finance/taj-utilities-charges',
+          '/finance/taj-utilities-charges/dashboard',
           '/finance/taj-utilities-charges/cam-charges',
           '/finance/taj-utilities-charges/electricity-bills',
           '/finance/taj-utilities-charges/rental-agreements',
@@ -1124,6 +1147,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
           '/finance/taj-utilities-charges/taj-properties',
           '/finance/taj-utilities-charges/charges-slabs',
           '/finance/taj-utilities-charges/invoices',
+          '/finance/taj-utilities-charges/open-invoices',
           '/finance/taj-utilities-charges/deposits',
           '/finance/taj-utilities-charges/suspense-account'
         ];

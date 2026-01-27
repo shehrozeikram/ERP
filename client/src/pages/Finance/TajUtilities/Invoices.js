@@ -35,17 +35,17 @@ import {
   ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
-import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import { fetchAllInvoices, fetchInvoice } from '../../../services/propertyInvoiceService';
 import { fetchProperties, fetchPropertyById } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
 import { fetchSectors } from '../../../services/tajSectorsService';
-import { 
-  generateElectricityInvoicePDF, 
-  generateCAMInvoicePDF, 
+import {
+  generateElectricityInvoicePDF,
+  generateCAMInvoicePDF,
   generateRentInvoicePDF,
-  generateGeneralInvoicePDF
+  generateGeneralInvoicePDF,
+  outputPDF
 } from '../../../utils/invoicePDFGenerators';
 
 const formatCurrency = (value) =>
@@ -105,7 +105,6 @@ const getAdjustedGrandTotal = (invoice) => {
 };
 
 const Invoices = () => {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [invoices, setInvoices] = useState([]);
   const [properties, setProperties] = useState([]);
@@ -233,20 +232,19 @@ const Invoices = () => {
     loadSectors();
   }, []);
 
-  const handleViewInvoice = (invoice) => {
-    // Navigate to property detail page where invoice can be viewed
-    // Pass invoice ID as query parameter to highlight/show the invoice
-    if (invoice.property?._id) {
-      navigate(`/finance/taj-utilities-charges/taj-properties/${invoice.property._id}?invoiceId=${invoice._id}`);
-    } else {
-      // For open invoices (no property), download the PDF instead
-      handleDownloadInvoice(invoice);
+  const handleViewInvoice = async (invoice) => {
+    // Open the same PDF as download in a new tab for viewing (all invoices)
+    try {
+      const fullInvoiceResponse = await fetchInvoice(invoice._id);
+      const fullInvoice = fullInvoiceResponse?.data?.data || invoice;
+      await generateInvoicePDF(fullInvoice, { openInNewTab: true });
+    } catch (error) {
+      console.error('Error opening invoice PDF:', error);
+      setError('Failed to open invoice PDF');
     }
   };
 
-  // Use the shared PDF generation functions from the utility file
-
-  const generateInvoicePDF = async (invoice) => {
+  const generateInvoicePDF = async (invoice, options = {}) => {
     if (!invoice) {
       setError('Invoice data is missing');
       return;
@@ -254,7 +252,7 @@ const Invoices = () => {
 
     // For open invoices (no property), use generateGeneralInvoicePDF
     if (!invoice.property) {
-      return await generateGeneralInvoicePDF(invoice, null);
+      return await generateGeneralInvoicePDF(invoice, null, options);
     }
 
     let property = invoice.property;
@@ -293,11 +291,11 @@ const Invoices = () => {
                          (isRent && !isElectricity && !isCAM);
     
     if (isSingleType && isElectricity) {
-      return await generateElectricityInvoicePDF(invoice, property);
+      return await generateElectricityInvoicePDF(invoice, property, options);
     } else if (isSingleType && isCAM) {
-      return await generateCAMInvoicePDF(invoice, property);
+      return await generateCAMInvoicePDF(invoice, property, options);
     } else if (isSingleType && isRent) {
-      return await generateRentInvoicePDF(invoice, property);
+      return await generateRentInvoicePDF(invoice, property, options);
     }
     
     // For mixed invoices or fallback, use the general format below
@@ -617,8 +615,7 @@ const Invoices = () => {
       .replace(/[^a-z0-9-_ ]/gi, '')
       .trim()
       .replace(/\s+/g, '_');
-
-    pdf.save(`Invoice_${sanitizedName || invoice._id}.pdf`);
+    outputPDF(pdf, `Invoice_${sanitizedName || invoice._id}.pdf`, options);
   };
 
   const handleDownloadInvoice = async (invoice) => {

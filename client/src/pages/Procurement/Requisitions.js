@@ -28,7 +28,9 @@ import {
   FormControlLabel,
   List,
   ListItem,
-  CircularProgress
+  CircularProgress,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   Assignment as RequisitionIcon,
@@ -40,12 +42,14 @@ import {
   Refresh as RefreshIcon,
   CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
-  Email as EmailIcon
+  Email as EmailIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
+import dayjs from 'dayjs';
 
 const Requisitions = () => {
   const navigate = useNavigate();
@@ -65,9 +69,11 @@ const Requisitions = () => {
   const [statusFilter, setStatusFilter] = useState('');
   
   // Dialog states
-  const [viewDialog, setViewDialog] = useState({ open: false, data: null });
+  const [viewDialog, setViewDialog] = useState({ open: false, data: null, tab: 0 });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   const [emailDialog, setEmailDialog] = useState({ open: false, requisition: null, selectedVendors: [] });
+  const [quotations, setQuotations] = useState([]);
+  const [loadingQuotations, setLoadingQuotations] = useState(false);
 
   // Load data on component mount
   useEffect(() => {
@@ -114,8 +120,37 @@ const Requisitions = () => {
     }
   }, [page, rowsPerPage, search, statusFilter]);
 
-  const handleView = (requisition) => {
-    setViewDialog({ open: true, data: requisition });
+  const handleView = async (requisition) => {
+    setViewDialog({ open: true, data: requisition, tab: 0 });
+    // Load quotations for comparative statement
+    if (requisition._id) {
+      setLoadingQuotations(true);
+      try {
+        const response = await api.get(`/procurement/quotations/by-indent/${requisition._id}`);
+        if (response.data.success) {
+          setQuotations(response.data.data || []);
+        }
+      } catch (err) {
+        console.error('Failed to load quotations:', err);
+        setQuotations([]);
+      } finally {
+        setLoadingQuotations(false);
+      }
+    }
+  };
+
+  const handleTabChange = (event, newValue) => {
+    setViewDialog({ ...viewDialog, tab: newValue });
+  };
+
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return '0.00';
+    return parseFloat(num).toFixed(2);
+  };
+
+  const formatDateForPrint = (date) => {
+    if (!date) return '';
+    return dayjs(date).format('DD/MM/YYYY');
   };
 
   const handleDelete = (id) => {
@@ -315,79 +350,643 @@ const Requisitions = () => {
       </Paper>
 
       {/* VIEW DIALOG */}
-      <Dialog open={viewDialog.open} onClose={() => setViewDialog({ open: false, data: null })} maxWidth="md" fullWidth>
-        <DialogTitle>Requisition Details</DialogTitle>
-        <DialogContent>
-          {viewDialog.data && (
-            <Box sx={{ mt: 2 }}>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Requisition #</Typography>
-                  <Typography variant="body1">{viewDialog.data.indentNumber}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Status</Typography>
-                  <Chip 
-                    label={viewDialog.data.status} 
-                    color={getStatusColor(viewDialog.data.status)} 
-                    size="small" 
+      <Dialog 
+        open={viewDialog.open} 
+        onClose={() => setViewDialog({ open: false, data: null, tab: 0 })} 
+        maxWidth={false}
+        fullWidth
+        PaperProps={{
+          sx: {
+            width: viewDialog.tab === 1 ? '95%' : '90%',
+            maxWidth: viewDialog.tab === 1 ? '297mm' : '210mm',
+            maxHeight: '95vh',
+            m: 2,
+            '@media print': {
+              boxShadow: 'none',
+              maxWidth: '100%',
+              margin: 0,
+              height: '100%',
+              width: '100%',
+              maxHeight: '100%'
+            }
+          }
+        }}
+      >
+        <DialogTitle sx={{ '@media print': { display: 'none' }, pb: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">
+              {viewDialog.tab === 0 ? 'Requisition Details' : 'Comparative Statement'}
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<PrintIcon />}
+              onClick={() => window.print()}
+              size="small"
+            >
+              Print
+            </Button>
+          </Box>
+        </DialogTitle>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}>
+          <Tabs value={viewDialog.tab} onChange={handleTabChange} aria-label="requisition tabs">
+            <Tab label="Requisition Details" />
+            <Tab label="Comparative Statement" />
+          </Tabs>
+        </Box>
+        <DialogContent sx={{ p: 0, overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
+          {viewDialog.data && viewDialog.tab === 0 && (
+            <Box sx={{ width: '100%' }} className="print-content">
+              {/* Print Content - Same as IndentPrintView */}
+              <Paper
+                sx={{
+                  p: { xs: 3, sm: 3.5, md: 4 },
+                  maxWidth: '210mm',
+                  mx: 'auto',
+                  backgroundColor: '#fff',
+                  boxShadow: 'none',
+                  width: '100%',
+                  '@media print': {
+                    boxShadow: 'none',
+                    p: 2.5,
+                    maxWidth: '100%',
+                    backgroundColor: '#fff',
+                    mx: 0,
+                    width: '100%',
+                    pageBreakInside: 'avoid'
+                  }
+                }}
+              >
+                {/* Header Section - Logo and Company Name */}
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0, position: 'relative', minHeight: { xs: 150, print: 130 } }}>
+                  <Box
+                    component="img"
+                    src="/images/taj-logo.png"
+                    alt="Taj Residencia Logo"
+                    sx={{
+                      height: { xs: 150, print: 130 },
+                      width: 'auto',
+                      objectFit: 'contain',
+                      position: 'absolute',
+                      left: 0,
+                      top: { xs: 10, print: 5 }
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
                   />
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle2" color="text.secondary">Title</Typography>
-                  <Typography variant="body1">{viewDialog.data.title}</Typography>
-                </Grid>
-                {viewDialog.data.description && (
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" color="text.secondary">Description</Typography>
-                    <Typography variant="body1">{viewDialog.data.description}</Typography>
-                  </Grid>
-                )}
-                <Grid item xs={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Department</Typography>
-                  <Typography variant="body1">{viewDialog.data.department?.name || '-'}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Requester</Typography>
-                  <Typography variant="body1">
-                    {viewDialog.data.requestedBy?.firstName} {viewDialog.data.requestedBy?.lastName}
+                  <Typography
+                    variant="h6"
+                    fontWeight={700}
+                    sx={{
+                      fontSize: { xs: '1.6rem', print: '1.4rem' },
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      textAlign: 'center'
+                    }}
+                  >
+                    Taj Residencia
                   </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Priority</Typography>
-                  <Typography variant="body1">{viewDialog.data.priority || '-'}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="subtitle2" color="text.secondary">Category</Typography>
-                  <Typography variant="body1">{viewDialog.data.category || '-'}</Typography>
-                </Grid>
-                {viewDialog.data.items && viewDialog.data.items.length > 0 && (
-                  <>
-                    <Grid item xs={12}>
-                      <Divider sx={{ my: 1 }} />
-                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Items</Typography>
+                </Box>
+
+                {/* Document Title */}
+                <Typography
+                  variant="h5"
+                  fontWeight={700}
+                  align="center"
+                  sx={{
+                    textTransform: 'uppercase',
+                    mb: 2,
+                    fontSize: { xs: '1.1rem', print: '0.95rem' },
+                    letterSpacing: 1.5,
+                    mt: -4
+                  }}
+                >
+                  Purchase Request Form
+                </Typography>
+
+                {/* ERP Ref - Single Row (Centered) */}
+                <Box sx={{ mb: 1.5, fontSize: '0.9rem', lineHeight: 1.8, textAlign: 'center' }}>
+                  <Box>
+                    <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                    <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                      {viewDialog.data.erpRef || 'PR #' + (viewDialog.data.indentNumber?.split('-').pop() || '')}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {/* Date, Required Date, Indent No. - Single Row */}
+                <Box sx={{ mb: 1.5, fontSize: '0.9rem', lineHeight: 1.8 }}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
+                    <Box sx={{ minWidth: '120px' }}>
+                      <Typography component="span" fontWeight={600}>Date:</Typography>
+                      <Typography component="span" sx={{ ml: 1 }}>
+                        {formatDateForPrint(viewDialog.data.requestedDate)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '150px' }}>
+                      <Typography component="span" fontWeight={600}>Required Date:</Typography>
+                      <Typography component="span" sx={{ ml: 1 }}>
+                        {viewDialog.data.requiredDate ? formatDateForPrint(viewDialog.data.requiredDate) : '___________'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '120px' }}>
+                      <Typography component="span" fontWeight={600}>Indent No.:</Typography>
+                      <Typography component="span" sx={{ ml: 1 }}>
+                        {viewDialog.data.indentNumber || '___________'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+
+                {/* Department and Originator - Single Row */}
+                <Box sx={{ mb: 3, fontSize: '0.9rem', lineHeight: 1.8 }}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
+                    <Box sx={{ minWidth: '200px' }}>
+                      <Typography component="span" fontWeight={600}>Department:</Typography>
+                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                        {viewDialog.data.department?.name || '___________'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '200px' }}>
+                      <Typography component="span" fontWeight={600}>Originator:</Typography>
+                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                        {viewDialog.data.requestedBy?.firstName && viewDialog.data.requestedBy?.lastName
+                          ? `${viewDialog.data.requestedBy.firstName} ${viewDialog.data.requestedBy.lastName}`
+                          : '___________'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+
+                {/* Items Table */}
+                <Box sx={{ mb: 3 }}>
+                  <table
+                    style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      border: '1px solid #000',
+                      fontSize: '0.85rem',
+                      fontFamily: 'Arial, sans-serif'
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                        <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '5%' }}>
+                          S#
+                        </th>
+                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '30%' }}>
+                          Description
+                        </th>
+                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '15%' }}>
+                          Brand
+                        </th>
+                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '10%' }}>
+                          Unit
+                        </th>
+                        <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '8%' }}>
+                          Qty.
+                        </th>
+                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '32%' }}>
+                          Purpose
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewDialog.data.items && viewDialog.data.items.length > 0 ? (
+                        viewDialog.data.items.map((item, index) => (
+                          <tr key={index} style={{ border: '1px solid #000' }}>
+                            <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
+                              {(index + 1).toString().padStart(2, '0')}
+                            </td>
+                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                              {item.itemName || item.description || '___________'}
+                            </td>
+                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                              {item.brand || '___________'}
+                            </td>
+                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                              {item.unit || '___________'}
+                            </td>
+                            <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
+                              {item.quantity || '___'}
+                            </td>
+                            <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                              {item.purpose || '___________'}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
+                            No items
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </Box>
+
+                {/* Justification */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1, fontSize: '0.95rem' }}>
+                    Justification:
+                  </Typography>
+                  <Box
+                    sx={{
+                      border: '1px solid #ccc',
+                      p: 1.5,
+                      minHeight: '50px',
+                      fontSize: '0.9rem',
+                      whiteSpace: 'pre-wrap',
+                      lineHeight: 1.6
+                    }}
+                  >
+                    {viewDialog.data.justification || '___________'}
+                  </Box>
+                </Box>
+
+                {/* Signatures Section */}
+                <Box sx={{ mb: 3 }}>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
+                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+                          Sig of Requester:
+                        </Typography>
+                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                          {viewDialog.data.signatures?.requester?.name || '___________'}
+                        </Box>
+                      </Box>
                     </Grid>
-                    {viewDialog.data.items.map((item, idx) => (
-                      <Grid item xs={12} key={idx}>
-                        <Paper variant="outlined" sx={{ p: 2 }}>
-                          <Typography variant="body2"><strong>{item.itemName}</strong></Typography>
-                          <Typography variant="body2">Quantity: {item.quantity} {item.unit}</Typography>
-                          {item.estimatedCost && (
-                            <Typography variant="body2">Estimated Cost: {formatPKR(item.estimatedCost)}</Typography>
-                          )}
-                        </Paper>
-                      </Grid>
-                    ))}
-                  </>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
+                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+                          Head of Department:
+                        </Typography>
+                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                          {viewDialog.data.signatures?.headOfDepartment?.name || '___________'}
+                        </Box>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
+                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+                          Approved by GM/PD:
+                        </Typography>
+                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                          {viewDialog.data.signatures?.gmPd?.name || '___________'}
+                        </Box>
+                        {viewDialog.data.signatures?.gmPd?.date && (
+                          <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
+                            {formatDateForPrint(viewDialog.data.signatures.gmPd.date)}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
+                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+                          SVP/AVP Approval:
+                        </Typography>
+                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                          {viewDialog.data.signatures?.svpAvp?.name || '___________'}
+                        </Box>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Box>
+
+                {/* Distribution Section - Bottom Left */}
+                <Box sx={{ mt: 3, pt: 1.5, borderTop: '1px solid #ccc', fontSize: '0.8rem' }}>
+                  <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
+                    <strong>Original:</strong> Procurement
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', mb: 0.5 }}>
+                    <strong>Green:</strong> Store
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block' }}>
+                    <strong>Yellow:</strong> For Book Record
+                  </Typography>
+                </Box>
+              </Paper>
+            </Box>
+          )}
+          {viewDialog.data && viewDialog.tab === 1 && (
+            <Box sx={{ width: '100%' }} className="print-content">
+              <Paper
+                sx={{
+                  p: { xs: 3, sm: 3.5, md: 4 },
+                  maxWidth: '210mm',
+                  mx: 'auto',
+                  backgroundColor: '#fff',
+                  boxShadow: 'none',
+                  width: '100%',
+                  fontFamily: 'Arial, sans-serif',
+                  '@media print': {
+                    boxShadow: 'none',
+                    p: 2.5,
+                    maxWidth: '100%',
+                    backgroundColor: '#fff',
+                    mx: 0,
+                    width: '100%',
+                    pageBreakInside: 'avoid'
+                  }
+                }}
+              >
+                {/* Header Section - Logo and Company Name */}
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0, position: 'relative', minHeight: { xs: 150, print: 130 } }}>
+                  <Box
+                    component="img"
+                    src="/images/taj-logo.png"
+                    alt="Taj Residencia Logo"
+                    sx={{
+                      height: { xs: 150, print: 130 },
+                      width: 'auto',
+                      objectFit: 'contain',
+                      position: 'absolute',
+                      left: 0,
+                      top: { xs: 10, print: 5 }
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                  <Typography
+                    variant="h6"
+                    fontWeight={700}
+                    sx={{
+                      fontSize: { xs: '1.6rem', print: '1.4rem' },
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                      textAlign: 'center'
+                    }}
+                  >
+                    Taj Residencia
+                  </Typography>
+                </Box>
+
+                {/* Document Title */}
+                <Typography
+                  variant="h5"
+                  fontWeight={700}
+                  align="center"
+                  sx={{
+                    textTransform: 'uppercase',
+                    mb: 2,
+                    fontSize: { xs: '1.1rem', print: '0.95rem' },
+                    letterSpacing: 1.5,
+                    mt: -4
+                  }}
+                >
+                  COMPARATIVE STATEMENT
+                </Typography>
+
+                {/* Reference Information */}
+                <Box sx={{ mb: 2, fontSize: '0.9rem', lineHeight: 1.8 }}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-start', mb: 1 }}>
+                    <Box sx={{ minWidth: '120px' }}>
+                      <Typography component="span" fontWeight={600}>Date:</Typography>
+                      <Typography component="span" sx={{ ml: 1 }}>
+                        {formatDateForPrint(viewDialog.data.requestedDate)}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '150px' }}>
+                      <Typography component="span" fontWeight={600}>Required Date:</Typography>
+                      <Typography component="span" sx={{ ml: 1 }}>
+                        {viewDialog.data.requiredDate ? formatDateForPrint(viewDialog.data.requiredDate) : '___________'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '120px' }}>
+                      <Typography component="span" fontWeight={600}>Indent No.:</Typography>
+                      <Typography component="span" sx={{ ml: 1 }}>
+                        {viewDialog.data.indentNumber || '___________'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-start' }}>
+                    <Box sx={{ minWidth: '200px' }}>
+                      <Typography component="span" fontWeight={600}>Department:</Typography>
+                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                        {viewDialog.data.department?.name || '___________'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: '200px' }}>
+                      <Typography component="span" fontWeight={600}>Originator:</Typography>
+                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                        {viewDialog.data.requestedBy?.firstName && viewDialog.data.requestedBy?.lastName
+                          ? `${viewDialog.data.requestedBy.firstName} ${viewDialog.data.requestedBy.lastName}`
+                          : '___________'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+
+                {/* Comparative Table */}
+                {loadingQuotations ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : quotations.length === 0 ? (
+                  <Box sx={{ p: 3, textAlign: 'center' }}>
+                    <Typography>No quotations available for comparison</Typography>
+                  </Box>
+                ) : (
+                  <Box sx={{ mb: 3, overflowX: 'auto' }}>
+                    <table
+                      style={{
+                        width: '100%',
+                        borderCollapse: 'collapse',
+                        border: '1px solid #000',
+                        fontSize: '0.8rem',
+                        fontFamily: 'Arial, sans-serif',
+                        minWidth: '800px'
+                      }}
+                    >
+                      <thead>
+                        <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                          <th rowSpan={2} style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', fontWeight: 700, width: '4%' }}>
+                            S/No
+                          </th>
+                          <th rowSpan={2} style={{ border: '1px solid #000', padding: '8px', fontWeight: 700, textAlign: 'left', width: '30%' }}>
+                            Description
+                          </th>
+                          <th rowSpan={2} style={{ border: '1px solid #000', padding: '8px', fontWeight: 700, textAlign: 'left', width: '8%' }}>
+                            Unit
+                          </th>
+                          <th rowSpan={2} style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', fontWeight: 700, width: '6%' }}>
+                            Qty
+                          </th>
+                          {quotations.map((quote, idx) => (
+                            <th key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '8px', fontWeight: 700, textAlign: 'center', width: `${52 / quotations.length}%` }}>
+                              Vendor {idx + 1} ({quote.vendor?.name || 'N/A'})
+                            </th>
+                          ))}
+                        </tr>
+                        <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                          {quotations.map((quote, idx) => (
+                            <React.Fragment key={idx}>
+                              <th style={{ border: '1px solid #000', padding: '8px', fontWeight: 700, textAlign: 'center' }}>
+                                Unit Rate
+                              </th>
+                              <th style={{ border: '1px solid #000', padding: '8px', fontWeight: 700, textAlign: 'center' }}>
+                                Total Amount
+                              </th>
+                            </React.Fragment>
+                          ))}
+                        </tr>
+                        {/* Vendor Quotation Numbers Row */}
+                        <tr style={{ border: '1px solid #000', fontSize: '0.75rem', backgroundColor: '#fafafa' }}>
+                          <td colSpan={4} style={{ border: '1px solid #000', padding: '4px 8px' }}></td>
+                          {quotations.map((quote, idx) => (
+                            <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center' }}>
+                              {quote.quotationNumber} - {formatDateForPrint(quote.quotationDate)}
+                            </td>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewDialog.data.items && viewDialog.data.items.length > 0 ? (
+                          viewDialog.data.items.map((item, itemIndex) => (
+                            <tr key={itemIndex} style={{ border: '1px solid #000' }}>
+                              <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', verticalAlign: 'top' }}>
+                                {itemIndex + 1}
+                              </td>
+                              <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>
+                                {item.itemName || item.description || '___________'}
+                              </td>
+                              <td style={{ border: '1px solid #000', padding: '8px', verticalAlign: 'top' }}>
+                                {item.unit || '___________'}
+                              </td>
+                              <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', verticalAlign: 'top' }}>
+                                {item.quantity || '___'}
+                              </td>
+                              {quotations.map((quote, quoteIdx) => {
+                                const quoteItem = quote.items?.find((qi, idx) => idx === itemIndex) || quote.items?.[itemIndex];
+                                const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
+                                return (
+                                  <React.Fragment key={quoteIdx}>
+                                    <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', verticalAlign: 'top' }}>
+                                      {quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}
+                                    </td>
+                                    <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', verticalAlign: 'top' }}>
+                                      {quoteItem ? formatNumber(itemTotal) : '___________'}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4 + (quotations.length * 2)} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
+                              No items
+                            </td>
+                          </tr>
+                        )}
+                        {/* Total Amount Row */}
+                        <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
+                          <td colSpan={4} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontSize: '0.9rem' }}>
+                            Total Amount
+                          </td>
+                          {quotations.map((quote, idx) => (
+                            <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontSize: '0.9rem' }}>
+                              {formatNumber(quote.totalAmount || 0)}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </Box>
                 )}
-              </Grid>
+
+                {/* Recommended Vendor Section */}
+                {quotations.length > 0 && (
+                  <Box sx={{ mt: 3, p: 2, border: '1px solid #ccc', fontSize: '0.9rem' }}>
+                    <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                      Recommended Vendor:
+                    </Typography>
+                    <Typography>
+                      {quotations.reduce((lowest, quote) => 
+                        (!lowest || (quote.totalAmount || 0) < (lowest.totalAmount || 0)) ? quote : lowest
+                      , null)?.vendor?.name || 'N/A'}
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setViewDialog({ open: false, data: null })}>Close</Button>
+        <DialogActions sx={{ '@media print': { display: 'none' } }}>
+          <Button onClick={() => setViewDialog({ open: false, data: null, tab: 0 })}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Print Styles for Dialog */}
+      <Box
+        component="style"
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media print {
+              @page {
+                size: A4;
+                margin: 15mm;
+              }
+              body * {
+                visibility: hidden;
+              }
+              .MuiDialog-container,
+              .MuiDialog-container *,
+              .MuiDialog-paper,
+              .MuiDialog-paper *,
+              .print-content,
+              .print-content * {
+                visibility: visible;
+              }
+              .MuiDialog-container {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                display: block !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+              }
+              .MuiDialog-paper {
+                box-shadow: none !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+                width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                position: relative !important;
+                transform: none !important;
+                overflow: visible !important;
+              }
+              .MuiDialogContent-root {
+                overflow: visible !important;
+                padding: 0 !important;
+                height: auto !important;
+                max-height: none !important;
+                margin: 0 !important;
+              }
+              .MuiDialogTitle-root {
+                display: none !important;
+              }
+              .MuiDialogActions-root {
+                display: none !important;
+              }
+              .MuiBackdrop-root {
+                display: none !important;
+              }
+              .MuiPaper-root {
+                box-shadow: none !important;
+              }
+            }
+          `
+        }}
+      />
 
       {/* EMAIL DIALOG */}
       <Dialog 

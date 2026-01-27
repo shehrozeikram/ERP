@@ -42,61 +42,59 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuf
 };
 
 /**
- * Calculate arrears from overdue invoices (unpaid or partially paid invoices past due date)
- * For each overdue invoice, calculates: Charges for the Month + Arrears + Late Payment Surcharge (10% of Charges for the Month)
+ * Calculate overdue arrears from previous unpaid invoices. When chargeTypesFilter is provided
+ * (e.g. ['ELECTRICITY'], ['CAM'], ['RENT']), only the portion of each invoice's balance
+ * attributable to those charge types is included — so electricity invoices get only electricity
+ * arrears, CAM only CAM, etc.
  * @param {ObjectId} propertyId - Property ID
  * @param {Date} currentDate - Current date (defaults to now)
- * @returns {Number} Total arrears amount to be added to new invoice
+ * @param {string[]} [chargeTypesFilter] - Optional. e.g. ['ELECTRICITY'], ['CAM'], ['RENT']
+ * @returns {Number} Total overdue arrears (for the property or for the given charge types only)
  */
-const calculateOverdueArrears = async (propertyId, currentDate = new Date()) => {
+const calculateOverdueArrears = async (propertyId, currentDate = new Date(), chargeTypesFilter = null) => {
   if (!propertyId) return 0;
-  
   try {
-    // Find all previous invoices for this property that are overdue and have outstanding balance
     const overdueInvoices = await PropertyInvoice.find({
       property: propertyId,
-      dueDate: { $lt: currentDate }, // Past due date
-      balance: { $gt: 0 }, // Has outstanding balance
-      paymentStatus: { $in: ['unpaid', 'partial_paid'] }, // Unpaid or partially paid
-      status: { $ne: 'Cancelled' } // Not cancelled
+      dueDate: { $lt: currentDate },
+      balance: { $gt: 0 },
+      paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+      status: { $ne: 'Cancelled' }
     })
-    .select('charges subtotal totalArrears grandTotal balance')
-    .sort({ dueDate: 1 }) // Oldest first
-    .lean();
-    
-    if (!overdueInvoices || overdueInvoices.length === 0) {
-      return 0;
-    }
-    
+      .select('charges chargeTypes subtotal totalArrears grandTotal balance')
+      .sort({ dueDate: 1 })
+      .lean();
+
+    if (!overdueInvoices || overdueInvoices.length === 0) return 0;
+
     let totalOverdueArrears = 0;
-    
-    overdueInvoices.forEach(invoice => {
-      // Calculate "Charges for the Month" - sum of all charge amounts (excluding arrears)
-      const chargesForMonth = invoice.charges?.reduce((sum, charge) => sum + (charge.amount || 0), 0) || invoice.subtotal || 0;
-      
-      // Get existing arrears from the invoice
-      const existingArrears = invoice.totalArrears || 0;
-      
-      // Calculate late payment surcharge: 10% of "Charges for the Month"
+    const filterTypes = Array.isArray(chargeTypesFilter) && chargeTypesFilter.length > 0 ? chargeTypesFilter : null;
+
+    overdueInvoices.forEach((invoice) => {
+      const chargesForMonth = invoice.charges?.reduce((sum, c) => sum + (c.amount || 0), 0) || invoice.subtotal || 0;
       const lateSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-      
-      // Calculate "Payable After Due Date" = Charges for the Month + Arrears + Late Surcharge
-      const payableAfterDue = chargesForMonth + existingArrears + lateSurcharge;
-      
-      // Add the outstanding balance (what's actually unpaid) to total arrears
-      // But we need to account for the late surcharge that should be added
-      // The balance already includes the original charges + arrears - payments
-      // So we add the late surcharge to the balance
-      const overdueAmount = invoice.balance + lateSurcharge;
-      
-      totalOverdueArrears += overdueAmount;
+      const overdueAmount = (invoice.balance || 0) + lateSurcharge;
+
+      if (!filterTypes) {
+        totalOverdueArrears += overdueAmount;
+        return;
+      }
+
+      const invoiceChargeTypes = invoice.chargeTypes || [];
+      if (!filterTypes.some((t) => invoiceChargeTypes.includes(t))) return;
+
+      const grandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0)) || 1;
+      const amountForTypes = (invoice.charges || [])
+        .filter((c) => filterTypes.includes(c.type))
+        .reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
+      const proportion = grandTotal > 0 ? amountForTypes / grandTotal : 0;
+      totalOverdueArrears += overdueAmount * proportion;
     });
-    
-    // Round to 2 decimal places
+
     return Math.round(totalOverdueArrears * 100) / 100;
   } catch (error) {
     console.error('Error calculating overdue arrears:', error);
-    return 0; // Return 0 on error to prevent invoice creation from failing
+    return 0;
   }
 };
 
@@ -296,7 +294,7 @@ const createElectricityBillData = (meter, property, calculatedCharges, { prvRead
   };
 };
 
-// Get rent calculation for property (including carry forward arrears)
+// Get rent calculation for property (RENT-only arrears from overdue invoices, same logic as CAM)
 router.get('/property/:propertyId/rent-calculation', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const property = await TajProperty.findById(req.params.propertyId)
@@ -305,41 +303,8 @@ router.get('/property/:propertyId/rent-calculation', authMiddleware, asyncHandle
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    // Calculate carry forward of Rent arrears from previous unpaid invoices
-    let rentCarryForwardArrears = 0;
-    const previousRentInvoices = await PropertyInvoice.find({
-      property: property._id,
-      chargeTypes: { $in: ['RENT'] },
-      paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-      balance: { $gt: 0 }
-    })
-    .select('charges grandTotal totalPaid balance')
-    .sort({ invoiceDate: 1 })
-    .lean();
-    
-    // Calculate outstanding Rent charges from previous invoices
-    previousRentInvoices.forEach(inv => {
-      const rentCharge = inv.charges?.find(c => c.type === 'RENT');
-      if (rentCharge) {
-        // Calculate the Rent portion of the outstanding balance
-        const hasOnlyRent = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'RENT';
-        if (hasOnlyRent) {
-          // If only Rent in invoice, use the full outstanding balance
-          rentCarryForwardArrears += (inv.balance || 0);
-        } else {
-          // If mixed charges, calculate Rent portion proportionally
-          const rentTotal = (rentCharge.amount || 0) + (rentCharge.arrears || 0);
-          const invoiceTotal = inv.grandTotal || 0;
-          if (invoiceTotal > 0) {
-            const rentProportion = rentTotal / invoiceTotal;
-            rentCarryForwardArrears += (inv.balance || 0) * rentProportion;
-          }
-        }
-      }
-    });
-    
-    // Round to 2 decimal places
-    rentCarryForwardArrears = Math.round(rentCarryForwardArrears * 100) / 100;
+    // RENT-only overdue arrears (same module-specific logic as CAM / electricity)
+    const rentCarryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['RENT']);
 
     // Get monthly rent from rental agreement or property
     let monthlyRent = 0;
@@ -372,6 +337,35 @@ router.get('/property/:propertyId/rent-calculation', authMiddleware, asyncHandle
         totalArrears,
         rentalAgreement: property.rentalAgreement
       }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+// Get CAM calculation for property (slab amount + overdue arrears)
+router.get('/property/:propertyId/cam-calculation', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const property = await TajProperty.findById(req.params.propertyId).lean();
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+    const propertySize = property.areaValue ?? 0;
+    const areaUnit = property.areaUnit || 'Marla';
+    const zoneType = property.zoneType || 'Residential';
+    const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
+    const amount = camChargeInfo?.amount ?? 0;
+    const arrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
+    let description = 'CAM Charges';
+    if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
+      description = 'Commercial CAM Charges';
+    } else if (propertySize > 0) {
+      description = `CAM Charges (${propertySize} ${areaUnit})`;
+    }
+    if (arrears > 0) description += ' (with Carry Forward Arrears)';
+    res.json({
+      success: true,
+      data: { amount, arrears, total: Math.round((amount + arrears) * 100) / 100, description }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -525,104 +519,101 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     let rentChargeAdded = false; // Track if rent charge was calculated from agreement
     let rentCarryForwardArrears = 0; // Carry forward arrears from previous invoices
     const meterBillsData = []; // Store data for additional meters
+    let useProvidedCAM = false;
+    let usedProvidedElectricity = false;
 
     // Get CAM Charge
     if (includeCAM === true) {
-      // Calculate carry forward of CAM Charges arrears from previous unpaid invoices
-      let carryForwardArrears = 0;
-      const previousCAMInvoices = await PropertyInvoice.find({
-        property: property._id,
-        chargeTypes: { $in: ['CAM'] },
-        paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-        balance: { $gt: 0 }
-      })
-      .select('charges grandTotal totalPaid balance')
-      .sort({ invoiceDate: 1 })
-      .lean();
-      
-      // Calculate outstanding CAM charges from previous invoices
-      previousCAMInvoices.forEach(inv => {
-        const camCharge = inv.charges?.find(c => c.type === 'CAM');
-        if (camCharge) {
-          // Calculate the CAM portion of the outstanding balance
-          // If invoice has only CAM, use full balance; otherwise calculate proportionally
-          const hasOnlyCAM = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM';
-          if (hasOnlyCAM) {
-            // If only CAM in invoice, use the full outstanding balance
-            carryForwardArrears += (inv.balance || 0);
-          } else {
-            // If mixed charges, calculate CAM portion proportionally
-            const camTotal = (camCharge.amount || 0) + (camCharge.arrears || 0);
-            const invoiceTotal = inv.grandTotal || 0;
-            if (invoiceTotal > 0) {
-              const camProportion = camTotal / invoiceTotal;
-              carryForwardArrears += (inv.balance || 0) * camProportion;
-            }
-          }
-        }
-      });
-      
-      // Round to 2 decimal places
-      carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
-      
-      // First try to find existing CAM charge in database if we have property identifiers
-      if (conditions.length > 0) {
-        camCharge = await CAMCharge.findOne({ $or: conditions })
-          .sort({ createdAt: -1 })
-          .lean();
-      }
-      
-      if (camCharge) {
-        // Use existing CAM charge amount, but add carry forward arrears
-        const camAmount = camCharge.amount || 0;
-        const existingArrears = camCharge.arrears || 0;
-        const totalArrears = existingArrears + carryForwardArrears;
-        
+      // Use CAM charge from request when frontend sends charges (same behavior as Electricity: prefer form values)
+      const hasProvidedCharges = requestCharges && Array.isArray(requestCharges) && requestCharges.length > 0;
+      const camChargeFromRequest = hasProvidedCharges ? requestCharges.find(c => String(c?.type || '').toUpperCase() === 'CAM') : null;
+      useProvidedCAM = !!camChargeFromRequest;
+
+      if (useProvidedCAM) {
+        const camAmount = Number(camChargeFromRequest.amount) || 0;
+        const camArrears = Number(camChargeFromRequest.arrears) || 0;
+        const providedTotal = (camChargeFromRequest.total !== undefined && camChargeFromRequest.total !== null && camChargeFromRequest.total !== '')
+          ? Number(camChargeFromRequest.total)
+          : null;
+        const camTotal = (typeof providedTotal === 'number' && providedTotal > 0) ? providedTotal : (camAmount + camArrears);
         charges.push({
           type: 'CAM',
-          description: carryForwardArrears > 0 
-            ? 'CAM Charges (with Carry Forward Arrears)' 
-            : 'CAM Charges',
+          description: camChargeFromRequest.description || 'CAM Charges',
           amount: camAmount,
-          arrears: totalArrears,
-          total: camAmount + totalArrears
+          arrears: camArrears,
+          total: camTotal
         });
       } else {
-        // If no existing CAM charge found, calculate from charges slab based on zone type and property size
-        const propertySize = property.areaValue || 0;
-        const areaUnit = property.areaUnit || 'Marla';
-        const zoneType = property.zoneType || 'Residential';
-        
-        let camAmount = 0;
-        let camDescription = 'CAM Charges';
-        
-        // For Commercial zone, use commercial CAM charges
-        // For Residential zone, calculate based on property size
-        if (zoneType === 'Commercial') {
-          const camChargeInfo = await getCAMChargeForProperty(0, areaUnit, zoneType);
-          camAmount = camChargeInfo.amount || 0;
-          camDescription = 'Commercial CAM Charges';
-        } else if (propertySize > 0) {
-          // Residential zone: calculate based on property size
-          const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
-          camAmount = camChargeInfo.amount || 0;
-          camDescription = `CAM Charges (${propertySize} ${areaUnit})`;
-        }
-        
-        // Add carry forward arrears description if applicable
-        if (carryForwardArrears > 0) {
-          camDescription += ` + Carry Forward Arrears`;
-        }
-        
-        // Always add CAM charge entry when includeCAM is true, even if amount is 0
-        // This allows the invoice to be created and the amount can be set manually
-        charges.push({
-          type: 'CAM',
-          description: camDescription,
-          amount: camAmount,
-          arrears: carryForwardArrears,
-          total: camAmount + carryForwardArrears
+        // Calculate carry forward of CAM Charges arrears from previous unpaid invoices
+        let carryForwardArrears = 0;
+        const previousCAMInvoices = await PropertyInvoice.find({
+          property: property._id,
+          chargeTypes: { $in: ['CAM'] },
+          paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+          balance: { $gt: 0 }
+        })
+          .select('charges grandTotal totalPaid balance')
+          .sort({ invoiceDate: 1 })
+          .lean();
+
+        previousCAMInvoices.forEach(inv => {
+          const invCam = inv.charges?.find(c => c.type === 'CAM');
+          if (invCam) {
+            const hasOnlyCAM = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM';
+            if (hasOnlyCAM) {
+              carryForwardArrears += (inv.balance || 0);
+            } else {
+              const camTotal = (invCam.amount || 0) + (invCam.arrears || 0);
+              const invoiceTotal = inv.grandTotal || 0;
+              if (invoiceTotal > 0) {
+                carryForwardArrears += (inv.balance || 0) * (camTotal / invoiceTotal);
+              }
+            }
+          }
         });
+        carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
+
+        if (conditions.length > 0) {
+          camCharge = await CAMCharge.findOne({ $or: conditions })
+            .sort({ createdAt: -1 })
+            .lean();
+        }
+
+        if (camCharge) {
+          const camAmount = camCharge.amount || 0;
+          const existingArrears = camCharge.arrears || 0;
+          const totalArrears = existingArrears + carryForwardArrears;
+          charges.push({
+            type: 'CAM',
+            description: carryForwardArrears > 0 ? 'CAM Charges (with Carry Forward Arrears)' : 'CAM Charges',
+            amount: camAmount,
+            arrears: totalArrears,
+            total: camAmount + totalArrears
+          });
+        } else {
+          const propertySize = property.areaValue || 0;
+          const areaUnit = property.areaUnit || 'Marla';
+          const zoneType = property.zoneType || 'Residential';
+          let camAmount = 0;
+          let camDescription = 'CAM Charges';
+          if (zoneType === 'Commercial') {
+            const camChargeInfo = await getCAMChargeForProperty(0, areaUnit, zoneType);
+            camAmount = camChargeInfo.amount || 0;
+            camDescription = 'Commercial CAM Charges';
+          } else if (propertySize > 0) {
+            const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
+            camAmount = camChargeInfo.amount || 0;
+            camDescription = `CAM Charges (${propertySize} ${areaUnit})`;
+          }
+          if (carryForwardArrears > 0) camDescription += ` + Carry Forward Arrears`;
+          charges.push({
+            type: 'CAM',
+            description: camDescription,
+            amount: camAmount,
+            arrears: carryForwardArrears,
+            total: camAmount + carryForwardArrears
+          });
+        }
       }
     }
 
@@ -652,6 +643,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       // PRIORITY: If frontend provided charges (calculated from units consumed), use those
       // Only recalculate from readings if charges were NOT provided
       if (shouldUseProvidedCharges) {
+        usedProvidedElectricity = true;
         // Use charges provided from frontend - they're already calculated correctly from units consumed
         // Still need to create electricity bill record for reference, but use provided charge values
         const now = dayjs();
@@ -979,42 +971,8 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 
     // Get Rent Payment from Rental Agreement (especially for Personal Rent category)
     if (includeRent === true) {
-      // Calculate carry forward of Rent arrears from previous unpaid invoices
-      rentCarryForwardArrears = 0;
-      const previousRentInvoices = await PropertyInvoice.find({
-        property: property._id,
-        chargeTypes: { $in: ['RENT'] },
-        paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-        balance: { $gt: 0 }
-      })
-      .select('charges grandTotal totalPaid balance')
-      .sort({ invoiceDate: 1 })
-      .lean();
-      
-      // Calculate outstanding Rent charges from previous invoices
-      previousRentInvoices.forEach(inv => {
-        const rentCharge = inv.charges?.find(c => c.type === 'RENT');
-        if (rentCharge) {
-          // Calculate the Rent portion of the outstanding balance
-          // If invoice has only Rent, use full balance; otherwise calculate proportionally
-          const hasOnlyRent = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'RENT';
-          if (hasOnlyRent) {
-            // If only Rent in invoice, use the full outstanding balance
-            rentCarryForwardArrears += (inv.balance || 0);
-          } else {
-            // If mixed charges, calculate Rent portion proportionally
-            const rentTotal = (rentCharge.amount || 0) + (rentCharge.arrears || 0);
-            const invoiceTotal = inv.grandTotal || 0;
-            if (invoiceTotal > 0) {
-              const rentProportion = rentTotal / invoiceTotal;
-              rentCarryForwardArrears += (inv.balance || 0) * rentProportion;
-            }
-          }
-        }
-      });
-      
-      // Round to 2 decimal places
-      rentCarryForwardArrears = Math.round(rentCarryForwardArrears * 100) / 100;
+      // RENT-only overdue arrears (same module-specific logic as CAM / electricity)
+      rentCarryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['RENT']);
       
       let agreement = null;
       
@@ -1186,15 +1144,23 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       }
     }
 
-    // Calculate overdue arrears from previous invoices (after due date amounts)
-    const overdueArrears = await calculateOverdueArrears(property._id, new Date());
-    
-    // Add overdue arrears to the first charge (or distribute as needed)
-    // For now, we'll add it to the first charge's arrears, or create a separate arrears entry
-    if (overdueArrears > 0 && charges.length > 0) {
-      // Add overdue arrears to the first charge's arrears
-      charges[0].arrears = (charges[0].arrears || 0) + overdueArrears;
-      charges[0].total = (charges[0].amount || 0) + (charges[0].arrears || 0);
+    // Add module-specific overdue arrears: only the portion for each charge type (electricity/CAM/rent).
+    // Skip for charge types that already have correct module-only arrears (from frontend or from backend createRentCharge).
+    const usedProvidedRent = includeRent === true && requestCharges?.some(c => String(c?.type || '').toUpperCase() === 'RENT') && !rentChargeAdded;
+    const rentArrearsAlreadyApplied = chargeType => (chargeType === 'RENT' && (usedProvidedRent || rentChargeAdded));
+    const chargeTypesInInvoice = [...new Set(charges.map((c) => c.type))];
+    for (const chargeType of chargeTypesInInvoice) {
+      if (chargeType === 'CAM' && useProvidedCAM) continue;
+      if (chargeType === 'ELECTRICITY' && usedProvidedElectricity) continue;
+      if (rentArrearsAlreadyApplied(chargeType)) continue;
+      const overdueForType = await calculateOverdueArrears(property._id, new Date(), [chargeType]);
+      if (overdueForType > 0) {
+        const charge = charges.find((c) => c.type === chargeType);
+        if (charge) {
+          charge.arrears = (charge.arrears || 0) + overdueForType;
+          charge.total = (charge.amount || 0) + (charge.arrears || 0);
+        }
+      }
     }
     
     // Calculate totals

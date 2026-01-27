@@ -4,8 +4,9 @@ const indentSchema = new mongoose.Schema({
   // Indent Number (Auto-generated)
   indentNumber: {
     type: String,
-    required: true,
+    required: false, // Will be auto-generated in pre-save middleware
     unique: true,
+    sparse: true,
     trim: true
   },
   
@@ -45,6 +46,10 @@ const indentSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
+    brand: {
+      type: String,
+      trim: true
+    },
     quantity: {
       type: Number,
       required: [true, 'Quantity is required'],
@@ -54,6 +59,10 @@ const indentSchema = new mongoose.Schema({
       type: String,
       trim: true,
       default: 'Piece'
+    },
+    purpose: {
+      type: String,
+      trim: true
     },
     estimatedCost: {
       type: Number,
@@ -115,10 +124,62 @@ const indentSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  erpRef: {
+    type: String,
+    trim: true,
+    unique: true,
+    sparse: true
+  },
   amount: {
     type: Number,
     min: [0, 'Amount cannot be negative'],
     default: 0
+  },
+  
+  // Justification
+  justification: {
+    type: String,
+    trim: true
+  },
+  
+  // Signatures
+  signatures: {
+    requester: {
+      name: {
+        type: String,
+        trim: true
+      },
+      date: {
+        type: Date
+      }
+    },
+    headOfDepartment: {
+      name: {
+        type: String,
+        trim: true
+      },
+      date: {
+        type: Date
+      }
+    },
+    gmPd: {
+      name: {
+        type: String,
+        trim: true
+      },
+      date: {
+        type: Date
+      }
+    },
+    svpAvp: {
+      name: {
+        type: String,
+        trim: true
+      },
+      date: {
+        type: Date
+      }
+    }
   },
   
   // Additional Information
@@ -190,8 +251,31 @@ const indentSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Pre-save middleware to calculate total estimated cost
-indentSchema.pre('save', function(next) {
+// Generate ERP Ref number (PR #1, PR #2, etc.)
+indentSchema.statics.generateERPRef = async function() {
+  // Find the highest ERP Ref number
+  const lastIndent = await this.findOne({
+    erpRef: { $exists: true, $ne: '' }
+  }).sort({ erpRef: -1 });
+  
+  let sequence = 1;
+  if (lastIndent && lastIndent.erpRef) {
+    // Extract numeric part from "PR #12" format
+    const match = lastIndent.erpRef.match(/#?(\d+)/);
+    if (match && match[1]) {
+      const lastNum = parseInt(match[1]);
+      if (!isNaN(lastNum)) {
+        sequence = lastNum + 1;
+      }
+    }
+  }
+  
+  return `PR #${sequence}`;
+};
+
+// Pre-save middleware to calculate total estimated cost and generate ERP Ref and Indent Number
+indentSchema.pre('save', async function(next) {
+  // Calculate total estimated cost
   if (this.items && this.items.length > 0) {
     this.totalEstimatedCost = this.items.reduce((total, item) => {
       return total + ((item.estimatedCost || 0) * (item.quantity || 0));
@@ -199,27 +283,58 @@ indentSchema.pre('save', function(next) {
   } else {
     this.totalEstimatedCost = 0;
   }
-  next();
-});
-
-// Generate indent number
-indentSchema.statics.generateIndentNumber = async function() {
-  const year = new Date().getFullYear();
-  const prefix = `IND-${year}-`;
   
-  const lastIndent = await this.findOne({
-    indentNumber: new RegExp(`^${prefix}`)
-  }).sort({ indentNumber: -1 });
-  
-  let sequence = 1;
-  if (lastIndent) {
-    const lastSequence = parseInt(lastIndent.indentNumber.split('-').pop());
-    if (!isNaN(lastSequence)) {
-      sequence = lastSequence + 1;
+  // Auto-generate Indent Number if not provided and this is a new document
+  if ((!this.indentNumber || this.indentNumber.trim() === '') && this.isNew) {
+    try {
+      this.indentNumber = await this.constructor.generateIndentNumber();
+    } catch (error) {
+      return next(error);
     }
   }
   
-  return `${prefix}${sequence.toString().padStart(5, '0')}`;
+  // Auto-generate ERP Ref if not provided and this is a new document
+  if ((!this.erpRef || this.erpRef.trim() === '') && this.isNew) {
+    try {
+      this.erpRef = await this.constructor.generateERPRef();
+    } catch (error) {
+      return next(error);
+    }
+  }
+  
+  // Ensure indentNumber and erpRef are set (required for validation)
+  if (!this.indentNumber || this.indentNumber.trim() === '') {
+    return next(new Error('Indent Number is required'));
+  }
+  
+  if (!this.erpRef || this.erpRef.trim() === '') {
+    return next(new Error('ERP Ref is required'));
+  }
+  
+  next();
+});
+
+// Generate indent number (simple auto-increment: 1, 2, 3, etc.)
+indentSchema.statics.generateIndentNumber = async function() {
+  // Find the highest numeric indent number
+  const lastIndent = await this.findOne({
+    indentNumber: { $exists: true, $ne: '' }
+  }).sort({ indentNumber: -1 });
+  
+  let sequence = 1;
+  if (lastIndent && lastIndent.indentNumber) {
+    // Extract numeric part (handle both formats: "21964" or "IND-2025-00001" or just "1")
+    const numericPart = lastIndent.indentNumber.replace(/[^0-9]/g, '');
+    if (numericPart) {
+      const lastNum = parseInt(numericPart);
+      if (!isNaN(lastNum) && lastNum > 0) {
+        sequence = lastNum + 1;
+      }
+    }
+  }
+  
+  // Return as simple number (e.g., "1", "2", "3")
+  return sequence.toString();
 };
 
 // Indexes

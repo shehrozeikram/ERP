@@ -692,6 +692,35 @@ const TajResidents = () => {
     setDepositPaymentDialog(true);
   }, [selectedResident, loadResidents, loadUnassignedProperties]);
 
+  // Helper function to calculate subtotal from invoice (excluding arrears)
+  const calculateInvoiceSubtotal = useCallback((inv) => {
+    if (!inv) return 0;
+    
+    // First try: use subtotal field if available and > 0
+    let subtotal = Number(inv.subtotal) || 0;
+    if (subtotal > 0) return subtotal;
+    
+    // Second try: calculate from charges array (sum of charge.amount, not charge.arrears)
+    if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
+      subtotal = inv.charges.reduce((sum, charge) => {
+        const chargeAmount = Number(charge?.amount) || 0;
+        return sum + chargeAmount;
+      }, 0);
+      if (subtotal > 0) return subtotal;
+    }
+    
+    // Third try: use grandTotal - totalArrears
+    const grandTotal = Number(inv.grandTotal) || 0;
+    const totalArrears = Number(inv.totalArrears) || 0;
+    if (grandTotal > 0) {
+      subtotal = grandTotal - totalArrears;
+      if (subtotal > 0) return subtotal;
+    }
+    
+    // Final fallback: use grandTotal if nothing else works
+    return grandTotal;
+  }, []);
+
   const handleDepositPaymentPropertyChange = useCallback(async (property) => {
     setSelectedProperty(property);
     if (!property?._id) {
@@ -717,25 +746,39 @@ const TajResidents = () => {
       
       const response = await fetchInvoicesForProperty(property._id);
       const invoiceList = response.data?.data || [];
+      
       setInvoices(invoiceList);
       
-      const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
+      // For deposit payments: exclude arrears from balance calculation
+      // Only show invoices that have a balance excluding arrears (subtotal - totalPaid > 0)
+      const outstandingInvoices = invoiceList.filter(inv => {
+        const subtotal = calculateInvoiceSubtotal(inv);
+        const totalPaid = Number(inv.totalPaid) || 0;
+        const balanceWithoutArrears = subtotal - totalPaid;
+        return balanceWithoutArrears > 0; // Only show if balance (excluding arrears) > 0
+      });
       
-      setDepositPaymentAllocations(outstandingInvoices.map(inv => ({
-        invoice: inv._id,
-        invoiceNumber: inv.invoiceNumber,
-        invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
-        balance: inv.balance || 0,
-        allocatedAmount: 0,
-        remaining: inv.balance || 0
-      })));
+      setDepositPaymentAllocations(outstandingInvoices.map(inv => {
+        const subtotal = calculateInvoiceSubtotal(inv);
+        const totalPaid = Number(inv.totalPaid) || 0;
+        const balanceWithoutArrears = Math.max(0, subtotal - totalPaid);
+        
+        return {
+          invoice: inv._id,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+          balance: balanceWithoutArrears,
+          allocatedAmount: 0,
+          remaining: balanceWithoutArrears
+        };
+      }));
     } catch (err) {
       handleError(err, 'Failed to load invoices');
       setDepositPaymentAllocations([]);
     } finally {
       setLoadingInvoices(false);
     }
-  }, [handleError, selectedResident]);
+  }, [handleError, selectedResident, calculateInvoiceSubtotal]);
 
   const handleDepositPaymentAllocationChange = useCallback((index, value) => {
     const numValue = Number(value) || 0;
@@ -891,15 +934,29 @@ const TajResidents = () => {
           const invoiceList = response.data?.data || [];
           setInvoices(invoiceList);
           
-          const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
-          setDepositPaymentAllocations(outstandingInvoices.map(inv => ({
-            invoice: inv._id,
-            invoiceNumber: inv.invoiceNumber,
-            invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
-            balance: inv.balance || 0,
-            allocatedAmount: 0,
-            remaining: inv.balance || 0
-          })));
+          // For deposit payments: exclude arrears from balance calculation
+          // Only show invoices that have a balance excluding arrears (subtotal - totalPaid > 0)
+          const outstandingInvoices = invoiceList.filter(inv => {
+            const subtotal = calculateInvoiceSubtotal(inv);
+            const totalPaid = Number(inv.totalPaid) || 0;
+            const balanceWithoutArrears = subtotal - totalPaid;
+            return balanceWithoutArrears > 0; // Only show if balance (excluding arrears) > 0
+          });
+          
+          setDepositPaymentAllocations(outstandingInvoices.map(inv => {
+            const subtotal = calculateInvoiceSubtotal(inv);
+            const totalPaid = Number(inv.totalPaid) || 0;
+            const balanceWithoutArrears = Math.max(0, subtotal - totalPaid);
+            
+            return {
+              invoice: inv._id,
+              invoiceNumber: inv.invoiceNumber,
+              invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
+              balance: balanceWithoutArrears,
+              allocatedAmount: 0,
+              remaining: balanceWithoutArrears
+            };
+          }));
         } catch (err) {
           // Error reloading invoices - non-critical, continue
         }
@@ -933,7 +990,7 @@ const TajResidents = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedProperty, selectedDeposits, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError]);
+  }, [selectedProperty, selectedDeposits, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError, calculateInvoiceSubtotal]);
 
   const handleAutoMatch = useCallback(async () => {
     try {
@@ -1885,6 +1942,7 @@ const TajResidents = () => {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
+                      <TableCell>Invoice #</TableCell>
                       <TableCell>Product</TableCell>
                       <TableCell>Nature</TableCell>
                       <TableCell align="right">Balance</TableCell>
@@ -1897,6 +1955,11 @@ const TajResidents = () => {
                       const invoice = invoices.find(inv => inv._id === alloc.invoice);
                       return (
                         <TableRow key={alloc.invoice}>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={500}>
+                              {invoice?.invoiceNumber || '-'}
+                            </Typography>
+                          </TableCell>
                           <TableCell>{alloc.invoiceType}</TableCell>
                           <TableCell>{getInvoiceDescription(invoice || {})}</TableCell>
                           <TableCell align="right">{formatCurrency(alloc.balance)}</TableCell>
@@ -2617,13 +2680,18 @@ const TajResidents = () => {
                       const periodText = invoice?.periodFrom && invoice?.periodTo
                         ? `${dayjs(invoice.periodFrom).format('DD MMM YYYY')} - ${dayjs(invoice.periodTo).format('DD MMM YYYY')}`
                         : '-';
+                      // Calculate subtotal (charge amounts without arrears) for display - use helper function
+                      const displaySubtotal = calculateInvoiceSubtotal(invoice);
+                      // Format due date - check both dueDate field and periodTo as fallback
+                      const dueDate = invoice?.dueDate || invoice?.periodTo;
+                      const dueDateText = dueDate ? dayjs(dueDate).format('DD MMM YYYY') : '-';
                       return (
                         <TableRow key={alloc.invoice}>
                           <TableCell>{invoice?.invoiceNumber || '-'}</TableCell>
                           <TableCell>{invoice?.invoiceDate ? dayjs(invoice.invoiceDate).format('DD MMM YYYY') : '-'}</TableCell>
                           <TableCell>{periodText}</TableCell>
-                          <TableCell>{invoice?.dueDate ? dayjs(invoice.dueDate).format('DD MMM YYYY') : '-'}</TableCell>
-                          <TableCell align="right">{formatCurrency(invoice?.grandTotal || 0)}</TableCell>
+                          <TableCell>{dueDateText}</TableCell>
+                          <TableCell align="right">{formatCurrency(displaySubtotal)}</TableCell>
                           <TableCell align="right">{formatCurrency(invoice?.totalPaid || 0)}</TableCell>
                           <TableCell align="right">{formatCurrency(alloc.balance)}</TableCell>
                           <TableCell align="right">

@@ -46,6 +46,7 @@ import RentalManagementFinance from './pages/Finance/TajUtilities/RentalManageme
 import TajProperties from './pages/Finance/TajUtilities/TajProperties';
 import TajPropertyDetail from './pages/Finance/TajUtilities/TajPropertyDetail';
 import RentalManagementDetailFinance from './pages/Finance/TajUtilities/RentalManagementDetail';
+import TajUtilitiesDashboard from './pages/Finance/TajUtilities/Dashboard';
 import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
 import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
@@ -59,13 +60,16 @@ import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import Requisitions from './pages/Procurement/Requisitions';
+import RequisitionPrintView from './pages/Procurement/RequisitionPrintView';
 import Quotations from './pages/Procurement/Quotations';
 import PurchaseOrders from './pages/Procurement/PurchaseOrders';
+import ComparativeStatements from './pages/Procurement/ComparativeStatements';
 import Vendors from './pages/Procurement/Vendors';
 import Inventory from './pages/Procurement/Inventory';
 import GoodsReceive from './pages/Procurement/GoodsReceive';
 import GoodsIssue from './pages/Procurement/GoodsIssue';
 import CostCenters from './pages/Procurement/CostCenters';
+import StoreDashboard from './pages/Procurement/Store/StoreDashboard';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import SalesOrders from './pages/Sales/SalesOrders';
 import SalesCustomers from './pages/Sales/SalesCustomers';
@@ -190,6 +194,7 @@ import IndentsDashboard from './pages/General/Indents/IndentsDashboard';
 import IndentsList from './pages/General/Indents/IndentsList';
 import IndentForm from './pages/General/Indents/IndentForm';
 import IndentDetail from './pages/General/Indents/IndentDetail';
+import IndentPrintView from './pages/General/Indents/IndentPrintView';
 import Payments from './pages/General/Payments';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
@@ -585,6 +590,10 @@ function App() {
               element={<ProtectedRoute><IndentForm /></ProtectedRoute>}
             />
             <Route
+              path="/general/indents/:id/print"
+              element={<ProtectedRoute><IndentPrintView /></ProtectedRoute>}
+            />
+            <Route
               path="/general/indents/:id"
               element={<ProtectedRoute><IndentDetail /></ProtectedRoute>}
             />
@@ -890,7 +899,15 @@ function App() {
             />
             <Route
               path="/finance/taj-utilities-charges"
-              element={<Navigate to="/finance/taj-utilities-charges/cam-charges" replace />}
+              element={<Navigate to="/finance/taj-utilities-charges/dashboard" replace />}
+            />
+            <Route
+              path="/finance/taj-utilities-charges/dashboard"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <TajUtilitiesDashboard />
+                </ProtectedRoute>
+              }
             />
             <Route
               path="/finance/taj-utilities-charges/cam-charges"
@@ -1019,12 +1036,20 @@ function App() {
               element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} 
             />
             <Route 
+              path="/procurement/requisitions/:id/print"
+              element={<ProtectedRoute><RequisitionPrintView /></ProtectedRoute>}
+            />
+            <Route 
               path="/procurement/requisitions" 
               element={<ProtectedRoute><Requisitions /></ProtectedRoute>} 
             />
             <Route 
               path="/procurement/quotations" 
               element={<ProtectedRoute><Quotations /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/comparative-statements" 
+              element={<ProtectedRoute><ComparativeStatements /></ProtectedRoute>} 
             />
             <Route 
               path="/procurement/purchase-orders" 
@@ -1034,21 +1059,43 @@ function App() {
               path="/procurement/vendors" 
               element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
             />
+            {/* Store Submodule Routes */}
             <Route 
-              path="/procurement/inventory" 
+              path="/procurement/store" 
+              element={<ProtectedRoute><StoreDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/store/inventory" 
               element={<ProtectedRoute><Inventory /></ProtectedRoute>} 
             />
             <Route 
-              path="/procurement/goods-receive" 
+              path="/procurement/store/goods-receive" 
               element={<ProtectedRoute><GoodsReceive /></ProtectedRoute>} 
             />
             <Route 
-              path="/procurement/goods-issue" 
+              path="/procurement/store/goods-issue" 
               element={<ProtectedRoute><GoodsIssue /></ProtectedRoute>} 
             />
             <Route 
-              path="/procurement/cost-centers" 
+              path="/procurement/store/cost-center" 
               element={<ProtectedRoute><CostCenters /></ProtectedRoute>} 
+            />
+            {/* Legacy routes - redirect to new paths */}
+            <Route 
+              path="/procurement/inventory" 
+              element={<Navigate to="/procurement/store/inventory" replace />} 
+            />
+            <Route 
+              path="/procurement/goods-receive" 
+              element={<Navigate to="/procurement/store/goods-receive" replace />} 
+            />
+            <Route 
+              path="/procurement/goods-issue" 
+              element={<Navigate to="/procurement/store/goods-issue" replace />} 
+            />
+            <Route 
+              path="/procurement/cost-centers" 
+              element={<Navigate to="/procurement/store/cost-center" replace />} 
             />
 
             {/* Sales Module */}

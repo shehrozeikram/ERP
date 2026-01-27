@@ -44,6 +44,7 @@ import {
 import dayjs from 'dayjs';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import { useDeposits } from '../../../hooks/useDeposits';
+import pakistanBanks from '../../../constants/pakistanBanks';
 
 const SuspenseAccount = () => {
   const {
@@ -96,10 +97,9 @@ const SuspenseAccount = () => {
     handleTransferDepositSubmit,
     PAYMENT_METHODS,
     formatCurrency,
-    renderBankField
+    renderBankField,
+    suspenseAccountTotals
   } = useDeposits({ suspenseAccount: true });
-
-  const bankFieldConfig = renderBankField(editForm, setEditForm);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -174,6 +174,62 @@ const SuspenseAccount = () => {
               >
                 Create Deposit
               </Button>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Overall Totals Card - Shows totals from ALL deposits */}
+      <Card sx={{ mb: 3, boxShadow: 2 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 2.5, fontWeight: 500 }}>
+            Overall Summary
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={4}>
+              <Box sx={{ 
+                borderLeft: '4px solid',
+                borderColor: 'primary.main',
+                pl: 2,
+                py: 1
+              }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  Total Amount
+                </Typography>
+                <Typography variant="h6" fontWeight={600} color="primary.main">
+                  {formatCurrency(suspenseAccountTotals?.totalAmount || 0)}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Box sx={{ 
+                borderLeft: '4px solid',
+                borderColor: 'success.main',
+                pl: 2,
+                py: 1
+              }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  Remaining
+                </Typography>
+                <Typography variant="h6" fontWeight={600} color="success.main">
+                  {formatCurrency(suspenseAccountTotals?.totalRemaining || 0)}
+                </Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <Box sx={{ 
+                borderLeft: '4px solid',
+                borderColor: 'warning.main',
+                pl: 2,
+                py: 1
+              }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  Used
+                </Typography>
+                <Typography variant="h6" fontWeight={600} color="warning.main">
+                  {formatCurrency(suspenseAccountTotals?.totalUsed || 0)}
+                </Typography>
+              </Box>
             </Grid>
           </Grid>
         </CardContent>
@@ -397,9 +453,22 @@ const SuspenseAccount = () => {
                 </Select>
               </FormControl>
             </Grid>
-            {bankFieldConfig && (
+            {editForm.paymentMethod !== 'Cash' && (
               <Grid item xs={12} md={6}>
-                <TextField {...bankFieldConfig.props} />
+                <FormControl fullWidth required={editForm.paymentMethod !== 'Cash'}>
+                  <InputLabel>Bank Name</InputLabel>
+                  <Select
+                    value={editForm.bank || ''}
+                    label="Bank Name"
+                    onChange={(e) => setEditForm({ ...editForm, bank: e.target.value })}
+                  >
+                    {pakistanBanks.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
             )}
             <Grid item xs={12} md={6}>
@@ -515,13 +584,20 @@ const SuspenseAccount = () => {
             </Grid>
             {createForm.paymentMethod !== 'Cash' && (
               <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Bank Name"
-                  value={createForm.bank || ''}
-                  onChange={(e) => setCreateForm({ ...createForm, bank: e.target.value })}
-                  required={createForm.paymentMethod !== 'Cash'}
-                />
+                <FormControl fullWidth required={createForm.paymentMethod !== 'Cash'}>
+                  <InputLabel>Bank Name</InputLabel>
+                  <Select
+                    value={createForm.bank || ''}
+                    label="Bank Name"
+                    onChange={(e) => setCreateForm({ ...createForm, bank: e.target.value })}
+                  >
+                    {pakistanBanks.map((bank) => (
+                      <MenuItem key={bank} value={bank}>
+                        {bank}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
             )}
             <Grid item xs={12}>

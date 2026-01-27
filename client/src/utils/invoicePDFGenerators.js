@@ -66,8 +66,19 @@ const ensurePropertyWithSize = async (property, invoice) => {
   return property;
 };
 
+export const outputPDF = (pdf, filename, options = {}) => {
+  if (options.openInNewTab) {
+    const blob = pdf.output('blob');
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } else {
+    pdf.save(filename);
+  }
+};
+
 // Generate Electricity Invoice PDF
-export const generateElectricityInvoicePDF = async (invoice, propertyParam = null) => {
+export const generateElectricityInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;
   
   if (!property || !invoice) return;
@@ -352,11 +363,11 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
 
   const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'electricity-property')
     .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
-  pdf.save(`Electricity_Invoice_${sanitizedName || property._id}.pdf`);
+  outputPDF(pdf, `Electricity_Invoice_${sanitizedName || property._id}.pdf`, options);
 };
 
 // Generate CAM Invoice PDF
-export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
+export const generateCAMInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;
   
   if (!property || !invoice) return;
@@ -573,11 +584,11 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null) => {
 
   const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'cam-property')
     .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
-  pdf.save(`CAM_Invoice_${sanitizedName || property._id}.pdf`);
+  outputPDF(pdf, `CAM_Invoice_${sanitizedName || property._id}.pdf`, options);
 };
 
 // Generate Rent Invoice PDF
-export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
+export const generateRentInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;
   
   if (!property || !invoice) return;
@@ -793,11 +804,11 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null) => {
 
   const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'rent-property')
     .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
-  pdf.save(`Rent_Invoice_${sanitizedName || property._id}.pdf`);
+  outputPDF(pdf, `Rent_Invoice_${sanitizedName || property._id}.pdf`, options);
 };
 
 // Generate General Invoice PDF (for custom invoice types, with or without properties)
-export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) => {
+export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   if (!invoice) return;
   
   // Property is optional for open invoices
@@ -1044,5 +1055,5 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null) =
         .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_')
     : (invoice.customerName || 'invoice')
         .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
-  pdf.save(`Invoice_${sanitizedName || invoice._id || 'invoice'}.pdf`);
+  outputPDF(pdf, `Invoice_${sanitizedName || invoice._id || 'invoice'}.pdf`, options);
 };

@@ -125,7 +125,7 @@ const accountsReceivableSchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['sales_order', 'project', 'service', 'product', 'manual'],
+    enum: ['sales_order', 'project', 'service', 'product', 'manual', 'invoice'],
     default: 'manual'
   },
   // Line items

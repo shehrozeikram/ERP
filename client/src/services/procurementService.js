@@ -48,6 +48,10 @@ const procurementService = {
     const response = await api.get('/procurement/quotations', { params });
     return response.data;
   },
+  getQuotationById: async (id) => {
+    const response = await api.get(`/procurement/quotations/${id}`);
+    return response.data;
+  },
   createQuotation: async (data) => {
     const response = await api.post('/procurement/quotations', data);
     return response.data;

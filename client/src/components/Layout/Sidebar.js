@@ -153,6 +153,7 @@ const Sidebar = () => {
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/banking': 'banking',
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
+      '/finance/taj-utilities-charges/dashboard': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
       '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
@@ -169,12 +170,17 @@ const Sidebar = () => {
       // Procurement Module
       '/procurement/requisitions': 'requisitions',
       '/procurement/quotations': 'quotations',
+      '/procurement/comparative-statements': 'comparative_statements',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
       '/procurement/inventory': 'inventory',
       '/procurement/goods-receive': 'inventory',
       '/procurement/goods-issue': 'inventory',
-      '/procurement/cost-centers': 'inventory',
+      '/procurement/store': 'store',
+      '/procurement/store/inventory': 'inventory',
+      '/procurement/store/goods-receive': 'goods_receive',
+      '/procurement/store/goods-issue': 'goods_issue',
+      '/procurement/store/cost-center': 'cost_center',
       '/procurement/reports': 'procurement_reports',
       
       // Sales Module

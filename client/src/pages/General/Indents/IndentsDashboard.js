@@ -24,7 +24,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField
+  TextField,
+  Divider
 } from '@mui/material';
 import {
   Assignment,
@@ -114,7 +115,7 @@ const IndentsDashboard = () => {
   const [returnSignature, setReturnSignature] = useState('');
   
   // View detail dialog
-  const [viewDialog, setViewDialog] = useState({ open: false, settlement: null });
+  const [viewDialog, setViewDialog] = useState({ open: false, settlement: null, isPurchaseOrder: false });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, settlement: null });
 
@@ -250,6 +251,346 @@ const IndentsDashboard = () => {
   const handlePrint = () => {
     if (!viewDialog.settlement) return;
     window.print();
+  };
+
+  // Number to words converter for Purchase Orders
+  const numberToWords = (num) => {
+    if (!num || num === 0) return 'Zero Rupees Only';
+    
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    
+    const convert = (n) => {
+      if (n === 0) return '';
+      if (n < 10) return ones[n];
+      if (n < 20) return teens[n - 10];
+      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + convert(n % 100) : '');
+      if (n < 100000) return convert(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + convert(n % 1000) : '');
+      if (n < 10000000) return convert(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + convert(n % 100000) : '');
+      return convert(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + convert(n % 10000000) : '');
+    };
+    
+    const amount = Math.floor(num);
+    const paise = Math.round((num - amount) * 100);
+    
+    let result = convert(amount) + ' Rupees';
+    if (paise > 0) {
+      result += ' and ' + convert(paise) + ' Paise';
+    }
+    result += ' Only';
+    
+    return result;
+  };
+
+  const formatDateForPrint = (date) => {
+    if (!date) return '';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const d = new Date(date);
+    return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
+  };
+
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return '0.00';
+    return parseFloat(num).toFixed(2);
+  };
+
+  // Purchase Order View Component
+  const PurchaseOrderView = ({ poData }) => {
+    return (
+      <Paper
+        sx={{
+          p: { xs: 3, sm: 3.5, md: 4 },
+          maxWidth: '210mm',
+          mx: 'auto',
+          backgroundColor: '#fff',
+          boxShadow: 'none',
+          width: '100%',
+          fontFamily: 'Arial, sans-serif',
+          '@media print': {
+            boxShadow: 'none',
+            p: 2.5,
+            maxWidth: '100%',
+            backgroundColor: '#fff',
+            mx: 0,
+            width: '100%',
+            pageBreakInside: 'avoid'
+          }
+        }}
+      >
+        {/* Title - Centered */}
+        <Typography
+          variant="h4"
+          fontWeight={700}
+          align="center"
+          sx={{
+            textTransform: 'uppercase',
+            mb: 3,
+            fontSize: { xs: '1.8rem', print: '1.6rem' },
+            letterSpacing: 1
+          }}
+        >
+          Purchase Order
+        </Typography>
+
+        {/* Buyer Information - First Row */}
+        <Box sx={{ mb: 2.5 }}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+            Residencia
+          </Typography>
+          <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>
+            1st Avenue 18 4 Islamabad
+          </Typography>
+          <Typography sx={{ fontSize: '0.9rem' }}>
+            1. Het Sne 1-8. Islamabad.
+          </Typography>
+        </Box>
+
+        {/* Divider */}
+        <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
+
+        {/* Vendor and PO Details - Second Row in Columns */}
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
+          {/* Left Column - Vendor Info */}
+          <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
+            <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+              {poData.vendor?.name || 'Vendor Name'}
+            </Typography>
+            <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
+              {poData.vendor?.address || 'Vendor Address'}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
+              <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
+              <Typography component="span">
+                Indent# {poData.indent?.indentNumber || 'N/A'} Dated. {poData.indent?.requestedDate ? formatDateForPrint(poData.indent.requestedDate) : 'N/A'}.
+                {poData.indent?.title && ` ${poData.indent.title}.`}
+                {poData.indent?.requestedBy && ` End User. ${poData.indent.requestedBy.firstName} ${poData.indent.requestedBy.lastName}`}
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Right Column - PO Details */}
+          <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
+              <Typography component="span">
+                {poData.orderNumber ? 
+                  (poData.orderNumber.startsWith('P') && !poData.orderNumber.includes('-')
+                    ? poData.orderNumber
+                    : 'P' + (poData.orderNumber.match(/\d+$/)?.[0] || poData.orderNumber.split('-').pop() || '').padStart(9, '0'))
+                  : 'N/A'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
+              <Typography component="span">{formatDateForPrint(poData.orderDate)}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
+              <Typography component="span">{poData.expectedDeliveryDate ? formatDateForPrint(poData.expectedDeliveryDate) : '___________'}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
+              <Typography component="span">{poData.shippingAddress ? 
+                `${poData.shippingAddress.street || ''} ${poData.shippingAddress.city || ''}`.trim() || '___________' 
+                : '___________'}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', mb: 0.5 }}>
+              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
+              <Typography component="span">{poData.indent?.department?.name || '___________'}</Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Items Table */}
+        <Box sx={{ mb: 3 }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              border: '1px solid #000',
+              fontSize: '0.85rem',
+              fontFamily: 'Arial, sans-serif'
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>
+                  Sr no
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
+                  Product
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '23%' }}>
+                  Description
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>
+                  Specification
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
+                  Brand
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '11%' }}>
+                  Quantity Unit
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
+                  Rate
+                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
+                  Amount
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {poData.items && poData.items.length > 0 ? (
+                poData.items.map((item, index) => (
+                  <tr key={index} style={{ border: '1px solid #000' }}>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
+                      {index + 1}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                      {item.productCode || poData.indent?.items?.[index]?.itemCode || `44-001-${String(index + 1).padStart(4, '0')}`}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                      {item.description || poData.indent?.items?.[index]?.itemName || '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                      {item.specification || poData.indent?.items?.[index]?.specification || '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                      {item.brand || poData.indent?.items?.[index]?.brand || '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
+                      {item.quantity ? `${formatNumber(item.quantity)} ${item.unit || 'Nos'}` : '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                      {item.unitPrice ? formatNumber(item.unitPrice) : '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                      {item.amount ? formatNumber(item.amount) : '___________'}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
+                    No items
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </Box>
+
+        {/* Financial Summary - Right Aligned */}
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+          <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
+              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Net Total:</Typography>
+              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
+              <Typography component="span">{formatNumber(poData.shippingCost || 0)}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
+              Rupees {numberToWords(poData.totalAmount || 0)}
+            </Typography>
+          </Box>
+        </Box>
+
+        {/* Terms & Conditions */}
+        <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, textDecoration: 'underline' }}>
+            TERMS & CONDITIONS
+          </Typography>
+          <Box sx={{ lineHeight: 1.8 }}>
+            <Typography sx={{ mb: 1, fontWeight: 600 }}>Main Terms & Conditions</Typography>
+            <Box sx={{ mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Payment Terms:</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>
+                {poData.paymentTerms || '100% Advance Payment'}
+              </Typography>
+            </Box>
+            <Box sx={{ mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Delivery Terms:</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>
+                At-Site Delivery
+              </Typography>
+            </Box>
+            <Box sx={{ mb: 1 }}>
+              <Typography component="span" fontWeight={600}>Delivery Time.</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>
+                Delivery within: {poData.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment
+              </Typography>
+            </Box>
+            <Typography sx={{ mb: 1 }}>
+              Rates Are Exclusive Of all The Taxes
+            </Typography>
+            {poData.vendor?.cnic && (
+              <Typography sx={{ mb: 1 }}>
+                CNIC {poData.vendor.cnic}
+              </Typography>
+            )}
+            {poData.vendor?.payeeName && (
+              <Typography>
+                Payee Name: {poData.vendor.payeeName}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
+        {/* Approval/Signature Section */}
+        <Box sx={{ mt: 4 }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '0.85rem',
+              fontFamily: 'Arial, sans-serif'
+            }}
+          >
+            <tbody>
+              <tr>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Procurement</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Internal Auditor</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Finance</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </Box>
+      </Paper>
+    );
   };
 
   // CEO Actions for Payments
@@ -509,7 +850,7 @@ const IndentsDashboard = () => {
                                   try {
                                     const r = await api.get(`/procurement/purchase-orders/${payment._id}`);
                                     const d = r.data.data;
-                                    setViewDialog({ open: true, settlement: { ...d, workflowStatus: d.status, referenceNumber: d.orderNumber, toWhomPaid: d.vendor?.name, forWhat: d.notes || 'Purchase Order', amount: d.totalAmount, grandTotal: d.totalAmount, date: d.orderDate, fromDepartment: 'Procurement', isPurchaseOrder: true } });
+                                    setViewDialog({ open: true, settlement: d, isPurchaseOrder: true });
                                   } catch (e) {
                                     console.error('Error fetching purchase order details:', e);
                                     toast.error('Failed to load purchase order details');
@@ -517,7 +858,30 @@ const IndentsDashboard = () => {
                                 } else {
                                   try {
                                     const response = await paymentSettlementService.getPaymentSettlement(payment._id);
-                                    setViewDialog({ open: true, settlement: response.data.data || response.data });
+                                    const settlementData = response.data.data || response.data;
+                                    // Check if payment settlement is related to a PO
+                                    if (settlementData.isPurchaseOrder || (settlementData.referenceNumber && settlementData.referenceNumber.startsWith('P'))) {
+                                      try {
+                                        let poResponse;
+                                        if (settlementData.isPurchaseOrder && payment._id) {
+                                          poResponse = await api.get(`/procurement/purchase-orders/${payment._id}`);
+                                        } else if (settlementData.referenceNumber) {
+                                          const searchResponse = await api.get(`/procurement/purchase-orders?search=${settlementData.referenceNumber}`);
+                                          if (searchResponse.data?.data?.length > 0) {
+                                            poResponse = await api.get(`/procurement/purchase-orders/${searchResponse.data.data[0]._id}`);
+                                          }
+                                        }
+                                        if (poResponse?.data?.success) {
+                                          setViewDialog({ open: true, settlement: poResponse.data.data, isPurchaseOrder: true });
+                                        } else {
+                                          setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false });
+                                        }
+                                      } catch (poError) {
+                                        setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false });
+                                      }
+                                    } else {
+                                      setViewDialog({ open: true, settlement: settlementData, isPurchaseOrder: false });
+                                    }
                                   } catch (error) {
                                     console.error('Error fetching settlement details:', error);
                                     toast.error('Failed to load payment details');
@@ -1012,18 +1376,31 @@ const IndentsDashboard = () => {
       {/* View Payment Detail Dialog */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog({ open: false, settlement: null })}
-        maxWidth="md"
+        onClose={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
+        maxWidth={viewDialog.isPurchaseOrder ? false : "md"}
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 0,
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-            background: '#ffffff'
+            background: '#ffffff',
+            ...(viewDialog.isPurchaseOrder && {
+              width: '90%',
+              maxWidth: '210mm',
+              maxHeight: '95vh',
+              '@media print': {
+                boxShadow: 'none',
+                maxWidth: '100%',
+                margin: 0,
+                height: '100%',
+                width: '100%',
+                maxHeight: '100%'
+              }
+            })
           }
         }}
       >
-        <DialogTitle sx={{ p: 0, m: 0 }}>
+        <DialogTitle sx={{ p: 0, m: 0, '@media print': { display: viewDialog.isPurchaseOrder ? 'none' : 'block' } }}>
           <Box sx={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -1032,24 +1409,42 @@ const IndentsDashboard = () => {
             borderBottom: '1px solid #e0e0e0'
           }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
-              PAYMENT SETTLEMENT
+              {viewDialog.isPurchaseOrder ? 'Purchase Order Details' : 'PAYMENT SETTLEMENT'}
             </Typography>
-            <IconButton 
-              size="small" 
-              onClick={() => setViewDialog({ open: false, settlement: null })}
-              sx={{ color: '#666' }}
-            >
-              <CloseIcon />
-            </IconButton>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {viewDialog.isPurchaseOrder && (
+                <Button
+                  variant="contained"
+                  startIcon={<PrintIcon />}
+                  onClick={() => window.print()}
+                  size="small"
+                  sx={{ '@media print': { display: 'none' } }}
+                >
+                  Print
+                </Button>
+              )}
+              <IconButton 
+                size="small" 
+                onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
+                sx={{ color: '#666', '@media print': { display: 'none' } }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
           </Box>
         </DialogTitle>
-        <DialogContent sx={{ p: 0, background: '#ffffff' }}>
+        <DialogContent sx={{ p: 0, background: '#ffffff', overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
           {viewDialog.settlement && (
             <Box sx={{ 
-              p: 4, 
+              p: viewDialog.isPurchaseOrder ? 0 : 4, 
               background: '#ffffff',
-              fontFamily: '"Times New Roman", serif'
-            }}>
+              fontFamily: viewDialog.isPurchaseOrder ? 'Arial, sans-serif' : '"Times New Roman", serif'
+            }} className={viewDialog.isPurchaseOrder ? "print-content" : ""}>
+              {/* Show Purchase Order view if it's a PO */}
+              {viewDialog.isPurchaseOrder ? (
+                <PurchaseOrderView poData={viewDialog.settlement} />
+              ) : (
+                <>
               {/* Document Header */}
               <Box sx={{ 
                 mb: 3, 
@@ -1403,6 +1798,8 @@ const IndentsDashboard = () => {
                   </Box>
                 </Box>
               )}
+                </>
+              )}
             </Box>
           )}
         </DialogContent>
@@ -1410,50 +1807,128 @@ const IndentsDashboard = () => {
           p: 2, 
           borderTop: '1px solid #e0e0e0',
           background: '#f9f9f9',
-          justifyContent: 'space-between'
+          justifyContent: 'space-between',
+          '@media print': { display: 'none' }
         }}>
           <Box>
-            <Chip
-              label={viewDialog.settlement?.workflowStatus || 'Draft'}
-              color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || 'Draft')}
-              size="small"
-              sx={{ mr: 1 }}
-            />
-            {viewDialog.settlement?.paymentType && (
-              <Chip
-                label={viewDialog.settlement.paymentType}
-                variant="outlined"
-                size="small"
-              />
+            {!viewDialog.isPurchaseOrder && (
+              <>
+                <Chip
+                  label={viewDialog.settlement?.workflowStatus || 'Draft'}
+                  color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || 'Draft')}
+                  size="small"
+                  sx={{ mr: 1 }}
+                />
+                {viewDialog.settlement?.paymentType && (
+                  <Chip
+                    label={viewDialog.settlement.paymentType}
+                    variant="outlined"
+                    size="small"
+                  />
+                )}
+              </>
             )}
           </Box>
           <Box>
+            {!viewDialog.isPurchaseOrder && (
+              <Button 
+                variant="outlined" 
+                startIcon={<HistoryIcon />}
+                onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
+                sx={{ minWidth: 150, mr: 1 }}
+              >
+                See Workflow History
+              </Button>
+            )}
             <Button 
               variant="outlined" 
-              startIcon={<HistoryIcon />}
-              onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
-              sx={{ minWidth: 150, mr: 1 }}
-            >
-              See Workflow History
-            </Button>
-            <Button 
-              variant="outlined" 
-              onClick={() => setViewDialog({ open: false, settlement: null })}
+              onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
               sx={{ minWidth: 80, mr: 1 }}
             >
               Close
             </Button>
-            <Button 
-              variant="outlined" 
-              startIcon={<PrintIcon />}
-              onClick={handlePrint}
-              sx={{ minWidth: 100 }}
-            >
-              Print
-            </Button>
+            {!viewDialog.isPurchaseOrder && (
+              <Button 
+                variant="outlined" 
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ minWidth: 100 }}
+              >
+                Print
+              </Button>
+            )}
           </Box>
         </DialogActions>
       </Dialog>
+
+      {/* Print Styles for Purchase Order Dialog */}
+      {viewDialog.isPurchaseOrder && (
+        <Box
+          component="style"
+          dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                @page {
+                  size: A4;
+                  margin: 15mm;
+                }
+                body * {
+                  visibility: hidden;
+                }
+                .MuiDialog-container,
+                .MuiDialog-container *,
+                .MuiDialog-paper,
+                .MuiDialog-paper *,
+                .print-content,
+                .print-content * {
+                  visibility: visible;
+                }
+                .MuiDialog-container {
+                  position: absolute !important;
+                  left: 0 !important;
+                  top: 0 !important;
+                  width: 100% !important;
+                  height: 100% !important;
+                  display: block !important;
+                  padding: 0 !important;
+                  margin: 0 !important;
+                  overflow: visible !important;
+                }
+                .MuiDialog-paper {
+                  box-shadow: none !important;
+                  margin: 0 !important;
+                  max-width: 100% !important;
+                  width: 100% !important;
+                  height: auto !important;
+                  max-height: none !important;
+                  position: relative !important;
+                  transform: none !important;
+                  overflow: visible !important;
+                }
+                .MuiDialogContent-root {
+                  overflow: visible !important;
+                  padding: 0 !important;
+                  height: auto !important;
+                  max-height: none !important;
+                  margin: 0 !important;
+                }
+                .MuiDialogTitle-root {
+                  display: none !important;
+                }
+                .MuiDialogActions-root {
+                  display: none !important;
+                }
+                .MuiBackdrop-root {
+                  display: none !important;
+                }
+                .MuiPaper-root {
+                  box-shadow: none !important;
+                }
+              }
+            `
+          }}
+        />
+      )}
 
       {/* Workflow History Dialog */}
       <WorkflowHistoryDialog

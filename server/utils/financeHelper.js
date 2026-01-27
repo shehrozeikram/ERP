@@ -130,7 +130,7 @@ const FinanceHelper = {
         dueDate,
         totalAmount: amount,
         subtotal: amount,
-        status: 'pending',
+        status: 'draft',
         department,
         module,
         referenceId,

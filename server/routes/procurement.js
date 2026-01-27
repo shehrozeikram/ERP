@@ -174,7 +174,16 @@ router.get('/purchase-orders/:id',
   authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'higher_management'), 
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
-      .populate('vendor', 'name email phone contact address')
+      .populate('vendor', 'name email phone contactPerson address')
+      .populate({
+        path: 'indent',
+        select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy',
+        populate: [
+          { path: 'department', select: 'name code' },
+          { path: 'requestedBy', select: 'firstName lastName email' }
+        ]
+      })
+      .populate('quotation', 'quotationNumber quotationDate')
       .populate('createdBy', 'firstName lastName email')
       .populate('approvedBy', 'firstName lastName email')
       .populate('receivedBy', 'firstName lastName email');
@@ -706,6 +715,114 @@ router.put('/purchase-orders/:id/ceo-secretariat-return',
       message: 'Purchase order returned to procurement by CEO Secretariat successfully',
       data: purchaseOrder
     });
+  })
+);
+
+// @route   PUT /api/procurement/purchase-orders/:id/send-to-store
+// @desc    Send approved PO to Store (status -> Sent to Store)
+// @access  Private (Procurement and Admin)
+router.put('/purchase-orders/:id/send-to-store',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const { comments } = req.body;
+    const purchaseOrder = await PurchaseOrder.findById(req.params.id);
+    if (!purchaseOrder) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (purchaseOrder.status !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only approved purchase orders can be sent to store'
+      });
+    }
+    purchaseOrder.status = 'Sent to Store';
+    purchaseOrder.updatedBy = req.user.id;
+    if (comments) {
+      purchaseOrder.internalNotes = (purchaseOrder.internalNotes || '') + (purchaseOrder.internalNotes ? '\n' : '') + `Sent to Store: ${comments}`;
+    }
+    await purchaseOrder.save();
+    
+    const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
+      .populate('vendor', 'name email phone')
+      .populate('updatedBy', 'firstName lastName email');
+    
+    res.json({
+      success: true,
+      message: 'Purchase order sent to store successfully',
+      data: updatedOrder
+    });
+  })
+);
+
+// @route   GET /api/procurement/store/dashboard
+// @desc    Get Purchase Orders with status "Sent to Store" grouped by month/year
+// @access  Private (Procurement, Admin, Store Manager)
+router.get('/store/dashboard',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    try {
+      // Get all POs with status "Sent to Store"
+      const purchaseOrders = await PurchaseOrder.find({ status: 'Sent to Store' })
+        .populate('vendor', 'name email phone contactPerson')
+        .populate('createdBy', 'firstName lastName email')
+        .populate('updatedBy', 'firstName lastName email')
+        .populate('indent', 'indentNumber title')
+        .sort({ updatedAt: -1 })
+        .lean();
+
+      // Group by month/year
+      const groupedByMonth = {};
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+
+      purchaseOrders.forEach(po => {
+        const date = new Date(po.updatedAt || po.createdAt);
+        const year = date.getFullYear();
+        const month = date.getMonth(); // 0-11
+        const monthYear = `${year}-${String(month + 1).padStart(2, '0')}`;
+        const monthYearLabel = `${monthNames[month]} ${year}`;
+
+        if (!groupedByMonth[monthYear]) {
+          groupedByMonth[monthYear] = {
+            monthYear,
+            monthYearLabel,
+            month,
+            year,
+            purchaseOrders: [],
+            totalAmount: 0,
+            count: 0
+          };
+        }
+
+        groupedByMonth[monthYear].purchaseOrders.push(po);
+        groupedByMonth[monthYear].totalAmount += po.totalAmount || 0;
+        groupedByMonth[monthYear].count += 1;
+      });
+
+      // Convert to array and sort by date (newest first)
+      const groupedArray = Object.values(groupedByMonth).sort((a, b) => {
+        if (a.year !== b.year) return b.year - a.year;
+        return b.month - a.month;
+      });
+
+      // Calculate totals
+      const totalCount = purchaseOrders.length;
+      const totalAmount = purchaseOrders.reduce((sum, po) => sum + (po.totalAmount || 0), 0);
+
+      res.json({
+        success: true,
+        data: {
+          groupedByMonth: groupedArray,
+          summary: {
+            totalCount,
+            totalAmount
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching store dashboard data:', error);
+      throw error;
+    }
   })
 );
 
@@ -2197,6 +2314,34 @@ router.post('/public-quotation/:token', [
 
 // ==================== QUOTATIONS ROUTES ====================
 
+// @route   GET /api/procurement/quotations/by-indent/:indentId
+// @desc    Get all quotations for a specific indent/requisition
+// @access  Private (Procurement and Admin)
+router.get('/quotations/by-indent/:indentId',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const { indentId } = req.params;
+
+    const quotations = await Quotation.find({ indent: indentId })
+      .populate({
+        path: 'indent',
+        select: 'indentNumber title items erpRef requestedDate requiredDate department requestedBy',
+        populate: [
+          { path: 'department', select: 'name code' },
+          { path: 'requestedBy', select: 'firstName lastName email' }
+        ]
+      })
+      .populate('vendor', 'name email phone contactPerson address')
+      .sort({ createdAt: 1 })
+      .exec();
+
+    res.json({
+      success: true,
+      data: quotations
+    });
+  })
+);
+
 // @route   GET /api/procurement/quotations
 // @desc    Get all quotations with pagination and filters
 // @access  Private (Procurement and Admin)
@@ -2276,7 +2421,14 @@ router.get('/quotations/:id',
   authorize('super_admin', 'admin', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     const quotation = await Quotation.findById(req.params.id)
-      .populate('indent', 'indentNumber title items')
+      .populate({
+        path: 'indent',
+        select: 'indentNumber title items erpRef requestedDate requiredDate department requestedBy justification signatures',
+        populate: [
+          { path: 'department', select: 'name code' },
+          { path: 'requestedBy', select: 'firstName lastName email' }
+        ]
+      })
       .populate('vendor', 'name email phone contactPerson address')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email');

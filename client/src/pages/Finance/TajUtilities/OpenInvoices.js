@@ -392,7 +392,9 @@ const OpenInvoices = () => {
                                 <IconButton
                                   size="small"
                                   color="primary"
-                                  onClick={() => handleEditInvoice(null, invoice)}
+                                  onClick={async () => {
+                                    await generateGeneralInvoicePDF(invoice, null, { openInNewTab: true });
+                                  }}
                                 >
                                   <ViewIcon fontSize="small" />
                                 </IconButton>

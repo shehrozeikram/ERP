@@ -1,0 +1,696 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Box,
+  Typography,
+  Paper,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
+  TextField,
+  MenuItem,
+  Chip,
+  Alert,
+  CircularProgress,
+  Grid,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
+} from '@mui/material';
+import {
+  Print as PrintIcon,
+  Search as SearchIcon,
+  Refresh as RefreshIcon,
+  CheckCircle as CheckCircleIcon
+} from '@mui/icons-material';
+import api from '../../services/api';
+import { formatDate } from '../../utils/dateUtils';
+import dayjs from 'dayjs';
+
+const ComparativeStatements = () => {
+  // State management
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [requisitions, setRequisitions] = useState([]);
+  const [selectedRequisition, setSelectedRequisition] = useState(null);
+  const [quotations, setQuotations] = useState([]);
+  const [loadingQuotations, setLoadingQuotations] = useState(false);
+  const [selectDialog, setSelectDialog] = useState({ open: false, quotation: null });
+  const [updating, setUpdating] = useState(false);
+
+  // Load requisitions on component mount
+  useEffect(() => {
+    loadRequisitions();
+  }, []);
+
+  const loadRequisitions = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const params = {
+        page: 1,
+        limit: 1000,
+        status: 'Approved'
+      };
+      
+      const response = await api.get('/procurement/requisitions', { params });
+      if (response.data.success) {
+        // The API returns 'indents' not 'requisitions'
+        const requisitionsData = response.data.data?.indents || response.data.data?.requisitions || [];
+        setRequisitions(requisitionsData);
+      } else {
+        setError('Failed to load requisitions');
+      }
+    } catch (err) {
+      console.error('Error loading requisitions:', err);
+      setError(err.response?.data?.message || 'Failed to load requisitions');
+      setRequisitions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleRequisitionSelect = async (requisition) => {
+    setSelectedRequisition(requisition);
+    setLoadingQuotations(true);
+    setError('');
+    try {
+      // First, get full requisition details with populated fields
+      const reqResponse = await api.get(`/indents/${requisition._id}`);
+      if (reqResponse.data.success) {
+        setSelectedRequisition(reqResponse.data.data);
+      }
+      
+      // Then get quotations
+      const response = await api.get(`/procurement/quotations/by-indent/${requisition._id}`);
+      if (response.data.success) {
+        setQuotations(response.data.data || []);
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load quotations');
+      setQuotations([]);
+    } finally {
+      setLoadingQuotations(false);
+    }
+  };
+
+  const formatDateForPrint = (date) => {
+    if (!date) return '';
+    return dayjs(date).format('DD/MM/YYYY');
+  };
+
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return '0.00';
+    return parseFloat(num).toFixed(2);
+  };
+
+  const handleSelectVendor = (quotation) => {
+    setSelectDialog({ open: true, quotation });
+  };
+
+  const confirmSelectVendor = async () => {
+    if (!selectDialog.quotation) return;
+
+    try {
+      setUpdating(true);
+      setError('');
+      
+      // Update selected quotation to Finalized
+      await api.put(`/procurement/quotations/${selectDialog.quotation._id}`, {
+        status: 'Finalized'
+      });
+
+      // Update other quotations to Rejected (optional - you can remove this if you want to keep them as is)
+      const otherQuotations = quotations.filter(q => q._id !== selectDialog.quotation._id);
+      for (const quote of otherQuotations) {
+        if (quote.status !== 'Finalized') {
+          try {
+            await api.put(`/procurement/quotations/${quote._id}`, {
+              status: 'Rejected'
+            });
+          } catch (err) {
+            console.error(`Failed to update quotation ${quote._id}:`, err);
+          }
+        }
+      }
+
+      // Reload quotations to reflect the changes
+      if (selectedRequisition?._id) {
+        const response = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
+        if (response.data.success) {
+          setQuotations(response.data.data || []);
+        }
+      }
+
+      setSelectDialog({ open: false, quotation: null });
+      setSuccess('Vendor selected successfully. Quotation status updated to Finalized.');
+      
+      // Auto-dismiss success message after 5 seconds
+      setTimeout(() => {
+        setSuccess('');
+      }, 5000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to select vendor');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  return (
+    <Box sx={{ p: 3 }}>
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h5" fontWeight={600}>
+            Comparative Statements
+          </Typography>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={loadRequisitions}
+            disabled={loading}
+          >
+            Refresh
+          </Button>
+        </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+            {error}
+          </Alert>
+        )}
+
+        {success && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+            {success}
+          </Alert>
+        )}
+
+        {/* Requisition Selection */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} md={6}>
+            <TextField
+              select
+              fullWidth
+              label="Select Requisition"
+              value={selectedRequisition?._id || ''}
+              onChange={(e) => {
+                const req = requisitions.find(r => r._id === e.target.value);
+                if (req) handleRequisitionSelect(req);
+              }}
+              disabled={loading || requisitions.length === 0}
+              helperText={loading ? 'Loading requisitions...' : requisitions.length === 0 ? 'No approved requisitions found' : ''}
+            >
+              {requisitions.length === 0 && !loading && (
+                <MenuItem disabled value="">
+                  No requisitions available
+                </MenuItem>
+              )}
+              {requisitions.map((req) => (
+                <MenuItem key={req._id} value={req._id}>
+                  {req.indentNumber || req._id} - {req.title || 'Untitled'} ({req.department?.name || 'N/A'})
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+        </Grid>
+
+        {/* Comparative Statement Display */}
+        {selectedRequisition && (
+          <Paper
+            sx={{
+              p: { xs: 3, sm: 3.5, md: 4 },
+              maxWidth: '297mm',
+              mx: 'auto',
+              backgroundColor: '#fff',
+              boxShadow: 'none',
+              width: '100%',
+              fontFamily: 'Arial, sans-serif',
+              '@media print': {
+                boxShadow: 'none',
+                p: 1.5,
+                maxWidth: '100%',
+                backgroundColor: '#fff',
+                mx: 0,
+                width: '100%',
+                pageBreakInside: 'avoid',
+                pageBreakAfter: 'avoid',
+                pageBreakBefore: 'avoid'
+              }
+            }}
+            className="print-content"
+          >
+            {/* Header Section - Title and Reference Numbers */}
+            <Box sx={{ mb: 3, position: 'relative', '@media print': { mb: 1.5 } }}>
+              {/* Title - Centered */}
+              <Typography
+                variant="h4"
+                fontWeight={700}
+                align="center"
+                sx={{
+                  textTransform: 'uppercase',
+                  mb: { xs: 3, print: 1 },
+                  fontSize: { xs: '1.8rem', print: '1.3rem' },
+                  letterSpacing: 1,
+                  '@media print': { pageBreakAfter: 'avoid' }
+                }}
+              >
+                Comparative Statement
+              </Typography>
+              
+              {/* Taj Residencia - Centered below title with more spacing */}
+              <Typography
+                variant="h6"
+                align="center"
+                sx={{
+                  mb: { xs: 2, print: 0.5 },
+                  fontSize: { xs: '1.2rem', print: '0.9rem' },
+                  fontWeight: 500,
+                  '@media print': { pageBreakAfter: 'avoid' }
+                }}
+              >
+                Taj Residencia
+              </Typography>
+
+              {/* Reference Numbers - Top Right */}
+              <Box sx={{ position: 'absolute', top: 0, right: 0, textAlign: 'right', fontSize: { xs: '0.9rem', print: '0.75rem' } }}>
+                <Typography sx={{ mb: 0.5, '@media print': { mb: 0.25, fontSize: '0.7rem' } }}>
+                  POR {selectedRequisition.erpRef?.split('#').pop() || selectedRequisition.indentNumber || 'N/A'}
+                </Typography>
+                <Typography sx={{ '@media print': { fontSize: '0.7rem' } }}>
+                  Indent {selectedRequisition.indentNumber || 'N/A'}
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Print Button - Hidden in Print */}
+            <Box sx={{ mb: 2, textAlign: 'right', '@media print': { display: 'none' } }}>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={() => window.print()}
+              >
+                Print
+              </Button>
+            </Box>
+
+            {/* Comparative Table */}
+            {loadingQuotations ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : quotations.length === 0 ? (
+              <Box sx={{ p: 3, textAlign: 'center' }}>
+                <Typography>No quotations available for comparison</Typography>
+              </Box>
+            ) : (
+              <Box sx={{ mb: 3, overflowX: 'auto' }}>
+                <table
+                  style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    border: '1px solid #000',
+                    fontSize: '0.85rem',
+                    fontFamily: 'Arial, sans-serif',
+                    minWidth: '1000px'
+                  }}
+                  className="comparative-table"
+                >
+                  <thead>
+                    {/* First Row - Vendor label and Vendor Names with Select Buttons */}
+                    <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                      <th colSpan={4} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem' }}>
+                        Vendor
+                      </th>
+                      {quotations.map((quote, idx) => (
+                        <th 
+                          key={idx} 
+                          colSpan={2} 
+                          style={{ 
+                            border: '1px solid #000', 
+                            padding: '8px 6px', 
+                            fontWeight: 700, 
+                            textAlign: 'center', 
+                            fontSize: '0.85rem',
+                            backgroundColor: quote.status === 'Finalized' ? '#c8e6c9' : '#f5f5f5',
+                            verticalAlign: 'top'
+                          }}
+                        >
+                          {/* Select Button - Hidden in Print */}
+                          <Box sx={{ mb: 1, '@media print': { display: 'none' } }}>
+                            <Button
+                              variant={quote.status === 'Finalized' ? 'contained' : 'outlined'}
+                              color={quote.status === 'Finalized' ? 'success' : 'primary'}
+                              startIcon={quote.status === 'Finalized' ? <CheckCircleIcon /> : null}
+                              onClick={() => handleSelectVendor(quote)}
+                              disabled={updating || quote.status === 'Finalized'}
+                              size="small"
+                              sx={{ 
+                                fontSize: '0.7rem',
+                                padding: '4px 8px',
+                                minWidth: 'auto'
+                              }}
+                            >
+                              {quote.status === 'Finalized' ? 'Selected' : 'Select'}
+                            </Button>
+                          </Box>
+                          {quote.vendor?.name || `Vendor ${idx + 1}`}
+                          {quote.status === 'Finalized' && (
+                            <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#2e7d32', fontWeight: 600 }}>
+                              (Selected)
+                            </Box>
+                          )}
+                        </th>
+                      ))}
+                    </tr>
+                    {/* Second Row - Column Headers */}
+                    <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                      <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '4%', fontSize: '0.8rem' }}>
+                        Sr no
+                      </th>
+                      <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'left', width: '35%', fontSize: '0.8rem' }}>
+                        Item Description
+                      </th>
+                      <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', width: '8%', fontSize: '0.8rem' }}>
+                        Unit
+                      </th>
+                      <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '6%', fontSize: '0.8rem' }}>
+                        Qty
+                      </th>
+                      {quotations.map((quote, idx) => (
+                        <React.Fragment key={idx}>
+                          <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>
+                            Rate
+                          </th>
+                          <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>
+                            Total
+                          </th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedRequisition.items && selectedRequisition.items.length > 0 ? (
+                      selectedRequisition.items.map((item, itemIndex) => (
+                        <tr key={itemIndex} style={{ border: '1px solid #000' }}>
+                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                            {itemIndex + 1}
+                          </td>
+                          <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                            {item.itemName || item.description || '___________'}
+                          </td>
+                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                            {item.unit || 'Nos'}
+                          </td>
+                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                            {item.quantity || '___'}
+                          </td>
+                          {quotations.map((quote, quoteIdx) => {
+                            const quoteItem = quote.items?.find((qi, idx) => idx === itemIndex) || quote.items?.[itemIndex];
+                            const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
+                            return (
+                              <React.Fragment key={quoteIdx}>
+                                <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                                  {quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}
+                                </td>
+                                <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                                  {quoteItem ? formatNumber(itemTotal) : '___________'}
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4 + (quotations.length * 2)} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
+                          No items
+                        </td>
+                      </tr>
+                    )}
+                    {/* TOTAL Row */}
+                    <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
+                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
+                        TOTAL
+                      </td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
+                          {formatNumber(quote.totalAmount || 0)}
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Income Tax Row */}
+                    <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
+                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
+                        Income Tax
+                      </td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>
+                          Not Included
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Transportation Row */}
+                    <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
+                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
+                        Transportation
+                      </td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>
+                          Not Included
+                        </td>
+                      ))}
+                    </tr>
+                    {/* Grand Total Row */}
+                    <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#d0d0d0', fontWeight: 700 }}>
+                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
+                        Grand Total
+                      </td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
+                          {formatNumber(quote.totalAmount || 0)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </Box>
+            )}
+
+            {/* Terms & Conditions Section */}
+            {quotations.length > 0 && (
+              <Box sx={{ mb: 3, mt: 3, '@media print': { mb: 1.5, mt: 1.5, pageBreakInside: 'avoid' } }}>
+                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: { xs: 2, print: 1 }, fontSize: { xs: '1rem', print: '0.85rem' }, textDecoration: 'underline' }}>
+                  Term & Condition
+                </Typography>
+                <table
+                  style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    border: '1px solid #000',
+                    fontSize: '0.85rem',
+                    fontFamily: 'Arial, sans-serif'
+                  }}
+                  className="terms-table"
+                >
+                  <thead>
+                    <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                      <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left', fontWeight: 700, width: '20%', fontSize: '0.8rem' }}>
+                        Delivery Time
+                      </th>
+                      {quotations.map((quote, idx) => (
+                        <th key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontWeight: 700, fontSize: '0.8rem' }}>
+                          {idx + 1}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ border: '1px solid #000' }}>
+                      <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}></td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>
+                          {quote.deliveryTime || '7 Days'}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr style={{ border: '1px solid #000' }}>
+                      <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Payment Term</td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>
+                          {quote.paymentTerms || '100% Advance'}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr style={{ border: '1px solid #000' }}>
+                      <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Delivery Place</td>
+                      {quotations.map((quote, idx) => (
+                        <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>
+                          Ex-Site
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </Box>
+            )}
+
+            {/* Note Section */}
+            <Box sx={{ mb: 3, fontSize: '0.9rem', '@media print': { mb: 1, fontSize: '0.75rem', pageBreakInside: 'avoid' } }}>
+              <Typography component="span" fontWeight={600}>Note:</Typography>
+              <Typography component="span" sx={{ ml: 1 }}>
+                {selectedRequisition.notes || '_________________________________________________________________'}
+              </Typography>
+            </Box>
+
+            {/* Approval/Signature Section */}
+            <Box sx={{ mt: 4, '@media print': { mt: 1.5, pageBreakInside: 'avoid' } }}>
+              <table
+                style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  fontSize: '0.85rem',
+                  fontFamily: 'Arial, sans-serif'
+                }}
+              >
+                <tbody>
+                  <tr>
+                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
+                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
+                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Prepared By</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.75rem', display: 'block', mt: 0.5, '@media print': { fontSize: '0.6rem', mt: 0.25 } }}>Procurement Dept</Typography>
+                    </td>
+                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
+                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
+                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Verified By: Procurement Committee</Typography>
+                    </td>
+                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
+                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
+                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Authorised Rep.</Typography>
+                    </td>
+                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
+                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
+                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Finance Rep.</Typography>
+                    </td>
+                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
+                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
+                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Manager Procurement</Typography>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </Box>
+          </Paper>
+        )}
+
+        {/* Print Styles */}
+        <Box
+          component="style"
+          dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                @page {
+                  size: A4 landscape;
+                  margin: 8mm;
+                }
+                body * {
+                  visibility: hidden;
+                }
+                .print-content,
+                .print-content * {
+                  visibility: visible;
+                }
+                .print-content {
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 100%;
+                  page-break-inside: avoid;
+                }
+                .comparative-table {
+                  font-size: 0.7rem !important;
+                }
+                .comparative-table th,
+                .comparative-table td {
+                  padding: 4px 4px !important;
+                  font-size: 0.7rem !important;
+                  line-height: 1.2 !important;
+                }
+                .comparative-table thead th {
+                  padding: 6px 4px !important;
+                }
+                .terms-table th,
+                .terms-table td {
+                  padding: 4px 4px !important;
+                  font-size: 0.7rem !important;
+                }
+                .signature-cell {
+                  padding: 10px 5px !important;
+                }
+                .signature-cell .MuiBox-root {
+                  min-height: 30px !important;
+                  margin-bottom: 4px !important;
+                }
+                .signature-cell .MuiTypography-root {
+                  font-size: 0.6rem !important;
+                }
+                * {
+                  page-break-inside: avoid;
+                  page-break-after: avoid;
+                }
+                table {
+                  page-break-inside: avoid;
+                }
+                tr {
+                  page-break-inside: avoid;
+                  page-break-after: avoid;
+                }
+              }
+            `
+          }}
+        />
+      </Paper>
+
+      {/* Select Vendor Confirmation Dialog */}
+      <Dialog
+        open={selectDialog.open}
+        onClose={() => !updating && setSelectDialog({ open: false, quotation: null })}
+      >
+        <DialogTitle>Select Vendor</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to select <strong>{selectDialog.quotation?.vendor?.name}</strong> as the preferred vendor?
+            <br /><br />
+            This will:
+            <ul>
+              <li>Update this quotation status to <strong>Finalized</strong></li>
+              <li>Update other quotations status to <strong>Rejected</strong></li>
+            </ul>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectDialog({ open: false, quotation: null })} disabled={updating}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={confirmSelectVendor} 
+            variant="contained" 
+            color="primary"
+            disabled={updating}
+            startIcon={updating ? <CircularProgress size={20} /> : <CheckCircleIcon />}
+          >
+            {updating ? 'Updating...' : 'Confirm Selection'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+export default ComparativeStatements;

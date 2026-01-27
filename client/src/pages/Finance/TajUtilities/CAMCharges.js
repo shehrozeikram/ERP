@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -46,7 +46,8 @@ import {
   ExpandLess as ExpandLessIcon,
   AttachFile as AttachFileIcon,
   Edit as EditIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
@@ -57,7 +58,7 @@ import {
   addPaymentToPropertyCAM,
   deletePaymentFromCAMCharge
 } from '../../../services/camChargesService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice } from '../../../services/propertyInvoiceService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getCAMCalculation } from '../../../services/propertyInvoiceService';
 import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import { generateCAMInvoicePDF as generateCAMInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
 import api from '../../../services/api';
@@ -167,6 +168,9 @@ const CAMCharges = () => {
     periodTo: dayjs().endOf('month').format('YYYY-MM-DD'),
     dueDate: dayjs().endOf('month').add(15, 'day').format('YYYY-MM-DD')
   });
+  // Track properties with invoices created (for visual indicator)
+  const [propertiesWithInvoicesCreated, setPropertiesWithInvoicesCreated] = useState(new Set());
+  const clearIndicatorsTimeoutRef = useRef(null);
   
   // Properties state
   const [properties, setProperties] = useState([]);
@@ -327,23 +331,34 @@ const CAMCharges = () => {
 
     try {
       setInvoiceLoading(true);
-      
-      // Prepare invoice data locally (don't create in database yet)
-      // Backend will calculate CAM charge when user clicks "Create Invoice"
+
       const now = dayjs();
       const periodFrom = now.startOf('month').toDate();
       const periodTo = now.endOf('month').toDate();
-      
-      // Generate invoice number
       const invoiceNumber = generateInvoiceNumber(
         property.srNo,
         now.year(),
         now.month() + 1,
         'CAM'
       );
-      
-      // Prepare invoice data locally (not saved to database yet)
-      // Amount will be calculated by backend when saving
+
+      // Fetch CAM amount from charges slabs + overdue arrears for this property
+      let camAmount = 0;
+      let camArrears = 0;
+      let camDescription = 'CAM Charges';
+      try {
+        const camRes = await getCAMCalculation(property._id);
+        const camData = camRes?.data?.data;
+        if (camData) {
+          camAmount = Number(camData.amount) || 0;
+          camArrears = Number(camData.arrears) || 0;
+          camDescription = camData.description || camDescription;
+        }
+      } catch (err) {
+        console.error('Failed to fetch CAM calculation:', err);
+      }
+
+      const total = camAmount + camArrears;
       setInvoiceData({
         invoiceNumber,
         invoiceDate: new Date(),
@@ -353,42 +368,28 @@ const CAMCharges = () => {
         chargeTypes: ['CAM'],
         charges: [{
           type: 'CAM',
-          description: 'CAM Charges',
-          amount: 0,
-          arrears: 0,
-          total: 0
+          description: camDescription,
+          amount: camAmount,
+          arrears: camArrears,
+          total
         }],
-        subtotal: 0,
-        totalArrears: 0,
-        grandTotal: 0
+        subtotal: camAmount,
+        totalArrears: camArrears,
+        grandTotal: total
       });
     } catch (err) {
       setInvoiceError(err.response?.data?.message || 'Failed to prepare invoice');
-      // Initialize with defaults on error
       const now = dayjs();
       const periodFrom = now.startOf('month').toDate();
       const periodTo = now.endOf('month').toDate();
-      const invoiceNumber = generateInvoiceNumber(
-        property.srNo,
-        now.year(),
-        now.month() + 1,
-        'CAM'
-      );
-      
       setInvoiceData({
-        invoiceNumber,
+        invoiceNumber: generateInvoiceNumber(property.srNo, now.year(), now.month() + 1, 'CAM'),
         invoiceDate: new Date(),
         dueDate: dayjs(periodTo).add(15, 'day').toDate(),
         periodFrom,
         periodTo,
         chargeTypes: ['CAM'],
-        charges: [{
-          type: 'CAM',
-          description: 'CAM Charges',
-          amount: 0,
-          arrears: 0,
-          total: 0
-        }],
+        charges: [{ type: 'CAM', description: 'CAM Charges', amount: 0, arrears: 0, total: 0 }],
         subtotal: 0,
         totalArrears: 0,
         grandTotal: 0
@@ -402,15 +403,21 @@ const CAMCharges = () => {
     if (!invoiceData) return;
     
     if (field.startsWith('charge.')) {
-      const [, chargeIndex, chargeField] = field.split('.');
+      const parts = field.split('.');
+      const chargeIndex = parseInt(parts[1], 10);
+      const chargeField = parts[2];
       const updatedCharges = [...invoiceData.charges];
+      const numVal = chargeField === 'amount' || chargeField === 'arrears' ? Number(value) || 0 : value;
       updatedCharges[chargeIndex] = {
         ...updatedCharges[chargeIndex],
-        [chargeField]: chargeField === 'amount' || chargeField === 'arrears' ? Number(value) || 0 : value
+        [chargeField]: numVal
       };
+      const c = updatedCharges[chargeIndex];
+      const amt = Number(c.amount) || 0;
+      const arr = Number(c.arrears) || 0;
+      updatedCharges[chargeIndex] = { ...c, total: amt + arr };
       
-      // Recalculate totals - only include CAM charges
-      const camCharges = updatedCharges.filter(c => c.type === 'CAM');
+      const camCharges = updatedCharges.filter(ch => ch.type === 'CAM');
       const subtotal = camCharges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
       const totalArrears = camCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
       const grandTotal = subtotal + totalArrears;
@@ -557,14 +564,13 @@ const CAMCharges = () => {
     }
   };
 
-  const generateInvoicePDF = async (propertyParam = null, invoiceParam = null) => {
+  const generateInvoicePDF = async (propertyParam = null, invoiceParam = null, options = {}) => {
     const invoice = invoiceParam || invoiceData;
     const property = invoice?.property || propertyParam || invoiceProperty;
     
     if (!property || !invoice) return;
     
-    // Use the shared utility function
-    return await generateCAMInvoicePDFUtil(invoice, property);
+    return await generateCAMInvoicePDFUtil(invoice, property, options);
   };
 
   const handleDownloadInvoice = async () => {
@@ -608,6 +614,13 @@ const CAMCharges = () => {
       setError('');
       setSuccess('');
       setBulkCreateDialogOpen(false);
+      // Clear any existing indicators from previous bulk create
+      setPropertiesWithInvoicesCreated(new Set());
+      // Clear any existing timeout
+      if (clearIndicatorsTimeoutRef.current) {
+        clearTimeout(clearIndicatorsTimeoutRef.current);
+        clearIndicatorsTimeoutRef.current = null;
+      }
 
       // Use dates from dialog
       const periodFrom = new Date(bulkCreateInvoiceData.periodFrom);
@@ -669,7 +682,31 @@ const CAMCharges = () => {
                 return;
               }
 
-              // Create invoice for this property
+              // Fetch CAM amount from charges slabs + CAM-only arrears (same as individual create)
+              let camAmount = 0;
+              let camArrears = 0;
+              let camDescription = 'CAM Charges';
+              try {
+                const camRes = await getCAMCalculation(property._id);
+                const camData = camRes?.data?.data;
+                if (camData) {
+                  camAmount = Number(camData.amount) || 0;
+                  camArrears = Number(camData.arrears) || 0;
+                  camDescription = camData.description || camDescription;
+                }
+              } catch (err) {
+                console.error(`Error fetching CAM calculation for property ${property._id}:`, err);
+              }
+
+              const charges = [{
+                type: 'CAM',
+                description: camDescription,
+                amount: camAmount,
+                arrears: camArrears,
+                total: camAmount + camArrears
+              }];
+
+              // Create invoice for this property (same payload as individual create)
               await createInvoice(property._id, {
                 includeCAM: true,
                 includeElectricity: false,
@@ -677,10 +714,14 @@ const CAMCharges = () => {
                 invoiceDate: invoiceDate,
                 periodFrom: periodFrom,
                 periodTo: periodTo,
-                dueDate: dueDate
+                dueDate: dueDate,
+                charges
               });
 
               createdCount++;
+              
+              // Track this property as having invoice created (for visual indicator)
+              setPropertiesWithInvoicesCreated(prev => new Set([...prev, property._id]));
               
               // Refresh invoices for this property
               try {
@@ -717,6 +758,16 @@ const CAMCharges = () => {
         resultMessage += `, ${errorCount} failed`;
       }
       setSuccess(resultMessage);
+
+      // Clear visual indicators after 2 minutes (120000 ms)
+      // Clear any existing timeout first
+      if (clearIndicatorsTimeoutRef.current) {
+        clearTimeout(clearIndicatorsTimeoutRef.current);
+      }
+      clearIndicatorsTimeoutRef.current = setTimeout(() => {
+        setPropertiesWithInvoicesCreated(new Set());
+        clearIndicatorsTimeoutRef.current = null;
+      }, 120000);
 
     } catch (err) {
       console.error('Bulk create error:', err);
@@ -1952,13 +2003,20 @@ const CAMCharges = () => {
                         </TableCell>
                         <TableCell>{property.srNo || '—'}</TableCell>
                         <TableCell>
-                          <Box>
-                            <Typography variant="subtitle2" fontWeight={600}>
-                              {property.propertyName || property.propertyType || '—'}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {property.plotNumber || '—'} / {property.rdaNumber || '—'}
-                            </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={600}>
+                                {property.propertyName || property.propertyType || '—'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {property.plotNumber || '—'} / {property.rdaNumber || '—'}
+                              </Typography>
+                            </Box>
+                            {propertiesWithInvoicesCreated.has(property._id) && (
+                              <Tooltip title="Invoice created successfully">
+                                <CheckCircleIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                              </Tooltip>
+                            )}
                           </Box>
                         </TableCell>
                         <TableCell>
@@ -2098,10 +2156,8 @@ const CAMCharges = () => {
                                               <IconButton
                                                 size="small"
                                                 color="primary"
-                                                onClick={() => {
-                                                  setInvoiceProperty(property);
-                                                  setInvoiceData(invoice);
-                                                  setInvoiceDialogOpen(true);
+                                                onClick={async () => {
+                                                  await generateInvoicePDF(property, invoice, { openInNewTab: true });
                                                 }}
                                               >
                                                 <ViewIcon fontSize="small" />

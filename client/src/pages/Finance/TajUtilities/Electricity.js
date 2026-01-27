@@ -1125,14 +1125,13 @@ const Electricity = () => {
     setInvoiceWasSaved(false); // Reset saved flag
   };
 
-  const generateElectricityVoucherPDF = async (propertyParam = null, invoiceParam = null) => {
+  const generateElectricityVoucherPDF = async (propertyParam = null, invoiceParam = null, options = {}) => {
     const invoice = invoiceParam || invoiceData;
     const property = invoice?.property || propertyParam || invoiceProperty;
     
     if (!property || !invoice) return;
     
-    // Use the shared utility function
-    return await generateElectricityInvoicePDFUtil(invoice, property);
+    return await generateElectricityInvoicePDFUtil(invoice, property, options);
   };
 
   const handleDownloadInvoice = async () => {
@@ -2498,45 +2497,7 @@ const Electricity = () => {
                                                 size="small"
                                                 color="primary"
                                                 onClick={async () => {
-                                                  setInvoiceProperty(property);
-                                                  setInvoiceData(invoice);
-                                                  setInvoiceError('');
-                                                  setCurrentReading('');
-                                                  setMeterReadings({});
-                                                  setInvoiceWasSaved(true); // Mark as saved since it's an existing invoice
-                                                  setInvoiceDialogOpen(true);
-                                                  
-                                                  // For viewing existing invoice, use the invoice's electricity bill data
-                                                  // This ensures we show the correct meter's data, not always the first meter
-                                                  if (invoice.electricityBill) {
-                                                    const bill = invoice.electricityBill;
-                                                    const meterNo = bill.meterNo || '';
-                                                    
-                                                    // If invoice has electricity bill with meter number, use that
-                                                    setReadingData({
-                                                      previousReading: bill.prvReading || 0,
-                                                      previousArrears: bill.arrears || 0,
-                                                      meterNo: meterNo,
-                                                      meterSelectValue: meterNo
-                                                    });
-                                                    
-                                                    // Set current reading from bill
-                                                    setCurrentReading(String(bill.curReading || ''));
-                                                  } else {
-                                                    // Fallback: fetch reading data for the property
-                                                    try {
-                                                      const readingResponse = await getElectricityCalculation(property._id);
-                                                      if (readingResponse.data?.success) {
-                                                        setReadingData({
-                                                          previousReading: readingResponse.data.data.previousReading || 0,
-                                                          previousArrears: readingResponse.data.data.previousArrears || 0,
-                                                          meterNo: readingResponse.data.data.meterNo || ''
-                                                        });
-                                                      }
-                                                    } catch (err) {
-                                                      console.error('Error fetching reading data:', err);
-                                                    }
-                                                  }
+                                                  await generateElectricityVoucherPDF(property, invoice, { openInNewTab: true });
                                                 }}
                                               >
                                                 <ViewIcon fontSize="small" />

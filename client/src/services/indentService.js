@@ -59,6 +59,18 @@ const indentService = {
   addComment: async (id, comment) => {
     const response = await api.post(`/indents/${id}/comment`, { comment });
     return response.data;
+  },
+
+  // Get next indent number
+  getNextIndentNumber: async () => {
+    const response = await api.get('/indents/next-number');
+    return response.data;
+  },
+
+  // Get next ERP Ref number
+  getNextERPRef: async () => {
+    const response = await api.get('/indents/next-erp-ref');
+    return response.data;
   }
 };
 

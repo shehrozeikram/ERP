@@ -23,7 +23,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Pending Audit', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
+    enum: ['Draft', 'Pending Audit', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
     default: 'Draft'
   },
   indent: {

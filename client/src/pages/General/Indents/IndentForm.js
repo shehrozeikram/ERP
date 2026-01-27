@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -13,9 +13,6 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
-  Card,
-  CardContent,
-  IconButton,
   Table,
   TableBody,
   TableCell,
@@ -23,15 +20,16 @@ import {
   TableHead,
   TableRow,
   Stack,
-  Divider,
-  Chip
+  IconButton,
+  Divider
 } from '@mui/material';
 import {
   Save as SaveIcon,
   Cancel as CancelIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../../../contexts/DataContext';
@@ -52,16 +50,20 @@ const IndentForm = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    department: '',
-    items: [],
+    erpRef: '',
+    date: dayjs().format('YYYY-MM-DD'),
     requiredDate: '',
-    priority: 'Medium',
-    category: 'Other',
-    referenceNo: '',
-    amount: 0,
-    notes: ''
+    indentNumber: '',
+    department: '',
+    originator: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : '',
+    items: [],
+    justification: '',
+    signatures: {
+      requester: { name: '', date: '' },
+      headOfDepartment: { name: '', date: '' },
+      gmPd: { name: '', date: '' },
+      svpAvp: { name: '', date: '' }
+    }
   });
 
   // Load indent data if editing
@@ -74,34 +76,68 @@ const IndentForm = () => {
           const indent = response.data;
           
           setFormData({
-            title: indent.title || '',
-            description: indent.description || '',
-            department: indent.department?._id || '',
-            items: indent.items || [],
+            erpRef: indent.erpRef || '',
+            date: indent.requestedDate ? dayjs(indent.requestedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
             requiredDate: indent.requiredDate ? dayjs(indent.requiredDate).format('YYYY-MM-DD') : '',
-            priority: indent.priority || 'Medium',
-            category: indent.category || 'Other',
-            referenceNo: indent.referenceNo || '',
-            amount: indent.amount || 0,
-            notes: indent.notes || ''
+            indentNumber: indent.indentNumber || '',
+            department: indent.department?._id || '',
+            originator: indent.requestedBy?.firstName && indent.requestedBy?.lastName 
+              ? `${indent.requestedBy.firstName} ${indent.requestedBy.lastName}` 
+              : '',
+            items: indent.items?.map(item => ({
+              ...item,
+              brand: item.brand || ''
+            })) || [],
+            justification: indent.justification || '',
+            signatures: indent.signatures || {
+              requester: { name: '', date: '' },
+              headOfDepartment: { name: '', date: '' },
+              gmPd: { name: '', date: '' },
+              svpAvp: { name: '', date: '' }
+            }
           });
         } catch (err) {
           setError(err.response?.data?.message || 'Failed to load indent');
         } finally {
           setLoadingData(false);
         }
+      } else {
+        // Generate next indent number and ERP Ref for new indent
+        const generateNumbers = async () => {
+          try {
+            const [indentResponse, erpRefResponse] = await Promise.all([
+              indentService.getNextIndentNumber(),
+              indentService.getNextERPRef()
+            ]);
+            
+            if (indentResponse.data?.nextIndentNumber) {
+              setFormData(prev => ({
+                ...prev,
+                indentNumber: indentResponse.data.nextIndentNumber
+              }));
+            }
+            
+            if (erpRefResponse.data?.nextERPRef) {
+              setFormData(prev => ({
+                ...prev,
+                erpRef: erpRefResponse.data.nextERPRef
+              }));
+            }
+          } catch (err) {
+            // If API fails, backend will generate it
+          }
+        };
+        generateNumbers();
       }
       
-      // Load departments
       if (departments.length === 0) {
         await fetchDepartments();
       }
     };
 
     loadData();
-  }, [id, isEdit, fetchDepartments, departments.length]);
+  }, [id, isEdit, fetchDepartments, departments.length, user]);
 
-  // Handle form field changes
   const handleChange = (field, value) => {
     setFormData(prev => ({
       ...prev,
@@ -109,7 +145,6 @@ const IndentForm = () => {
     }));
   };
 
-  // Handle item changes
   const handleItemChange = (index, field, value) => {
     const updatedItems = [...formData.items];
     updatedItems[index] = {
@@ -122,7 +157,6 @@ const IndentForm = () => {
     }));
   };
 
-  // Add new item
   const handleAddItem = () => {
     setFormData(prev => ({
       ...prev,
@@ -131,17 +165,15 @@ const IndentForm = () => {
         {
           itemName: '',
           description: '',
+          brand: '',
           quantity: 1,
           unit: 'Piece',
-          estimatedCost: 0,
-          priority: 'Medium',
-          remarks: ''
+          purpose: ''
         }
       ]
     }));
   };
 
-  // Remove item
   const handleRemoveItem = (index) => {
     setFormData(prev => ({
       ...prev,
@@ -149,19 +181,26 @@ const IndentForm = () => {
     }));
   };
 
-  // Calculate total estimated cost
-  const totalEstimatedCost = formData.items.reduce((sum, item) => {
-    return sum + ((item.estimatedCost || 0) * (item.quantity || 0));
-  }, 0);
+  const handleSignatureChange = (signatureType, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      signatures: {
+        ...prev.signatures,
+        [signatureType]: {
+          ...prev.signatures[signatureType],
+          [field]: value
+        }
+      }
+    }));
+  };
 
-  // Validate form
   const validateForm = () => {
-    if (!formData.title.trim()) {
-      setError('Title is required');
-      return false;
-    }
     if (!formData.department) {
       setError('Department is required');
+      return false;
+    }
+    if (!formData.originator.trim()) {
+      setError('Originator is required');
       return false;
     }
     if (formData.items.length === 0) {
@@ -170,8 +209,8 @@ const IndentForm = () => {
     }
     for (let i = 0; i < formData.items.length; i++) {
       const item = formData.items[i];
-      if (!item.itemName.trim()) {
-        setError(`Item ${i + 1}: Item name is required`);
+      if (!item.itemName?.trim()) {
+        setError(`Item ${i + 1}: Description is required`);
         return false;
       }
       if (!item.quantity || item.quantity < 1) {
@@ -182,7 +221,6 @@ const IndentForm = () => {
     return true;
   };
 
-  // Handle submit
   const handleSubmit = async (submitForApproval = false) => {
     if (!validateForm()) {
       return;
@@ -193,11 +231,33 @@ const IndentForm = () => {
       setError('');
 
       const indentData = {
-        ...formData,
-        department: formData.department,
+        title: `Purchase Request - ${formData.department ? departments.find(d => d._id === formData.department)?.name : ''}`,
+        requestedDate: formData.date,
         requiredDate: formData.requiredDate || undefined,
+        department: formData.department,
+        items: formData.items.map(item => ({
+          itemName: item.itemName,
+          description: item.description || '',
+          brand: item.brand || '',
+          quantity: item.quantity,
+          unit: item.unit || 'Piece',
+          purpose: item.purpose || ''
+        })),
+        justification: formData.justification || undefined,
+        signatures: formData.signatures,
         status: submitForApproval ? 'Submitted' : 'Draft'
       };
+      
+      // Only include indentNumber and erpRef if editing (backend auto-generates them for new indents)
+      if (isEdit) {
+        if (formData.indentNumber) {
+          indentData.indentNumber = formData.indentNumber;
+        }
+        if (formData.erpRef) {
+          indentData.erpRef = formData.erpRef;
+        }
+      }
+      // For new indents, don't send indentNumber or erpRef - backend will auto-generate them
 
       let response;
       if (isEdit) {
@@ -206,7 +266,6 @@ const IndentForm = () => {
         response = await indentService.createIndent(indentData);
       }
 
-      // If submitting for approval, submit it
       if (submitForApproval && response.data?._id) {
         await indentService.submitIndent(response.data._id);
       }
@@ -226,7 +285,6 @@ const IndentForm = () => {
       }, 1500);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save indent');
-      console.error('Error saving indent:', err);
     } finally {
       setLoading(false);
     }
@@ -241,19 +299,36 @@ const IndentForm = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-        <Typography variant="h4" fontWeight={700}>
-          {isEdit ? 'Edit Indent' : 'Create New Indent'}
+    <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
+      {/* Header */}
+      <Paper elevation={2} sx={{ p: 3, mb: 3, border: '2px solid #000' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              component="img"
+              src="/images/taj-logo.png"
+              alt="Taj Residencia Logo"
+              sx={{ height: 50, width: 'auto' }}
+              onError={(e) => {
+                e.target.style.display = 'none';
+              }}
+            />
+            <Typography variant="h5" fontWeight={700} sx={{ textTransform: 'uppercase' }}>
+              Taj Residencia
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<CancelIcon />}
+            onClick={() => navigate('/general/indents')}
+          >
+            Cancel
+          </Button>
+        </Box>
+        <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3 }}>
+          Purchase Request Form
         </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<CancelIcon />}
-          onClick={() => navigate('/general/indents')}
-        >
-          Cancel
-        </Button>
-      </Stack>
+      </Paper>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
@@ -261,352 +336,310 @@ const IndentForm = () => {
         </Alert>
       )}
 
-      <Grid container spacing={3}>
-        {/* Basic Information */}
-        <Grid item xs={12} md={8}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Basic Information
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Title"
-                    value={formData.title}
-                    onChange={(e) => handleChange('title', e.target.value)}
-                    required
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Description"
-                    value={formData.description}
-                    onChange={(e) => handleChange('description', e.target.value)}
-                    multiline
-                    rows={3}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth required>
-                    <InputLabel>Department</InputLabel>
-                    <Select
-                      value={formData.department}
-                      label="Department"
-                      onChange={(e) => handleChange('department', e.target.value)}
-                    >
-                      {departments.map((dept) => (
-                        <MenuItem key={dept._id} value={dept._id}>
-                          {dept.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Required Date"
-                    type="date"
-                    value={formData.requiredDate}
-                    onChange={(e) => handleChange('requiredDate', e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Priority</InputLabel>
-                    <Select
-                      value={formData.priority}
-                      label="Priority"
-                      onChange={(e) => handleChange('priority', e.target.value)}
-                    >
-                      <MenuItem value="Low">Low</MenuItem>
-                      <MenuItem value="Medium">Medium</MenuItem>
-                      <MenuItem value="High">High</MenuItem>
-                      <MenuItem value="Urgent">Urgent</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Category</InputLabel>
-                    <Select
-                      value={formData.category}
-                      label="Category"
-                      onChange={(e) => handleChange('category', e.target.value)}
-                    >
-                      <MenuItem value="Office Supplies">Office Supplies</MenuItem>
-                      <MenuItem value="IT Equipment">IT Equipment</MenuItem>
-                      <MenuItem value="Furniture">Furniture</MenuItem>
-                      <MenuItem value="Maintenance">Maintenance</MenuItem>
-                      <MenuItem value="Raw Materials">Raw Materials</MenuItem>
-                      <MenuItem value="Services">Services</MenuItem>
-                      <MenuItem value="Other">Other</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Reference No"
-                    value={formData.referenceNo}
-                    onChange={(e) => handleChange('referenceNo', e.target.value)}
-                  />
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Amount"
-                    type="number"
-                    value={formData.amount}
-                    onChange={(e) => handleChange('amount', parseFloat(e.target.value) || 0)}
-                    inputProps={{ min: 0 }}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Notes"
-                    value={formData.notes}
-                    onChange={(e) => handleChange('notes', e.target.value)}
-                    multiline
-                    rows={2}
-                  />
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
+      <Paper elevation={2} sx={{ p: 3, border: '1px solid #ccc' }}>
+        {/* Reference Information */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="ERP Ref"
+              value={formData.erpRef}
+              InputProps={{ readOnly: true }}
+              size="small"
+              helperText="Auto-generated"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Date"
+              type="date"
+              value={formData.date}
+              onChange={(e) => handleChange('date', e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Required Date"
+              type="date"
+              value={formData.requiredDate}
+              onChange={(e) => handleChange('requiredDate', e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Indent No."
+              value={formData.indentNumber}
+              InputProps={{ readOnly: true }}
+              size="small"
+              helperText="Auto-generated"
+            />
+          </Grid>
         </Grid>
 
-        {/* Summary Card */}
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Summary
-              </Typography>
-              <Stack spacing={2}>
-                <Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Total Items
-                  </Typography>
-                  <Typography variant="h6">
-                    {formData.items.length}
-                  </Typography>
-                </Box>
-                <Divider />
-                <Box>
-                  <Typography variant="body2" color="text.secondary">
-                    Total Estimated Cost
-                  </Typography>
-                  <Typography variant="h6" color="primary">
-                    {new Intl.NumberFormat('en-PK', {
-                      style: 'currency',
-                      currency: 'PKR',
-                      maximumFractionDigits: 0
-                    }).format(totalEstimatedCost)}
-                  </Typography>
-                </Box>
-                {formData.amount > 0 && (
-                  <>
-                    <Divider />
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        Amount
-                      </Typography>
-                      <Typography variant="h6">
-                        {new Intl.NumberFormat('en-PK', {
-                          style: 'currency',
-                          currency: 'PKR',
-                          maximumFractionDigits: 0
-                        }).format(formData.amount)}
-                      </Typography>
-                    </Box>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
-                        Remaining Amount
-                      </Typography>
-                      <Typography 
-                        variant="h6" 
-                        color={formData.amount - totalEstimatedCost < 0 ? 'error' : 'success'}
-                      >
-                        {new Intl.NumberFormat('en-PK', {
-                          style: 'currency',
-                          currency: 'PKR',
-                          maximumFractionDigits: 0
-                        }).format(formData.amount - totalEstimatedCost)}
-                      </Typography>
-                    </Box>
-                  </>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
+        {/* Department and Originator */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Department</InputLabel>
+              <Select
+                value={formData.department}
+                label="Department"
+                onChange={(e) => handleChange('department', e.target.value)}
+              >
+                {departments.map((dept) => (
+                  <MenuItem key={dept._id} value={dept._id}>
+                    {dept.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Originator"
+              value={formData.originator}
+              onChange={(e) => handleChange('originator', e.target.value)}
+              required
+              size="small"
+            />
+          </Grid>
         </Grid>
 
-        {/* Items Section */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                <Typography variant="h6" fontWeight={600}>
-                  Items
-                </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddItem}
-                >
-                  Add Item
-                </Button>
-              </Stack>
+        <Divider sx={{ my: 3 }} />
 
-              {formData.items.length === 0 ? (
-                <Alert severity="info">
-                  No items added. Click "Add Item" to add items to this indent.
-                </Alert>
-              ) : (
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell><strong>Item Name</strong></TableCell>
-                        <TableCell><strong>Description</strong></TableCell>
-                        <TableCell align="right"><strong>Quantity</strong></TableCell>
-                        <TableCell><strong>Unit</strong></TableCell>
-                        <TableCell align="right"><strong>Est. Cost</strong></TableCell>
-                        <TableCell><strong>Priority</strong></TableCell>
-                        <TableCell align="right"><strong>Total</strong></TableCell>
-                        <TableCell align="center"><strong>Actions</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {formData.items.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={item.itemName}
-                              onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
-                              placeholder="Item name"
-                              required
-                              fullWidth
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={item.description || ''}
-                              onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                              placeholder="Description"
-                              fullWidth
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={item.quantity}
-                              onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 1)}
-                              inputProps={{ min: 1 }}
-                              sx={{ width: 80 }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              value={item.unit}
-                              onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
-                              sx={{ width: 100 }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={item.estimatedCost}
-                              onChange={(e) => handleItemChange(index, 'estimatedCost', parseFloat(e.target.value) || 0)}
-                              inputProps={{ min: 0, step: 0.01 }}
-                              sx={{ width: 120 }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <FormControl size="small" sx={{ minWidth: 100 }}>
-                              <Select
-                                value={item.priority || 'Medium'}
-                                onChange={(e) => handleItemChange(index, 'priority', e.target.value)}
-                              >
-                                <MenuItem value="Low">Low</MenuItem>
-                                <MenuItem value="Medium">Medium</MenuItem>
-                                <MenuItem value="High">High</MenuItem>
-                                <MenuItem value="Urgent">Urgent</MenuItem>
-                              </Select>
-                            </FormControl>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" fontWeight={600}>
-                              {new Intl.NumberFormat('en-PK', {
-                                style: 'currency',
-                                currency: 'PKR',
-                                maximumFractionDigits: 0
-                              }).format((item.estimatedCost || 0) * (item.quantity || 0))}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => handleRemoveItem(index)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Action Buttons */}
-        <Grid item xs={12}>
-          <Stack direction="row" spacing={2} justifyContent="flex-end">
+        {/* Items Table */}
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" fontWeight={600}>
+              Items
+            </Typography>
             <Button
               variant="outlined"
-              onClick={() => navigate('/general/indents')}
-              disabled={loading}
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={handleAddItem}
             >
-              Cancel
+              Add Item
             </Button>
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={() => handleSubmit(false)}
-              disabled={loading}
-            >
-              {loading ? 'Saving...' : isEdit ? 'Update' : 'Save Draft'}
-            </Button>
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={<SendIcon />}
-              onClick={() => handleSubmit(true)}
-              disabled={loading}
-            >
-              {loading ? 'Submitting...' : 'Submit for Approval'}
-            </Button>
-          </Stack>
-        </Grid>
-      </Grid>
+          </Box>
 
-      {/* Snackbar */}
+          {formData.items.length === 0 ? (
+            <Alert severity="info">
+              No items added. Click "Add Item" to add items to this indent.
+            </Alert>
+          ) : (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                    <TableCell align="center" sx={{ fontWeight: 700, border: '1px solid #ddd' }}>S#</TableCell>
+                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Description</TableCell>
+                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Brand</TableCell>
+                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Unit</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Qty.</TableCell>
+                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Purpose</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, border: '1px solid #ddd', width: 50 }}>Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {formData.items.map((item, index) => (
+                    <TableRow key={index}>
+                      <TableCell align="center" sx={{ border: '1px solid #ddd' }}>
+                        {(index + 1).toString().padStart(2, '0')}
+                      </TableCell>
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          value={item.itemName}
+                          onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
+                          placeholder="Item description"
+                          required
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          value={item.brand || ''}
+                          onChange={(e) => handleItemChange(index, 'brand', e.target.value)}
+                          placeholder="Brand"
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          value={item.unit}
+                          onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
+                          placeholder="Unit"
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 1)}
+                          inputProps={{ min: 1, style: { textAlign: 'center' } }}
+                          required
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ width: 60, '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          value={item.purpose || ''}
+                          onChange={(e) => handleItemChange(index, 'purpose', e.target.value)}
+                          placeholder="Purpose"
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ border: '1px solid #ddd' }}>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleRemoveItem(index)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Justification */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+            Justification:
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            value={formData.justification}
+            onChange={(e) => handleChange('justification', e.target.value)}
+            placeholder="Enter justification for this purchase request..."
+            variant="outlined"
+            size="small"
+          />
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Signatures Section */}
+        <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
+          Approvals
+        </Typography>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Sig of Requester"
+              value={formData.signatures.requester.name}
+              onChange={(e) => handleSignatureChange('requester', 'name', e.target.value)}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Head of Department"
+              value={formData.signatures.headOfDepartment.name}
+              onChange={(e) => handleSignatureChange('headOfDepartment', 'name', e.target.value)}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Approved by GM/PD"
+              value={formData.signatures.gmPd.name}
+              onChange={(e) => handleSignatureChange('gmPd', 'name', e.target.value)}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="SVP/AVP Approval"
+              value={formData.signatures.svpAvp.name}
+              onChange={(e) => handleSignatureChange('svpAvp', 'name', e.target.value)}
+              size="small"
+            />
+          </Grid>
+        </Grid>
+
+        {/* Distribution Section */}
+        <Box sx={{ mt: 4, pt: 2, borderTop: '1px solid #ccc' }}>
+          <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+            <strong>Original:</strong> Procurement
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+            <strong>Green:</strong> Store
+          </Typography>
+          <Typography variant="caption" sx={{ display: 'block' }}>
+            <strong>Yellow:</strong> For Book Record
+          </Typography>
+        </Box>
+
+        {/* Action Buttons */}
+        <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 4 }}>
+          <Button
+            variant="outlined"
+            onClick={() => navigate('/general/indents')}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={() => handleSubmit(false)}
+            disabled={loading}
+          >
+            {loading ? 'Saving...' : isEdit ? 'Update' : 'Save Draft'}
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<SendIcon />}
+            onClick={() => handleSubmit(true)}
+            disabled={loading}
+          >
+            {loading ? 'Submitting...' : 'Submit for Approval'}
+          </Button>
+        </Stack>
+      </Paper>
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}
@@ -618,4 +651,3 @@ const IndentForm = () => {
 };
 
 export default IndentForm;
-
