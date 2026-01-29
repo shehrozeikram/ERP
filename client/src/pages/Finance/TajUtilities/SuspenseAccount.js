@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -39,12 +39,14 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   Add as AddIcon,
-  SwapHoriz as TransferIcon
+  SwapHoriz as TransferIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import { useDeposits } from '../../../hooks/useDeposits';
-import pakistanBanks from '../../../constants/pakistanBanks';
+
+const BANK_REQUIRED_METHODS = ['Bank Transfer', 'Cheque', 'Online'];
 
 const SuspenseAccount = () => {
   const {
@@ -97,9 +99,141 @@ const SuspenseAccount = () => {
     handleTransferDepositSubmit,
     PAYMENT_METHODS,
     formatCurrency,
-    renderBankField,
     suspenseAccountTotals
   } = useDeposits({ suspenseAccount: true });
+
+  // Bank management state (same as Taj Residents)
+  const [customBanks, setCustomBanks] = useState(() => {
+    const stored = localStorage.getItem('tajCustomBanks');
+    return stored ? JSON.parse(stored) : [];
+  });
+  const [addBankDialog, setAddBankDialog] = useState(false);
+  const [newBankName, setNewBankName] = useState('');
+
+  // Bank management handlers
+  const handleAddBank = useCallback(() => {
+    if (!newBankName.trim()) return;
+    const trimmedName = newBankName.trim();
+    if (customBanks.includes(trimmedName)) {
+      setError('Bank already exists');
+      return;
+    }
+    const updated = [...customBanks, trimmedName];
+    setCustomBanks(updated);
+    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
+    // Auto-select the newly added bank in the active form
+    if (createDialog) {
+      setCreateForm((prev) => ({ ...prev, bank: trimmedName }));
+    }
+    if (editDialog) {
+      setEditForm((prev) => ({ ...prev, bank: trimmedName }));
+    }
+    setNewBankName('');
+    setAddBankDialog(false);
+    setError('');
+  }, [newBankName, customBanks, createDialog, editDialog, setCreateForm, setEditForm, setError]);
+
+  const handleRemoveBank = useCallback((bankName, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(`Remove "${bankName}" from the bank list?`)) return;
+    const updated = customBanks.filter(b => b !== bankName);
+    setCustomBanks(updated);
+    localStorage.setItem('tajCustomBanks', JSON.stringify(updated));
+    // Clear bank field if it was the removed bank
+    if (createForm.bank === bankName) {
+      setCreateForm((prev) => ({ ...prev, bank: '' }));
+    }
+    if (editForm.bank === bankName) {
+      setEditForm((prev) => ({ ...prev, bank: '' }));
+    }
+    setSuccess('Bank removed successfully');
+  }, [customBanks, createForm.bank, editForm.bank, setCreateForm, setEditForm, setSuccess]);
+
+  // Payment method change handler (same as Taj Residents)
+  const handlePaymentMethodChange = useCallback((form, setForm, newMethod) => {
+    setForm({
+      ...form,
+      paymentMethod: newMethod,
+      bank: BANK_REQUIRED_METHODS.includes(newMethod) ? form.bank : ''
+    });
+  }, []);
+
+  // Render bank field (same as Taj Residents)
+  const renderBankField = useCallback((form, setForm, show = true) => {
+    if (!show || !BANK_REQUIRED_METHODS.includes(form.paymentMethod)) return null;
+    return (
+      <Grid item xs={12} md={6}>
+        <FormControl fullWidth>
+          <InputLabel>Bank</InputLabel>
+          <Select
+            value={form.bank || ''}
+            label="Bank"
+            onChange={(e) => {
+              if (e.target.value === 'add_new') {
+                setAddBankDialog(true);
+                setNewBankName('');
+              } else {
+                setForm({ ...form, bank: e.target.value });
+              }
+            }}
+          >
+            {customBanks.length === 0 ? (
+              <MenuItem disabled value="">
+                <Typography variant="body2" color="text.secondary">
+                  No banks available. Add a new bank.
+                </Typography>
+              </MenuItem>
+            ) : (
+              customBanks.map((bank) => (
+                <MenuItem 
+                  key={bank} 
+                  value={bank}
+                  sx={{ 
+                    '&:hover .delete-bank-btn': { 
+                      visibility: 'visible' 
+                    } 
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <span style={{ flex: 1 }}>{bank}</span>
+                    <IconButton
+                      className="delete-bank-btn"
+                      size="small"
+                      onClick={(e) => handleRemoveBank(bank, e)}
+                      sx={{ 
+                        ml: 1, 
+                        p: 0.5,
+                        visibility: 'hidden'
+                      }}
+                      color="error"
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </MenuItem>
+              ))
+            )}
+            <MenuItem 
+              value="add_new" 
+              sx={{ 
+                borderTop: customBanks.length > 0 ? '1px solid #e0e0e0' : 'none',
+                backgroundColor: '#f5f5f5',
+                '&:hover': {
+                  backgroundColor: '#e3f2fd'
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <AddIcon fontSize="small" />
+                Add New Bank
+              </Box>
+            </MenuItem>
+          </Select>
+        </FormControl>
+      </Grid>
+    );
+  }, [customBanks, handleRemoveBank]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -443,7 +577,7 @@ const SuspenseAccount = () => {
                 <Select
                   value={editForm.paymentMethod}
                   label="Payment Method"
-                  onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value, bank: e.target.value === 'Cash' ? '' : editForm.bank })}
+                  onChange={(e) => handlePaymentMethodChange(editForm, setEditForm, e.target.value)}
                 >
                   {PAYMENT_METHODS.map((method) => (
                     <MenuItem key={method} value={method}>
@@ -453,24 +587,7 @@ const SuspenseAccount = () => {
                 </Select>
               </FormControl>
             </Grid>
-            {editForm.paymentMethod !== 'Cash' && (
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth required={editForm.paymentMethod !== 'Cash'}>
-                  <InputLabel>Bank Name</InputLabel>
-                  <Select
-                    value={editForm.bank || ''}
-                    label="Bank Name"
-                    onChange={(e) => setEditForm({ ...editForm, bank: e.target.value })}
-                  >
-                    {pakistanBanks.map((bank) => (
-                      <MenuItem key={bank} value={bank}>
-                        {bank}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
+            {renderBankField(editForm, setEditForm)}
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -572,7 +689,7 @@ const SuspenseAccount = () => {
                 <Select
                   value={createForm.paymentMethod}
                   label="Payment Method"
-                  onChange={(e) => setCreateForm({ ...createForm, paymentMethod: e.target.value, bank: e.target.value === 'Cash' ? '' : createForm.bank })}
+                  onChange={(e) => handlePaymentMethodChange(createForm, setCreateForm, e.target.value)}
                 >
                   {PAYMENT_METHODS.map((method) => (
                     <MenuItem key={method} value={method}>
@@ -582,24 +699,7 @@ const SuspenseAccount = () => {
                 </Select>
               </FormControl>
             </Grid>
-            {createForm.paymentMethod !== 'Cash' && (
-              <Grid item xs={12} md={6}>
-                <FormControl fullWidth required={createForm.paymentMethod !== 'Cash'}>
-                  <InputLabel>Bank Name</InputLabel>
-                  <Select
-                    value={createForm.bank || ''}
-                    label="Bank Name"
-                    onChange={(e) => setCreateForm({ ...createForm, bank: e.target.value })}
-                  >
-                    {pakistanBanks.map((bank) => (
-                      <MenuItem key={bank} value={bank}>
-                        {bank}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            )}
+            {renderBankField(createForm, setCreateForm)}
             <Grid item xs={12}>
               <TextField
                 fullWidth
@@ -746,6 +846,43 @@ const SuspenseAccount = () => {
             color="success"
           >
             Transfer
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Bank Dialog */}
+      <Dialog open={addBankDialog} onClose={() => setAddBankDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Add New Bank</span>
+            <IconButton onClick={() => setAddBankDialog(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Bank Name"
+            value={newBankName}
+            onChange={(e) => setNewBankName(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleAddBank();
+              }
+            }}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddBankDialog(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleAddBank}
+            disabled={!newBankName.trim()}
+          >
+            Add Bank
           </Button>
         </DialogActions>
       </Dialog>

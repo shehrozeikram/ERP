@@ -161,14 +161,14 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const latePaymentSurcharge = Math.max(Math.round(totalBill * 0.1), 0);
   const payableAfterDueDate = totalBill + arrears + latePaymentSurcharge - amountReceived;
   
-  // Check if invoice is overdue (due date has passed)
+  // Always use "Payable Within Due Date" (no surcharge applied)
+  const payableAmount = payableWithinDueDate;
+  
+  // Calculate remaining balance: if overdue, use payableAfterDueDate, otherwise use payableWithinDueDate
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
-  // Use "Payable After Due Date" if overdue, otherwise "Payable Within Due Date"
-  const payableAmount = isOverdue ? payableAfterDueDate : payableWithinDueDate;
-  
-  // Calculate remaining balance based on adjusted payable amount (includes surcharge if overdue)
-  const balance = payableAmount - totalPaid;
+  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
+  const balance = (isOverdue && isUnpaid) ? (payableAfterDueDate - totalPaid) : (payableWithinDueDate - totalPaid);
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);
@@ -425,14 +425,17 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   const lateSurcharge = Math.max(Math.round(camAmount * 0.1), 0);
   const payableAfterDue = camAmount + arrears + lateSurcharge - totalPaidCAM;
   
-  // Check if invoice is overdue (due date has passed)
+  // Always use "Payable Within Due Date" (no surcharge applied)
+  const payableAmount = payableWithinDue;
+  
+  // Calculate remaining balance: if overdue, use payableAfterDue, otherwise use payableWithinDue
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
   const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
-  // Use "Payable After Due Date" if overdue, otherwise "Payable Within Due Date"
-  const payableAmount = isOverdue ? payableAfterDue : payableWithinDue;
-  
-  // Calculate remaining balance based on adjusted payable amount (includes surcharge if overdue)
-  const balanceCAM = payableAmount;
+  const isUnpaid =
+    invoice.paymentStatus === 'unpaid' ||
+    invoice.paymentStatus === 'partial_paid' ||
+    (invoice.balance || 0) > 0;
+  const balanceCAM = (isOverdue && isUnpaid) ? payableAfterDue : payableWithinDue;
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);
@@ -645,14 +648,17 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
   const payableWithinDue = (invoice?.grandTotal || (rentAmount + arrears)) - totalPaidRent;
   const payableAfterDue = rentAmount + arrears + lateSurcharge - totalPaidRent;
   
-  // Check if invoice is overdue (due date has passed)
+  // Always use "Payable Within Due Date" (no surcharge applied)
+  const payableAmount = payableWithinDue;
+  
+  // Calculate remaining balance: if overdue, use payableAfterDue, otherwise use payableWithinDue
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
   const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
-  // Use "Payable After Due Date" if overdue, otherwise "Payable Within Due Date"
-  const payableAmount = isOverdue ? payableAfterDue : payableWithinDue;
-  
-  // Calculate remaining balance based on adjusted payable amount (includes surcharge if overdue)
-  const balanceRent = payableAmount;
+  const isUnpaid =
+    invoice.paymentStatus === 'unpaid' ||
+    invoice.paymentStatus === 'partial_paid' ||
+    (invoice.balance || 0) > 0;
+  const balanceRent = (isOverdue && isUnpaid) ? payableAfterDue : payableWithinDue;
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);
@@ -878,14 +884,17 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
   const lateSurcharge = Math.max(Math.round(totalChargesAmount * 0.1), 0);
   const payableAfterDue = totalChargesAmount + totalArrears + lateSurcharge - totalPaid;
   
-  // Check if invoice is overdue (due date has passed)
+  // Always use "Payable Within Due Date" (no surcharge applied)
+  const payableAmount = payableWithinDue;
+  
+  // Calculate remaining balance: if overdue, use payableAfterDue, otherwise use payableWithinDue
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
-  // Use "Payable After Due Date" if overdue, otherwise "Payable Within Due Date"
-  const payableAmount = isOverdue ? payableAfterDue : payableWithinDue;
-  
-  // Calculate remaining balance based on adjusted payable amount (includes surcharge if overdue)
-  const balance = payableAmount;
+  const isUnpaid =
+    invoice.paymentStatus === 'unpaid' ||
+    invoice.paymentStatus === 'partial_paid' ||
+    (invoice.balance || 0) > 0;
+  const balance = (isOverdue && isUnpaid) ? payableAfterDue : payableWithinDue;
 
   // Get charge type name for invoice title
   const chargeTypeName = invoice.chargeType || 'CHARGES';

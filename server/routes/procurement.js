@@ -186,7 +186,8 @@ router.get('/purchase-orders/:id',
       .populate('quotation', 'quotationNumber quotationDate')
       .populate('createdBy', 'firstName lastName email')
       .populate('approvedBy', 'firstName lastName email')
-      .populate('receivedBy', 'firstName lastName email');
+      .populate('receivedBy', 'firstName lastName email')
+      .populate('qaCheckedBy', 'firstName lastName');
 
     if (!purchaseOrder) {
       return res.status(404).json({
@@ -766,6 +767,7 @@ router.get('/store/dashboard',
         .populate('vendor', 'name email phone contactPerson')
         .populate('createdBy', 'firstName lastName email')
         .populate('updatedBy', 'firstName lastName email')
+        .populate('qaCheckedBy', 'firstName lastName')
         .populate('indent', 'indentNumber title')
         .sort({ updatedAt: -1 })
         .lean();
@@ -823,6 +825,94 @@ router.get('/store/dashboard',
       console.error('Error fetching store dashboard data:', error);
       throw error;
     }
+  })
+);
+
+// @route   GET /api/procurement/store/qa-pending
+// @desc    Get POs with QA status Pending (Sent to Store, not yet QA checked)
+// @access  Private (Procurement, Admin, Store Manager)
+router.get('/store/qa-pending',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const purchaseOrders = await PurchaseOrder.find({
+      status: 'Sent to Store',
+      $or: [{ qaStatus: { $in: [null, 'Pending'] } }, { qaStatus: { $exists: false } }]
+    })
+      .populate('vendor', 'name email phone contactPerson')
+      .populate('indent', 'indentNumber title')
+      .populate('qaCheckedBy', 'firstName lastName')
+      .sort({ updatedAt: -1 })
+      .lean();
+    res.json({
+      success: true,
+      data: { purchaseOrders }
+    });
+  })
+);
+
+// @route   GET /api/procurement/store/qa-list
+// @desc    Get POs by QA state: Pending | Passed (Approved) | Rejected. status=Sent to Store.
+// @access  Private (Procurement, Admin, Store Manager)
+router.get('/store/qa-list',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const { qaStatus = 'Pending' } = req.query; // Pending | Passed | Rejected
+    const query = { status: 'Sent to Store' };
+    if (qaStatus === 'Pending') {
+      query.$or = [{ qaStatus: { $in: [null, 'Pending'] } }, { qaStatus: { $exists: false } }];
+    } else {
+      query.qaStatus = qaStatus; // Passed or Rejected
+    }
+    const purchaseOrders = await PurchaseOrder.find(query)
+      .populate('vendor', 'name email phone contactPerson')
+      .populate('indent', 'indentNumber title')
+      .populate('qaCheckedBy', 'firstName lastName')
+      .sort({ updatedAt: -1 })
+      .lean();
+    res.json({
+      success: true,
+      data: { purchaseOrders, qaStatus }
+    });
+  })
+);
+
+// @route   POST /api/procurement/store/po/:id/qa-check
+// @desc    Quality Assurance check: Pass or Reject a PO at store
+// @access  Private (Procurement, Admin, Store Manager)
+router.post('/store/po/:id/qa-check',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  [
+    body('status').isIn(['Passed', 'Rejected']).withMessage('QA status must be Passed or Rejected'),
+    body('remarks').optional().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const po = await PurchaseOrder.findById(req.params.id);
+    if (!po) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (po.status !== 'Sent to Store') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only purchase orders with status "Sent to Store" can be QA checked'
+      });
+    }
+    const { status, remarks } = req.body;
+    po.qaStatus = status;
+    po.qaCheckedBy = req.user.id;
+    po.qaCheckedAt = new Date();
+    po.qaRemarks = remarks || '';
+    po.updatedBy = req.user.id;
+    await po.save();
+    await po.populate('qaCheckedBy', 'firstName lastName');
+    res.json({
+      success: true,
+      message: `Quality Assurance: ${status}`,
+      data: po
+    });
   })
 );
 
@@ -1525,7 +1615,7 @@ router.get('/goods-receive',
     }
     
     const receives = await GoodsReceive.find(query)
-      .populate('supplier', 'name contactPerson')
+      .populate('supplier', 'name contactPerson supplierId address')
       .populate('purchaseOrder', 'orderNumber')
       .populate('receivedBy', 'firstName lastName')
       .sort({ receiveDate: -1 })
@@ -1556,80 +1646,136 @@ router.get('/goods-receive/:id',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const receive = await GoodsReceive.findById(req.params.id)
-      .populate('supplier', 'name contactPerson email phone')
+      .populate('supplier', 'name contactPerson email phone supplierId address')
       .populate('purchaseOrder')
       .populate('items.inventoryItem')
       .populate('receivedBy', 'firstName lastName email');
     
     if (!receive) {
-      return res.status(404).json({ success: false, message: 'Goods receive not found' });
+      return res.status(404).json({ success: false, message: 'GRN not found' });
     }
     
     res.json({ success: true, data: receive });
   })
 );
 
+// @route   PUT /api/procurement/goods-receive/:id/sync-inventory
+// @desc    Sync GRN items to inventory (for existing GRNs or when post-save did not run)
+// @access  Private
+router.put('/goods-receive/:id/sync-inventory',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const grn = await GoodsReceive.findById(req.params.id).lean();
+    if (!grn) {
+      return res.status(404).json({ success: false, message: 'GRN not found' });
+    }
+    await GoodsReceive.syncItemsToInventory(grn);
+    res.json({ success: true, message: 'GRN items synced to inventory' });
+  })
+);
+
 // @route   POST /api/procurement/goods-receive
-// @desc    Create goods receive record
+// @desc    Create GRN (Goods Received Note) record
 // @access  Private
 router.post('/goods-receive',
   authorize('super_admin', 'admin', 'procurement_manager'),
   [
     body('receiveDate').optional().isISO8601(),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
-    body('items.*.inventoryItem').isMongoId().withMessage('Valid inventory item ID is required'),
-    body('items.*.quantity').isFloat({ min: 1 }).withMessage('Quantity must be at least 1')
+    body('items.*.inventoryItem').optional().isMongoId().withMessage('Valid inventory item ID when provided'),
+    body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Quantity must be greater than 0'),
+    body('items.*.itemCode').optional().trim(),
+    body('items.*.itemName').optional().trim(),
+    body('items.*.unit').optional().trim(),
+    body('items.*.unitPrice').optional().isFloat({ min: 0 })
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
     }
-    
-    const { receiveDate, supplier, supplierName, purchaseOrder, poNumber, items, notes } = req.body;
-    
-    // Validate inventory items exist and fetch details
+
+    const {
+      receiveDate, supplier, supplierName, purchaseOrder, poNumber, items, notes,
+      narration, supplierAddress, prNumber, store, gatePassNo, currency,
+      discount, otherCharges, observation, status: bodyStatus
+    } = req.body;
+
+    let resolvedSupplierAddress = supplierAddress;
+    if (supplier && !resolvedSupplierAddress) {
+      const sup = await Supplier.findById(supplier).select('address').lean();
+      if (sup) resolvedSupplierAddress = sup.address;
+    }
+
     const itemsWithDetails = await Promise.all(
       items.map(async (item) => {
-        const inventory = await Inventory.findById(item.inventoryItem);
-        if (!inventory) {
-          throw new Error(`Inventory item ${item.inventoryItem} not found`);
+        const qty = Number(item.quantity) || 0;
+        let inventoryItem = null;
+        let itemCode = (item.itemCode != null && String(item.itemCode).trim() !== '') ? String(item.itemCode).trim() : '';
+        let itemName = (item.itemName != null && String(item.itemName).trim() !== '') ? String(item.itemName).trim() : '';
+        let unit = (item.unit != null && String(item.unit).trim() !== '') ? String(item.unit).trim() : '';
+        let rate = (typeof item.unitPrice === 'number' ? item.unitPrice : (item.unitPrice !== '' && item.unitPrice != null ? Number(item.unitPrice) : 0));
+        if (item.inventoryItem) {
+          const inventory = await Inventory.findById(item.inventoryItem);
+          if (inventory) {
+            inventoryItem = inventory._id;
+            if (!itemCode) itemCode = inventory.itemCode || '';
+            if (!itemName) itemName = inventory.name || '';
+            if (!unit) unit = inventory.unit || '';
+            if (!rate) rate = inventory.unitPrice || 0;
+          }
         }
         return {
-          inventoryItem: inventory._id,
-          itemCode: inventory.itemCode,
-          itemName: inventory.name,
-          quantity: item.quantity,
-          unit: inventory.unit,
-          unitPrice: inventory.unitPrice,
+          inventoryItem,
+          itemCode: itemCode || '—',
+          itemName: itemName || '—',
+          quantity: qty,
+          unit: unit || '—',
+          unitPrice: rate,
+          valueExcludingSalesTax: qty * rate,
           notes: item.notes
         };
       })
     );
-    
+
+    const preparedByName = req.user.firstName && req.user.lastName
+      ? `${req.user.firstName} ${req.user.lastName}`.trim()
+      : (req.user.email || 'Prepared By');
+
+    const grnStatus = (bodyStatus === 'Complete' || bodyStatus === 'Partial') ? bodyStatus : 'Partial';
     const receive = new GoodsReceive({
       receiveDate: receiveDate || new Date(),
       supplier,
       supplierName,
+      supplierAddress: resolvedSupplierAddress,
       purchaseOrder,
       poNumber,
+      narration: narration || undefined,
+      prNumber: prNumber || undefined,
+      store: store || undefined,
+      gatePassNo: gatePassNo || undefined,
+      currency: currency || 'Rupees',
+      discount: Number(discount) || 0,
+      otherCharges: Number(otherCharges) || 0,
+      observation: observation || undefined,
+      preparedByName,
       items: itemsWithDetails,
       notes,
       receivedBy: req.user.id,
-      status: 'Received'
+      status: grnStatus
     });
-    
+
     await receive.save();
     await receive.populate([
-      { path: 'supplier', select: 'name contactPerson' },
+      { path: 'supplier', select: 'name contactPerson supplierId address' },
       { path: 'purchaseOrder', select: 'orderNumber' },
       { path: 'receivedBy', select: 'firstName lastName' },
       { path: 'items.inventoryItem' }
     ]);
-    
+
     res.status(201).json({
       success: true,
-      message: 'Goods received successfully and inventory updated',
+      message: 'GRN created successfully and inventory updated',
       data: receive
     });
   })
@@ -1658,11 +1804,13 @@ router.get('/goods-issue',
     if (search) {
       query.$or = [
         { issueNumber: { $regex: search, $options: 'i' } },
+        { sinNumber: { $regex: search, $options: 'i' } },
         { departmentName: { $regex: search, $options: 'i' } },
-        { requestedByName: { $regex: search, $options: 'i' } }
+        { requestedByName: { $regex: search, $options: 'i' } },
+        { costCenterName: { $regex: search, $options: 'i' } }
       ];
     }
-    
+
     const issues = await GoodsIssue.find(query)
       .populate('requestedBy', 'firstName lastName')
       .populate('issuedBy', 'firstName lastName')
@@ -1709,7 +1857,7 @@ router.get('/goods-issue/:id',
 );
 
 // @route   POST /api/procurement/goods-issue
-// @desc    Create goods issue record
+// @desc    Create Store Issue Note (SIN) record
 // @access  Private
 router.post('/goods-issue',
   authorize('super_admin', 'admin', 'procurement_manager'),
@@ -1718,61 +1866,92 @@ router.post('/goods-issue',
     body('department').isIn(['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general', 'it']).withMessage('Valid department is required'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('items.*.inventoryItem').isMongoId().withMessage('Valid inventory item ID is required'),
-    body('items.*.quantity').isFloat({ min: 1 }).withMessage('Quantity must be at least 1')
+    body('items.*.quantity').optional().isFloat({ min: 0 }),
+    body('items.*.qtyIssued').optional().isFloat({ min: 0 })
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, errors: errors.array() });
     }
-    
-    const { issueDate, department, departmentName, costCenter, costCenterCode, costCenterName, requestedBy, requestedByName, items, purpose, notes } = req.body;
-    
-    // Validate cost center if provided
+
+    const {
+      issueDate, department, departmentName, costCenter, costCenterCode, costCenterName,
+      requestedBy, requestedByName, items, purpose, notes,
+      issuingLocation, requiredFor, justification, eprNo, concernedDepartment,
+      returnedByName, approvedByName, receivedByName
+    } = req.body;
+
     if (costCenter) {
       const costCenterDoc = await CostCenter.findById(costCenter);
       if (!costCenterDoc || !costCenterDoc.isActive) {
         throw new Error('Invalid or inactive cost center');
       }
     }
-    
-    // Validate inventory items exist and check stock availability
+
     const itemsWithDetails = await Promise.all(
       items.map(async (item) => {
         const inventory = await Inventory.findById(item.inventoryItem);
         if (!inventory) {
           throw new Error(`Inventory item ${item.inventoryItem} not found`);
         }
-        if (inventory.quantity < item.quantity) {
-          throw new Error(`Insufficient stock for ${inventory.name}. Available: ${inventory.quantity}, Requested: ${item.quantity}`);
+        const qtyIssued = (item.qtyIssued != null && item.qtyIssued !== '') ? Number(item.qtyIssued) : (Number(item.quantity) || 0);
+        if (qtyIssued <= 0) {
+          throw new Error(`Quantity issued must be greater than 0 for ${inventory.name}`);
         }
+        if (inventory.quantity < qtyIssued) {
+          throw new Error(`Insufficient stock for ${inventory.name}. Available: ${inventory.quantity}, Requested: ${qtyIssued}`);
+        }
+        const qtyReturned = (item.qtyReturned != null && item.qtyReturned !== '') ? Number(item.qtyReturned) : 0;
+        const balanceQty = (item.balanceQty != null && item.balanceQty !== '') ? Number(item.balanceQty) : 0;
+        const itemCode = (item.itemCode != null && String(item.itemCode).trim() !== '') ? String(item.itemCode).trim() : inventory.itemCode;
+        const itemName = (item.itemName != null && String(item.itemName).trim() !== '') ? String(item.itemName).trim() : inventory.name;
+        const unit = (item.unit != null && String(item.unit).trim() !== '') ? String(item.unit).trim() : inventory.unit;
         return {
           inventoryItem: inventory._id,
-          itemCode: inventory.itemCode,
-          itemName: inventory.name,
-          quantity: item.quantity,
-          unit: inventory.unit,
+          itemCode,
+          itemName,
+          quantity: qtyIssued,
+          qtyReturned,
+          qtyIssued,
+          balanceQty,
+          issuedFromNewStock: !!item.issuedFromNewStock,
+          issuedFromOldStock: !!item.issuedFromOldStock,
+          unit,
           notes: item.notes
         };
       })
     );
-    
+
+    const issuedByName = req.user.firstName && req.user.lastName
+      ? `${req.user.firstName} ${req.user.lastName}`.trim()
+      : (req.user.email || '');
+
     const issue = new GoodsIssue({
       issueDate: issueDate || new Date(),
+      issuingLocation: issuingLocation || undefined,
       department,
       departmentName,
+      concernedDepartment: concernedDepartment || undefined,
       costCenter,
       costCenterCode,
       costCenterName,
+      requiredFor: requiredFor || undefined,
+      justification: justification || undefined,
+      eprNo: eprNo || undefined,
       requestedBy,
       requestedByName,
+      returnedByName: returnedByName || undefined,
+      approvedByName: approvedByName || undefined,
+      issuedByName,
+      receivedByName: receivedByName || undefined,
       items: itemsWithDetails,
       purpose,
       notes,
       issuedBy: req.user.id,
       status: 'Issued'
     });
-    
+
     await issue.save();
     await issue.populate([
       { path: 'requestedBy', select: 'firstName lastName' },
@@ -1780,10 +1959,10 @@ router.post('/goods-issue',
       { path: 'costCenter', select: 'code name department' },
       { path: 'items.inventoryItem' }
     ]);
-    
+
     res.status(201).json({
       success: true,
-      message: 'Goods issued successfully and inventory updated',
+      message: 'Store Issue Note created successfully and inventory updated',
       data: issue
     });
   })

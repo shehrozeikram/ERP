@@ -577,6 +577,10 @@ export const MODULES = {
           {
             name: 'Suspense Account',
             path: '/finance/taj-utilities-charges/suspense-account'
+          },
+          {
+            name: 'Reports',
+            path: '/finance/taj-utilities-charges/reports'
           }
         ]
       },
@@ -602,9 +606,10 @@ export const MODULES = {
         path: '/procurement/store',
         subItems: [
           { name: 'Store Dashboard', path: '/procurement/store' },
+          { name: 'Quality Assurance', path: '/procurement/store/quality-assurance' },
           { name: 'Inventory', path: '/procurement/store/inventory' },
-          { name: 'Goods Receive', path: '/procurement/store/goods-receive' },
-          { name: 'Goods Issue', path: '/procurement/store/goods-issue' },
+          { name: 'GRN (Goods Received Note)', path: '/procurement/store/goods-receive' },
+          { name: 'Store Issue Note', path: '/procurement/store/goods-issue' },
           { name: 'Cost Center', path: '/procurement/store/cost-center' }
         ]
       }
@@ -878,7 +883,8 @@ export const getModuleMenuItems = (userRole) => {
       '/finance/taj-utilities-charges/invoices',
       '/finance/taj-utilities-charges/open-invoices',
       '/finance/taj-utilities-charges/deposits',
-      '/finance/taj-utilities-charges/suspense-account'
+      '/finance/taj-utilities-charges/suspense-account',
+      '/finance/taj-utilities-charges/reports'
     ];
   
   return accessibleModules.map(moduleKey => {
@@ -1025,6 +1031,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/taj-utilities-charges/charges-slabs': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
       '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
+      '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
@@ -1033,6 +1040,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
       '/procurement/store': 'store',
+      '/procurement/store/quality-assurance': 'quality_assurance',
       '/procurement/store/inventory': 'inventory',
       '/procurement/store/goods-receive': 'goods_receive',
       '/procurement/store/goods-issue': 'goods_issue',

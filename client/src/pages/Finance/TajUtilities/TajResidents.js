@@ -721,6 +721,44 @@ const TajResidents = () => {
     return grandTotal;
   }, []);
 
+  // Helper for "Pay Invoices from Deposit" dialog:
+  // Returns the effective invoice amount to show in the Amount column,
+  // including late payment surcharge (10%) when the invoice is overdue AND unpaid/partial.
+  // This matches the logic from the Invoices page (getAdjustedGrandTotal).
+  const getDepositInvoiceDisplayAmount = useCallback((inv) => {
+    if (!inv) return 0;
+    
+    // Check if invoice is overdue and unpaid/partially paid
+    const invoiceDueDate = inv.dueDate ? new Date(inv.dueDate) : null;
+    const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
+    const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
+    
+    // If not overdue or already paid, return original grandTotal
+    if (!isOverdue || !isUnpaid) {
+      return inv.grandTotal || 0;
+    }
+    
+    // Calculate late payment surcharge (10% of charges for the month)
+    let chargesForMonth = inv.subtotal || 0;
+    
+    // If invoice has charges array, sum up the amount (not arrears) for each charge
+    if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
+      const totalChargesAmount = inv.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      if (totalChargesAmount > 0) {
+        chargesForMonth = totalChargesAmount;
+      }
+    }
+    
+    // Calculate late payment surcharge
+    const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+    
+    // Calculate original grandTotal (without surcharge)
+    const originalGrandTotal = inv.grandTotal || (chargesForMonth + (inv.totalArrears || 0));
+    
+    // Return adjusted grandTotal (original + surcharge)
+    return originalGrandTotal + latePaymentSurcharge;
+  }, []);
+
   const handleDepositPaymentPropertyChange = useCallback(async (property) => {
     setSelectedProperty(property);
     if (!property?._id) {
@@ -759,17 +797,18 @@ const TajResidents = () => {
       });
       
       setDepositPaymentAllocations(outstandingInvoices.map(inv => {
-        const subtotal = calculateInvoiceSubtotal(inv);
-        const totalPaid = Number(inv.totalPaid) || 0;
-        const balanceWithoutArrears = Math.max(0, subtotal - totalPaid);
+        // Use exact same calculation as Invoices page Balance column
+        // Direct copy: getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0)
+        const adjustedGrandTotal = getDepositInvoiceDisplayAmount(inv);
+        const balance = adjustedGrandTotal - (inv.totalPaid || 0);
         
         return {
           invoice: inv._id,
           invoiceNumber: inv.invoiceNumber,
           invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
-          balance: balanceWithoutArrears,
+          balance: balance, // Exact same value as Invoices page Balance column
           allocatedAmount: 0,
-          remaining: balanceWithoutArrears
+          remaining: balance
         };
       }));
     } catch (err) {
@@ -944,17 +983,18 @@ const TajResidents = () => {
           });
           
           setDepositPaymentAllocations(outstandingInvoices.map(inv => {
-            const subtotal = calculateInvoiceSubtotal(inv);
-            const totalPaid = Number(inv.totalPaid) || 0;
-            const balanceWithoutArrears = Math.max(0, subtotal - totalPaid);
+            // Use exact same calculation as Invoices page Balance column
+            // Direct copy: getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0)
+            const adjustedGrandTotal = getDepositInvoiceDisplayAmount(inv);
+            const balance = adjustedGrandTotal - (inv.totalPaid || 0);
             
             return {
               invoice: inv._id,
               invoiceNumber: inv.invoiceNumber,
               invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
-              balance: balanceWithoutArrears,
+              balance: balance, // Exact same value as Invoices page Balance column
               allocatedAmount: 0,
-              remaining: balanceWithoutArrears
+              remaining: balance
             };
           }));
         } catch (err) {
@@ -2680,18 +2720,19 @@ const TajResidents = () => {
                       const periodText = invoice?.periodFrom && invoice?.periodTo
                         ? `${dayjs(invoice.periodFrom).format('DD MMM YYYY')} - ${dayjs(invoice.periodTo).format('DD MMM YYYY')}`
                         : '-';
-                      // Calculate subtotal (charge amounts without arrears) for display - use helper function
-                      const displaySubtotal = calculateInvoiceSubtotal(invoice);
-                      // Format due date - check both dueDate field and periodTo as fallback
-                      const dueDate = invoice?.dueDate || invoice?.periodTo;
-                      const dueDateText = dueDate ? dayjs(dueDate).format('DD MMM YYYY') : '-';
+                      // Calculate effective amount for display (handles CAM late surcharge after due date)
+                      const displayAmount = getDepositInvoiceDisplayAmount(invoice);
+                      // Format due date - use invoice.dueDate directly, matching the Invoices page display
+                      const dueDateText = invoice?.dueDate
+                        ? dayjs(invoice.dueDate).format('DD MMM YYYY')
+                        : '-';
                       return (
                         <TableRow key={alloc.invoice}>
                           <TableCell>{invoice?.invoiceNumber || '-'}</TableCell>
                           <TableCell>{invoice?.invoiceDate ? dayjs(invoice.invoiceDate).format('DD MMM YYYY') : '-'}</TableCell>
                           <TableCell>{periodText}</TableCell>
                           <TableCell>{dueDateText}</TableCell>
-                          <TableCell align="right">{formatCurrency(displaySubtotal)}</TableCell>
+                          <TableCell align="right">{formatCurrency(displayAmount)}</TableCell>
                           <TableCell align="right">{formatCurrency(invoice?.totalPaid || 0)}</TableCell>
                           <TableCell align="right">{formatCurrency(alloc.balance)}</TableCell>
                           <TableCell align="right">

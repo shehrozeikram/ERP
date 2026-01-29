@@ -165,6 +165,7 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
       '/finance/taj-utilities-charges/deposits': 'taj_deposits',
       '/finance/taj-utilities-charges/suspense-account': 'taj_suspense_account',
+      '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
@@ -177,6 +178,7 @@ const Sidebar = () => {
       '/procurement/goods-receive': 'inventory',
       '/procurement/goods-issue': 'inventory',
       '/procurement/store': 'store',
+      '/procurement/store/quality-assurance': 'quality_assurance',
       '/procurement/store/inventory': 'inventory',
       '/procurement/store/goods-receive': 'goods_receive',
       '/procurement/store/goods-issue': 'goods_issue',

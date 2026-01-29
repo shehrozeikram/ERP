@@ -56,6 +56,7 @@ import TajResidents from './pages/Finance/TajUtilities/TajResidents';
 import Deposits from './pages/Finance/TajUtilities/Deposits';
 import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
+import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -70,6 +71,7 @@ import GoodsReceive from './pages/Procurement/GoodsReceive';
 import GoodsIssue from './pages/Procurement/GoodsIssue';
 import CostCenters from './pages/Procurement/CostCenters';
 import StoreDashboard from './pages/Procurement/Store/StoreDashboard';
+import QualityAssurance from './pages/Procurement/Store/QualityAssurance';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import SalesOrders from './pages/Sales/SalesOrders';
 import SalesCustomers from './pages/Sales/SalesCustomers';
@@ -1029,6 +1031,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/finance/taj-utilities-charges/reports"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <TajUtilitiesReports />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Procurement Module */}
             <Route 
@@ -1063,6 +1073,10 @@ function App() {
             <Route 
               path="/procurement/store" 
               element={<ProtectedRoute><StoreDashboard /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/store/quality-assurance" 
+              element={<ProtectedRoute><QualityAssurance /></ProtectedRoute>} 
             />
             <Route 
               path="/procurement/store/inventory" 

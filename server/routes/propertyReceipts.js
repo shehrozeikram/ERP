@@ -23,7 +23,7 @@ router.get('/property/:propertyId/invoices', authMiddleware, asyncHandler(async 
       paymentStatus: { $in: ['unpaid', 'partial_paid'] },
       balance: { $gt: 0 }
     })
-    .select('invoiceNumber invoiceDate periodFrom periodTo chargeTypes charges grandTotal totalPaid balance paymentStatus')
+    .select('invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance paymentStatus')
     .sort({ invoiceDate: 1 })
     .lean();
 
@@ -33,9 +33,14 @@ router.get('/property/:propertyId/invoices', authMiddleware, asyncHandler(async 
       invoiceDate: inv.invoiceDate,
       periodFrom: inv.periodFrom,
       periodTo: inv.periodTo,
+      dueDate: inv.dueDate,
       chargeTypes: inv.chargeTypes,
+      charges: inv.charges,
+      subtotal: inv.subtotal,
+      totalArrears: inv.totalArrears,
       description: inv.charges?.map(c => c.description).join(', ') || 'Invoice',
       grandTotal: inv.grandTotal,
+      totalPaid: inv.totalPaid,
       balance: inv.balance,
       paymentStatus: inv.paymentStatus
     }));

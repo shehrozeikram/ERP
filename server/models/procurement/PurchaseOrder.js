@@ -192,6 +192,22 @@ const purchaseOrderSchema = new mongoose.Schema({
   receivedAt: {
     type: Date
   },
+  qaStatus: {
+    type: String,
+    enum: ['Pending', 'Passed', 'Rejected'],
+    default: 'Pending'
+  },
+  qaCheckedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  qaCheckedAt: {
+    type: Date
+  },
+  qaRemarks: {
+    type: String,
+    trim: true
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
