@@ -283,10 +283,17 @@ const TajResidents = () => {
       if (search) params.search = search;
       if (accountTypeFilter) params.accountType = accountTypeFilter;
       const response = await fetchResidents(params);
-      setResidents(response.data.data || []);
+      const residentsList = response.data.data || [];
+      setResidents(residentsList);
       if (response.data.pagination) {
         pagination.setTotal(response.data.pagination.total);
       }
+      // Keep selectedResident in sync so Current Balance / totalRemainingDeposits stay correct after deposit or pay
+      setSelectedResident((prev) => {
+        if (!prev?._id) return prev;
+        const updated = residentsList.find((r) => r._id === prev._id);
+        return updated ? { ...updated } : prev;
+      });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load residents');
     } finally {
@@ -1756,7 +1763,7 @@ const TajResidents = () => {
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <Alert severity="info">
-                Current Balance: {formatCurrency(selectedResident?.balance || 0)}
+                Current Balance: {formatCurrency(selectedResident?.totalRemainingDeposits ?? selectedResident?.balance ?? 0)}
               </Alert>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -1854,7 +1861,7 @@ const TajResidents = () => {
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={12}>
               <Alert severity="info">
-                Current Balance: {formatCurrency(selectedResident?.balance || 0)}
+                Current Balance: {formatCurrency(selectedResident?.totalRemainingDeposits ?? selectedResident?.balance ?? 0)}
               </Alert>
             </Grid>
             {/* Check if this is TAJ MANAGEMENT (TCM) - hide property selection for open invoices */}
@@ -2635,9 +2642,9 @@ const TajResidents = () => {
                 <Typography 
                   variant="h6" 
                   fontWeight={600}
-                  color={depositPaymentTotals.remainingBalance < 0 ? 'error.main' : 'success.main'}
+                  color={(depositPaymentTotals.totalDepositAmount - depositPaymentTotals.totalDepositUsage) < 0 ? 'error.main' : 'success.main'}
                 >
-                  {formatCurrency(depositPaymentTotals.remainingBalance)}
+                  {formatCurrency(depositPaymentTotals.totalDepositAmount - depositPaymentTotals.totalDepositUsage)}
                 </Typography>
               </Stack>
             </Box>

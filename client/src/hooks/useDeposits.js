@@ -73,6 +73,9 @@ export const useDeposits = (options = {}) => {
   const [transferResidents, setTransferResidents] = useState([]);
   const [loadingTransferResidents, setLoadingTransferResidents] = useState(false);
 
+  // Export Excel: which month is currently exporting (for loading state)
+  const [exportingMonthKey, setExportingMonthKey] = useState(null);
+
   // Load deposits
   const loadDeposits = useCallback(async () => {
     try {
@@ -513,6 +516,61 @@ export const useDeposits = (options = {}) => {
     };
   }, []);
 
+  // Export all deposits for a given month to Excel (fetches all records for that month, not just current page)
+  const exportMonthToExcel = useCallback(async (monthKey) => {
+    if (!monthKey) return;
+    try {
+      setExportingMonthKey(monthKey);
+      setError('');
+      const [year, month] = monthKey.split('-').map(Number);
+      const startDate = dayjs().year(year).month(month - 1).startOf('month').format('YYYY-MM-DD');
+      const endDate = dayjs().year(year).month(month - 1).endOf('month').format('YYYY-MM-DD');
+      const response = await fetchAllDeposits({
+        page: 1,
+        limit: 10000,
+        startDate,
+        endDate
+      });
+      const allDeposits = response.data?.data?.deposits || [];
+      const headers = [
+        'Date',
+        'Resident',
+        'Resident ID',
+        'Amount',
+        'Remaining',
+        'Payment Method',
+        'Bank',
+        'Transaction Number',
+        'Description'
+      ];
+      const rows = allDeposits.map((d) => [
+        d.createdAt ? dayjs(d.createdAt).format('DD MMM YYYY HH:mm') : '-',
+        d.resident?.name || '-',
+        d.resident?.residentId || '-',
+        d.amount ?? '',
+        d.remainingAmount ?? '',
+        d.paymentMethod || '-',
+        d.bank || '-',
+        d.referenceNumberExternal || '-',
+        d.description || '-'
+      ]);
+      const xlsx = await import('xlsx');
+      const wb = xlsx.utils.book_new();
+      const ws = xlsx.utils.aoa_to_sheet([headers, ...rows]);
+      const colWidths = [{ wch: 18 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 30 }];
+      ws['!cols'] = colWidths;
+      xlsx.utils.book_append_sheet(wb, ws, monthKey);
+      const fileName = `deposits-${monthKey}.xlsx`;
+      xlsx.writeFile(wb, fileName);
+      setSuccess(`Exported ${allDeposits.length} record(s) for ${dayjs(monthKey).format('MMMM YYYY')}`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to export Excel');
+    } finally {
+      setExportingMonthKey(null);
+    }
+  }, []);
+
   return {
     // State
     loading,
@@ -567,6 +625,9 @@ export const useDeposits = (options = {}) => {
     handleTransferDeposit,
     handleTransferDepositSubmit,
     suspenseAccountTotals,
+    // Export Excel
+    exportingMonthKey,
+    exportMonthToExcel,
     // Constants
     PAYMENT_METHODS,
     formatCurrency,

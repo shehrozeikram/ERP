@@ -37,7 +37,8 @@ import {
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  GetApp as GetAppIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -83,7 +84,9 @@ const Deposits = () => {
     suspenseAccountTotals,
     PAYMENT_METHODS,
     formatCurrency,
-    renderBankField
+    renderBankField,
+    exportingMonthKey,
+    exportMonthToExcel
   } = useDeposits();
 
   const bankFieldConfig = renderBankField(editForm, setEditForm);
@@ -203,7 +206,21 @@ const Deposits = () => {
                           variant="outlined"
                         />
                       </Stack>
-                      <Stack direction="row" spacing={3}>
+                      <Stack direction="row" spacing={3} alignItems="center">
+                        <Tooltip title="Export all records for this month to Excel">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={exportingMonthKey === monthGroup.key ? <CircularProgress size={18} /> : <GetAppIcon />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              exportMonthToExcel(monthGroup.key);
+                            }}
+                            disabled={!!exportingMonthKey}
+                          >
+                            {exportingMonthKey === monthGroup.key ? 'Exporting...' : 'Export Excel'}
+                          </Button>
+                        </Tooltip>
                         <Box>
                           <Typography variant="caption" color="text.secondary">
                             Suspense Account
