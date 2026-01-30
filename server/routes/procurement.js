@@ -2706,7 +2706,8 @@ router.put('/quotations/:id', [
   body('vendor').optional().isMongoId().withMessage('Valid vendor ID is required'),
   body('quotationDate').optional().isISO8601().withMessage('Valid quotation date is required'),
   body('items').optional().isArray({ min: 1 }).withMessage('At least one item is required'),
-  body('status').optional().isIn(['Received', 'Shortlisted', 'Finalized', 'Rejected'])
+  body('status').optional().isIn(['Received', 'Shortlisted', 'Finalized', 'Rejected']),
+  body('editReason').optional().isIn(['Negotiating purpose']).withMessage('Edit reason must be "Negotiating purpose"')
 ], authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {

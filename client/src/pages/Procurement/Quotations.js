@@ -59,7 +59,8 @@ const Quotations = () => {
   const [statusFilter, setStatusFilter] = useState('');
   
   // Dialog states
-  const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null, requisition: null });
+  const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null, requisition: null, editReason: null });
+  const [editReasonDialog, setEditReasonDialog] = useState({ open: false, quotation: null });
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   
@@ -169,6 +170,11 @@ const Quotations = () => {
   };
 
   const handleEdit = (quotation) => {
+    setEditReasonDialog({ open: true, quotation });
+  };
+
+  const handleProceedToEdit = () => {
+    const quotation = editReasonDialog.quotation;
     setFormData({
       indent: quotation.indent?._id || quotation.indent || '',
       vendor: quotation.vendor?._id || quotation.vendor || '',
@@ -181,7 +187,8 @@ const Quotations = () => {
       paymentTerms: quotation.paymentTerms || '',
       notes: quotation.notes || ''
     });
-    setFormDialog({ open: true, mode: 'edit', data: quotation, requisition: null });
+    setFormDialog({ open: true, mode: 'edit', data: quotation, requisition: null, editReason: 'Negotiating purpose' });
+    setEditReasonDialog({ open: false, quotation: null });
   };
 
   const handleView = async (quotation) => {
@@ -290,11 +297,15 @@ const Quotations = () => {
         await procurementService.createQuotation(quotationData);
         setSuccess('Quotation created successfully');
       } else {
-        await procurementService.updateQuotation(formDialog.data._id, quotationData);
+        const updateData = { ...quotationData };
+        if (formDialog.editReason) {
+          updateData.editReason = formDialog.editReason;
+        }
+        await procurementService.updateQuotation(formDialog.data._id, updateData);
         setSuccess('Quotation updated successfully');
       }
       
-      setFormDialog({ open: false, mode: 'create', data: null, requisition: null });
+      setFormDialog({ open: false, mode: 'create', data: null, requisition: null, editReason: null });
       loadQuotations();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save quotation');
@@ -457,7 +468,7 @@ const Quotations = () => {
                               <ApproveIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Edit">
+                          <Tooltip title="Edit (Negotiating purpose only)">
                             <IconButton size="small" onClick={() => handleEdit(quote)}>
                               <EditIcon fontSize="small" />
                             </IconButton>
@@ -495,8 +506,32 @@ const Quotations = () => {
         />
       </Paper>
 
+      {/* EDIT WITH REASON DIALOG */}
+      <Dialog open={editReasonDialog.open} onClose={() => setEditReasonDialog({ open: false, quotation: null })} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Quotation</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Please confirm the reason for editing this quotation.
+          </Typography>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Reason for Edit:</strong> Negotiating purpose
+            </Typography>
+            <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+              Quotations can only be edited for negotiating purpose.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditReasonDialog({ open: false, quotation: null })}>Cancel</Button>
+          <Button variant="contained" onClick={handleProceedToEdit}>
+            Proceed to Edit
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* FORM DIALOG */}
-      <Dialog open={formDialog.open} onClose={() => setFormDialog({ open: false, mode: 'create', data: null, requisition: null })} maxWidth="md" fullWidth>
+      <Dialog open={formDialog.open} onClose={() => setFormDialog({ open: false, mode: 'create', data: null, requisition: null, editReason: null })} maxWidth="md" fullWidth>
         <DialogTitle>
           {formDialog.mode === 'create' ? 'Create Quotation' : 'Edit Quotation'}
         </DialogTitle>
@@ -673,7 +708,7 @@ const Quotations = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFormDialog({ open: false, mode: 'create', data: null, requisition: null })}>
+          <Button onClick={() => setFormDialog({ open: false, mode: 'create', data: null, requisition: null, editReason: null })}>
             Cancel
           </Button>
           <Button variant="contained" onClick={handleSubmit} disabled={loading}>

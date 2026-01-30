@@ -198,6 +198,7 @@ import IndentForm from './pages/General/Indents/IndentForm';
 import IndentDetail from './pages/General/Indents/IndentDetail';
 import IndentPrintView from './pages/General/Indents/IndentPrintView';
 import Payments from './pages/General/Payments';
+import ProjectManagement from './pages/General/ProjectManagement';
 import LoanManagement from './pages/HR/LoanManagement';
 import LoanForm from './pages/HR/LoanForm';
 import LoanDetail from './pages/HR/LoanDetail';
@@ -611,6 +612,10 @@ function App() {
             <Route
               path="/general/user-tracking"
               element={<ProtectedRoute><UserTracking /></ProtectedRoute>}
+            />
+            <Route
+              path="/general/project-management"
+              element={<ProtectedRoute><ProjectManagement /></ProtectedRoute>}
             />
 
             {/* Loan Management Routes */}

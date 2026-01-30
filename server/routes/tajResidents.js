@@ -1403,10 +1403,14 @@ router.post(
       try {
         const invoice = await PropertyInvoice.findById(referenceId);
         if (invoice) {
-          // Check if due date has passed and invoice is unpaid/partially paid
+          // Check if due date has ended (payment date after due date) and invoice is unpaid/partially paid
           const paymentDateObj = paymentDate ? new Date(paymentDate) : new Date();
           const dueDateObj = invoice.dueDate ? new Date(invoice.dueDate) : null;
-          const isOverdue = dueDateObj && paymentDateObj > dueDateObj;
+          const paymentStart = new Date(paymentDateObj);
+          paymentStart.setHours(0, 0, 0, 0);
+          const dueStart = dueDateObj ? new Date(dueDateObj) : null;
+          if (dueStart) dueStart.setHours(0, 0, 0, 0);
+          const isOverdue = dueStart && paymentStart > dueStart;
           const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid';
           
           // Calculate late payment surcharge if overdue and unpaid

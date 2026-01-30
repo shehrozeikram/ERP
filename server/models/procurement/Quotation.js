@@ -117,6 +117,10 @@ const quotationSchema = new mongoose.Schema({
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  editReason: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: true

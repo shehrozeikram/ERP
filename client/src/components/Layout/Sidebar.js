@@ -141,9 +141,10 @@ const Sidebar = () => {
       '/documents-tracking': 'document_tracking',
       '/general/indents': 'indents',
       '/general/indents/dashboard': 'indents',
+      '/general/indents/create': 'indents',
+      '/general/project-management': 'project_management',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
-      '/general/indents/create': 'indents',
       
       // Finance Module
       '/finance/accounts': 'chart_of_accounts',
@@ -249,6 +250,7 @@ const Sidebar = () => {
     if (path.startsWith('/taj-residencia')) return 'taj_residencia';
     if (path.startsWith('/documents-tracking')) return 'general';
     if (path.startsWith('/general/indents')) return 'general';
+    if (path.startsWith('/general/project-management')) return 'general';
     if (path.startsWith('/general/ceo-secretariat')) return 'general';
     return null;
   };

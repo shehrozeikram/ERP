@@ -788,6 +788,10 @@ export const MODULES = {
         path: '/general/user-tracking'
       },
       {
+        name: 'Project Management',
+        path: '/general/project-management'
+      },
+      {
         name: 'Ceo Secretariat',
         path: '/general/ceo-secretariat',
         subItems: [
@@ -1013,6 +1017,16 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/hr/evaluation-appraisal/edit': 'evaluation_appraisal',
       '/hr/reports': 'reports',
       
+      // General Module
+      '/documents-tracking': 'document_tracking',
+      '/general/indents': 'indents',
+      '/general/indents/dashboard': 'indents',
+      '/general/indents/create': 'indents',
+      '/general/user-tracking': 'user_tracking',
+      '/general/project-management': 'project_management',
+      '/general/ceo-secretariat': 'ceo_secretariat',
+      '/general/ceo-secretariat/payments': 'ceo_secretariat',
+      
       // Finance Module
       '/finance/accounts': 'chart_of_accounts',
       '/finance/journal-entries': 'journal_entries',
@@ -1130,6 +1144,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
     if (path.startsWith('/it')) return 'it';
     if (path.startsWith('/taj-residencia')) return 'taj_residencia';
     if (path.startsWith('/documents-tracking')) return 'general';
+    if (path.startsWith('/general')) return 'general';
     return null;
   };
   

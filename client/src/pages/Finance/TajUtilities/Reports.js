@@ -53,7 +53,9 @@ const getAdjustedGrandTotal = (invoice) => {
   if (!invoice) return 0;
   
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-  const isOverdue = invoiceDueDate && new Date() > invoiceDueDate;
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
+  const isOverdue = dueStart && todayStart > dueStart;
   const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
   
   if (!isOverdue || !isUnpaid) {
