@@ -1337,15 +1337,22 @@ router.post(
     }
     
     const balanceBefore = resident.balance || 0;
+    const hasDepositUsages = depositUsages && Array.isArray(depositUsages) && depositUsages.length > 0;
 
-    if (balanceBefore < amountNum) {
+    // When paying from deposits (depositUsages provided), skip resident.balance check:
+    // available funds are computed from deposit transactions (totalRemainingDeposits), which may
+    // exceed stored resident.balance if they were ever out of sync.
+    if (!hasDepositUsages && balanceBefore < amountNum) {
       return res.status(400).json({
         success: false,
         message: 'Insufficient balance'
       });
     }
 
-    const balanceAfter = balanceBefore - amountNum;
+    // Deduct from balance; when paying from deposits allow balance to stay at 0 if it was out of sync (never go negative)
+    const balanceAfter = hasDepositUsages
+      ? Math.max(0, balanceBefore - amountNum)
+      : balanceBefore - amountNum;
 
     // Update resident balance
     resident.balance = balanceAfter;
