@@ -203,9 +203,9 @@ router.get('/employees',
         .populate('placementDesignation', 'title level')
         .populate('user', '_id firstName lastName email')
         .sort({ 
-          // First priority: Status (inactive/draft employees come first)
-          isActive: 1, // false (inactive) comes before true (active)
-          employmentStatus: 1, // 'Draft' comes before 'Active'
+          // First priority: Active employees first, inactive at the end
+          isActive: -1, // true (active) first, then false (inactive)
+          employmentStatus: 1, // 'Active' then 'Draft' then others
           // Second priority: Employee ID (ascending) - uses indexed field
           employeeId: 1
         })
@@ -226,9 +226,9 @@ router.get('/employees',
         .limit(limit * 1)
         .skip((page - 1) * limit)
         .sort({ 
-          // First priority: Status (inactive/draft employees come first)
-          isActive: 1, // false (inactive) comes before true (active)
-          employmentStatus: 1, // 'Draft' comes before 'Active'
+          // First priority: Active employees first, inactive at the end
+          isActive: -1, // true (active) first, then false (inactive)
+          employmentStatus: 1, // 'Active' then 'Draft' then others
           // Second priority: Creation date (newest first)
           createdAt: -1 
         })

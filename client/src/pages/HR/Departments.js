@@ -196,8 +196,18 @@ const Departments = () => {
     }
   };
 
-  const getEmployeeCount = (departmentName) => {
-    return employees.filter(emp => emp.department === departmentName).length;
+  const getEmployeeCount = (department) => {
+    const deptId = department?._id?.toString();
+    if (!deptId) return 0;
+    return employees.filter((emp) => {
+      const empDeptId = (
+        emp.placementDepartment?._id ||
+        emp.placementDepartment ||
+        emp.department?._id ||
+        emp.department
+      )?.toString();
+      return empDeptId === deptId;
+    }).length;
   };
 
   if (loading) {
@@ -320,7 +330,7 @@ const Departments = () => {
                 </TableCell>
                 <TableCell>
                   <Chip 
-                    label={getEmployeeCount(department.name)} 
+                    label={getEmployeeCount(department)} 
                     color="primary" 
                     size="small" 
                   />

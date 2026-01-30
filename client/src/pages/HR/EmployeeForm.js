@@ -1745,9 +1745,14 @@ const EmployeeForm = () => {
             <Grid item xs={12}>
               <Card variant="outlined" sx={{ p: 3, backgroundColor: '#f8f9fa' }}>
                 <Box sx={{ textAlign: 'center', mb: 3 }}>
-                  <Typography variant="h5" gutterBottom sx={{ fontWeight: 600 }}>
-                    SARDAR GROUP OF COMPANIES
-                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                    <Box
+                      component="img"
+                      src={process.env.PUBLIC_URL + '/images/sgc_logo.png'}
+                      alt="Sardar Group of Companies"
+                      sx={{ maxHeight: 120, objectFit: 'contain' }}
+                    />
+                  </Box>
                   <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 600 }}>
                     JOINING REPORT
                   </Typography>
@@ -2076,6 +2081,50 @@ const EmployeeForm = () => {
                 Basic Information
               </Typography>
             </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                <Avatar
+                  src={imagePreview || getImageUrl(formik.values.profileImage) || undefined}
+                  sx={{ width: 120, height: 120, border: '2px solid #e0e0e0' }}
+                  imgProps={{
+                    onError: (e) => {
+                      e.target.style.display = 'none';
+                    }
+                  }}
+                >
+                  {formik.values.firstName?.charAt(0)}{formik.values.lastName?.charAt(0)}
+                </Avatar>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                  <Button
+                    variant="outlined"
+                    component="label"
+                    startIcon={<UploadIcon />}
+                    size="small"
+                  >
+                    Upload Image
+                    <input
+                      type="file"
+                      hidden
+                      accept="image/*"
+                      onChange={handleFileChange}
+                    />
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<PhotoCameraIcon />}
+                    onClick={handleCameraCapture}
+                    size="small"
+                  >
+                    Camera
+                  </Button>
+                </Box>
+                {formik.values.profileImage && (
+                  <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5 }}>
+                    Image uploaded successfully
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -2171,51 +2220,6 @@ const EmployeeForm = () => {
                 error={formik.touched.nationality && Boolean(formik.errors.nationality)}
                 helperText={formik.touched.nationality && formik.errors.nationality}
               />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <Avatar
-                  src={imagePreview || getImageUrl(formik.values.profileImage) || undefined}
-                  sx={{ width: 120, height: 120, border: '2px solid #e0e0e0' }}
-                  imgProps={{
-                    onError: (e) => {
-                      // If image fails to load, hide the img element and show initials
-                      e.target.style.display = 'none';
-                    }
-                  }}
-                >
-                  {formik.values.firstName?.charAt(0)}{formik.values.lastName?.charAt(0)}
-                </Avatar>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button
-                    variant="outlined"
-                    component="label"
-                    startIcon={<UploadIcon />}
-                    size="small"
-                  >
-                    Upload Image
-                    <input
-                      type="file"
-                      hidden
-                      accept="image/*"
-                      onChange={handleFileChange}
-                    />
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<PhotoCameraIcon />}
-                    onClick={handleCameraCapture}
-                    size="small"
-                  >
-                    Camera
-                  </Button>
-                </Box>
-                {formik.values.profileImage && (
-                  <Typography variant="caption" color="textSecondary">
-                    Image uploaded successfully
-                  </Typography>
-                )}
-              </Box>
             </Grid>
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>

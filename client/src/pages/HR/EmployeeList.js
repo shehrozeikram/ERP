@@ -213,16 +213,15 @@ const EmployeeList = () => {
     });
   }, [employees, searchTerm, departmentFilter, projectFilter, statusFilter]);
 
-  // Sort filtered employees by status first (inactive/draft at top), then by Employee ID
+  // Sort filtered employees by status first (active at top, inactive at end), then by Employee ID
   const sortedEmployees = useMemo(() => {
     return [...filteredEmployees].sort((a, b) => {
-      // First priority: Status (inactive/draft employees come first)
+      // First priority: Active employees first, inactive/draft at the end
       const aIsActive = a.isActive === true && a.employmentStatus === 'Active';
       const bIsActive = b.isActive === true && b.employmentStatus === 'Active';
       
       if (aIsActive !== bIsActive) {
-        // Inactive/draft employees come first
-        return aIsActive ? 1 : -1;
+        return aIsActive ? -1 : 1; // active first
       }
       
       // Second priority: Employee ID (ascending order for same status)
@@ -648,7 +647,7 @@ const EmployeeList = () => {
           </Box>
         </Box>
         
-        <TableContainer>
+        <TableContainer sx={{ overflow: 'visible' }}>
           <Table>
             <TableHead>
               <TableRow>
@@ -698,20 +697,39 @@ const EmployeeList = () => {
               ) : paginatedEmployees.length > 0 ? (
                 paginatedEmployees.map((employee) => (
                   <TableRow key={employee._id} data-employee-id={employee._id}>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Avatar 
-                          src={employee.profileImage ? getImageUrl(employee.profileImage) : undefined}
-                          sx={{ mr: 2, width: 40, height: 40 }}
-                          imgProps={{
-                            onError: (e) => {
-                              // If image fails to load, hide the img element and show initials
-                              e.target.style.display = 'none';
-                            }
+                    <TableCell sx={{ overflow: 'visible', position: 'relative' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'visible' }}>
+                        <Box
+                          sx={{
+                            display: 'inline-flex',
+                            overflow: 'visible',
+                            position: 'relative',
+                            '& .MuiAvatar-root': {
+                              transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                              position: 'relative',
+                              transformOrigin: 'left center',
+                            },
+                            '&:hover .MuiAvatar-root': {
+                              transform: 'scale(2.5)',
+                              zIndex: 1300,
+                              boxShadow: 3,
+                              position: 'relative',
+                            },
                           }}
                         >
-                          {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
-                        </Avatar>
+                          <Avatar 
+                            src={employee.profileImage ? getImageUrl(employee.profileImage) : undefined}
+                            sx={{ mr: 2, width: 40, height: 40 }}
+                            imgProps={{
+                              onError: (e) => {
+                                // If image fails to load, hide the img element and show initials
+                                e.target.style.display = 'none';
+                              }
+                            }}
+                          >
+                            {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+                          </Avatar>
+                        </Box>
                         <Box>
                           <Typography variant="subtitle2">
                             {employee.firstName} {employee.lastName}
