@@ -167,6 +167,10 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges/deposits': 'taj_deposits',
       '/finance/taj-utilities-charges/suspense-account': 'taj_suspense_account',
       '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
+      '/finance/recovery': 'recovery',
+      '/finance/recovery/recovery-assignments': 'recovery_assignments',
+      '/finance/recovery/recovery-members': 'recovery_members',
+      '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module

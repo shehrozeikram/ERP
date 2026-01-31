@@ -38,6 +38,7 @@ import {
   Search as SearchIcon,
   Visibility as ViewIcon,
   Refresh as RefreshIcon,
+  GetApp as GetAppIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useData } from '../../contexts/DataContext';
@@ -58,6 +59,9 @@ const EmployeeList = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportPages, setExportPages] = useState(1);
+  const [exporting, setExporting] = useState(false);
   
   // Pagination state
   const location = useLocation();
@@ -340,6 +344,92 @@ const EmployeeList = () => {
     return employeeId.toString().padStart(5, '0');
   };
 
+  const totalPages = Math.ceil(totalItems / rowsPerPage) || 1;
+
+  const handleExportToExcel = useCallback(async () => {
+    if (!sortedEmployees || sortedEmployees.length === 0) {
+      setSnackbar({ open: true, message: 'No employees to export', severity: 'warning' });
+      return;
+    }
+    try {
+      setExporting(true);
+      const pagesToExport = exportPages === 'all' || exportPages >= totalPages
+        ? totalPages
+        : Math.min(Number(exportPages) || 1, totalPages);
+      const count = Math.min(pagesToExport * rowsPerPage, sortedEmployees.length);
+      const dataToExport = sortedEmployees.slice(0, count);
+
+      const headers = [
+        'Employee Name',
+        'Employee ID',
+        'ID Card',
+        'Religion',
+        'Marital Status',
+        'Qualification',
+        'Bank Name',
+        'Bank Account Number',
+        'Spouse Name',
+        'Appointment Date',
+        'Probation Period',
+        'End of Probation',
+        'Confirmation Date',
+        'Department',
+        'Designation',
+        'Email',
+        'Phone',
+        'Status'
+      ];
+
+      const rows = dataToExport.map((emp) => [
+        `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+        formatEmployeeId(emp.employeeId),
+        emp.idCard || '',
+        emp.religion || '',
+        emp.maritalStatus || '',
+        emp.qualification || '',
+        typeof emp.bankName === 'object' ? emp.bankName?.name || '' : emp.bankName || '',
+        emp.bankAccountNumber || emp.accountNumber || '',
+        emp.spouseName || '',
+        emp.appointmentDate ? new Date(emp.appointmentDate).toLocaleDateString() : '',
+        emp.probationPeriodMonths ? `${emp.probationPeriodMonths} months` : '',
+        emp.endOfProbationDate ? new Date(emp.endOfProbationDate).toLocaleDateString() : '',
+        emp.confirmationDate ? new Date(emp.confirmationDate).toLocaleDateString() : '',
+        emp.placementDepartment?.name || '',
+        emp.placementDesignation?.title || '',
+        emp.email || '',
+        emp.phone || '',
+        getStatusText(emp)
+      ]);
+
+      const xlsx = await import('xlsx');
+      const wb = xlsx.utils.book_new();
+      const ws = xlsx.utils.aoa_to_sheet([headers, ...rows]);
+      ws['!cols'] = [
+        { wch: 22 }, { wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 14 },
+        { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
+        { wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 14 }, { wch: 10 }
+      ];
+      xlsx.utils.book_append_sheet(wb, ws, 'Employees');
+      const fileName = `employees-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      xlsx.writeFile(wb, fileName);
+      setSnackbar({
+        open: true,
+        message: `Exported ${dataToExport.length} employee(s) to Excel`,
+        severity: 'success'
+      });
+      setExportDialogOpen(false);
+    } catch (err) {
+      console.error('Export error:', err);
+      setSnackbar({
+        open: true,
+        message: err.message || 'Failed to export to Excel',
+        severity: 'error'
+      });
+    } finally {
+      setExporting(false);
+    }
+  }, [sortedEmployees, exportPages, totalPages, rowsPerPage]);
+
   if (dataLoading.employees || dataLoading.departments) {
     return (
       <PageLoading 
@@ -355,6 +445,14 @@ const EmployeeList = () => {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Employee Management</Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<GetAppIcon />}
+            onClick={() => setExportDialogOpen(true)}
+            disabled={dataLoading.employees || totalItems === 0}
+          >
+            Export
+          </Button>
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
@@ -869,6 +967,43 @@ const EmployeeList = () => {
           }}
         />
       </Paper>
+
+      {/* Export to Excel Dialog */}
+      <Dialog open={exportDialogOpen} onClose={() => !exporting && setExportDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Export to Excel</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Total: {totalPages} page{totalPages !== 1 ? 's' : ''} ({totalItems} employees). Each page has {rowsPerPage} employees.
+          </Typography>
+          <FormControl fullWidth>
+            <InputLabel>Pages to export</InputLabel>
+            <Select
+              value={exportPages}
+              label="Pages to export"
+              onChange={(e) => setExportPages(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            >
+              {[1, 2, 3, 5, 10, 20, 50].filter((n) => n <= totalPages || n === 1).map((n) => (
+                <MenuItem key={n} value={n}>
+                  {n} page{n !== 1 ? 's' : ''} ({Math.min(n * rowsPerPage, totalItems)} employees)
+                </MenuItem>
+              ))}
+              {totalPages > 1 && (
+                <MenuItem value="all">
+                  All {totalPages} pages ({totalItems} employees)
+                </MenuItem>
+              )}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExportDialogOpen(false)} disabled={exporting}>
+            Cancel
+          </Button>
+          <Button onClick={handleExportToExcel} variant="contained" disabled={exporting} startIcon={exporting ? <CircularProgress size={18} /> : <GetAppIcon />}>
+            {exporting ? 'Exporting...' : 'Export'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>

@@ -584,6 +584,24 @@ export const MODULES = {
           }
         ]
       },
+      {
+        name: 'Recovery',
+        path: '/finance/recovery',
+        subItems: [
+          {
+            name: 'Recovery Assignments',
+            path: '/finance/recovery/recovery-assignments'
+          },
+          {
+            name: 'Recovery Members',
+            path: '/finance/recovery/recovery-members'
+          },
+          {
+            name: 'Completed Tasks',
+            path: '/finance/recovery/completed-tasks'
+          }
+        ]
+      },
       { name: 'Financial Reports', path: '/finance/reports' }
     ]
   },
@@ -1046,6 +1064,10 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
       '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
       '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
+      '/finance/recovery': 'recovery',
+      '/finance/recovery/recovery-assignments': 'recovery_assignments',
+      '/finance/recovery/recovery-members': 'recovery_members',
+      '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module
