@@ -961,7 +961,7 @@ const TajResidents = () => {
         await payBill(selectedResident._id, {
           amount: allocation.allocatedAmount,
           referenceType: allocation.invoiceType,
-          referenceId: invoice._id,
+          referenceId: String(invoice._id),
           referenceNumber: invoice.invoiceNumber || '',
           description: `${allocation.invoiceType} - ${getInvoiceDescription(invoice)}${depositInfo}`,
           paymentDate: depositPaymentForm.receiptDate,
@@ -1232,7 +1232,7 @@ const TajResidents = () => {
             return payBill(selectedResident._id, {
               amount: allocation.allocatedAmount,
               referenceType: allocation.invoiceType,
-              referenceId: invoice._id,
+              referenceId: String(invoice._id),
               referenceNumber: invoice.invoiceNumber || '',
               description: `${allocation.invoiceType} - ${getInvoiceDescription(invoice)}`,
               paymentDate: payForm.paymentDate,

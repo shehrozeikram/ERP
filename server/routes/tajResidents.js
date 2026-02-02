@@ -1326,6 +1326,15 @@ router.post(
     if (amountNum <= 0) {
       return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
     }
+
+    // Normalize referenceId - handle string, ObjectId, or MongoDB Extended JSON { $oid: "..." }
+    let refIdStr = referenceId;
+    if (referenceId && typeof referenceId === 'object' && referenceId.$oid) {
+      refIdStr = referenceId.$oid;
+    } else if (referenceId && typeof referenceId !== 'string') {
+      refIdStr = referenceId.toString ? referenceId.toString() : String(referenceId);
+    }
+    refIdStr = (refIdStr && typeof refIdStr === 'string') ? refIdStr.trim() : '';
     
     // Validate bank is provided for bank-related payment methods
     // Exception: If depositUsages are provided, bank is not required (deposit already has bank info)
@@ -1374,11 +1383,8 @@ router.post(
     if (referenceType) {
       transactionData.referenceType = referenceType;
     }
-    if (referenceId && referenceId.trim() !== '') {
-      // Validate it's a valid ObjectId
-      if (require('mongoose').Types.ObjectId.isValid(referenceId)) {
-        transactionData.referenceId = referenceId;
-      }
+    if (refIdStr && require('mongoose').Types.ObjectId.isValid(refIdStr)) {
+      transactionData.referenceId = refIdStr;
     }
     if (referenceNumber && referenceNumber.trim() !== '') {
       transactionData.referenceNumber = referenceNumber.trim();
@@ -1406,9 +1412,9 @@ router.post(
     await transaction.save();
 
     // If referenceId is provided and it's a valid ObjectId, try to add payment to PropertyInvoice
-    if (referenceId && require('mongoose').Types.ObjectId.isValid(referenceId)) {
+    if (refIdStr && require('mongoose').Types.ObjectId.isValid(refIdStr)) {
       try {
-        const invoice = await PropertyInvoice.findById(referenceId);
+        const invoice = await PropertyInvoice.findById(refIdStr);
         if (invoice) {
           // Check if due date has ended (payment date after due date) and invoice is unpaid/partially paid
           const paymentDateObj = paymentDate ? new Date(paymentDate) : new Date();
@@ -1419,7 +1425,8 @@ router.post(
           if (dueStart) dueStart.setHours(0, 0, 0, 0);
           const isOverdue = dueStart && paymentStart > dueStart;
           const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid';
-          
+          let paymentNotesWithSurcharge;
+
           // Calculate late payment surcharge if overdue and unpaid
           let latePaymentSurcharge = 0;
           if (isOverdue && isUnpaid) {
@@ -1445,18 +1452,25 @@ router.post(
             // Store surcharge in payment notes if applicable
             if (latePaymentSurcharge > 0) {
               const existingNotes = description || `Payment from deposit - ${transaction._id}`;
-              description = `${existingNotes} (Includes late payment surcharge: ${latePaymentSurcharge.toFixed(2)})`;
+              paymentNotesWithSurcharge = `${existingNotes} (Includes late payment surcharge: ${latePaymentSurcharge.toFixed(2)})`;
             }
           }
-          
-          // Add payment to invoice
+          const finalPaymentNotes = (typeof paymentNotesWithSurcharge !== 'undefined')
+            ? paymentNotesWithSurcharge
+            : (description || `Payment from deposit - ${transaction._id}`);
+
+          // Add payment to invoice - PropertyInvoice only allows Cash/Bank Transfer/Cheque/Online
+          const allowedMethods = ['Cash', 'Bank Transfer', 'Cheque', 'Online'];
+          const invoicePaymentMethod = (paymentMethod && allowedMethods.includes(paymentMethod))
+            ? paymentMethod
+            : 'Bank Transfer';
           const paymentEntry = {
             amount: amountNum,
             paymentDate: paymentDateObj,
-            paymentMethod: paymentMethod || 'Bank Transfer',
+            paymentMethod: invoicePaymentMethod,
             bankName: bankName || '',
             reference: bankReference || referenceNumber || '',
-            notes: description || `Payment from deposit - ${transaction._id}`,
+            notes: finalPaymentNotes,
             recordedBy: req.user.id,
             recordedAt: new Date(),
             latePaymentSurcharge: latePaymentSurcharge > 0 ? latePaymentSurcharge : undefined
@@ -1464,10 +1478,23 @@ router.post(
           
           invoice.payments.push(paymentEntry);
           await invoice.save(); // This will trigger pre-save hook to update totalPaid, balance, and status
+
+          // Invalidate invoice caches so Resident Details and Invoices pages show updated status
+          clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
+          if (invoice.property) {
+            clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${invoice.property}`);
+          }
         }
       } catch (invoiceError) {
-        // Log error but don't fail the payment transaction
-        console.error('Error updating PropertyInvoice with payment:', invoiceError);
+        // Log full error to help debug invoice update failures
+        console.error('Error updating PropertyInvoice with payment:', {
+          referenceId: refIdStr,
+          amount: amountNum,
+          error: invoiceError.message,
+          stack: invoiceError.stack
+        });
+        // Don't throw - transaction was already created; failing would leave inconsistent state
+        // Invoice can be manually reconciled if needed
       }
     }
 

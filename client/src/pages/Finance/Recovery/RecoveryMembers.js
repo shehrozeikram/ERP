@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -23,7 +23,10 @@ import {
   Snackbar,
   Chip,
   InputAdornment,
-  CircularProgress
+  CircularProgress,
+  Autocomplete,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -34,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
+import api from '../../../services/api';
 import {
   fetchRecoveryMembers,
   createRecoveryMember,
@@ -41,16 +45,23 @@ import {
   deleteRecoveryMember
 } from '../../../services/recoveryMemberService';
 
-const validationSchema = Yup.object({
-  name: Yup.string().required('Member name is required').trim(),
-  contactNumber: Yup.string().trim(),
-  email: Yup.string().email('Invalid email format').trim(),
-  notes: Yup.string().trim()
+const formValidationSchema = Yup.object({
+  employee: Yup.mixed().nullable(),
+  notes: Yup.string().trim().max(500, 'Notes cannot exceed 500 characters'),
+  isActive: Yup.boolean()
 });
+
+const getEmployeeDisplayName = (emp) => {
+  if (!emp) return '-';
+  const name = [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim();
+  return name || emp.employeeId || '-';
+};
 
 const RecoveryMembers = () => {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
@@ -77,30 +88,68 @@ const RecoveryMembers = () => {
     }
   }, [search]);
 
+  const loadEmployees = useCallback(async () => {
+    try {
+      setEmployeesLoading(true);
+      const response = await api.get('/finance/recovery-members/eligible-employees');
+      const data = response.data?.data || [];
+      setAllEmployees(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error fetching eligible employees',
+        severity: 'error'
+      });
+      setAllEmployees([]);
+    } finally {
+      setEmployeesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadMembers();
   }, [loadMembers]);
 
+  const memberEmployeeIds = useMemo(
+    () => new Set(members.map((m) => (m.employee?._id || m.employee)?.toString()).filter(Boolean)),
+    [members]
+  );
+  const availableEmployees = useMemo(
+    () => allEmployees.filter((emp) => !memberEmployeeIds.has(emp._id?.toString())),
+    [allEmployees, memberEmployeeIds]
+  );
+
   const formik = useFormik({
     initialValues: {
-      name: '',
-      contactNumber: '',
-      email: '',
-      notes: ''
+      employee: null,
+      notes: '',
+      isActive: true
     },
-    validationSchema,
+    validationSchema: formValidationSchema,
     onSubmit: async (values) => {
+      if (!isEditing && !values.employee) {
+        formik.setFieldError('employee', 'Please select an employee');
+        return;
+      }
       try {
         setLoading(true);
         if (isEditing && selectedMember) {
-          await updateRecoveryMember(selectedMember._id, values);
+          await updateRecoveryMember(selectedMember._id, {
+            notes: values.notes?.trim() || '',
+            isActive: values.isActive
+          });
           setSnackbar({
             open: true,
             message: 'Recovery member updated successfully',
             severity: 'success'
           });
         } else {
-          await createRecoveryMember(values);
+          const employeeId = values.employee?._id || values.employee;
+          await createRecoveryMember({
+            employee: employeeId,
+            notes: values.notes?.trim() || ''
+          });
           setSnackbar({
             open: true,
             message: 'Recovery member added successfully',
@@ -126,15 +175,15 @@ const RecoveryMembers = () => {
       setSelectedMember(member);
       setIsEditing(true);
       formik.setValues({
-        name: member.name || '',
-        contactNumber: member.contactNumber || '',
-        email: member.email || '',
-        notes: member.notes || ''
+        employee: member.employee || null,
+        notes: member.notes || '',
+        isActive: member.isActive !== false
       });
     } else {
       setSelectedMember(null);
       setIsEditing(false);
-      formik.resetForm();
+      formik.setValues({ employee: null, notes: '', isActive: true });
+      loadEmployees();
     }
     setDialogOpen(true);
   };
@@ -143,7 +192,7 @@ const RecoveryMembers = () => {
     setDialogOpen(false);
     setSelectedMember(null);
     setIsEditing(false);
-    formik.resetForm();
+    formik.resetForm({ values: { employee: null, notes: '', isActive: true } });
   };
 
   const handleDeleteClick = (member) => {
@@ -203,7 +252,7 @@ const RecoveryMembers = () => {
             <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                placeholder="Search by name, contact, or email"
+                placeholder="Search by name, employee ID, or email"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 size="small"
@@ -234,8 +283,9 @@ const RecoveryMembers = () => {
                 <TableHead>
                   <TableRow>
                     <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Contact Number</strong></TableCell>
+                    <TableCell><strong>Employee ID</strong></TableCell>
                     <TableCell><strong>Email</strong></TableCell>
+                    <TableCell><strong>Phone</strong></TableCell>
                     <TableCell><strong>Notes</strong></TableCell>
                     <TableCell><strong>Status</strong></TableCell>
                     <TableCell align="right"><strong>Actions</strong></TableCell>
@@ -244,9 +294,10 @@ const RecoveryMembers = () => {
                 <TableBody>
                   {members.map((member) => (
                     <TableRow key={member._id} hover>
-                      <TableCell>{member.name || '-'}</TableCell>
-                      <TableCell>{member.contactNumber || '-'}</TableCell>
-                      <TableCell>{member.email || '-'}</TableCell>
+                      <TableCell>{getEmployeeDisplayName(member.employee) || '-'}</TableCell>
+                      <TableCell>{member.employee?.employeeId ?? '-'}</TableCell>
+                      <TableCell>{member.employee?.email ?? '-'}</TableCell>
+                      <TableCell>{member.employee?.phone ?? '-'}</TableCell>
                       <TableCell sx={{ maxWidth: 200 }}>{member.notes || '-'}</TableCell>
                       <TableCell>
                         <Chip
@@ -299,41 +350,41 @@ const RecoveryMembers = () => {
         <form onSubmit={formik.handleSubmit}>
           <DialogContent>
             <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  name="name"
-                  label="Name"
-                  value={formik.values.name}
-                  onChange={formik.handleChange}
-                  onBlur={formik.handleBlur}
-                  error={formik.touched.name && Boolean(formik.errors.name)}
-                  helperText={formik.touched.name && formik.errors.name}
-                  required
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="contactNumber"
-                  label="Contact Number"
-                  value={formik.values.contactNumber}
-                  onChange={formik.handleChange}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  name="email"
-                  label="Email"
-                  type="email"
-                  value={formik.values.email}
-                  onChange={formik.handleChange}
-                  onBlur={formik.handleBlur}
-                  error={formik.touched.email && Boolean(formik.errors.email)}
-                  helperText={formik.touched.email && formik.errors.email}
-                />
-              </Grid>
+              {isEditing ? (
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Employee"
+                    value={getEmployeeDisplayName(selectedMember?.employee)}
+                    InputProps={{ readOnly: true }}
+                    size="small"
+                  />
+                </Grid>
+              ) : (
+                <Grid item xs={12}>
+                  <Autocomplete
+                    options={availableEmployees}
+                    getOptionLabel={(option) =>
+                      typeof option === 'object' && option !== null
+                        ? `${getEmployeeDisplayName(option)} ${option.employeeId ? `(${option.employeeId})` : ''}`.trim()
+                        : ''
+                    }
+                    value={formik.values.employee}
+                    onChange={(_, value) => formik.setFieldValue('employee', value)}
+                    onBlur={() => formik.setFieldTouched('employee', true)}
+                    loading={employeesLoading}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Select Employee"
+                        required
+                        error={formik.touched.employee && Boolean(formik.errors.employee)}
+                        helperText={formik.touched.employee && formik.errors.employee ? formik.errors.employee : 'Only Finance department employees are shown'}
+                      />
+                    )}
+                  />
+                </Grid>
+              )}
               <Grid item xs={12}>
                 <TextField
                   fullWidth
@@ -343,13 +394,34 @@ const RecoveryMembers = () => {
                   rows={2}
                   value={formik.values.notes}
                   onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  error={formik.touched.notes && Boolean(formik.errors.notes)}
+                  helperText={formik.touched.notes && formik.errors.notes}
                 />
               </Grid>
+              {isEditing && (
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formik.values.isActive}
+                        onChange={(e) => formik.setFieldValue('isActive', e.target.checked)}
+                        color="primary"
+                      />
+                    }
+                    label="Active"
+                  />
+                </Grid>
+              )}
             </Grid>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
             <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={loading || !formik.values.name?.trim()}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={loading || (!isEditing && !formik.values.employee)}
+            >
               {loading ? 'Saving...' : isEditing ? 'Update' : 'Add Member'}
             </Button>
           </DialogActions>
@@ -361,7 +433,7 @@ const RecoveryMembers = () => {
         <DialogTitle>Remove Recovery Member</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to remove &quot;{selectedMember?.name}&quot;? This will mark the member as inactive.
+            Are you sure you want to remove &quot;{getEmployeeDisplayName(selectedMember?.employee)}&quot;? This will mark the member as inactive.
           </Typography>
         </DialogContent>
         <DialogActions>

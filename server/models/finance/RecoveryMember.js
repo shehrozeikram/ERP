@@ -2,22 +2,11 @@ const mongoose = require('mongoose');
 
 const recoveryMemberSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: [true, 'Member name is required'],
-      trim: true,
-      maxlength: [100, 'Name cannot exceed 100 characters']
-    },
-    contactNumber: {
-      type: String,
-      trim: true,
-      maxlength: [20, 'Contact number cannot exceed 20 characters']
-    },
-    email: {
-      type: String,
-      trim: true,
-      lowercase: true,
-      maxlength: [100, 'Email cannot exceed 100 characters']
+    employee: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Employee',
+      required: [true, 'Employee is required'],
+      unique: true
     },
     notes: {
       type: String,
@@ -40,7 +29,7 @@ const recoveryMemberSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-recoveryMemberSchema.index({ name: 1 });
+recoveryMemberSchema.index({ employee: 1 });
 recoveryMemberSchema.index({ isActive: 1 });
 
 module.exports = mongoose.model('RecoveryMember', recoveryMemberSchema);
