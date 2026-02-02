@@ -420,13 +420,14 @@ router.post('/employees', [
   body('religion').isIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Buddhism', 'Judaism', 'Other', 'None']).withMessage('Valid religion is required'),
   body('maritalStatus').isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
   body('qualification').notEmpty().withMessage('Qualification is required'),
-  body('bankName').notEmpty().withMessage('Bank name is required'),
-  body('bankAccountNumber').notEmpty().withMessage('Bank account number is required'),
+  body('bankName').optional({ nullable: true, checkFalsy: true }),
+  body('bankAccountNumber').optional({ nullable: true, checkFalsy: true }),
+  body('foreignBankAccount').optional({ nullable: true, checkFalsy: true }),
   body('spouseName').optional().trim(),
   body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').isNumeric().withMessage('Probation period must be a number'),
   body('hireDate').notEmpty().withMessage('Hire date is required'),
-  body('salary.gross').isNumeric().withMessage('Valid gross salary is required')
+  body('salary.gross').optional({ nullable: true, checkFalsy: true }).isFloat({ min: 0 }).withMessage('Gross salary must be a valid positive number')
 ], asyncHandler(async (req, res) => {
   console.log('📥 POST /hr/employees - Request received');
   console.log('📋 Request body:', req.body);
@@ -445,17 +446,25 @@ router.post('/employees', [
 
   try {
     // Clean up the request body
+    const grossVal = req.body.salary?.gross;
+    const hasValidGross = grossVal !== undefined && grossVal !== null && grossVal !== '' && !isNaN(parseFloat(grossVal));
+    // Normalize email: treat '', null, 'null', 'undefined' as empty
+    const rawEmail = req.body.email;
+    const emailStr = (typeof rawEmail === 'string' ? rawEmail.trim() : '') || '';
+    const hasValidEmail = emailStr && emailStr !== 'null' && emailStr.toLowerCase() !== 'undefined';
     const employeeData = {
       ...req.body,
-      // Convert empty email strings to null to avoid unique index conflicts
-      email: req.body.email && req.body.email.trim() !== '' ? req.body.email.trim() : null,
-      salary: {
-        gross: parseFloat(req.body.salary?.gross || 0)
-      },
+      email: hasValidEmail ? emailStr : undefined,
+      salary: hasValidGross ? { gross: parseFloat(grossVal) } : {},
       dateOfBirth: new Date(req.body.dateOfBirth),
       hireDate: new Date(req.body.hireDate),
       appointmentDate: new Date(req.body.appointmentDate)
     };
+    // Convert empty bank fields to undefined
+    if (employeeData.bankName === '' || employeeData.bankName === null) employeeData.bankName = undefined;
+    if (employeeData.bankAccountNumber === '' || employeeData.bankAccountNumber === null) employeeData.bankAccountNumber = undefined;
+    if (employeeData.foreignBankAccount === '' || employeeData.foreignBankAccount === null) employeeData.foreignBankAccount = undefined;
+    if (!hasValidEmail) delete employeeData.email;
     
     // Process academicBackground array - convert date strings to Date objects
     if (employeeData.academicBackground && Array.isArray(employeeData.academicBackground)) {
@@ -889,8 +898,9 @@ router.put('/employees/:id', [
   body('religion').optional().isIn(['Islam', 'Christianity', 'Hinduism', 'Sikhism', 'Buddhism', 'Judaism', 'Other', 'None']).withMessage('Valid religion is required'),
   body('maritalStatus').optional().isIn(['Single', 'Married', 'Divorced', 'Widowed']).withMessage('Valid marital status is required'),
   body('qualification').optional().notEmpty().withMessage('Qualification is required'),
-  body('bankName').optional().notEmpty().withMessage('Bank name is required'),
-  body('bankAccountNumber').optional().notEmpty().withMessage('Bank account number is required'),
+  body('bankName').optional({ nullable: true, checkFalsy: true }),
+  body('bankAccountNumber').optional({ nullable: true, checkFalsy: true }),
+  body('foreignBankAccount').optional({ nullable: true, checkFalsy: true }),
   body('spouseName').optional().trim(),
   body('appointmentDate').optional().notEmpty().withMessage('Appointment date is required'),
   body('probationPeriodMonths').optional().isNumeric().withMessage('Probation period must be a number'),
@@ -945,9 +955,14 @@ router.put('/employees/:id', [
     // Clean up the request body
     const employeeData = { ...req.body };
     
-    // Convert empty email strings to null to avoid unique index conflicts
+    // Unset email when empty - sparse unique index allows multiple docs without email, but multiple nulls conflict
     if (employeeData.email !== undefined) {
-      employeeData.email = employeeData.email && employeeData.email.trim() !== '' ? employeeData.email.trim() : null;
+      if (employeeData.email && employeeData.email.trim() !== '') {
+        employeeData.email = employeeData.email.trim();
+      } else {
+        delete employeeData.email;
+        employeeData.$unset = { ...(employeeData.$unset || {}), email: 1 };
+      }
     }
     
     // Handle salary field
@@ -976,7 +991,8 @@ router.put('/employees/:id', [
     const objectIdFields = [
       'user', 'city', 'state', 'country', 'department', 'position', 'manager',
       'placementCompany', 'placementSector', 'placementProject', 'placementDepartment',
-      'placementSection', 'placementDesignation', 'placementLocation', 'oldDesignation'
+      'placementSection', 'placementDesignation', 'placementLocation', 'oldDesignation',
+      'bankName'
     ];
     
     objectIdFields.forEach(field => {

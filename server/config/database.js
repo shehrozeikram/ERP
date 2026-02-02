@@ -29,6 +29,14 @@ const connectDB = async () => {
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
 
+    // Sync Employee indexes (drops old sparse email index, creates new partial index for optional email)
+    try {
+      const Employee = require('../models/hr/Employee');
+      await Employee.syncIndexes();
+    } catch (syncErr) {
+      console.warn('⚠️ Employee index sync skipped:', syncErr.message);
+    }
+
     // Handle connection events
     mongoose.connection.on('error', (err) => {
       console.error('❌ MongoDB connection error:', err);

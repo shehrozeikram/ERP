@@ -376,15 +376,11 @@ const employeeSchema = new mongoose.Schema({
   bankName: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Bank',
-    required: function() {
-      return this.employmentStatus !== 'Draft';
-    }
+    required: false
   },
   bankAccountNumber: {
     type: String,
-    required: function() {
-      return this.employmentStatus !== 'Draft';
-    },
+    required: false,
     trim: true
   },
   foreignBankAccount: {
@@ -1235,7 +1231,11 @@ const employeeSchema = new mongoose.Schema({
 
 // Indexes for better query performance
 employeeSchema.index({ employeeId: 1 });
-employeeSchema.index({ email: 1 }, { unique: true, sparse: true }); // Sparse unique index - only indexes non-empty emails
+// Partial index: only index non-empty emails. Allows multiple docs with null/empty email.
+employeeSchema.index(
+  { email: 1 },
+  { unique: true, partialFilterExpression: { email: { $exists: true, $gt: '' } } }
+);
 employeeSchema.index({ department: 1 });
 employeeSchema.index({ position: 1 });
 employeeSchema.index({ employmentStatus: 1 });
@@ -1340,9 +1340,11 @@ employeeSchema.virtual('otherAllowance').get(function() {
 
 // Pre-save middleware to auto-generate Employee ID, calculate probation dates, salary components, and update user reference
 employeeSchema.pre('save', async function(next) {
-  // Convert empty email strings to null to avoid unique index conflicts
-  if (this.email === '' || this.email === undefined) {
-    this.email = null;
+  // Unset email when empty - partial index allows multiple docs with null/empty
+  const emailVal = this.email;
+  if (emailVal === '' || emailVal === null || emailVal === undefined ||
+      (typeof emailVal === 'string' && (emailVal.trim() === '' || emailVal === 'null' || emailVal.toLowerCase() === 'undefined'))) {
+    this.email = undefined;
   }
   
   // Auto-generate Employee ID if not provided

@@ -181,9 +181,9 @@ const EmployeeForm = () => {
     maritalStatus: Yup.string().required('Marital status is required'),
     employeeId: Yup.string(),
     qualification: Yup.string().required('Qualification is required'),
-    bankName: Yup.string().required('Bank name is required'),
-    bankAccountNumber: Yup.string().required('Bank account number is required'),
-    foreignBankAccount: Yup.string(),
+    bankName: Yup.string().optional(),
+    bankAccountNumber: Yup.string().optional(),
+    foreignBankAccount: Yup.string().optional(),
     spouseName: Yup.string().optional(),
     appointmentDate: Yup.date().required('Appointment date is required'),
     probationPeriodMonths: Yup.number()
