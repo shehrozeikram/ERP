@@ -884,6 +884,7 @@ router.get('/employees/:id',
 // @access  Private (HR and Admin)
 router.put('/employees/:id', [
   authorize('super_admin', 'admin', 'hr_manager'),
+  body('employeeId').optional().trim().notEmpty().withMessage('Employee ID cannot be empty when provided'),
   body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
   body('lastName').optional().trim(),
   body('email').optional({ nullable: true, checkFalsy: true }).custom((value) => {

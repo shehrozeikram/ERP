@@ -2287,15 +2287,10 @@ const EmployeeForm = () => {
                 onChange={formik.handleChange}
                 onBlur={formik.handleBlur}
                 error={formik.touched.employeeId && Boolean(formik.errors.employeeId)}
-                InputProps={{
-                  readOnly: (id && id !== 'add'),
-                }}
                 helperText={
-                  (id && id !== 'add') 
-                    ? "Employee ID (cannot be changed)" 
-                    : formik.touched.employeeId && formik.errors.employeeId
-                      ? formik.errors.employeeId
-                      : "Enter Employee ID or leave blank for auto-generation"
+                  formik.touched.employeeId && formik.errors.employeeId
+                    ? formik.errors.employeeId
+                    : "Enter Employee ID or leave blank for auto-generation"
                 }
               />
             </Grid>
