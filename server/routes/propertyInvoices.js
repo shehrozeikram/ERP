@@ -54,12 +54,15 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuf
 const calculateOverdueArrears = async (propertyId, currentDate = new Date(), chargeTypesFilter = null) => {
   if (!propertyId) return 0;
   try {
-    // Overdue only after due date ends: compare date-only (start of today)
+    // Overdue only after due date + 4-day grace period ends: compare date-only
+    const GRACE_PERIOD_DAYS = 4;
     const startOfToday = new Date(currentDate);
     startOfToday.setHours(0, 0, 0, 0);
+    const graceEndDate = new Date(startOfToday);
+    graceEndDate.setDate(graceEndDate.getDate() - GRACE_PERIOD_DAYS);
     const overdueInvoices = await PropertyInvoice.find({
       property: propertyId,
-      dueDate: { $lt: startOfToday },
+      dueDate: { $lt: graceEndDate },
       balance: { $gt: 0 },
       paymentStatus: { $in: ['unpaid', 'partial_paid'] },
       status: { $ne: 'Cancelled' }

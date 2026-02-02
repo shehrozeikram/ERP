@@ -1423,14 +1423,17 @@ router.post(
       try {
         const invoice = await PropertyInvoice.findById(refIdStr);
         if (invoice) {
-          // Check if due date has ended (payment date after due date) and invoice is unpaid/partially paid
+          // Check if due date + 4-day grace period has ended (payment date after due date + grace) and invoice is unpaid/partially paid
+          const GRACE_PERIOD_DAYS = 4;
           const paymentDateObj = paymentDate ? new Date(paymentDate) : new Date();
           const dueDateObj = invoice.dueDate ? new Date(invoice.dueDate) : null;
           const paymentStart = new Date(paymentDateObj);
           paymentStart.setHours(0, 0, 0, 0);
           const dueStart = dueDateObj ? new Date(dueDateObj) : null;
           if (dueStart) dueStart.setHours(0, 0, 0, 0);
-          const isOverdue = dueStart && paymentStart > dueStart;
+          const dueWithGrace = dueStart ? new Date(dueStart) : null;
+          if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+          const isOverdue = dueWithGrace && paymentStart > dueWithGrace;
           const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid';
           let paymentNotesWithSurcharge;
 

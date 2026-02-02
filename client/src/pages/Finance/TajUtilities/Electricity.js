@@ -1524,11 +1524,13 @@ const Electricity = () => {
   const getAdjustedGrandTotal = (invoice) => {
     if (!invoice) return 0;
     
-    // Check if invoice is overdue (after due date ends) and unpaid/partially paid
+    // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
+    const GRACE_PERIOD_DAYS = 4;
     const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-    const isOverdue = dueStart && todayStart > dueStart;
+    const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+    const isOverdue = dueWithGrace && todayStart > dueWithGrace;
     const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
     
     // If not overdue or already paid, return original grandTotal

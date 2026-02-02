@@ -208,13 +208,16 @@ propertyInvoiceSchema.pre('save', function(next) {
   // Calculate total paid
   this.totalPaid = (this.payments || []).reduce((sum, payment) => sum + (payment.amount || 0), 0);
   
-  // Check if invoice is overdue (after due date ends) and unpaid/partially paid
+  // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
+  const GRACE_PERIOD_DAYS = 4;
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
   const dueDateObj = this.dueDate ? new Date(this.dueDate) : null;
   if (dueDateObj) dueDateObj.setHours(0, 0, 0, 0);
-  const isOverdue = dueDateObj && todayStart > dueDateObj;
+  const dueWithGrace = dueDateObj ? new Date(dueDateObj) : null;
+  if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid = this.paymentStatus === 'unpaid' || this.paymentStatus === 'partial_paid' || this.totalPaid < this.grandTotal;
   
   // Calculate late payment surcharge if overdue and unpaid

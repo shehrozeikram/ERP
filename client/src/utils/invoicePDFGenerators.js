@@ -164,11 +164,13 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDueDate;
   
-  // Calculate remaining balance: if overdue (after due date ends), use payableAfterDueDate, otherwise use payableWithinDueDate
+  // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDueDate, otherwise use payableWithinDueDate
+  const GRACE_PERIOD_DAYS = 4;
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const isOverdue = dueStart && todayStart > dueStart;
+  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
   const balance = (isOverdue && isUnpaid) ? (payableAfterDueDate - totalPaid) : (payableWithinDueDate - totalPaid);
 
@@ -430,11 +432,13 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDue;
   
-  // Calculate remaining balance: if overdue (after due date ends), use payableAfterDue, otherwise use payableWithinDue
+  // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
+  const GRACE_PERIOD_DAYS = 4;
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const isOverdue = dueStart && todayStart > dueStart;
+  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid =
     invoice.paymentStatus === 'unpaid' ||
     invoice.paymentStatus === 'partial_paid' ||
@@ -655,11 +659,13 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDue;
   
-  // Calculate remaining balance: if overdue (after due date ends), use payableAfterDue, otherwise use payableWithinDue
+  // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
+  const GRACE_PERIOD_DAYS = 4;
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const isOverdue = dueStart && todayStart > dueStart;
+  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid =
     invoice.paymentStatus === 'unpaid' ||
     invoice.paymentStatus === 'partial_paid' ||
@@ -893,11 +899,13 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
   // Always use "Payable Within Due Date" (no surcharge applied)
   const payableAmount = payableWithinDue;
   
-  // Calculate remaining balance: if overdue (after due date ends), use payableAfterDue, otherwise use payableWithinDue
+  // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
+  const GRACE_PERIOD_DAYS = 4;
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const isOverdue = dueStart && todayStart > dueStart;
+  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid =
     invoice.paymentStatus === 'unpaid' ||
     invoice.paymentStatus === 'partial_paid' ||
