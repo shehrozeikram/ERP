@@ -755,6 +755,29 @@ router.put('/purchase-orders/:id/send-to-store',
   })
 );
 
+// @route   GET /api/procurement/store/pending-indents
+// @desc    Get approved indents pending store stock check (items not yet verified/moved to procurement)
+// @access  Private (Procurement, Admin, Store Manager)
+router.get('/store/pending-indents',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const indents = await Indent.find({
+      status: 'Approved',
+      storeRoutingStatus: 'pending_store_check',
+      isActive: true
+    })
+      .populate('department', 'name code')
+      .populate('requestedBy', 'firstName lastName email')
+      .populate('approvedBy', 'firstName lastName email')
+      .sort({ approvedDate: -1, createdAt: -1 })
+      .lean();
+    res.json({
+      success: true,
+      data: indents
+    });
+  })
+);
+
 // @route   GET /api/procurement/store/dashboard
 // @desc    Get Purchase Orders with status "Sent to Store" grouped by month/year
 // @access  Private (Procurement, Admin, Store Manager)
@@ -2286,12 +2309,24 @@ router.get('/requisitions',
     if (status) filter.status = status;
     if (department) filter.department = department;
 
+    // Exclude indents pending store stock check (only show those moved to procurement)
+    filter.$and = [
+      {
+        $or: [
+          { storeRoutingStatus: { $ne: 'pending_store_check' } },
+          { storeRoutingStatus: null }
+        ]
+      }
+    ];
+
     if (search) {
-      filter.$or = [
-        { indentNumber: new RegExp(search, 'i') },
-        { title: new RegExp(search, 'i') },
-        { description: new RegExp(search, 'i') }
-      ];
+      filter.$and.push({
+        $or: [
+          { indentNumber: new RegExp(search, 'i') },
+          { title: new RegExp(search, 'i') },
+          { description: new RegExp(search, 'i') }
+        ]
+      });
     }
 
     const skip = (page - 1) * limit;

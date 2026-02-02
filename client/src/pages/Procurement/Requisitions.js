@@ -99,7 +99,8 @@ const Requisitions = () => {
         page: page + 1,
         limit: rowsPerPage,
         search: search || undefined,
-        status: statusFilter || 'Approved' // Default to showing only approved requisitions
+        status: statusFilter || 'Approved', // Default to showing only approved requisitions
+        forRequisition: 'true' // Only indents moved to procurement by store (exclude pending store check)
       };
       
       const response = await api.get('/indents', { params });

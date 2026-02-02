@@ -71,6 +71,12 @@ const indentService = {
   getNextERPRef: async () => {
     const response = await api.get('/indents/next-erp-ref');
     return response.data;
+  },
+
+  // Store: Move indent to Procurement Requisitions (items not in stock)
+  moveToProcurement: async (id) => {
+    const response = await api.post(`/indents/${id}/move-to-procurement`);
+    return response.data;
   }
 };
 

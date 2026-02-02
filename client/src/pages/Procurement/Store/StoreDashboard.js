@@ -42,9 +42,12 @@ import {
   CheckCircle as PassIcon,
   Cancel as RejectIcon,
   Print as PrintIcon,
-  LocalShipping as CreateGRNIcon
+  LocalShipping as CreateGRNIcon,
+  Assignment as IndentIcon,
+  Send as MoveToProcurementIcon
 } from '@mui/icons-material';
 import api from '../../../services/api';
+import indentService from '../../../services/indentService';
 import dayjs from 'dayjs';
 import PODocumentView from './PODocumentView';
 
@@ -59,9 +62,13 @@ const StoreDashboard = () => {
   const [expandedMonths, setExpandedMonths] = useState({});
   const [qaDialog, setQaDialog] = useState({ open: false, po: null, action: null, remarks: '' });
   const [qaSubmitting, setQaSubmitting] = useState(false);
+  const [pendingIndents, setPendingIndents] = useState([]);
+  const [movingIndentId, setMovingIndentId] = useState(null);
+  const [indentViewDialog, setIndentViewDialog] = useState({ open: false, indent: null });
 
   useEffect(() => {
     loadDashboardData();
+    loadPendingIndents();
   }, []);
 
   const loadDashboardData = async () => {
@@ -79,6 +86,40 @@ const StoreDashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadPendingIndents = async () => {
+    try {
+      const response = await api.get('/procurement/store/pending-indents');
+      if (response.data.success) {
+        setPendingIndents(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading pending indents:', err);
+    }
+  };
+
+  const handleMoveToProcurement = async (indent) => {
+    if (!indent?._id) return;
+    try {
+      setMovingIndentId(indent._id);
+      setError('');
+      await indentService.moveToProcurement(indent._id);
+      await loadPendingIndents();
+      setIndentViewDialog({ open: false, indent: null });
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to move indent to Procurement');
+    } finally {
+      setMovingIndentId(null);
+    }
+  };
+
+  const handleViewIndent = (indent) => {
+    setIndentViewDialog({ open: true, indent });
+  };
+
+  const handleCloseIndentView = () => {
+    setIndentViewDialog({ open: false, indent: null });
   };
 
   const formatPKR = (amount) => {
@@ -271,6 +312,66 @@ const StoreDashboard = () => {
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
           {error}
         </Alert>
+      )}
+
+      {/* Approved Indents - Stock Check (first destination after approval) */}
+      {pendingIndents.length > 0 && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IndentIcon color="primary" />
+            Approved Indents – Stock Check
+          </Typography>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            Check if items are available in store. If not, move to Procurement Requisitions.
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.08) }}>
+                  <TableCell><strong>Indent #</strong></TableCell>
+                  <TableCell><strong>Title</strong></TableCell>
+                  <TableCell><strong>Department</strong></TableCell>
+                  <TableCell><strong>Approved Date</strong></TableCell>
+                  <TableCell><strong>Items</strong></TableCell>
+                  <TableCell align="center"><strong>Actions</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pendingIndents.map((indent) => (
+                  <TableRow key={indent._id} hover>
+                    <TableCell>{indent.indentNumber || 'N/A'}</TableCell>
+                    <TableCell>{indent.title || 'N/A'}</TableCell>
+                    <TableCell>{indent.department?.name || 'N/A'}</TableCell>
+                    <TableCell>{formatDate(indent.approvedDate)}</TableCell>
+                    <TableCell>{indent.items?.length || 0} item(s)</TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="View indent details">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleViewIndent(indent)}
+                        >
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Items not in stock – Move to Procurement Requisitions">
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="primary"
+                          startIcon={<MoveToProcurementIcon />}
+                          onClick={() => handleMoveToProcurement(indent)}
+                          disabled={movingIndentId === indent._id}
+                        >
+                          {movingIndentId === indent._id ? 'Moving...' : 'Move to Procurement'}
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
       )}
 
       {/* Summary Cards */}
@@ -527,6 +628,124 @@ const StoreDashboard = () => {
         <DialogActions sx={{ '@media print': { display: 'none' } }}>
           <Button onClick={handleCloseView}>Close</Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Indent Detail View Dialog (Approved Indents – Stock Check) */}
+      <Dialog
+        open={indentViewDialog.open}
+        onClose={handleCloseIndentView}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { maxHeight: '90vh' } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+          <Typography variant="h6">Indent Details</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {indentViewDialog.indent && (
+              <Button
+                size="small"
+                variant="contained"
+                color="primary"
+                startIcon={<MoveToProcurementIcon />}
+                onClick={() => handleMoveToProcurement(indentViewDialog.indent)}
+                disabled={movingIndentId === indentViewDialog.indent?._id}
+              >
+                {movingIndentId === indentViewDialog.indent?._id ? 'Moving...' : 'Move to Procurement'}
+              </Button>
+            )}
+            <IconButton size="small" onClick={handleCloseIndentView}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {indentViewDialog.indent && (
+            <Box>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Indent #</Typography>
+                  <Typography variant="body1" fontWeight={600}>{indentViewDialog.indent.indentNumber || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">ERP Ref</Typography>
+                  <Typography variant="body1">{indentViewDialog.indent.erpRef || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="caption" color="textSecondary">Title</Typography>
+                  <Typography variant="body1">{indentViewDialog.indent.title || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Department</Typography>
+                  <Typography variant="body1">{indentViewDialog.indent.department?.name || 'N/A'}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Originator (Requested By)</Typography>
+                  <Typography variant="body1">
+                    {indentViewDialog.indent.requestedBy?.firstName} {indentViewDialog.indent.requestedBy?.lastName}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Requested Date</Typography>
+                  <Typography variant="body1">{formatDate(indentViewDialog.indent.requestedDate)}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Required Date</Typography>
+                  <Typography variant="body1">{formatDate(indentViewDialog.indent.requiredDate)}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Approved By</Typography>
+                  <Typography variant="body1">
+                    {indentViewDialog.indent.approvedBy?.firstName} {indentViewDialog.indent.approvedBy?.lastName}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="caption" color="textSecondary">Approved Date</Typography>
+                  <Typography variant="body1">{formatDate(indentViewDialog.indent.approvedDate)}</Typography>
+                </Grid>
+                {indentViewDialog.indent.justification && (
+                  <Grid item xs={12}>
+                    <Typography variant="caption" color="textSecondary">Justification</Typography>
+                    <Typography variant="body1">{indentViewDialog.indent.justification}</Typography>
+                  </Grid>
+                )}
+              </Grid>
+              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Items</Typography>
+              <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: alpha(theme.palette.primary.main, 0.08) }}>
+                      <TableCell><strong>#</strong></TableCell>
+                      <TableCell><strong>Item Name</strong></TableCell>
+                      <TableCell><strong>Description</strong></TableCell>
+                      <TableCell align="right"><strong>Qty</strong></TableCell>
+                      <TableCell><strong>Unit</strong></TableCell>
+                      <TableCell><strong>Purpose</strong></TableCell>
+                      <TableCell align="right"><strong>Est. Cost</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(indentViewDialog.indent.items || []).map((item, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell>{item.itemName || '-'}</TableCell>
+                        <TableCell>{item.description || '-'}</TableCell>
+                        <TableCell align="right">{item.quantity || 0}</TableCell>
+                        <TableCell>{item.unit || 'Piece'}</TableCell>
+                        <TableCell>{item.purpose || '-'}</TableCell>
+                        <TableCell align="right">{formatPKR(item.estimatedCost)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              {indentViewDialog.indent.totalEstimatedCost > 0 && (
+                <Typography variant="body2" sx={{ mt: 2 }} fontWeight={600}>
+                  Total Estimated Cost: {formatPKR(indentViewDialog.indent.totalEstimatedCost)}
+                </Typography>
+              )}
+            </Box>
+          )}
+        </DialogContent>
       </Dialog>
 
       {/* QA Check confirmation dialog */}

@@ -86,6 +86,20 @@ const indentSchema = new mongoose.Schema({
     enum: ['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'],
     default: 'Draft'
   },
+  // Store routing: when approved, indent goes to Store first. Store checks stock.
+  // pending_store_check = in Store Dashboard; moved_to_procurement = moved to Procurement Requisitions by store
+  storeRoutingStatus: {
+    type: String,
+    enum: [null, 'pending_store_check', 'moved_to_procurement'],
+    default: null
+  },
+  movedToProcurementBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  movedToProcurementAt: {
+    type: Date
+  },
   
   // Dates
   requestedDate: {
@@ -302,39 +316,35 @@ indentSchema.pre('save', async function(next) {
     }
   }
   
-  // Ensure indentNumber and erpRef are set (required for validation)
-  if (!this.indentNumber || this.indentNumber.trim() === '') {
-    return next(new Error('Indent Number is required'));
-  }
-  
-  if (!this.erpRef || this.erpRef.trim() === '') {
-    return next(new Error('ERP Ref is required'));
+  // Ensure indentNumber and erpRef are set (only for new documents; updates may have legacy empty values)
+  if (this.isNew) {
+    if (!this.indentNumber || this.indentNumber.trim() === '') {
+      return next(new Error('Indent Number is required'));
+    }
+    if (!this.erpRef || this.erpRef.trim() === '') {
+      return next(new Error('ERP Ref is required'));
+    }
   }
   
   next();
 });
 
-// Generate indent number (simple auto-increment: 1, 2, 3, etc.)
+// Generate indent number (last indent + 1 to ensure uniqueness)
 indentSchema.statics.generateIndentNumber = async function() {
-  // Find the highest numeric indent number
-  const lastIndent = await this.findOne({
-    indentNumber: { $exists: true, $ne: '' }
-  }).sort({ indentNumber: -1 });
-  
-  let sequence = 1;
-  if (lastIndent && lastIndent.indentNumber) {
-    // Extract numeric part (handle both formats: "21964" or "IND-2025-00001" or just "1")
-    const numericPart = lastIndent.indentNumber.replace(/[^0-9]/g, '');
+  // Find the true max numeric value - don't use string sort (e.g. "9" > "10" as strings)
+  const indents = await this.find({ indentNumber: { $exists: true, $ne: '' } })
+    .select('indentNumber')
+    .lean();
+
+  let maxNum = 0;
+  for (const ind of indents) {
+    const numericPart = (ind.indentNumber || '').replace(/[^0-9]/g, '');
     if (numericPart) {
-      const lastNum = parseInt(numericPart);
-      if (!isNaN(lastNum) && lastNum > 0) {
-        sequence = lastNum + 1;
-      }
+      const num = parseInt(numericPart, 10);
+      if (!isNaN(num) && num > maxNum) maxNum = num;
     }
   }
-  
-  // Return as simple number (e.g., "1", "2", "3")
-  return sequence.toString();
+  return (maxNum + 1).toString();
 };
 
 // Indexes

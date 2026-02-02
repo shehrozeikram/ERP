@@ -35,21 +35,33 @@ router.get('/',
     if (req.query.status) {
       filter.status = req.query.status;
     }
-
+    const andConditions = [];
+    // When used for Procurement Requisitions: exclude indents still pending store stock check
+    if (req.query.forRequisition === 'true' || req.query.forRequisition === '1') {
+      andConditions.push({
+        $or: [
+          { storeRoutingStatus: { $ne: 'pending_store_check' } },
+          { storeRoutingStatus: null }
+        ]
+      });
+    }
+    if (req.query.search) {
+      andConditions.push({
+        $or: [
+          { indentNumber: new RegExp(req.query.search, 'i') },
+          { title: new RegExp(req.query.search, 'i') },
+          { description: new RegExp(req.query.search, 'i') }
+        ]
+      });
+    }
+    if (andConditions.length > 0) {
+      filter.$and = andConditions;
+    }
     if (req.query.category) {
       filter.category = req.query.category;
     }
-
     if (req.query.department) {
       filter.department = req.query.department;
-    }
-
-    if (req.query.search) {
-      filter.$or = [
-        { indentNumber: new RegExp(req.query.search, 'i') },
-        { title: new RegExp(req.query.search, 'i') },
-        { description: new RegExp(req.query.search, 'i') }
-      ];
     }
 
     // Get indents
@@ -426,6 +438,7 @@ router.post('/:id/approve',
     indent.approvedBy = req.user.id;
     indent.approvedDate = new Date();
     indent.updatedBy = req.user.id;
+    indent.storeRoutingStatus = 'pending_store_check'; // Goes to Store first for stock check
     await indent.save();
 
     await indent.populate('department', 'name code');
@@ -435,6 +448,55 @@ router.post('/:id/approve',
     res.json({
       success: true,
       message: 'Indent approved successfully',
+      data: indent
+    });
+  })
+);
+
+// @route   POST /api/indents/:id/move-to-procurement
+// @desc    Store user moves approved indent to Procurement Requisitions (items not in stock)
+// @access  Private (Store/Procurement/Admin)
+router.post('/:id/move-to-procurement',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id);
+
+    if (!indent || !indent.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Indent not found'
+      });
+    }
+
+    if (indent.status !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only approved indents can be moved to procurement'
+      });
+    }
+
+    if (indent.storeRoutingStatus === 'moved_to_procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Indent already moved to Procurement Requisitions'
+      });
+    }
+
+    indent.storeRoutingStatus = 'moved_to_procurement';
+    indent.movedToProcurementBy = req.user.id;
+    indent.movedToProcurementAt = new Date();
+    indent.updatedBy = req.user.id;
+    await indent.save();
+
+    await indent.populate('department', 'name code');
+    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('approvedBy', 'firstName lastName email');
+    await indent.populate('movedToProcurementBy', 'firstName lastName');
+
+    res.json({
+      success: true,
+      message: 'Indent moved to Procurement Requisitions successfully',
       data: indent
     });
   })

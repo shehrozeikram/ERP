@@ -409,6 +409,10 @@ const IndentForm = () => {
               onChange={(e) => handleChange('originator', e.target.value)}
               required
               size="small"
+              InputProps={{
+                readOnly: !isEdit
+              }}
+              helperText={!isEdit ? 'Logged-in user (read-only)' : undefined}
             />
           </Grid>
         </Grid>
@@ -628,15 +632,17 @@ const IndentForm = () => {
           >
             {loading ? 'Saving...' : isEdit ? 'Update' : 'Save Draft'}
           </Button>
-          <Button
-            variant="contained"
-            color="success"
-            startIcon={<SendIcon />}
-            onClick={() => handleSubmit(true)}
-            disabled={loading}
-          >
-            {loading ? 'Submitting...' : 'Submit for Approval'}
-          </Button>
+          {isEdit && (
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<SendIcon />}
+              onClick={() => handleSubmit(true)}
+              disabled={loading}
+            >
+              {loading ? 'Submitting...' : 'Submit for Approval'}
+            </Button>
+          )}
         </Stack>
       </Paper>
 

@@ -884,18 +884,22 @@ router.delete(
     const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 
     // If deposit has been used in payments, delete those payments and reverse their effects
+    // Use findByIdAndUpdate to avoid triggering TajResident pre-save (which could overwrite residentId
+    // when resident was populated with limited fields like 'name balance')
     if (usedInPayments.length > 0) {
       for (const payment of usedInPayments) {
-        // Reverse the payment effects on resident balance
-        const paymentResident = payment.resident;
-        if (paymentResident) {
+        const paymentResidentId = payment.resident?._id || payment.resident;
+        if (paymentResidentId) {
           const paymentAmount = payment.amount || 0;
-          const currentBalance = paymentResident.balance || 0;
-          const newBalance = currentBalance + paymentAmount; // Add back the payment amount
-          
-          paymentResident.balance = newBalance;
-          paymentResident.updatedBy = req.user.id;
-          await paymentResident.save();
+          const paymentResident = await TajResident.findById(paymentResidentId).select('balance').lean();
+          if (paymentResident) {
+            const currentBalance = paymentResident.balance || 0;
+            const newBalance = currentBalance + paymentAmount;
+            await TajResident.findByIdAndUpdate(paymentResidentId, {
+              balance: newBalance,
+              updatedBy: req.user.id
+            });
+          }
         }
 
         // If payment is linked to an invoice, remove it from invoice and recalculate
@@ -964,10 +968,13 @@ router.delete(
     }
 
     // Recalculate resident balance (subtract the deposit amount)
+    // Use findByIdAndUpdate to avoid pre-save hook overwriting residentId
     const depositAmount = transaction.amount || 0;
-    resident.balance = Math.max(0, (resident.balance || 0) - depositAmount);
-    resident.updatedBy = req.user.id;
-    await resident.save();
+    const newBalance = Math.max(0, (resident.balance || 0) - depositAmount);
+    await TajResident.findByIdAndUpdate(resident._id, {
+      balance: newBalance,
+      updatedBy: req.user.id
+    });
 
     // Delete the deposit transaction
     await TajTransaction.findByIdAndDelete(transaction._id);
@@ -980,7 +987,7 @@ router.delete(
       success: true,
       message,
       data: {
-        newBalance: resident.balance,
+        newBalance,
         deletedPaymentsCount
       }
     });
