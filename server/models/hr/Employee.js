@@ -8,7 +8,6 @@ const employeeSchema = new mongoose.Schema({
   },
   employeeId: {
     type: String,
-    unique: true,
     trim: true,
     auto: true
   },
@@ -1230,7 +1229,11 @@ const employeeSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-employeeSchema.index({ employeeId: 1 });
+// Partial unique: employeeId must be unique only among non-deleted employees (allows reusing IDs from deleted employees)
+employeeSchema.index(
+  { employeeId: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+);
 // Partial index: only index non-empty emails. Allows multiple docs with null/empty email.
 employeeSchema.index(
   { email: 1 },

@@ -1126,11 +1126,38 @@ router.put('/employees/:id', [
       employmentHistoryData: updateData.employmentHistory
     });
     
-    const employee = await Employee.findOneAndUpdate(
-      { _id: req.params.id, isDeleted: false },
-      updateData,
-      { new: true, runValidators: true }
-    );
+    let employee;
+    try {
+      employee = await Employee.findOneAndUpdate(
+        { _id: req.params.id, isDeleted: false },
+        updateData,
+        { new: true, runValidators: true }
+      );
+    } catch (updateError) {
+      if (updateError.code === 11000) {
+        const field = Object.keys(updateError.keyPattern || {})[0];
+        const value = updateError.keyValue?.[field];
+        if (field === 'employeeId') {
+          return res.status(400).json({
+            success: false,
+            message: `Employee ID "${value}" is already in use by another employee. Please choose a different ID.`
+          });
+        }
+        if (field === 'email') {
+          return res.status(400).json({
+            success: false,
+            message: `An employee with email "${value}" already exists. Please use a different email address.`
+          });
+        }
+        if (field === 'idCard') {
+          return res.status(400).json({
+            success: false,
+            message: `An employee with ID Card "${value}" already exists. Please use a different ID Card number.`
+          });
+        }
+      }
+      throw updateError;
+    }
 
     if (!employee) {
       return res.status(404).json({

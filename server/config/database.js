@@ -29,7 +29,7 @@ const connectDB = async () => {
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
 
-    // Sync Employee indexes (drops old sparse email index, creates new partial index for optional email)
+    // Sync Employee indexes (email partial index, employeeId partial unique for non-deleted only)
     try {
       const Employee = require('../models/hr/Employee');
       await Employee.syncIndexes();
