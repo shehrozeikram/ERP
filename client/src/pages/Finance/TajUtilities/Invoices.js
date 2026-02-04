@@ -1052,34 +1052,40 @@ const Invoices = () => {
                               <TableCell>
                                 {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
                               </TableCell>
-                              <TableCell align="right">
-                                <Typography fontWeight={600}>
-                                  {formatCurrency(getAdjustedGrandTotal(invoice))}
-                                </Typography>
-                              </TableCell>
-                              <TableCell align="right">
-                                {formatCurrency(invoice.totalPaid || 0)}
-                              </TableCell>
-                              <TableCell align="right">
-                                <Typography
-                                  fontWeight={600}
-                                  color={(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0)) > 0 ? 'error.main' : 'success.main'}
-                                >
-                                  {formatCurrency(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0))}
-                                </Typography>
-                              </TableCell>
-                              <TableCell>
-                                {(() => {
-                                  const { color, label } = getPaymentStatusConfig(invoice.paymentStatus);
-                                  return (
-                                    <Chip
-                                      label={label}
-                                      color={color}
-                                      size="small"
-                                    />
-                                  );
-                                })()}
-                              </TableCell>
+                              {(() => {
+                                const adjustedGrandTotal = getAdjustedGrandTotal(invoice);
+                                const totalPaid = invoice.totalPaid || 0;
+                                const balance = adjustedGrandTotal - totalPaid;
+                                const displayStatus = balance <= 0 ? 'paid' : (invoice.paymentStatus || 'unpaid');
+                                const { color, label } = getPaymentStatusConfig(displayStatus);
+                                return (
+                                  <>
+                                    <TableCell align="right">
+                                      <Typography fontWeight={600}>
+                                        {formatCurrency(Math.max(0, balance))}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      {formatCurrency(totalPaid)}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      <Typography
+                                        fontWeight={600}
+                                        color={balance > 0 ? 'error.main' : 'success.main'}
+                                      >
+                                        {formatCurrency(balance)}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Chip
+                                        label={label}
+                                        color={color}
+                                        size="small"
+                                      />
+                                    </TableCell>
+                                  </>
+                                );
+                              })()}
                               <TableCell>
                                 <Typography variant="body2">
                                   {invoice.createdBy 
