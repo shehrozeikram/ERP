@@ -55,7 +55,7 @@ const calculateOverdueArrears = async (propertyId, currentDate = new Date(), cha
   if (!propertyId) return 0;
   try {
     // Overdue only after due date + 4-day grace period ends: compare date-only
-    const GRACE_PERIOD_DAYS = 4;
+    const GRACE_PERIOD_DAYS = 6;
     const startOfToday = new Date(currentDate);
     startOfToday.setHours(0, 0, 0, 0);
     const graceEndDate = new Date(startOfToday);

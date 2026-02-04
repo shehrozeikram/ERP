@@ -1424,7 +1424,7 @@ router.post(
         const invoice = await PropertyInvoice.findById(refIdStr);
         if (invoice) {
           // Check if due date + 4-day grace period has ended (payment date after due date + grace) and invoice is unpaid/partially paid
-          const GRACE_PERIOD_DAYS = 4;
+          const GRACE_PERIOD_DAYS = 6;
           const paymentDateObj = paymentDate ? new Date(paymentDate) : new Date();
           const dueDateObj = invoice.dueDate ? new Date(invoice.dueDate) : null;
           const paymentStart = new Date(paymentDateObj);

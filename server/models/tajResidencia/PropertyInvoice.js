@@ -209,7 +209,7 @@ propertyInvoiceSchema.pre('save', function(next) {
   this.totalPaid = (this.payments || []).reduce((sum, payment) => sum + (payment.amount || 0), 0);
   
   // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
-  const GRACE_PERIOD_DAYS = 4;
+  const GRACE_PERIOD_DAYS = 6;
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);

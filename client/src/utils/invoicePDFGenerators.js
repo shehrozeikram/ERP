@@ -165,7 +165,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const payableAmount = payableWithinDueDate;
   
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDueDate, otherwise use payableWithinDueDate
-  const GRACE_PERIOD_DAYS = 4;
+  const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
@@ -433,7 +433,7 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   const payableAmount = payableWithinDue;
   
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
-  const GRACE_PERIOD_DAYS = 4;
+  const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
@@ -660,7 +660,7 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
   const payableAmount = payableWithinDue;
   
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
-  const GRACE_PERIOD_DAYS = 4;
+  const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
@@ -900,7 +900,7 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
   const payableAmount = payableWithinDue;
   
   // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDue, otherwise use payableWithinDue
-  const GRACE_PERIOD_DAYS = 4;
+  const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);

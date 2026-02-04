@@ -10,38 +10,40 @@ const Department = require('../models/hr/Department');
 const router = express.Router();
 
 // @route   GET /api/finance/recovery-members/eligible-employees
-// @desc    Get employees from Finance department who are not already recovery members
+// @desc    Get employees from Recovery department who are not already recovery members
 // @access  Private (Finance and Admin)
 router.get(
   '/eligible-employees',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const financeDept = await Department.findOne({
-      name: { $regex: /^Finance$/i },
+    // Find Recovery-related departments (name contains "Recovery")
+    const recoveryDepts = await Department.find({
+      name: { $regex: /Recovery/i },
       isActive: true
-    }).lean();
-
-    if (!financeDept) {
-      return res.json({
-        success: true,
-        data: [],
-        message: 'Finance department not found'
-      });
-    }
+    })
+      .select('_id')
+      .lean();
+    const recoveryDeptIds = recoveryDepts.map((d) => d._id);
 
     const existingMemberIds = await RecoveryMember.find({ isActive: true })
       .select('employee')
       .lean()
       .then((members) => members.map((m) => m.employee));
 
-    const employees = await Employee.find({
+    const employeeQuery = {
       isDeleted: false,
-      $or: [
-        { department: financeDept._id },
-        { placementDepartment: financeDept._id }
-      ],
       _id: { $nin: existingMemberIds }
-    })
+    };
+
+    // If Recovery departments exist, filter by them; otherwise show all employees
+    if (recoveryDeptIds.length > 0) {
+      employeeQuery.$or = [
+        { department: { $in: recoveryDeptIds } },
+        { placementDepartment: { $in: recoveryDeptIds } }
+      ];
+    }
+
+    const employees = await Employee.find(employeeQuery)
       .select('firstName lastName employeeId email phone _id')
       .sort({ employeeId: 1 })
       .lean();

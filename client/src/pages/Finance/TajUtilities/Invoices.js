@@ -74,7 +74,7 @@ const getAdjustedGrandTotal = (invoice) => {
   if (!invoice) return 0;
   
   // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
-  const GRACE_PERIOD_DAYS = 4;
+  const GRACE_PERIOD_DAYS = 6;
   const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
