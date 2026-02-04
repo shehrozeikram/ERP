@@ -259,8 +259,12 @@ propertyInvoiceSchema.pre('save', function(next) {
       const difference = this.grandTotal - originalGrandTotal;
       const expectedSurcharge = Math.round((this.subtotal || 0) * 0.1);
       if (Math.abs(difference - expectedSurcharge) < 1) {
-        // It's a surcharge, remove it if invoice is no longer overdue
-        this.grandTotal = originalGrandTotal;
+        // Only strip surcharge if user hasn't paid it yet. If totalPaid >= grandTotal,
+        // the user has already paid the surcharge-inclusive amount - don't strip
+        // (otherwise we'd create wrong negative balance on Invoices page).
+        if (this.totalPaid < this.grandTotal) {
+          this.grandTotal = originalGrandTotal;
+        }
       }
     }
   }
