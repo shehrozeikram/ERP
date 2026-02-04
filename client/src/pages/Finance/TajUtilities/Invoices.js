@@ -69,43 +69,37 @@ const getPaymentStatusConfig = (status) => {
   }
 };
 
-// Helper function to calculate adjusted grandTotal for overdue unpaid invoices
+// Helper function to calculate adjusted grandTotal for Invoices page.
+// Surcharge applies ONLY after the 6-day grace period ends (today > dueDate + 6 days).
+// Within grace period: show payable within due date (base amount). After grace: show payable after due date (base + 10%).
 const getAdjustedGrandTotal = (invoice) => {
   if (!invoice) return 0;
-  
-  // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
-  const GRACE_PERIOD_DAYS = 6;
-  const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
-  
-  // If not overdue or already paid, return original grandTotal
-  if (!isOverdue || !isUnpaid) {
-    return invoice.grandTotal || 0;
-  }
-  
-  // Calculate late payment surcharge (10% of charges for the month)
+
   let chargesForMonth = invoice.subtotal || 0;
-  
-  // If invoice has charges array, sum up the amount (not arrears) for each charge
   if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
     const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-    if (totalChargesAmount > 0) {
-      chargesForMonth = totalChargesAmount;
-    }
+    if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
   }
-  
-  // Calculate late payment surcharge
+  const baseAmount = chargesForMonth + (invoice.totalArrears || 0);
+
+  const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
+  if (!invoiceDueDate) return invoice.grandTotal || baseAmount;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const dueStart = new Date(invoiceDueDate);
+  dueStart.setHours(0, 0, 0, 0);
+  const graceEndDate = new Date(dueStart);
+  graceEndDate.setDate(graceEndDate.getDate() + 6);
+  const isOverdue = todayStart > graceEndDate;
+  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
+
+  if (!isOverdue || !isUnpaid) {
+    return baseAmount;
+  }
+
   const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-  
-  // Calculate original grandTotal (without surcharge)
-  const originalGrandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0));
-  
-  // Return adjusted grandTotal (original + surcharge)
-  return originalGrandTotal + latePaymentSurcharge;
+  return baseAmount + latePaymentSurcharge;
 };
 
 const Invoices = () => {
