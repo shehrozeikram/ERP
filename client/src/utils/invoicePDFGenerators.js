@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import dayjs from 'dayjs';
 import { fetchPropertyById } from '../services/tajPropertiesService';
 
+
 // Helper function to load and add logo image to PDF
 const addLogoToPDF = async (pdf, x, y, width = 15, height = 15) => {
   try {
