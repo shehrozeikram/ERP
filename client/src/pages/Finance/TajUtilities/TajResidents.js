@@ -729,45 +729,36 @@ const TajResidents = () => {
   }, []);
 
   // Helper for "Pay Invoices from Deposit" dialog:
-  // Returns the effective invoice amount to show in the Amount column,
-  // including late payment surcharge (10%) when the invoice is overdue AND unpaid/partial.
-  // This matches the logic from the Invoices page (getAdjustedGrandTotal).
+  // Matches Invoices page logic: surcharge applies ONLY after 6-day grace period ends.
+  // Within grace: show payable within due date (base). After grace: show payable after due date (base + 10%).
   const getDepositInvoiceDisplayAmount = useCallback((inv) => {
     if (!inv) return 0;
-    
-    // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
-    const GRACE_PERIOD_DAYS = 6;
-    const invoiceDueDate = inv.dueDate ? new Date(inv.dueDate) : null;
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-    const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-    const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-    const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
-    
-    // If not overdue or already paid, return original grandTotal
-    if (!isOverdue || !isUnpaid) {
-      return inv.grandTotal || 0;
-    }
-    
-    // Calculate late payment surcharge (10% of charges for the month)
+
     let chargesForMonth = inv.subtotal || 0;
-    
-    // If invoice has charges array, sum up the amount (not arrears) for each charge
     if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
       const totalChargesAmount = inv.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-      if (totalChargesAmount > 0) {
-        chargesForMonth = totalChargesAmount;
-      }
+      if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
     }
-    
-    // Calculate late payment surcharge
+    const baseAmount = chargesForMonth + (inv.totalArrears || 0);
+
+    const invoiceDueDate = inv.dueDate ? new Date(inv.dueDate) : null;
+    if (!invoiceDueDate) return inv.grandTotal || baseAmount;
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const dueStart = new Date(invoiceDueDate);
+    dueStart.setHours(0, 0, 0, 0);
+    const graceEndDate = new Date(dueStart);
+    graceEndDate.setDate(graceEndDate.getDate() + 6);
+    const isOverdue = todayStart > graceEndDate;
+    const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
+
+    if (!isOverdue || !isUnpaid) {
+      return baseAmount;
+    }
+
     const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-    
-    // Calculate original grandTotal (without surcharge)
-    const originalGrandTotal = inv.grandTotal || (chargesForMonth + (inv.totalArrears || 0));
-    
-    // Return adjusted grandTotal (original + surcharge)
-    return originalGrandTotal + latePaymentSurcharge;
+    return baseAmount + latePaymentSurcharge;
   }, []);
 
   const handleDepositPaymentPropertyChange = useCallback(async (property) => {
