@@ -691,19 +691,19 @@ const RentalManagement = () => {
         await Promise.all(
           batch.map(async (property) => {
             try {
-              let invoices = propertyInvoices[property._id];
-              if (!invoices) {
-                try {
-                  const response = await fetchInvoicesForProperty(property._id);
-                  invoices = response.data?.data || [];
-                  setPropertyInvoices(prev => ({
-                    ...prev,
-                    [property._id]: invoices
-                  }));
-                } catch (err) {
-                  console.error(`Error loading invoices for property ${property._id}:`, err);
-                  invoices = [];
-                }
+              // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
+              // Cache can be stale (e.g. after delete script or if property was expanded before delete),
+              // causing Shop 1 & 2 (or others) to be incorrectly skipped in production.
+              let invoices = [];
+              try {
+                const response = await fetchInvoicesForProperty(property._id);
+                invoices = response.data?.data || [];
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: invoices
+                }));
+              } catch (err) {
+                console.error(`Error loading invoices for property ${property._id}:`, err);
               }
 
               const invoiceExists = invoices.some((invoice) => {

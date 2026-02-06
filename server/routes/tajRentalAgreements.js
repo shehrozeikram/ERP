@@ -332,6 +332,19 @@ router.put('/:id', withPermission('update'), (req, res, next) => {
 
     const updateData = { ...req.body };
 
+    // Auto-update status when dates change (findByIdAndUpdate bypasses pre-save)
+    const newEndDate = req.body.endDate ? new Date(req.body.endDate) : null;
+    if (newEndDate && agreement.status !== 'Terminated') {
+      const now = new Date();
+      const endDateOnly = new Date(newEndDate.getFullYear(), newEndDate.getMonth(), newEndDate.getDate());
+      const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (endDateOnly < nowOnly) {
+        updateData.status = 'Expired';
+      } else {
+        updateData.status = 'Active'; // Extending endDate to future → set Active
+      }
+    }
+
     if (req.file) {
       if (agreement.agreementImage) {
         const oldPath = path.join(__dirname, '..', agreement.agreementImage);
@@ -348,7 +361,8 @@ router.put('/:id', withPermission('update'), (req, res, next) => {
       { new: true, runValidators: true }
     ).populate('createdBy', 'firstName lastName');
 
-    clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST); // Invalidate cache on update
+    clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST);
+    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES); // Properties show agreement status
     res.json(updatedAgreement);
   } catch (error) {
     if (req.file) {

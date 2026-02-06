@@ -88,13 +88,17 @@ const tajRentalAgreementSchema = new mongoose.Schema({
 tajRentalAgreementSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
 
-  // Automatically set status to 'Expired' if endDate has passed and status is still 'Active'
-  if (this.endDate && this.status === 'Active') {
+  // Auto-update status based on endDate (only if not Terminated)
+  if (this.endDate && this.status !== 'Terminated') {
     const now = new Date();
     const endDate = new Date(this.endDate);
-    // Compare dates (ignore time)
-    if (endDate < now) {
+    const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (endDateOnly < nowOnly) {
       this.status = 'Expired';
+    } else {
+      // endDate is today or in future – set Active when extending an expired agreement
+      this.status = 'Active';
     }
   }
 
