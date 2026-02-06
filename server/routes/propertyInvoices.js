@@ -524,6 +524,7 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     let rentPayment = null;
     let rentChargeAdded = false; // Track if rent charge was calculated from agreement
     let rentCarryForwardArrears = 0; // Carry forward arrears from previous invoices
+    let createRentCharge = null; // Set when includeRent; used for agreement + requestCharges (must be in outer scope)
     const meterBillsData = []; // Store data for additional meters
     let useProvidedCAM = false;
     let usedProvidedElectricity = false;
@@ -982,8 +983,8 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
       
       let agreement = null;
       
-      // Helper function to create rent charge object
-      const createRentCharge = (amount, arrears) => {
+      // Helper function to create rent charge object (outer scope so requestCharges block can use it)
+      createRentCharge = (amount, arrears) => {
         const totalRentArrears = (arrears || 0) + rentCarryForwardArrears;
         const rentDescription = rentCarryForwardArrears > 0 
           ? 'Rental Charges (with Carry Forward Arrears)' 
@@ -1071,8 +1072,11 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
             const manualArrears = (charge.arrears !== undefined && charge.arrears !== null) 
               ? charge.arrears 
               : 0;
-            // Add carry-forward arrears to manually entered arrears
-            const totalArrears = manualArrears + rentCarryForwardArrears;
+            // When client sends arrears: it's totalArrears from getRentCalculation (already includes CF)
+            // Use as-is. When not sent: use backend carry forward only.
+            const totalArrears = (charge.arrears !== undefined && charge.arrears !== null)
+              ? (Number(charge.arrears) || 0)
+              : (0 + rentCarryForwardArrears);
             charges[existingRentIndex] = {
               ...existingCharge,
               amount: manualAmount || 0,
@@ -1083,10 +1087,18 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           return; // Skip adding new charge, we updated the existing one
         }
         
-        // For RENT charges, use createRentCharge to include carry-forward arrears
+        // For RENT charges: client sends totalArrears from getRentCalculation (already includes carry forward)
+        // Use charge.arrears as-is - do NOT add rentCarryForwardArrears again (would double-count)
         let chargeData;
         if (charge.type === 'RENT' && includeRent === true) {
-          chargeData = createRentCharge(charge.amount || 0, charge.arrears || 0);
+          const rentArrears = charge.arrears !== undefined && charge.arrears !== null ? Number(charge.arrears) || 0 : 0;
+          chargeData = {
+            type: 'RENT',
+            description: rentArrears > 0 ? 'Rental Charges (with Carry Forward Arrears)' : 'Rental Charges',
+            amount: charge.amount || 0,
+            arrears: rentArrears,
+            total: (charge.amount || 0) + rentArrears
+          };
         } else {
           chargeData = {
             type: charge.type,

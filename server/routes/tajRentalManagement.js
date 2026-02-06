@@ -198,10 +198,10 @@ const mapRentalPropertyResponse = (property) => {
     expectedRent: property.expectedRent || 0,
     securityDeposit: property.securityDeposit || 0,
     area: { value: areaValue, unit: areaUnit },
-    tenantName: property.tenantName || '',
-    tenantPhone: property.tenantPhone || '',
+    tenantName: property.tenantName || property.rentalAgreement?.tenantName || '',
+    tenantPhone: property.tenantPhone || property.rentalAgreement?.tenantContact || '',
     tenantEmail: property.tenantEmail || '',
-    tenantCNIC: property.tenantCNIC || '',
+    tenantCNIC: property.tenantCNIC || property.rentalAgreement?.tenantIdCard || '',
     rentalAgreement: property.rentalAgreement ? {
       _id: property.rentalAgreement._id,
       agreementNumber: property.rentalAgreement.agreementNumber,
@@ -242,9 +242,9 @@ const fetchPersonalRentProperties = async ({ status, search, sector, categoryTyp
     ];
   }
 
-  // OPTIMIZATION: Select only needed fields and use lean
+  // OPTIMIZATION: Select only needed fields and use lean (include tenant fields for Tenant column)
   const properties = await TajProperty.find(filters)
-    .select('_id srNo propertyType propertyName plotNumber rdaNumber street sector block floor unit categoryType address fullAddress project ownerName contactNumber status expectedRent securityDeposit areaValue areaUnit rentalAgreement resident createdAt updatedAt')
+    .select('_id srNo propertyType propertyName plotNumber rdaNumber street sector block floor unit categoryType address fullAddress project ownerName contactNumber status expectedRent securityDeposit areaValue areaUnit tenantName tenantPhone tenantEmail tenantCNIC rentalAgreement resident createdAt updatedAt')
     .populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard annualRentIncreaseType annualRentIncreaseValue increasedRent')
     .sort({ srNo: 1 })
     .lean();
