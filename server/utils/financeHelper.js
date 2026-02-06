@@ -113,6 +113,7 @@ const FinanceHelper = {
 
   /**
    * Create Accounts Receivable from a source
+   * If AR with same invoiceNumber exists (e.g. from deleted/recreated invoice), updates it instead of creating duplicate
    */
   createARFromInvoice: async (options) => {
     try {
@@ -123,7 +124,22 @@ const FinanceHelper = {
         charges, createdBy 
       } = options;
 
-      const arEntry = new AccountsReceivable({
+      // Check if AR already exists (e.g. orphaned from deleted invoice - avoid E11000 duplicate key)
+      let arEntry = await AccountsReceivable.findOne({ invoiceNumber });
+      if (arEntry) {
+        arEntry.customer = { name: customerName, email: customerEmail, customerId: customerId };
+        arEntry.invoiceDate = invoiceDate || new Date();
+        arEntry.dueDate = dueDate;
+        arEntry.totalAmount = amount;
+        arEntry.subtotal = amount;
+        arEntry.referenceId = referenceId;
+        arEntry.referenceType = 'invoice';
+        if (createdBy) arEntry.updatedBy = createdBy;
+        await arEntry.save();
+        return arEntry; // Skip GL posting - existing entry already has it
+      }
+
+      arEntry = new AccountsReceivable({
         customer: { name: customerName, email: customerEmail, customerId: customerId },
         invoiceNumber,
         invoiceDate: invoiceDate || new Date(),
