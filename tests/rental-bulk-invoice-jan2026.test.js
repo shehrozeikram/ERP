@@ -226,8 +226,14 @@ function verifyInvoices(createdInvoices) {
       rentData.carryForwardArrears > 0
         ? rentCharge?.description?.includes('Carry Forward Arrears')
         : true;
+    
+    // Verify tenantName is included in property data
+    const hasTenantName = invoice.property && (
+      invoice.property.tenantName !== undefined && invoice.property.tenantName !== null ||
+      invoice.property.ownerName !== undefined && invoice.property.ownerName !== null
+    );
 
-    const allPass = periodFromMatch && periodToMatch && hasRentCharge && arrearsIncluded && totalMatches && carryForwardLabel;
+    const allPass = periodFromMatch && periodToMatch && hasRentCharge && arrearsIncluded && totalMatches && carryForwardLabel && hasTenantName;
 
     if (allPass) {
       results.passed++;
@@ -243,10 +249,12 @@ function verifyInvoices(createdInvoices) {
       arrearsIncluded: arrearsIncluded ? '✓' : '✗',
       totalMatches: totalMatches ? '✓' : '✗',
       carryForwardLabel: carryForwardLabel ? '✓' : '✗',
+      hasTenantName: hasTenantName ? '✓' : '✗',
       grandTotal: invoice.grandTotal,
       rentAmount: rentCharge?.amount,
       rentArrears: rentCharge?.arrears,
-      carryForwardExpected: rentData.carryForwardArrears
+      carryForwardExpected: rentData.carryForwardArrears,
+      tenantName: invoice.property?.tenantName || invoice.property?.ownerName || 'MISSING'
     });
   }
 
@@ -273,9 +281,9 @@ async function main() {
       console.log(`   Passed: ${verification.passed} | Failed: ${verification.failed}`);
 
       verification.checks.forEach((c) => {
-        const status = c.periodFrom === '✓' && c.periodTo === '✓' && c.hasRentCharge === '✓' && c.arrearsIncluded === '✓' && c.totalMatches === '✓' && c.carryForwardLabel === '✓' ? '✅' : '❌';
+        const status = c.periodFrom === '✓' && c.periodTo === '✓' && c.hasRentCharge === '✓' && c.arrearsIncluded === '✓' && c.totalMatches === '✓' && c.carryForwardLabel === '✓' && c.hasTenantName === '✓' ? '✅' : '❌';
         console.log(
-          `   ${status} ${c.property}: period=${c.periodFrom}${c.periodTo} rent=${c.hasRentCharge} arrears=${c.arrearsIncluded} total=${c.totalMatches} carryFwdLabel=${c.carryForwardLabel} | Amount=${c.rentAmount} Arrears=${c.rentArrears} (expected CF=${c.carryForwardExpected}) GrandTotal=${c.grandTotal}`
+          `   ${status} ${c.property}: period=${c.periodFrom}${c.periodTo} rent=${c.hasRentCharge} arrears=${c.arrearsIncluded} total=${c.totalMatches} carryFwdLabel=${c.carryForwardLabel} tenantName=${c.hasTenantName} | Amount=${c.rentAmount} Arrears=${c.rentArrears} (expected CF=${c.carryForwardExpected}) GrandTotal=${c.grandTotal} Tenant="${c.tenantName}"`
         );
       });
 
