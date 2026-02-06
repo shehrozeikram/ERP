@@ -14,8 +14,8 @@ export const createInvoice = (propertyId, data) => {
 export const fetchInvoice = (invoiceId) =>
   api.get(`${base}/${invoiceId}`);
 
-export const fetchInvoicesForProperty = (propertyId) =>
-  api.get(`${base}/property/${propertyId}`);
+export const fetchInvoicesForProperty = (propertyId, params = {}) =>
+  api.get(`${base}/property/${propertyId}`, { params });
 
 export const fetchAllInvoices = (params = {}) =>
   api.get(base, { params });

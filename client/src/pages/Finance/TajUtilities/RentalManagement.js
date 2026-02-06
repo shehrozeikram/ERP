@@ -694,9 +694,10 @@ const RentalManagement = () => {
               // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
               // Cache can be stale (e.g. after delete script or if property was expanded before delete),
               // causing Shop 1 & 2 (or others) to be incorrectly skipped in production.
+              // Use cache-bust param to bypass browser/proxy HTTP cache in production.
               let invoices = [];
               try {
-                const response = await fetchInvoicesForProperty(property._id);
+                const response = await fetchInvoicesForProperty(property._id, { _t: `${Date.now()}-${property._id}` });
                 invoices = response.data?.data || [];
                 setPropertyInvoices(prev => ({
                   ...prev,
