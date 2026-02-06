@@ -1578,10 +1578,11 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       const currentYear = now.year();
       const currentMonth = now.month() + 1;
       
-      // Find the last open invoice (property: null) for the current month/year with GEN type
+      // Find the last open invoice (property: null) for the current month/year
+      // Format: INV-YYYY-MM-XXXX (GEN type uses prefix 'INV' from generateInvoiceNumber)
       const lastInvoice = await PropertyInvoice.findOne({
         property: null,
-        invoiceNumber: { $regex: `^INV-GEN-${currentYear}-${String(currentMonth).padStart(2, '0')}-` }
+        invoiceNumber: { $regex: `^INV-${currentYear}-${String(currentMonth).padStart(2, '0')}-` }
       })
         .sort({ invoiceNumber: -1 })
         .select('invoiceNumber')
@@ -1590,13 +1591,12 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       let nextIndex = 1;
       if (lastInvoice && lastInvoice.invoiceNumber) {
         // Extract the index from the last invoice number
-        // Format: INV-GEN-YYYY-MM-XXXX
+        // Format: INV-YYYY-MM-XXXX (4 parts) or INV-GEN-YYYY-MM-XXXX (5 parts)
         const parts = lastInvoice.invoiceNumber.split('-');
-        if (parts.length >= 5) {
-          const lastIndex = parseInt(parts[4], 10);
-          if (!isNaN(lastIndex)) {
-            nextIndex = lastIndex + 1;
-          }
+        const indexPart = parts.length >= 5 ? parts[4] : parts[3];
+        const lastIndex = parseInt(indexPart, 10);
+        if (!isNaN(lastIndex)) {
+          nextIndex = lastIndex + 1;
         }
       }
       
@@ -1615,7 +1615,7 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       const now = dayjs();
       const currentYear = now.year();
       const currentMonth = now.month() + 1;
-      const basePattern = `INV-GEN-${currentYear}-${String(currentMonth).padStart(2, '0')}-`;
+      const basePattern = `INV-${currentYear}-${String(currentMonth).padStart(2, '0')}-`;
       
       const allInvoices = await PropertyInvoice.find({
         invoiceNumber: { $regex: `^${basePattern}` }
@@ -1626,11 +1626,10 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       let maxIndex = 0;
       allInvoices.forEach(inv => {
         const parts = inv.invoiceNumber.split('-');
-        if (parts.length >= 5) {
-          const index = parseInt(parts[4], 10);
-          if (!isNaN(index) && index > maxIndex) {
-            maxIndex = index;
-          }
+        const indexPart = parts.length >= 5 ? parts[4] : parts[3];
+        const index = parseInt(indexPart, 10);
+        if (!isNaN(index) && index > maxIndex) {
+          maxIndex = index;
         }
       });
       

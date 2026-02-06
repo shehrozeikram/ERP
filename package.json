@@ -11,7 +11,8 @@
     "install-all": "npm install && cd client && npm install",
     "start": "node server/index.js",
     "setup": "node setup.js",
-    "test:rental-bulk-invoice": "node tests/rental-bulk-invoice-jan2026.test.js"
+    "test:rental-bulk-invoice": "node tests/rental-bulk-invoice-jan2026.test.js",
+    "test:create-open-invoice": "node tests/create-open-invoice-jan2026.js"
   },
   "keywords": [
     "erp",

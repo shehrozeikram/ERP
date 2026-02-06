@@ -220,14 +220,16 @@ export const useInvoiceCreation = (options = {}) => {
         grandTotal
       });
     } else {
-      setInvoiceData({
-        ...invoiceData,
-        [field]: field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate'
-          ? (value ? new Date(value) : null)
-          : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
-          ? Number(value) || 0
-          : value
-      });
+      // Use functional update to avoid stale state when multiple fields change in sequence (e.g. periodTo + dueDate)
+      const resolvedValue = field === 'periodFrom' || field === 'periodTo' || field === 'dueDate' || field === 'invoiceDate'
+        ? (value ? new Date(value) : null)
+        : field === 'grandTotal' || field === 'subtotal' || field === 'totalArrears'
+        ? Number(value) || 0
+        : value;
+      setInvoiceData((prev) => ({
+        ...prev,
+        [field]: resolvedValue
+      }));
     }
   };
 
