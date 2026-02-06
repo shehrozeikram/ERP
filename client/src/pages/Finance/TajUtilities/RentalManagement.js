@@ -684,114 +684,108 @@ const RentalManagement = () => {
       let skippedCount = 0;
       let errorCount = 0;
 
-      // Process properties sequentially to avoid race conditions in production
-      // This ensures each property is fully processed before moving to the next
-      for (let i = 0; i < propertiesToProcess.length; i++) {
-        const property = propertiesToProcess[i];
+      const batchSize = 10;
+      for (let i = 0; i < propertiesToProcess.length; i += batchSize) {
+        const batch = propertiesToProcess.slice(i, i + batchSize);
         
-        try {
-          // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
-          // Cache can be stale (e.g. after delete script or if property was expanded before delete),
-          // causing Shop 1 & 2 (or others) to be incorrectly skipped in production.
-          let invoices = [];
-          try {
-            // Add a small delay to ensure cache is cleared and avoid race conditions
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            const response = await fetchInvoicesForProperty(property._id);
-            invoices = response.data?.data || [];
-            setPropertyInvoices(prev => ({
-              ...prev,
-              [property._id]: invoices
-            }));
-          } catch (err) {
-            console.error(`Error loading invoices for property ${property._id}:`, err);
-            // Continue processing even if invoice fetch fails
-          }
+        await Promise.all(
+          batch.map(async (property) => {
+            try {
+              let invoices = propertyInvoices[property._id];
+              if (!invoices) {
+                try {
+                  const response = await fetchInvoicesForProperty(property._id);
+                  invoices = response.data?.data || [];
+                  setPropertyInvoices(prev => ({
+                    ...prev,
+                    [property._id]: invoices
+                  }));
+                } catch (err) {
+                  console.error(`Error loading invoices for property ${property._id}:`, err);
+                  invoices = [];
+                }
+              }
 
-          const invoiceExists = invoices.some((invoice) => {
-            if (!invoice.periodFrom || !invoice.periodTo) return false;
-            const invoicePeriodFrom = dayjs(invoice.periodFrom);
-            const invoicePeriodTo = dayjs(invoice.periodTo);
-            const targetPeriodFrom = dayjs(bulkCreateInvoiceData.periodFrom);
-            const targetPeriodTo = dayjs(bulkCreateInvoiceData.periodTo);
-            return invoicePeriodFrom.isSame(targetPeriodFrom, 'day') && invoicePeriodTo.isSame(targetPeriodTo, 'day');
-          });
+              const invoiceExists = invoices.some((invoice) => {
+                if (!invoice.periodFrom || !invoice.periodTo) return false;
+                const invoicePeriodFrom = dayjs(invoice.periodFrom);
+                const invoicePeriodTo = dayjs(invoice.periodTo);
+                const targetPeriodFrom = dayjs(bulkCreateInvoiceData.periodFrom);
+                const targetPeriodTo = dayjs(bulkCreateInvoiceData.periodTo);
+                return invoicePeriodFrom.isSame(targetPeriodFrom, 'day') && invoicePeriodTo.isSame(targetPeriodTo, 'day');
+              });
 
-          if (invoiceExists) {
-            skippedCount++;
-            setSuccess(`Creating invoices... ${i + 1} of ${propertiesToProcess.length} processed (skipped: already exists)`);
-            continue;
-          }
+              if (invoiceExists) {
+                skippedCount++;
+                return;
+              }
 
-          // Fetch rent calculation (monthly rent + RENT-only arrears, same as individual create)
-          let monthlyRent = 0;
-          let arrears = 0;
-          let carryForwardArrears = 0;
-          try {
-            const rentRes = await getRentCalculation(property._id);
-            const rentData = rentRes?.data?.data;
-            if (rentData) {
-              monthlyRent = rentData.monthlyRent || 0;
-              arrears = rentData.totalArrears || 0;
-              carryForwardArrears = rentData.carryForwardArrears || 0;
+              // Fetch rent calculation (monthly rent + RENT-only arrears, same as individual create)
+              let monthlyRent = 0;
+              let arrears = 0;
+              let carryForwardArrears = 0;
+              try {
+                const rentRes = await getRentCalculation(property._id);
+                const rentData = rentRes?.data?.data;
+                if (rentData) {
+                  monthlyRent = rentData.monthlyRent || 0;
+                  arrears = rentData.totalArrears || 0;
+                  carryForwardArrears = rentData.carryForwardArrears || 0;
+                }
+              } catch (err) {
+                console.error(`Error fetching rent calculation for property ${property._id}:`, err);
+              }
+
+              const rentDescription = carryForwardArrears > 0 
+                ? 'Rental Charges (with Carry Forward Arrears)' 
+                : 'Rental Charges';
+
+              const charges = [{
+                type: 'RENT',
+                description: rentDescription,
+                amount: monthlyRent,
+                arrears: arrears,
+                total: monthlyRent + arrears
+              }];
+
+              // Create invoice (same payload as individual create)
+              await createInvoice(property._id, {
+                includeCAM: false,
+                includeElectricity: false,
+                includeRent: true,
+                invoiceDate: invoiceDate,
+                periodFrom: periodFrom,
+                periodTo: periodTo,
+                dueDate: dueDate,
+                charges
+              });
+
+              createdCount++;
+              
+              // Track this property as having invoice created (for visual indicator)
+              setPropertiesWithInvoicesCreated(prev => new Set([...prev, property._id]));
+              
+              try {
+                const invoiceResponse = await fetchInvoicesForProperty(property._id);
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: invoiceResponse.data?.data || []
+                }));
+              } catch (err) {
+                console.error(`Error refreshing invoices for property ${property._id}:`, err);
+              }
+            } catch (err) {
+              errorCount++;
+              console.error(`Error creating invoice for property ${property._id}:`, err);
             }
-          } catch (err) {
-            console.error(`Error fetching rent calculation for property ${property._id}:`, err);
-            // Continue with zero values if rent calculation fails
-          }
+          })
+        );
 
-          const rentDescription = carryForwardArrears > 0 
-            ? 'Rental Charges (with Carry Forward Arrears)' 
-            : 'Rental Charges';
-
-          const charges = [{
-            type: 'RENT',
-            description: rentDescription,
-            amount: monthlyRent,
-            arrears: arrears,
-            total: monthlyRent + arrears
-          }];
-
-          // Create invoice (same payload as individual create)
-          const invoiceResponse = await createInvoice(property._id, {
-            includeCAM: false,
-            includeElectricity: false,
-            includeRent: true,
-            invoiceDate: invoiceDate,
-            periodFrom: periodFrom,
-            periodTo: periodTo,
-            dueDate: dueDate,
-            charges
-          });
-
-          createdCount++;
-          
-          // Track this property as having invoice created (for visual indicator)
-          setPropertiesWithInvoicesCreated(prev => new Set([...prev, property._id]));
-          
-          // Refresh invoices for this property after creation
-          try {
-            // Small delay to ensure invoice is saved before fetching
-            await new Promise(resolve => setTimeout(resolve, 150));
-            const refreshedResponse = await fetchInvoicesForProperty(property._id);
-            setPropertyInvoices(prev => ({
-              ...prev,
-              [property._id]: refreshedResponse.data?.data || []
-            }));
-          } catch (err) {
-            console.error(`Error refreshing invoices for property ${property._id}:`, err);
-            // Non-critical error, continue processing
-          }
-          
-          // Update progress
-          setSuccess(`Creating invoices... ${i + 1} of ${propertiesToProcess.length} processed`);
-          
-        } catch (err) {
-          errorCount++;
-          console.error(`Error creating invoice for property ${property._id} (${property.propertyName || property.plotNumber || property._id}):`, err);
-          // Continue processing remaining properties even if one fails
+        if (i + batchSize < propertiesToProcess.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
+
+        setSuccess(`Creating invoices... ${Math.min(i + batch.length, propertiesToProcess.length)} of ${propertiesToProcess.length} processed`);
       }
 
       let resultMessage = `Successfully created ${createdCount} invoice(s)`;

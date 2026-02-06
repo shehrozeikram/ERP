@@ -156,7 +156,6 @@ const updateInvoiceFields = (invoice, { charges, subtotal, totalArrears, grandTo
 const populateInvoiceReferences = async (invoice, { camCharge, electricityBill }) => {
   await invoice.populate({
     path: 'property',
-    select: 'propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit meters floor electricityWaterMeterNo srNo categoryType rentalAgreement',
     populate: {
       path: 'resident',
       select: 'name accountType contactNumber email residentId'
@@ -505,12 +504,7 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
 router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const property = await TajProperty.findById(req.params.propertyId)
-      .select('propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit meters floor electricityWaterMeterNo srNo categoryType rentalAgreement rentalPayments')
-      .populate('rentalAgreement')
-      .populate({
-        path: 'resident',
-        select: 'name accountType contactNumber email residentId'
-      });
+      .populate('rentalAgreement');
     if (!property) {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
