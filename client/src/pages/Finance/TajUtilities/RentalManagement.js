@@ -705,6 +705,8 @@ const RentalManagement = () => {
       const periodTo = new Date(bulkCreateInvoiceData.periodTo);
       const invoiceDate = new Date(bulkCreateInvoiceData.invoiceDate);
       const dueDate = new Date(bulkCreateInvoiceData.dueDate);
+      const targetMonthStartMs = dayjs(bulkCreateInvoiceData.periodFrom).startOf('month').startOf('day').valueOf();
+      const targetMonthEndMs = dayjs(bulkCreateInvoiceData.periodFrom).endOf('month').endOf('day').valueOf();
 
       // Use filtered properties (already filtered by backend based on search/filters)
       const propertiesToProcess = filteredProperties;
@@ -721,13 +723,17 @@ const RentalManagement = () => {
       let skippedCount = 0;
       let errorCount = 0;
 
-      const batchSize = 10;
+      // Production is slower / more rate-limited; keep concurrency lower to avoid timeouts.
+      const batchSize = process.env.NODE_ENV === 'production' ? 5 : 10;
       for (let i = 0; i < propertiesToProcess.length; i += batchSize) {
         const batch = propertiesToProcess.slice(i, i + batchSize);
         
         await Promise.all(
           batch.map(async (property) => {
             try {
+              console.log(`[RENTAL-BULK] Processing: ${property.propertyName || property.propertyCode} (${property._id})`);
+              console.log(`[RENTAL-BULK]   Tenant from property:`, property.tenantName || '(empty)');
+              
               // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
               // Cache can be stale (e.g. after delete script or if property was expanded before delete),
               // causing Shop 1 & 2 (or others) to be incorrectly skipped in production.
@@ -735,24 +741,29 @@ const RentalManagement = () => {
               try {
                 const response = await fetchInvoicesForProperty(property._id);
                 invoices = response.data?.data || [];
+                console.log(`[RENTAL-BULK]   Found ${invoices.length} existing invoices`);
                 setPropertyInvoices(prev => ({
                   ...prev,
                   [property._id]: invoices
                 }));
               } catch (err) {
-                console.error(`Error loading invoices for property ${property._id}:`, err);
+                console.error(`[RENTAL-BULK] Error loading invoices for property ${property._id}:`, err);
               }
 
+              // IMPORTANT: Backend duplicate logic is month-based (not exact day match).
+              // In production some invoices have slightly different day/time ranges, so we skip if ANY RENT invoice overlaps this month.
               const invoiceExists = invoices.some((invoice) => {
-                if (!invoice.periodFrom || !invoice.periodTo) return false;
-                const invoicePeriodFrom = dayjs(invoice.periodFrom);
-                const invoicePeriodTo = dayjs(invoice.periodTo);
-                const targetPeriodFrom = dayjs(bulkCreateInvoiceData.periodFrom);
-                const targetPeriodTo = dayjs(bulkCreateInvoiceData.periodTo);
-                return invoicePeriodFrom.isSame(targetPeriodFrom, 'day') && invoicePeriodTo.isSame(targetPeriodTo, 'day');
+                if (!invoice?.chargeTypes?.includes('RENT')) return false;
+                const invFromMs = invoice.periodFrom ? dayjs(invoice.periodFrom).startOf('day').valueOf() : null;
+                const invToMs = invoice.periodTo ? dayjs(invoice.periodTo).endOf('day').valueOf() : null;
+                const startMs = invFromMs ?? invToMs;
+                const endMs = invToMs ?? invFromMs;
+                if (startMs === null || endMs === null) return false;
+                return startMs <= targetMonthEndMs && endMs >= targetMonthStartMs;
               });
 
               if (invoiceExists) {
+                console.log(`[RENTAL-BULK]   ⏭️ SKIPPED (invoice already exists for this month)`);
                 skippedCount++;
                 return;
               }
@@ -761,17 +772,17 @@ const RentalManagement = () => {
               let monthlyRent = 0;
               let arrears = 0;
               let carryForwardArrears = 0;
-              try {
-                const rentRes = await getRentCalculation(property._id);
-                const rentData = rentRes?.data?.data;
-                if (rentData) {
-                  monthlyRent = rentData.monthlyRent || 0;
-                  arrears = rentData.totalArrears || 0;
-                  carryForwardArrears = rentData.carryForwardArrears || 0;
-                }
-              } catch (err) {
-                console.error(`Error fetching rent calculation for property ${property._id}:`, err);
+              console.log(`[RENTAL-BULK]   Fetching rent calculation...`);
+              const rentRes = await getRentCalculation(property._id);
+              const rentData = rentRes?.data?.data;
+              console.log(`[RENTAL-BULK]   Rent calculation response:`, rentData);
+              if (!rentData) {
+                throw new Error('Rent calculation failed (empty response)');
               }
+              monthlyRent = rentData.monthlyRent || 0;
+              arrears = rentData.totalArrears || 0;
+              carryForwardArrears = rentData.carryForwardArrears || 0;
+              console.log(`[RENTAL-BULK]   Rent: ${monthlyRent}, Arrears: ${arrears}, CarryForward: ${carryForwardArrears}`);
 
               const rentDescription = carryForwardArrears > 0 
                 ? 'Rental Charges (with Carry Forward Arrears)' 
@@ -786,17 +797,30 @@ const RentalManagement = () => {
               }];
 
               // Create invoice (same payload as individual create)
-              await createInvoice(property._id, {
-                includeCAM: false,
-                includeElectricity: false,
-                includeRent: true,
-                invoiceDate: invoiceDate,
-                periodFrom: periodFrom,
-                periodTo: periodTo,
-                dueDate: dueDate,
-                charges
-              });
+              try {
+                await createInvoice(property._id, {
+                  includeCAM: false,
+                  includeElectricity: false,
+                  includeRent: true,
+                  invoiceDate: invoiceDate,
+                  periodFrom: periodFrom,
+                  periodTo: periodTo,
+                  dueDate: dueDate,
+                  charges
+                });
+              } catch (err) {
+                const msg = String(err?.response?.data?.message || err?.message || '');
+                console.log(`[RENTAL-BULK]   ❌ Create invoice error:`, msg);
+                // If backend rejects as duplicate, treat as skipped (common in production due to month-based duplicate checks).
+                if (/already exists|duplicate/i.test(msg)) {
+                  console.log(`[RENTAL-BULK]   ⏭️ SKIPPED (backend duplicate check)`);
+                  skippedCount++;
+                  return;
+                }
+                throw err;
+              }
 
+              console.log(`[RENTAL-BULK]   ✅ Invoice created successfully`);
               createdCount++;
               
               // Track this property as having invoice created (for visual indicator)
@@ -813,7 +837,7 @@ const RentalManagement = () => {
               }
             } catch (err) {
               errorCount++;
-              console.error(`Error creating invoice for property ${property._id}:`, err);
+              console.error(`[RENTAL-BULK] ❌ FAILED for ${property.propertyName}:`, err?.response?.data?.message || err.message);
             }
           })
         );

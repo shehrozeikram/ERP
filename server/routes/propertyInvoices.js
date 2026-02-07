@@ -334,6 +334,15 @@ router.get('/property/:propertyId/rent-calculation', authMiddleware, asyncHandle
     // Total arrears = arrears from payment + carry forward from invoices
     const totalArrears = arrearsFromPayment + rentCarryForwardArrears;
 
+    console.log(`[RENT-CALC] Property ${property._id}:`, {
+      monthlyRent,
+      arrearsFromPayment,
+      rentCarryForwardArrears,
+      totalArrears,
+      hasAgreement: !!property.rentalAgreement,
+      agreementRent: property.rentalAgreement?.monthlyRent
+    });
+
     res.json({
       success: true,
       data: {

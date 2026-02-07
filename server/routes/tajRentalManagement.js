@@ -206,6 +206,9 @@ const mapRentalPropertyResponse = (property) => {
       _id: property.rentalAgreement._id,
       agreementNumber: property.rentalAgreement.agreementNumber,
       propertyName: property.rentalAgreement.propertyName,
+      tenantName: property.rentalAgreement.tenantName,
+      tenantContact: property.rentalAgreement.tenantContact,
+      tenantIdCard: property.rentalAgreement.tenantIdCard,
       monthlyRent: property.rentalAgreement.monthlyRent,
       startDate: property.rentalAgreement.startDate,
       endDate: property.rentalAgreement.endDate
@@ -249,7 +252,18 @@ const fetchPersonalRentProperties = async ({ status, search, sector, categoryTyp
     .sort({ srNo: 1 })
     .lean();
 
-  const mapped = properties.map(mapRentalPropertyResponse);
+  const mapped = properties.map((prop) => {
+    const result = mapRentalPropertyResponse(prop);
+    // Debug tenant name mapping for first few properties
+    if (properties.indexOf(prop) < 3) {
+      console.log(`[RENTAL-SERVER] Property ${result.propertyName}:`, {
+        tenantName: result.tenantName,
+        fromProperty: prop.tenantName,
+        fromAgreement: prop.rentalAgreement?.tenantName
+      });
+    }
+    return result;
+  });
   const summary = summarizeGeneralRentalProperties(mapped);
   return { mapped, summary };
 };
