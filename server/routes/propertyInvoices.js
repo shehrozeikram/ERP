@@ -334,13 +334,14 @@ router.get('/property/:propertyId/rent-calculation', authMiddleware, asyncHandle
     // Total arrears = arrears from payment + carry forward from invoices
     const totalArrears = arrearsFromPayment + rentCarryForwardArrears;
 
-    console.log(`[RENT-CALC] Property ${property._id}:`, {
+    console.log(`[RENT-CALC] Property ${property._id} (${property.propertyName}):`, {
       monthlyRent,
       arrearsFromPayment,
       rentCarryForwardArrears,
       totalArrears,
       hasAgreement: !!property.rentalAgreement,
-      agreementRent: property.rentalAgreement?.monthlyRent
+      agreementRent: property.rentalAgreement?.monthlyRent,
+      hasRentalPayments: !!(property.rentalPayments && property.rentalPayments.length > 0)
     });
 
     res.json({
@@ -987,15 +988,10 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
 
     // Get Rent Payment from Rental Agreement (especially for Personal Rent category)
     if (includeRent === true) {
-      // RENT-only overdue arrears (same module-specific logic as CAM / electricity)
-      rentCarryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['RENT']);
-      
-      let agreement = null;
-      
-      // Helper function to create rent charge object (outer scope so requestCharges block can use it)
-      createRentCharge = (amount, arrears) => {
-        const totalRentArrears = (arrears || 0) + rentCarryForwardArrears;
-        const rentDescription = rentCarryForwardArrears > 0 
+      // Helper function to create rent charge object - DEFINE FIRST before any async operations
+      createRentCharge = (amount, arrears, carryForward) => {
+        const totalRentArrears = (arrears || 0) + (carryForward || 0);
+        const rentDescription = (carryForward || 0) > 0 
           ? 'Rental Charges (with Carry Forward Arrears)' 
           : 'Rental Charges';
         
@@ -1007,6 +1003,17 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
           total: (amount || 0) + totalRentArrears
         };
       };
+
+      // RENT-only overdue arrears (same module-specific logic as CAM / electricity)
+      // Wrap in try-catch so if calculateOverdueArrears fails, we can still continue with 0 arrears
+      try {
+        rentCarryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['RENT']);
+      } catch (err) {
+        console.error(`[RENT-INVOICE] calculateOverdueArrears failed for ${property._id}:`, err.message);
+        rentCarryForwardArrears = 0; // Fallback to 0 if calculation fails
+      }
+      
+      let agreement = null;
       
       // Try to get rent from rental agreement (priority for Personal Rent)
       if (property.categoryType === 'Personal Rent' || property.rentalAgreement) {
@@ -1038,10 +1045,10 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
         
         if (agreement?.monthlyRent) {
           const monthlyRent = agreement.monthlyRent;
+          console.log(`[RENT-INVOICE] Using agreement rent: ${monthlyRent}, CF arrears: ${rentCarryForwardArrears}`);
           
           // Use the carry forward arrears already calculated above
-          // The createRentCharge function will automatically add rentCarryForwardArrears
-          charges.push(createRentCharge(monthlyRent, 0));
+          charges.push(createRentCharge(monthlyRent, 0, rentCarryForwardArrears));
           rentChargeAdded = true;
         }
       }
@@ -1053,7 +1060,8 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
         
         if (latestRentPayment) {
           rentPayment = latestRentPayment;
-          charges.push(createRentCharge(latestRentPayment.amount, latestRentPayment.arrears));
+          console.log(`[RENT-INVOICE] Using payment rent: ${latestRentPayment.amount}, payment arrears: ${latestRentPayment.arrears}`);
+          charges.push(createRentCharge(latestRentPayment.amount, latestRentPayment.arrears, rentCarryForwardArrears));
           rentChargeAdded = true;
         }
       }

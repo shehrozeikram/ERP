@@ -254,12 +254,14 @@ const fetchPersonalRentProperties = async ({ status, search, sector, categoryTyp
 
   const mapped = properties.map((prop) => {
     const result = mapRentalPropertyResponse(prop);
-    // Debug tenant name mapping for first few properties
-    if (properties.indexOf(prop) < 3) {
-      console.log(`[RENTAL-SERVER] Property ${result.propertyName}:`, {
-        tenantName: result.tenantName,
-        fromProperty: prop.tenantName,
-        fromAgreement: prop.rentalAgreement?.tenantName
+    // Debug tenant name mapping (log all empty tenants to find missing data)
+    if (!result.tenantName || result.tenantName === '') {
+      console.log(`[RENTAL-SERVER] ⚠️ Empty tenant for ${result.propertyName}:`, {
+        propertyId: prop._id,
+        tenantNameInProperty: prop.tenantName || '(null)',
+        hasAgreement: !!prop.rentalAgreement,
+        agreementId: prop.rentalAgreement?._id || '(none)',
+        tenantNameInAgreement: prop.rentalAgreement?.tenantName || '(null)'
       });
     }
     return result;
