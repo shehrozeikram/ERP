@@ -292,6 +292,7 @@ module.exports = {
     RESIDENTS_LIST: 'taj_utilities_residents_list',
     RENTAL_PROPERTIES: 'taj_utilities_rental_properties',
     RENTAL_MANAGEMENT_PROPERTIES: 'taj_utilities_rental_management_properties',
+    RENTAL_MANAGEMENT_PROPERTIES_LIST: 'taj_utilities_rental_management_properties_list',
     RENTAL_AGREEMENTS_LIST: 'taj_utilities_rental_agreements_list',
     UNASSIGNED_PROPERTIES: 'taj_utilities_unassigned_properties',
     INVOICES_OVERVIEW: 'taj_utilities_invoices_overview',

@@ -362,7 +362,8 @@ router.put('/:id', withPermission('update'), (req, res, next) => {
     ).populate('createdBy', 'firstName lastName');
 
     clearCached(CACHE_KEYS.RENTAL_AGREEMENTS_LIST);
-    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES); // Properties show agreement status
+    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES);
+    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES_LIST); // Properties show agreement status
     res.json(updatedAgreement);
   } catch (error) {
     if (req.file) {

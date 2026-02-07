@@ -30,7 +30,8 @@ import {
   CircularProgress,
   Tooltip,
   Menu,
-  Skeleton
+  Skeleton,
+  Snackbar
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -142,6 +143,7 @@ const RentalManagement = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
   // Filter state
   const [statusFilter, setStatusFilter] = useState('');
@@ -206,8 +208,10 @@ const RentalManagement = () => {
       if (categoryFilter) params.categoryType = categoryFilter;
       const response = await fetchProperties(params);
       setProperties(response.data?.data?.properties || response.data?.data || []);
-      if (response.data?.data?.summary) {
-        setSummary(response.data.data.summary);
+      // Summary can be at data.summary (properties endpoint) or data.data.summary (general-properties)
+      const summaryData = response.data?.summary || response.data?.data?.summary;
+      if (summaryData) {
+        setSummary(summaryData);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load data');
@@ -586,18 +590,30 @@ const RentalManagement = () => {
       return;
     }
 
+    const propertyId = property?._id;
+    const prevInvoices = propertyId ? propertyInvoices[propertyId] : null;
+
+    // Optimistic update: remove invoice from UI instantly
+    if (propertyId && prevInvoices) {
+      setPropertyInvoices(prev => ({
+        ...prev,
+        [propertyId]: prev[propertyId].filter(inv => inv._id !== invoice._id)
+      }));
+    }
+
     try {
       setError('');
       await deleteInvoice(invoice._id);
       setSuccess('Invoice deleted successfully');
-      
-      // Refresh invoices for this property
-      if (property?._id) {
-        const invoiceResponse = await fetchInvoicesForProperty(property._id);
-        setPropertyInvoices(prev => ({ ...prev, [property._id]: invoiceResponse.data?.data || [] }));
-      }
+      setSnackbar({ open: true, message: 'Invoice deleted successfully', severity: 'success' });
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete invoice');
+      // Revert optimistic update on error
+      if (propertyId && prevInvoices) {
+        setPropertyInvoices(prev => ({ ...prev, [propertyId]: prevInvoices }));
+      }
+      const errMsg = err.response?.data?.message || 'Failed to delete invoice';
+      setError(errMsg);
+      setSnackbar({ open: true, message: errMsg, severity: 'error' });
     }
   };
 
@@ -606,18 +622,39 @@ const RentalManagement = () => {
       return;
     }
 
+    const prevInvoices = propertyId ? propertyInvoices[propertyId] : null;
+
+    // Optimistic update: remove payment from invoice instantly
+    if (propertyId && prevInvoices) {
+      setPropertyInvoices(prev => ({
+        ...prev,
+        [propertyId]: prev[propertyId].map(inv =>
+          inv._id === invoiceId
+            ? { ...inv, payments: (inv.payments || []).filter(p => p._id !== paymentId) }
+            : inv
+        )
+      }));
+    }
+
     try {
       setError('');
       await deletePaymentFromInvoice(invoiceId, paymentId);
       setSuccess('Payment deleted successfully');
-      
-      // Refresh invoices for this property
+      setSnackbar({ open: true, message: 'Payment deleted successfully', severity: 'success' });
+
+      // Refresh invoices to get updated totals
       if (propertyId) {
         const invoiceResponse = await fetchInvoicesForProperty(propertyId);
         setPropertyInvoices(prev => ({ ...prev, [propertyId]: invoiceResponse.data?.data || [] }));
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete payment');
+      // Revert optimistic update on error
+      if (propertyId && prevInvoices) {
+        setPropertyInvoices(prev => ({ ...prev, [propertyId]: prevInvoices }));
+      }
+      const errMsg = err.response?.data?.message || 'Failed to delete payment';
+      setError(errMsg);
+      setSnackbar({ open: true, message: errMsg, severity: 'error' });
     }
   };
 
@@ -3221,6 +3258,21 @@ const RentalManagement = () => {
           );
         })}
       </Menu>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          severity={snackbar.severity}
+          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

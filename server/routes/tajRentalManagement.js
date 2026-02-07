@@ -242,9 +242,9 @@ const fetchPersonalRentProperties = async ({ status, search, sector, categoryTyp
     ];
   }
 
-  // OPTIMIZATION: Select only needed fields and use lean (include tenant fields for Tenant column)
+  // OPTIMIZATION: Select only needed fields and use lean (include tenant, rentalPayments for calculations)
   const properties = await TajProperty.find(filters)
-    .select('_id srNo propertyType propertyName plotNumber rdaNumber street sector block floor unit categoryType address fullAddress project ownerName contactNumber status expectedRent securityDeposit areaValue areaUnit tenantName tenantPhone tenantEmail tenantCNIC rentalAgreement resident createdAt updatedAt')
+    .select('_id srNo propertyType propertyName plotNumber rdaNumber street sector block floor unit categoryType address fullAddress project ownerName contactNumber status expectedRent securityDeposit areaValue areaUnit tenantName tenantPhone tenantEmail tenantCNIC rentalAgreement rentalPayments resident createdAt updatedAt')
     .populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard annualRentIncreaseType annualRentIncreaseValue increasedRent')
     .sort({ srNo: 1 })
     .lean();
@@ -295,12 +295,13 @@ router.get('/general-properties', authMiddleware, async (req, res) => {
   }
 });
 
-// Get personal rent properties (primary listing)
+// Get personal rent properties (primary listing) - used by Rental Management Finance page
 router.get('/properties', authMiddleware, async (req, res) => {
   try {
     // OPTIMIZATION: Check cache first (only if no filters/search)
+    // Use separate cache key to avoid collision with general-properties (different response shape)
     const hasFilters = req.query.status || req.query.search || req.query.sector || req.query.categoryType;
-    const cacheKey = hasFilters ? null : CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES;
+    const cacheKey = hasFilters ? null : CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES_LIST;
     
     if (cacheKey) {
       const cached = getCached(cacheKey);
@@ -405,7 +406,8 @@ router.post('/properties/:id/payments', authMiddleware, paymentAttachmentUpload.
 
     await property.save();
     await property.populate('rentalAgreement', 'agreementNumber propertyName monthlyRent startDate endDate tenantName tenantContact tenantIdCard');
-    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES); // Invalidate cache on payment update
+    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES);
+    clearCached(CACHE_KEYS.RENTAL_MANAGEMENT_PROPERTIES_LIST); // Invalidate cache on payment update
     res.json({ success: true, data: mapRentalPropertyResponse(property.toObject()) });
   } catch (error) {
     cleanupAttachment(req.file);
