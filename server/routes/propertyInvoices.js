@@ -534,7 +534,6 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     let rentPayment = null;
     let rentChargeAdded = false; // Track if rent charge was calculated from agreement
     let rentCarryForwardArrears = 0; // Carry forward arrears from previous invoices
-    let createRentCharge = null; // Set when includeRent; used for agreement + requestCharges (must be in outer scope)
     const meterBillsData = []; // Store data for additional meters
     let useProvidedCAM = false;
     let usedProvidedElectricity = false;
@@ -987,81 +986,62 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
     }
 
     // Get Rent Payment from Rental Agreement (especially for Personal Rent category)
+    // Inline rent charge creation (no helper) to avoid "createRentCharge is not defined" in production
     if (includeRent === true) {
-      // Helper function to create rent charge object - DEFINE FIRST before any async operations
-      createRentCharge = (amount, arrears, carryForward) => {
-        const totalRentArrears = (arrears || 0) + (carryForward || 0);
-        const rentDescription = (carryForward || 0) > 0 
-          ? 'Rental Charges (with Carry Forward Arrears)' 
-          : 'Rental Charges';
-        
-        return {
-          type: 'RENT',
-          description: rentDescription,
-          amount: amount || 0,
-          arrears: totalRentArrears,
-          total: (amount || 0) + totalRentArrears
-        };
-      };
-
       // RENT-only overdue arrears (same module-specific logic as CAM / electricity)
-      // Wrap in try-catch so if calculateOverdueArrears fails, we can still continue with 0 arrears
       try {
         rentCarryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['RENT']);
       } catch (err) {
         console.error(`[RENT-INVOICE] calculateOverdueArrears failed for ${property._id}:`, err.message);
-        rentCarryForwardArrears = 0; // Fallback to 0 if calculation fails
+        rentCarryForwardArrears = 0;
       }
-      
+
+      const pushRentCharge = (amount, arrears) => {
+        const totalRentArrears = (arrears || 0) + rentCarryForwardArrears;
+        charges.push({
+          type: 'RENT',
+          description: rentCarryForwardArrears > 0 ? 'Rental Charges (with Carry Forward Arrears)' : 'Rental Charges',
+          amount: amount || 0,
+          arrears: totalRentArrears,
+          total: (amount || 0) + totalRentArrears
+        });
+      };
+
       let agreement = null;
-      
+
       // Try to get rent from rental agreement (priority for Personal Rent)
       if (property.categoryType === 'Personal Rent' || property.rentalAgreement) {
-        // Check if already populated
         if (property.rentalAgreement?.monthlyRent !== undefined) {
           agreement = property.rentalAgreement;
         } else if (property.rentalAgreement) {
           try {
-            const agreementId = typeof property.rentalAgreement === 'object' 
+            const agreementId = typeof property.rentalAgreement === 'object'
               ? (property.rentalAgreement._id || property.rentalAgreement)
               : property.rentalAgreement;
             agreement = await TajRentalAgreement.findById(agreementId).lean();
-          } catch (err) {
-            // Error fetching rental agreement - continue without it
-          }
+          } catch (err) { /* continue */ }
         }
-        
-        // If no agreement found and property is Personal Rent, try to find by property name
         if (!agreement && property.categoryType === 'Personal Rent' && property.propertyName) {
           try {
             agreement = await TajRentalAgreement.findOne({
               propertyName: property.propertyName,
               status: { $in: ['Active', 'Expired'] }
             }).sort({ createdAt: -1 }).lean();
-          } catch (err) {
-            // Error searching agreement by property name - continue without it
-          }
+          } catch (err) { /* continue */ }
         }
-        
         if (agreement?.monthlyRent) {
-          const monthlyRent = agreement.monthlyRent;
-          console.log(`[RENT-INVOICE] Using agreement rent: ${monthlyRent}, CF arrears: ${rentCarryForwardArrears}`);
-          
-          // Use the carry forward arrears already calculated above
-          charges.push(createRentCharge(monthlyRent, 0, rentCarryForwardArrears));
+          pushRentCharge(agreement.monthlyRent, 0);
           rentChargeAdded = true;
         }
       }
-      
-      // Fallback: Check for existing rent payments (legacy support for Personal Rent)
+
+      // Fallback: existing rent payments (legacy)
       if (!rentChargeAdded && property.categoryType === 'Personal Rent' && property.rentalPayments?.length > 0) {
         const latestRentPayment = [...property.rentalPayments]
           .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0))[0];
-        
         if (latestRentPayment) {
           rentPayment = latestRentPayment;
-          console.log(`[RENT-INVOICE] Using payment rent: ${latestRentPayment.amount}, payment arrears: ${latestRentPayment.arrears}`);
-          charges.push(createRentCharge(latestRentPayment.amount, latestRentPayment.arrears, rentCarryForwardArrears));
+          pushRentCharge(latestRentPayment.amount, latestRentPayment.arrears);
           rentChargeAdded = true;
         }
       }
