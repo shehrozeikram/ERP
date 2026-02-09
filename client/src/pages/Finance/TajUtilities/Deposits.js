@@ -226,7 +226,7 @@ const Deposits = () => {
                             Suspense Account
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="warning.main">
-                            {formatCurrency(suspenseAccountTotals.totalAmount)}
+                            {formatCurrency(monthGroup.suspenseTotalAmount || 0)}
                           </Typography>
                         </Box>
                         <Box>
@@ -234,7 +234,7 @@ const Deposits = () => {
                             Total Amount (Suspense + Deposits)
                           </Typography>
                           <Typography variant="body2" fontWeight={600}>
-                            {formatCurrency(suspenseAccountTotals.totalAmount + monthGroup.totalAmount)}
+                            {formatCurrency((monthGroup.suspenseTotalAmount || 0) + monthGroup.totalAmount)}
                           </Typography>
                         </Box>
                         <Box>
@@ -242,7 +242,7 @@ const Deposits = () => {
                             Remaining
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="success.main">
-                            {formatCurrency(suspenseAccountTotals.totalRemaining + monthGroup.totalRemaining)}
+                            {formatCurrency((monthGroup.suspenseTotalRemaining || 0) + monthGroup.totalRemaining)}
                           </Typography>
                         </Box>
                         <Box>
@@ -250,7 +250,7 @@ const Deposits = () => {
                             Used
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="text.secondary">
-                            {formatCurrency(suspenseAccountTotals.totalUsed + monthGroup.totalUsed)}
+                            {formatCurrency((monthGroup.suspenseTotalUsed || 0) + monthGroup.totalUsed)}
                           </Typography>
                         </Box>
                       </Stack>

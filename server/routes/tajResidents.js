@@ -549,6 +549,16 @@ router.post(
       return res.status(400).json({ success: false, message: 'Bank selection is required for this payment method' });
     }
     
+    // Transaction Number must be unique across all deposits
+    const trimmedRef = (referenceNumberExternal || '').trim();
+    const existing = await TajTransaction.findOne({
+      transactionType: 'deposit',
+      referenceNumberExternal: trimmedRef
+    });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'Transaction Number already exists. Please use a unique transaction number.' });
+    }
+    
     const balanceBefore = resident.balance || 0;
     const balanceAfter = balanceBefore + amountNum;
 

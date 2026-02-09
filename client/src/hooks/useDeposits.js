@@ -24,6 +24,7 @@ export const useDeposits = (options = {}) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [expandedMonths, setExpandedMonths] = useState([]);
+  const [suspenseAccountDeposits, setSuspenseAccountDeposits] = useState([]);
   const [suspenseAccountTotals, setSuspenseAccountTotals] = useState({
     totalAmount: 0,
     totalRemaining: 0,
@@ -107,6 +108,9 @@ export const useDeposits = (options = {}) => {
 
       // Calculate totals from ALL deposits (not just current page)
       if (suspenseAccount) {
+        // When in suspense account mode, all deposits shown are suspense deposits
+        // No need to fetch separately - suspenseAccountDeposits stays empty
+        setSuspenseAccountDeposits([]);
         // When in suspense account mode, fetch all deposits to calculate totals
         try {
           const allDepositsParams = {
@@ -150,7 +154,10 @@ export const useDeposits = (options = {}) => {
           const suspenseResponse = await fetchAllDeposits(suspenseParams);
           const suspenseDeposits = suspenseResponse.data?.data?.deposits || [];
           
-          // Calculate suspense account totals
+          // Store suspense account deposits for per-month calculation
+          setSuspenseAccountDeposits(suspenseDeposits);
+          
+          // Calculate suspense account totals (for backward compatibility)
           const suspenseTotalAmount = suspenseDeposits.reduce((sum, d) => sum + (d.amount || 0), 0);
           const suspenseTotalRemaining = suspenseDeposits.reduce((sum, d) => sum + (d.remainingAmount || 0), 0);
           const suspenseTotalUsed = suspenseDeposits.reduce((sum, d) => sum + (d.totalUsed || 0), 0);
@@ -466,7 +473,10 @@ export const useDeposits = (options = {}) => {
           deposits: [],
           totalAmount: 0,
           totalRemaining: 0,
-          totalUsed: 0
+          totalUsed: 0,
+          suspenseTotalAmount: 0,
+          suspenseTotalRemaining: 0,
+          suspenseTotalUsed: 0
         };
       }
       
@@ -476,11 +486,37 @@ export const useDeposits = (options = {}) => {
       grouped[monthKey].totalUsed += deposit.totalUsed || 0;
     });
     
+    // Group suspense account deposits by month and add to each month group (only if not in suspense account mode)
+    if (!suspenseAccount && suspenseAccountDeposits.length > 0) {
+      suspenseAccountDeposits.forEach((deposit) => {
+        const depositDate = deposit.createdAt ? dayjs(deposit.createdAt) : dayjs();
+        const monthKey = depositDate.format('YYYY-MM');
+        const monthLabel = depositDate.format('MMMM YYYY');
+        
+        if (!grouped[monthKey]) {
+          grouped[monthKey] = {
+            label: monthLabel,
+            deposits: [],
+            totalAmount: 0,
+            totalRemaining: 0,
+            totalUsed: 0,
+            suspenseTotalAmount: 0,
+            suspenseTotalRemaining: 0,
+            suspenseTotalUsed: 0
+          };
+        }
+        
+        grouped[monthKey].suspenseTotalAmount += deposit.amount || 0;
+        grouped[monthKey].suspenseTotalRemaining += deposit.remainingAmount || 0;
+        grouped[monthKey].suspenseTotalUsed += deposit.totalUsed || 0;
+      });
+    }
+    
     // Sort months in descending order (newest first)
     return Object.entries(grouped)
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([key, value]) => ({ key, ...value }));
-  }, [filteredDeposits]);
+  }, [filteredDeposits, suspenseAccountDeposits, suspenseAccount]);
 
   const toggleMonth = useCallback((monthKey) => {
     setExpandedMonths(prev => {
@@ -525,12 +561,9 @@ export const useDeposits = (options = {}) => {
       const [year, month] = monthKey.split('-').map(Number);
       const startDate = dayjs().year(year).month(month - 1).startOf('month').format('YYYY-MM-DD');
       const endDate = dayjs().year(year).month(month - 1).endOf('month').format('YYYY-MM-DD');
-      const response = await fetchAllDeposits({
-        page: 1,
-        limit: 10000,
-        startDate,
-        endDate
-      });
+      const params = { page: 1, limit: 10000, startDate, endDate };
+      if (suspenseAccount) params.suspenseAccount = 'true';
+      const response = await fetchAllDeposits(params);
       const allDeposits = response.data?.data?.deposits || [];
       const headers = [
         'Date',
@@ -569,7 +602,7 @@ export const useDeposits = (options = {}) => {
     } finally {
       setExportingMonthKey(null);
     }
-  }, []);
+  }, [suspenseAccount]);
 
   return {
     // State
