@@ -1203,8 +1203,10 @@ const TajResidents = () => {
       return;
     }
 
-    if (amountNum > (selectedResident?.balance || 0)) {
-      setError(`Insufficient balance. Current balance: ${formatCurrency(selectedResident?.balance || 0)}`);
+    // For TCM (open invoices): use totalRemainingDeposits when balance may be out of sync with deposits
+    const availableBalance = selectedResident?.totalRemainingDeposits ?? selectedResident?.balance ?? 0;
+    if (amountNum > availableBalance) {
+      setError(`Insufficient balance. Current balance: ${formatCurrency(availableBalance)}`);
       return;
     }
 

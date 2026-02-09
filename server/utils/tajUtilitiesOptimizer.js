@@ -296,6 +296,7 @@ module.exports = {
     RENTAL_AGREEMENTS_LIST: 'taj_utilities_rental_agreements_list',
     UNASSIGNED_PROPERTIES: 'taj_utilities_unassigned_properties',
     INVOICES_OVERVIEW: 'taj_utilities_invoices_overview',
+    OPEN_INVOICES_OVERVIEW: 'taj_utilities_open_invoices_overview',
   }
 };
 

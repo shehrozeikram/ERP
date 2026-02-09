@@ -1355,18 +1355,60 @@ router.post(
     const balanceBefore = resident.balance || 0;
     const hasDepositUsages = depositUsages && Array.isArray(depositUsages) && depositUsages.length > 0;
 
-    // When paying from deposits (depositUsages provided), skip resident.balance check:
-    // available funds are computed from deposit transactions (totalRemainingDeposits), which may
-    // exceed stored resident.balance if they were ever out of sync.
+    // When paying from deposits (depositUsages provided), skip resident.balance check.
+    // When resident.balance insufficient: for TCM (open invoice payer), allow if totalRemainingDeposits >= amount.
+    let effectiveBalance = balanceBefore;
+    let autoAllocatedDepositUsages = []; // Used when effectiveBalance allows payment - so Balance column decreases
     if (!hasDepositUsages && balanceBefore < amountNum) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient balance'
-      });
+      const allDeposits = await TajTransaction.find({
+        resident: resident._id,
+        transactionType: 'deposit',
+        $or: [
+          { referenceNumberExternal: { $not: /^REV-/ } },
+          { referenceNumberExternal: { $exists: false } },
+          { referenceNumberExternal: null }
+        ]
+      }).select('amount _id createdAt').lean();
+      const depositIds = allDeposits.map(d => d._id);
+      const depositUsageMap = {};
+      if (depositIds.length > 0) {
+        const usedInPayments = await TajTransaction.find({
+          'depositUsages.depositId': { $in: depositIds },
+          transactionType: 'bill_payment'
+        }).select('depositUsages').lean();
+        usedInPayments.forEach(p => {
+          (p.depositUsages || []).forEach(u => {
+            const depId = u.depositId?._id ? u.depositId._id.toString() : (u.depositId || '').toString();
+            if (depId) depositUsageMap[depId] = (depositUsageMap[depId] || 0) + (u.amount || 0);
+          });
+        });
+      }
+      // Build list of { deposit, remaining } sorted by createdAt (FIFO)
+      const depositsWithRemaining = allDeposits.map(d => {
+        const used = depositUsageMap[d._id.toString()] || 0;
+        const remaining = Math.max(0, (d.amount || 0) - used);
+        return { deposit: d, remaining };
+      }).filter(x => x.remaining > 0).sort((a, b) => (a.deposit.createdAt || 0) - (b.deposit.createdAt || 0));
+      effectiveBalance = depositsWithRemaining.reduce((sum, x) => sum + x.remaining, 0);
+      if (effectiveBalance < amountNum) {
+        return res.status(400).json({
+          success: false,
+          message: 'Insufficient balance'
+        });
+      }
+      // Allocate amountNum across deposits (FIFO) so Balance column decreases correctly
+      let toAllocate = amountNum;
+      for (const { deposit, remaining } of depositsWithRemaining) {
+        if (toAllocate <= 0) break;
+        const use = Math.min(remaining, toAllocate);
+        autoAllocatedDepositUsages.push({ depositId: deposit._id, amount: use });
+        toAllocate -= use;
+      }
     }
 
-    // Deduct from balance; when paying from deposits allow balance to stay at 0 if it was out of sync (never go negative)
-    const balanceAfter = hasDepositUsages
+    // Deduct from balance; when paying from deposits or when effectiveBalance (totalRemainingDeposits) was used, allow balance to stay at 0 if out of sync (never go negative)
+    const usedEffectiveBalance = !hasDepositUsages && balanceBefore < amountNum && effectiveBalance >= amountNum;
+    const balanceAfter = (hasDepositUsages || usedEffectiveBalance)
       ? Math.max(0, balanceBefore - amountNum)
       : balanceBefore - amountNum;
 
@@ -1406,9 +1448,12 @@ router.post(
       transactionData.referenceNumberExternal = bankReference.trim();
     }
     
-    // Add deposit usage tracking if provided
-    if (depositUsages && Array.isArray(depositUsages) && depositUsages.length > 0) {
-      transactionData.depositUsages = depositUsages.map(usage => ({
+    // Add deposit usage tracking - from client or auto-allocated when paying from totalRemainingDeposits (TCM)
+    const finalDepositUsages = hasDepositUsages
+      ? depositUsages
+      : (autoAllocatedDepositUsages.length > 0 ? autoAllocatedDepositUsages : null);
+    if (finalDepositUsages && Array.isArray(finalDepositUsages) && finalDepositUsages.length > 0) {
+      transactionData.depositUsages = finalDepositUsages.map(usage => ({
         depositId: usage.depositId,
         amount: parseFloat(usage.amount) || 0
       })).filter(usage => usage.depositId && usage.amount > 0);
@@ -1487,12 +1532,16 @@ router.post(
           };
           
           invoice.payments.push(paymentEntry);
+          invoice.markModified('payments'); // Ensure Mongoose detects the array change (fixes TCM open invoice balance not updating)
           await invoice.save(); // This will trigger pre-save hook to update totalPaid, balance, and status
 
           // Invalidate invoice caches so Resident Details and Invoices pages show updated status
           clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
           if (invoice.property) {
             clearCached(`${CACHE_KEYS.INVOICES_OVERVIEW}_property_${invoice.property}`);
+          } else {
+            // Open invoices (TCM) - clear open invoices cache
+            clearCached(CACHE_KEYS.OPEN_INVOICES_OVERVIEW);
           }
         }
       } catch (invoiceError) {
@@ -1510,6 +1559,9 @@ router.post(
 
     await transaction.populate('resident', 'name accountType');
     await transaction.populate('createdBy', 'firstName lastName');
+
+    // Invalidate residents cache so Balance column (totalRemainingDeposits) updates for TCM
+    clearCached(CACHE_KEYS.RESIDENTS_LIST);
 
     res.json({
       success: true,

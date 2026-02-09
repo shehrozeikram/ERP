@@ -684,7 +684,7 @@ const OpenInvoices = () => {
                     </Grid>
                     <Grid item xs={12} sm={4}>
                       <TextField
-                        label="Description"
+                        label="Description *"
                         value={charge.description || ''}
                         onChange={(e) => handleInvoiceFieldChange(`charge.${index}.description`, e.target.value)}
                         fullWidth
