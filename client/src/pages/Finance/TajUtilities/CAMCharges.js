@@ -651,33 +651,35 @@ const CAMCharges = () => {
         await Promise.all(
           batch.map(async (property) => {
             try {
-              // Load invoices for this property if not already loaded
-              let invoices = propertyInvoices[property._id];
-              if (!invoices) {
-                try {
-                  const response = await fetchInvoicesForProperty(property._id);
-                  invoices = response.data?.data || [];
-                  setPropertyInvoices(prev => ({
-                    ...prev,
-                    [property._id]: invoices
-                  }));
-                } catch (err) {
-                  console.error(`Error loading invoices for property ${property._id}:`, err);
-                  invoices = [];
-                }
+              // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
+              // Cache can be stale and cause properties to be incorrectly skipped.
+              let invoices = [];
+              try {
+                const response = await fetchInvoicesForProperty(property._id);
+                invoices = response.data?.data || [];
+                setPropertyInvoices(prev => ({
+                  ...prev,
+                  [property._id]: invoices
+                }));
+              } catch (err) {
+                console.error(`Error loading invoices for property ${property._id}:`, err);
               }
 
-              // Check if invoice already exists for this period
-              const invoiceExists = invoices.some((invoice) => {
-                if (!invoice.periodFrom || !invoice.periodTo) return false;
-                const invoicePeriodFrom = dayjs(invoice.periodFrom);
-                const invoicePeriodTo = dayjs(invoice.periodTo);
-                const targetPeriodFrom = dayjs(bulkCreateInvoiceData.periodFrom);
-                const targetPeriodTo = dayjs(bulkCreateInvoiceData.periodTo);
-                return invoicePeriodFrom.isSame(targetPeriodFrom, 'day') && invoicePeriodTo.isSame(targetPeriodTo, 'day');
+              // Only check for CAM invoices - RENT/ELECTRICITY invoices for same period must not skip CAM creation.
+              // Use month overlap (backend duplicate check is month-based).
+              const targetMonthStart = dayjs(bulkCreateInvoiceData.periodFrom).startOf('month');
+              const targetMonthEnd = dayjs(bulkCreateInvoiceData.periodFrom).endOf('month');
+              const camInvoiceExists = invoices.some((invoice) => {
+                if (!invoice?.chargeTypes?.includes('CAM')) return false;
+                const invFrom = invoice.periodFrom ? dayjs(invoice.periodFrom).startOf('day').valueOf() : null;
+                const invTo = invoice.periodTo ? dayjs(invoice.periodTo).endOf('day').valueOf() : null;
+                const start = invFrom ?? invTo;
+                const end = invTo ?? invFrom;
+                if (start == null || end == null) return false;
+                return start <= targetMonthEnd.valueOf() && end >= targetMonthStart.valueOf();
               });
 
-              if (invoiceExists) {
+              if (camInvoiceExists) {
                 skippedCount++;
                 return;
               }

@@ -207,18 +207,23 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
 
       // Create Accounts Receivable entry and post to GL
       try {
-        const property = await TajProperty.findById(invoice.property).populate('resident');
-        if (property && property.resident) {
+        const property = await TajProperty.findById(invoice.property)
+          .populate('resident', 'name email')
+          .populate('rentalAgreement', 'tenantName tenantContact');
+        if (property) {
+          const customerName = property.resident?.name || property.tenantName || property.rentalAgreement?.tenantName || property.address || property.plotNumber || 'Property Tenant';
+          const customerEmail = property.resident?.email || property.tenantEmail || property.rentalAgreement?.tenantContact || '';
+          const customerId = property.resident?._id || property._id;
           await FinanceHelper.createARFromInvoice({
-            customerName: property.resident.name,
-            customerEmail: property.resident.email,
-            customerId: property.resident._id,
+            customerName,
+            customerEmail,
+            customerId,
             invoiceNumber: invoice.invoiceNumber,
             invoiceDate: invoice.invoiceDate,
             dueDate: invoice.dueDate,
             amount: invoice.grandTotal,
             department: 'general',
-            module: 'general',
+            module: 'taj_utilities',
             referenceId: invoice._id,
             charges: invoice.charges,
             createdBy: userId

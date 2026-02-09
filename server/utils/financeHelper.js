@@ -158,27 +158,65 @@ const FinanceHelper = {
 
       const arAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.RECEIVABLE);
       if (arAccount) {
-        const lines = [{ account: arAccount._id, description: `Receivable from ${customerName}`, debit: amount, department }];
+        const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+        const amountRounded = round2(amount);
+        const lines = [{ account: arAccount._id, description: `Receivable from ${customerName}`, debit: amountRounded, department }];
 
         if (charges && charges.length > 0) {
+          const fallbackRev = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.REVENUE_CAM);
+          let sumCredits = 0;
+          const creditLines = [];
+
           for (const charge of charges) {
+            const chargeAmt = round2(charge.total ?? charge.amount ?? 0);
+            if (chargeAmt <= 0) continue;
+
             const revAccountNum = {
               'CAM': FinanceHelper.ACCOUNTS.REVENUE_CAM,
               'ELECTRICITY': FinanceHelper.ACCOUNTS.REVENUE_ELECTRICITY,
               'RENT': FinanceHelper.ACCOUNTS.REVENUE_RENT
-            }[charge.type] || FinanceHelper.ACCOUNTS.REVENUE_CAM;
+            }[String(charge.type || '').toUpperCase()] || FinanceHelper.ACCOUNTS.REVENUE_CAM;
 
-            const revAccount = await FinanceHelper.getAccountByNumber(revAccountNum);
-            if (revAccount) {
-              lines.push({ account: revAccount._id, description: charge.description || `Revenue from ${charge.type}`, credit: charge.total || charge.amount, department });
+            let revAccount = await FinanceHelper.getAccountByNumber(revAccountNum);
+            if (!revAccount) revAccount = fallbackRev;
+            if (!revAccount) continue;
+
+            creditLines.push({
+              account: revAccount._id,
+              description: charge.description || `Revenue from ${charge.type || 'charges'}`,
+              credit: chargeAmt,
+              department
+            });
+            sumCredits += chargeAmt;
+          }
+
+          if (creditLines.length > 0) {
+            const diff = round2(amountRounded - sumCredits);
+            if (Math.abs(diff) > 0.01) {
+              const lastLine = creditLines[creditLines.length - 1];
+              const adjusted = round2(lastLine.credit + diff);
+              if (adjusted > 0) {
+                lastLine.credit = adjusted;
+              } else {
+                creditLines.length = 0;
+              }
+            }
+            if (creditLines.length > 0) {
+              lines.push(...creditLines);
             }
           }
-        } else {
+        }
+
+        if (lines.length === 1) {
           const revAccountNum = options.revenueAccountNum || FinanceHelper.ACCOUNTS.REVENUE_CAM;
           const revAccount = await FinanceHelper.getAccountByNumber(revAccountNum);
           if (revAccount) {
-            lines.push({ account: revAccount._id, description: `Revenue from ${invoiceNumber}`, credit: amount, department });
+            lines.push({ account: revAccount._id, description: `Revenue from ${invoiceNumber}`, credit: amountRounded, department });
           }
+        }
+
+        if (lines.length < 2) {
+          throw new Error('Could not build balanced journal entry: missing revenue account(s)');
         }
 
         await FinanceHelper.createAndPostJournalEntry({
