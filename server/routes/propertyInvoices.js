@@ -9,7 +9,7 @@ const TajTransaction = require('../models/tajResidencia/TajTransaction');
 const { authMiddleware } = require('../middleware/auth');
 const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesHelper');
 const FinanceHelper = require('../utils/financeHelper');
-const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges } = require('../utils/electricityBillHelper');
+const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges, getEffectiveArrearsForInvoice } = require('../utils/electricityBillHelper');
 const dayjs = require('dayjs');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const {
@@ -1808,6 +1808,26 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
       
       return invoiceObj;
     });
+
+    // Add effectiveArrears for electricity invoices (adjusted balance from previous invoices, includes surcharge when overdue)
+    const electricityInvoices = invoicesWithBankInfo.filter(inv => inv.chargeTypes?.includes('ELECTRICITY'));
+    if (electricityInvoices.length > 0) {
+      const effectiveArrearsMap = await Promise.all(
+        electricityInvoices.map(async (inv) => {
+          const effective = await getEffectiveArrearsForInvoice(inv);
+          return [inv._id.toString(), effective];
+        })
+      );
+      const effectiveMap = new Map(effectiveArrearsMap);
+      invoicesWithBankInfo.forEach((inv) => {
+        if (inv.chargeTypes?.includes('ELECTRICITY')) {
+          const effective = effectiveMap.get(inv._id.toString());
+          if (effective !== null && effective !== undefined) {
+            inv.effectiveArrears = effective;
+          }
+        }
+      });
+    }
 
     const response = { success: true, data: invoicesWithBankInfo };
     

@@ -8,6 +8,8 @@ const {
   getElectricitySlabForUnits, 
   calculateElectricityCharges, 
   getPreviousReading,
+  getEffectiveArrearsForInvoice,
+  getDisplayAmountForElectricityInvoice,
   calculateUnitsForDays,
   formatDateString,
   formatMonthString
@@ -298,13 +300,14 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
       property: { $in: propertyIds },
       chargeTypes: { $in: ['ELECTRICITY'] }
     })
-      .select('property electricityBill')
+      .populate('electricityBill', 'meterNo')
+      .select('property electricityBill periodFrom charges grandTotal totalPaid balance dueDate subtotal totalArrears paymentStatus')
       .lean();
     
     // Create a set of electricityBill IDs that have PropertyInvoices
     const electricityBillIdsWithInvoices = new Set();
     electricityInvoices.forEach(invoice => {
-      const elecBillId = invoice.electricityBill?.toString() || invoice.electricityBill;
+      const elecBillId = invoice.electricityBill?._id?.toString() || invoice.electricityBill?.toString() || invoice.electricityBill;
       if (elecBillId) {
         electricityBillIdsWithInvoices.add(elecBillId);
       }
@@ -318,6 +321,34 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
         propertyHasInvoiceMap.set(propId, true);
       }
     });
+    
+    // Compute effective amounts per property (matches invoice history getAdjustedGrandTotal)
+    // Includes 10% surcharge when invoice is overdue and unpaid
+    const propertyEffectiveAmountsMap = new Map(); // propertyId -> { electricityAmount, electricityArrears }
+    await Promise.all(electricityInvoices.map(async (invoice) => {
+      const propId = invoice.property?.toString() || invoice.property;
+      if (!propId) return;
+      const effectiveArrears = await getEffectiveArrearsForInvoice(invoice);
+      const arrears = effectiveArrears ?? 0;
+      const displayAmount = getDisplayAmountForElectricityInvoice(invoice, arrears);
+      const electricityCharges = invoice.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+      const chargesForMonth = electricityCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
+      const GRACE_PERIOD_DAYS = 6;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const dueStart = invoice.dueDate ? new Date(invoice.dueDate) : null;
+      if (dueStart) dueStart.setHours(0, 0, 0, 0);
+      const dueWithGrace = dueStart ? new Date(dueStart) : null;
+      if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+      const isOverdue = dueWithGrace && todayStart > dueWithGrace;
+      const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
+      const surcharge = (isOverdue && isUnpaid) ? Math.max(Math.round(chargesForMonth * 0.1), 0) : 0;
+      const arrearsComponent = arrears + surcharge;
+      const current = propertyEffectiveAmountsMap.get(propId) || { electricityAmount: 0, electricityArrears: 0 };
+      current.electricityAmount += displayAmount;
+      current.electricityArrears += arrearsComponent;
+      propertyEffectiveAmountsMap.set(propId, current);
+    }));
 
     // Calculate totals and prepare property details
     let totalAmount = 0;
@@ -343,9 +374,10 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
               })
             : [];
           
-          // Use totalBill if available, otherwise use amount
-          const propertyAmount = filteredCharges.reduce((sum, charge) => sum + (charge.totalBill || charge.amount || 0), 0);
-          const propertyArrears = filteredCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
+          // Use effective amounts from PropertyInvoice (correct arrears logic) when available
+          const effectiveData = propertyEffectiveAmountsMap.get(propertyIdStr);
+          const propertyAmount = effectiveData ? effectiveData.electricityAmount : filteredCharges.reduce((sum, charge) => sum + (charge.totalBill || charge.amount || 0), 0);
+          const propertyArrears = effectiveData ? effectiveData.electricityArrears : filteredCharges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
           
           // OPTIMIZATION: Calculate payments using centralized utility (only for filtered charges)
           const paymentData = calculatePayments(
@@ -356,7 +388,8 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           const { allPayments } = paymentData;
           
           // Recalculate payment status based on total electricity amount
-          const totalElectricityAmount = propertyAmount + propertyArrears;
+          // When using effectiveData, propertyAmount already includes arrears; otherwise add them
+          const totalElectricityAmount = effectiveData ? propertyAmount : propertyAmount + propertyArrears;
           let finalPaymentStatus = 'unpaid';
           if (paymentData.totalPaid >= totalElectricityAmount && totalElectricityAmount > 0) {
             finalPaymentStatus = 'paid';
@@ -371,7 +404,9 @@ router.get('/current-overview', authMiddleware, async (req, res) => {
           });
           }
           
-          totalAmount += propertyAmount;
+          // totalAmount = charges, totalArrears = arrears; when effectiveData, propertyAmount = total payable
+          const propertyCharges = effectiveData ? propertyAmount - propertyArrears : propertyAmount;
+          totalAmount += propertyCharges;
           totalArrears += propertyArrears;
 
           // Get last reading for this property

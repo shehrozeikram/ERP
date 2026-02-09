@@ -142,21 +142,23 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const unitsConsumed = calcData.unitsConsumed !== undefined ? calcData.unitsConsumed : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
   const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
   
-  // Get arrears from multiple sources - prioritize invoice charge data, then calculation data, then electricity bill, then invoice totalArrears
+  // Arrears: prefer effectiveArrears (adjusted balance from previous invoices including 10% surcharge when overdue)
   let arrears = 0;
-  if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
+  if (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null) {
+    arrears = invoice.effectiveArrears;
+  } else if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
     arrears = electricityCharge.arrears;
   } else if (invoice.totalArrears !== undefined && invoice.totalArrears !== null) {
     arrears = invoice.totalArrears;
   } else if (calcData.previousArrears !== undefined && calcData.previousArrears !== null) {
     arrears = calcData.previousArrears;
-  } else if (electricityBill.arrears !== undefined && electricityBill.arrears !== null) {
-    arrears = electricityBill.arrears;
   }
   
   const amountReceived = electricityBill.receivedAmount || 0;
   const totalPaid = invoice.totalPaid || amountReceived || 0;
-  const grandTotal = invoice.grandTotal || (totalBill + arrears);
+  const grandTotal = (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null)
+    ? (totalBill + arrears)
+    : (invoice.grandTotal || (totalBill + arrears));
   const payableWithinDueDate = totalBill + arrears - amountReceived;
   // Late payment surcharge is 10% of "Charges for the Month" (totalBill), then added to arrears
   const latePaymentSurcharge = Math.max(Math.round(totalBill * 0.1), 0);

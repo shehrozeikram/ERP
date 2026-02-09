@@ -1521,10 +1521,18 @@ const Electricity = () => {
   };
 
   // Helper function to calculate adjusted grandTotal for overdue unpaid invoices
+  // Uses effectiveArrears when available (corrected from previous invoice balance with surcharge)
   const getAdjustedGrandTotal = (invoice) => {
     if (!invoice) return 0;
     
-    // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
+    let chargesForMonth = invoice.subtotal || 0;
+    if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
+      const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
+      if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
+    }
+    const arrears = invoice.effectiveArrears ?? invoice.totalArrears ?? 0;
+    const baseAmount = chargesForMonth + arrears;
+    
     const GRACE_PERIOD_DAYS = 6;
     const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -1533,30 +1541,12 @@ const Electricity = () => {
     const isOverdue = dueWithGrace && todayStart > dueWithGrace;
     const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
     
-    // If not overdue or already paid, return original grandTotal
     if (!isOverdue || !isUnpaid) {
-      return invoice.grandTotal || 0;
+      return invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null ? baseAmount : (invoice.grandTotal || baseAmount);
     }
     
-    // Calculate late payment surcharge (10% of charges for the month)
-    let chargesForMonth = invoice.subtotal || 0;
-    
-    // If invoice has charges array, sum up the amount (not arrears) for each charge
-    if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
-      const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-      if (totalChargesAmount > 0) {
-        chargesForMonth = totalChargesAmount;
-      }
-    }
-    
-    // Calculate late payment surcharge
     const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-    
-    // Calculate original grandTotal (without surcharge)
-    const originalGrandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0));
-    
-    // Return adjusted grandTotal (original + surcharge)
-    return originalGrandTotal + latePaymentSurcharge;
+    return baseAmount + latePaymentSurcharge;
   };
 
   const handleOpenPaymentDialog = (property) => {
