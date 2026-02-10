@@ -20,6 +20,9 @@ export const deleteResident = (id) =>
 export const fetchResidentTransactions = (id, params = {}) =>
   api.get(`${base}/${id}/transactions`, { params });
 
+export const fetchResidentLedger = (residentId) =>
+  api.get(`${base}/ledger`, { params: { residentId } });
+
 export const depositMoney = (id, data) =>
   api.post(`${base}/${id}/deposit`, data);
 

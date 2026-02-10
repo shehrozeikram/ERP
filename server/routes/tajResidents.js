@@ -259,6 +259,119 @@ router.get('/unassigned-properties', authMiddleware, asyncHandler(async (req, re
   res.json(response);
 }));
 
+// Get resident ledger (invoices, deposits, payments, transactions) - supports residentId or MongoDB _id
+router.get('/ledger', authMiddleware, asyncHandler(async (req, res) => {
+  const { residentId: residentIdParam } = req.query;
+  if (!residentIdParam || String(residentIdParam).trim() === '') {
+    return res.status(400).json({ success: false, message: 'Resident ID is required' });
+  }
+
+  const id = String(residentIdParam).trim();
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+
+  let resident = null;
+  if (isObjectId) {
+    resident = await TajResident.findById(id)
+      .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+      .lean();
+  }
+  if (!resident) {
+    resident = await TajResident.findOne({ residentId: id })
+      .populate('properties', 'propertyName plotNumber sector block fullAddress ownerName')
+      .lean();
+  }
+  if (!resident) {
+    return res.status(404).json({ success: false, message: 'Resident not found' });
+  }
+
+  const residentMongoId = resident._id;
+
+  // Get all properties for this resident (both from resident.properties and TajProperty.resident)
+  const propertyIdsFromResident = (resident.properties || []).map(p => (typeof p === 'object' ? p._id : p));
+  const propertiesByResident = await TajProperty.find({ resident: residentMongoId }).select('_id').lean();
+  const propertyIdsFromProps = propertiesByResident.map(p => p._id);
+  const allPropertyIds = [...new Set([...propertyIdsFromResident.map(String), ...propertyIdsFromProps.map(String)])];
+
+  // Fetch invoices for these properties
+  const invoices = allPropertyIds.length > 0
+    ? await PropertyInvoice.find({
+        property: { $in: allPropertyIds },
+        status: { $ne: 'Cancelled' }
+      })
+        .select('invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance paymentStatus status')
+        .populate('property', 'propertyName plotNumber sector')
+        .sort({ periodTo: -1, invoiceDate: -1 })
+        .limit(200)
+        .lean()
+    : [];
+
+  // Fetch all transactions (deposits, payments, bill_payment, withdraw, transfer)
+  const transactions = await TajTransaction.find({ resident: residentMongoId })
+    .populate('depositUsages.depositId', 'amount referenceNumberExternal createdAt')
+    .populate('targetResident', 'name residentId')
+    .populate('createdBy', 'firstName lastName')
+    .sort({ createdAt: -1 })
+    .limit(300)
+    .lean();
+
+  // Calculate remaining amounts for deposits
+  const allDeposits = await TajTransaction.find({
+    resident: residentMongoId,
+    transactionType: 'deposit',
+    $or: [
+      { referenceNumberExternal: { $not: /^REV-/ } },
+      { referenceNumberExternal: { $exists: false } },
+      { referenceNumberExternal: null }
+    ]
+  }).select('_id amount').lean();
+
+  const depositIds = allDeposits.map(d => d._id);
+  const depositUsageMap = {};
+  if (depositIds.length > 0) {
+    const payments = await TajTransaction.find({
+      resident: residentMongoId,
+      transactionType: 'bill_payment',
+      'depositUsages.depositId': { $in: depositIds }
+    }).select('depositUsages').lean();
+    payments.forEach(p => {
+      (p.depositUsages || []).forEach(u => {
+        const did = u.depositId?.toString?.() || u.depositId;
+        if (did) depositUsageMap[did] = (depositUsageMap[did] || 0) + (u.amount || 0);
+      });
+    });
+  }
+
+  const transactionsWithRemaining = transactions.map(t => {
+    const txn = { ...t };
+    if (t.transactionType === 'deposit') {
+      const totalUsed = depositUsageMap[t._id.toString()] || 0;
+      txn.remainingAmount = Math.max(0, (t.amount || 0) - totalUsed);
+      txn.totalUsed = totalUsed;
+    }
+    return txn;
+  });
+
+  res.json({
+    success: true,
+    data: {
+      resident: {
+        _id: resident._id,
+        residentId: resident.residentId,
+        name: resident.name,
+        accountType: resident.accountType,
+        cnic: resident.cnic,
+        contactNumber: resident.contactNumber,
+        email: resident.email,
+        address: resident.address,
+        balance: resident.balance ?? 0,
+        properties: resident.properties
+      },
+      invoices,
+      transactions: transactionsWithRemaining
+    }
+  });
+}));
+
 // Get resident by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   const resident = await TajResident.findById(req.params.id)

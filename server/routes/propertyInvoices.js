@@ -1689,6 +1689,101 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
   }
 }));
 
+// Get month-wise reports (invoices, arrears, payments received)
+router.get('/reports', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const { startMonth, endMonth, chargeType } = req.query;
+    const now = dayjs();
+    const defaultStart = now.subtract(12, 'month');
+    const start = startMonth ? dayjs(startMonth + '-01') : defaultStart.startOf('month');
+    const end = endMonth ? dayjs(endMonth + '-01').endOf('month') : now.endOf('month');
+
+    const filter = { status: { $ne: 'Cancelled' } };
+
+    // chargeType: all | CAM | ELECTRICITY | RENT | OPEN_INVOICE | Mixed
+    if (chargeType && chargeType !== 'all') {
+      if (chargeType === 'OPEN_INVOICE') {
+        filter.property = null;
+      } else if (chargeType === 'Mixed') {
+        filter.$expr = { $gt: [{ $size: { $ifNull: ['$chargeTypes', []] } }, 1] };
+      } else {
+        filter.chargeTypes = { $in: [chargeType] };
+      }
+    }
+
+    const invoices = await PropertyInvoice.find(filter)
+      .select('periodFrom periodTo invoiceDate charges chargeTypes subtotal totalArrears grandTotal payments property')
+      .lean();
+
+    const monthMap = {};
+    let m = start.startOf('month');
+    while (m.isBefore(end) || m.isSame(end, 'month')) {
+      const key = m.format('YYYY-MM');
+      monthMap[key] = {
+        month: key,
+        monthLabel: m.format('MMM YYYY'),
+        invoiceAmount: 0,
+        arrears: 0,
+        paymentsReceived: 0,
+        invoiceCount: 0
+      };
+      m = m.add(1, 'month');
+    }
+
+    const monthStart = start.toDate();
+    const monthEnd = end.toDate();
+
+    for (const inv of invoices) {
+      const periodTo = inv.periodTo ? new Date(inv.periodTo) : (inv.invoiceDate ? new Date(inv.invoiceDate) : null);
+      const invMonthDate = periodTo || (inv.invoiceDate ? new Date(inv.invoiceDate) : null);
+      if (!invMonthDate || invMonthDate < monthStart || invMonthDate > monthEnd) continue;
+
+      const invMonth = dayjs(invMonthDate).format('YYYY-MM');
+      if (!monthMap[invMonth]) continue;
+
+      const subtotal = inv.subtotal ?? (inv.charges?.reduce((s, c) => s + (c.amount || 0), 0) ?? 0);
+      const totalArrears = inv.totalArrears ?? 0;
+
+      monthMap[invMonth].invoiceAmount += subtotal;
+      monthMap[invMonth].arrears += totalArrears;
+      monthMap[invMonth].invoiceCount += 1;
+    }
+
+    for (const inv of invoices) {
+      const payments = inv.payments || [];
+      for (const p of payments) {
+        const payDate = p.paymentDate ? new Date(p.paymentDate) : null;
+        if (!payDate || payDate < monthStart || payDate > monthEnd) continue;
+        const payMonth = dayjs(payDate).format('YYYY-MM');
+        if (monthMap[payMonth]) {
+          monthMap[payMonth].paymentsReceived += p.amount || 0;
+        }
+      }
+    }
+
+    const byMonth = Object.keys(monthMap)
+      .sort()
+      .map((k) => monthMap[k]);
+
+    const totals = {
+      invoiceAmount: byMonth.reduce((s, r) => s + r.invoiceAmount, 0),
+      arrears: byMonth.reduce((s, r) => s + r.arrears, 0),
+      paymentsReceived: byMonth.reduce((s, r) => s + r.paymentsReceived, 0),
+      invoiceCount: byMonth.reduce((s, r) => s + r.invoiceCount, 0)
+    };
+
+    res.json({
+      success: true,
+      data: {
+        byMonth,
+        totals
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get invoice by ID
 router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
   try {

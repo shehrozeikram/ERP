@@ -20,6 +20,9 @@ export const fetchInvoicesForProperty = (propertyId) =>
 export const fetchAllInvoices = (params = {}) =>
   api.get(base, { params });
 
+export const fetchReports = (params = {}) =>
+  api.get(`${base}/reports`, { params });
+
 export const updateInvoice = (invoiceId, data) =>
   api.put(`${base}/${invoiceId}`, data);
 
@@ -67,6 +70,7 @@ const propertyInvoiceService = {
   fetchInvoice,
   fetchInvoicesForProperty,
   fetchAllInvoices,
+  fetchReports,
   updateInvoice,
   deleteInvoice,
   deletePaymentFromInvoice,

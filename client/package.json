@@ -16,6 +16,7 @@
     "date-fns": "^2.30.0",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
+    "exceljs": "^4.4.0",
     "formik": "^2.4.5",
     "http-proxy-middleware": "^3.0.5",
     "jspdf": "^3.0.3",
