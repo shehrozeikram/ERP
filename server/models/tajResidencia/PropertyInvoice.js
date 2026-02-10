@@ -208,7 +208,7 @@ propertyInvoiceSchema.pre('save', function(next) {
   // Calculate total paid
   this.totalPaid = (this.payments || []).reduce((sum, payment) => sum + (payment.amount || 0), 0);
   
-  // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
+  // Check if invoice is overdue (after due date + 6-day grace period ends) and unpaid/partially paid
   const GRACE_PERIOD_DAYS = 6;
   const now = new Date();
   const todayStart = new Date(now);
@@ -220,9 +220,26 @@ propertyInvoiceSchema.pre('save', function(next) {
   const isOverdue = dueWithGrace && todayStart > dueWithGrace;
   const isUnpaid = this.paymentStatus === 'unpaid' || this.paymentStatus === 'partial_paid' || this.totalPaid < this.grandTotal;
   
-  // Calculate late payment surcharge if overdue and unpaid
+  // Check if any payments were made within the grace period
+  const baseAmount = (this.subtotal || 0) + (this.totalArrears || 0);
+  let paidWithinGracePeriod = false;
+  if (this.payments && Array.isArray(this.payments) && this.payments.length > 0 && dueWithGrace) {
+    const paymentsWithinGrace = this.payments.filter(p => {
+      if (!p.paymentDate) return false;
+      const paymentDateStart = new Date(p.paymentDate);
+      paymentDateStart.setHours(0, 0, 0, 0);
+      return paymentDateStart <= dueWithGrace;
+    });
+    const totalPaidWithinGrace = paymentsWithinGrace.reduce((sum, p) => sum + (p.amount || 0), 0);
+    // If payments within grace period cover the base amount, no surcharge should apply
+    if (totalPaidWithinGrace >= baseAmount) {
+      paidWithinGracePeriod = true;
+    }
+  }
+  
+  // Calculate late payment surcharge if overdue, unpaid, AND no payment was made within grace period
   let latePaymentSurcharge = 0;
-  if (isOverdue && isUnpaid) {
+  if (isOverdue && isUnpaid && !paidWithinGracePeriod) {
     // Calculate surcharge based on charges for the month (not including arrears)
     // 10% of charges for the month
     const chargesForMonth = this.subtotal || 0;

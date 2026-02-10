@@ -4,14 +4,18 @@ import dayjs from 'dayjs';
 
 // Configurable layout (adjustable)
 const PDF_CONFIG = {
-  margin: 14,
-  fontSize: 10,
-  fontSizeSmall: 8,
-  fontSizeTitle: 16,
-  fontSizeSection: 12,
-  lineHeight: 6,
-  sectionSpacing: 8,
-  tableRowHeight: 6
+  margin: 10,
+  fontSize: 9,
+  fontSizeSmall: 7,
+  fontSizeTable: 6, // Smaller font for tables
+  fontSizeTitle: 14,
+  fontSizeSection: 10,
+  lineHeight: 4,
+  sectionSpacing: 4,
+  tableRowHeight: 4,
+  textColor: [0, 0, 0], // Black text
+  headerFillColor: [200, 200, 200], // Darker grey for headers
+  footerFillColor: [220, 220, 220] // Medium grey for footer/totals
 };
 
 const formatDate = (d, format = 'DD MMM YYYY') => (d ? dayjs(d).format(format) : '—');
@@ -51,6 +55,9 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
 
   const contactStr = [resident.contactNumber, resident.email].filter(Boolean).join(' • ') || '—';
   const sectorVal = resident.properties?.[0]?.sector?.name ?? resident.properties?.[0]?.sector ?? '—';
+  
+  // Calculate total outstanding balance from all invoices
+  const totalOutstandingBalance = invoices.reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
 
   const checkNewPage = (requiredSpace = 20) => {
     if (y + requiredSpace > pageHeight - margin) {
@@ -59,11 +66,14 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
     }
   };
 
+  // Set default text color
+  pdf.setTextColor(...PDF_CONFIG.textColor);
+
   // Title
   pdf.setFontSize(PDF_CONFIG.fontSizeTitle);
   pdf.setFont('helvetica', 'bold');
-  pdf.text('Resident Ledger Statement', margin, y);
-  y += 8;
+  pdf.text('Resident Ledger', margin, y);
+  y += 5;
 
   pdf.setFontSize(PDF_CONFIG.fontSizeSmall);
   pdf.setFont('helvetica', 'normal');
@@ -71,84 +81,128 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
   y += PDF_CONFIG.sectionSpacing;
 
   // Resident Information box
-  checkNewPage(45);
-  pdf.setDrawColor(180, 180, 180);
-  pdf.setLineWidth(0.3);
-  const infoBoxHeight = 38;
+  pdf.setDrawColor(100, 100, 100);
+  pdf.setLineWidth(0.5);
+  const infoBoxHeight = 30;
   pdf.rect(margin, y, pageWidth - 2 * margin, infoBoxHeight);
   pdf.setFontSize(PDF_CONFIG.fontSizeSection);
   pdf.setFont('helvetica', 'bold');
-  pdf.text('Resident Information', margin + 2, y + 6);
+  pdf.text('Resident Information', margin + 2, y + 5);
+  
+  // Use vertical layout: label on top, value below
   pdf.setFontSize(PDF_CONFIG.fontSizeSmall);
-  pdf.setFont('helvetica', 'normal');
-
   const col1 = margin + 2;
-  const col2 = margin + 55;
-  const col3 = margin + 108;
-  const row1 = y + 12;
-  const row2 = y + 22;
-  const row3 = y + 32;
-
+  const col2 = margin + 28;
+  const col3 = margin + 68;
+  const col4 = margin + 108;
+  const col5 = margin + 148;
+  
+  let rowY = y + 10;
+  
+  // Row 1: Resident ID, CNIC, Contact, Sector, Balance
   pdf.setFont('helvetica', 'bold');
-  pdf.text('Resident ID:', col1, row1);
-  pdf.text('Name:', col1, row2);
-  pdf.text('CNIC:', col1, row3);
-  pdf.text('Contact:', col2, row1);
-  pdf.text('Address:', col2, row2);
-  pdf.text('Sector:', col2, row3);
-  pdf.text('Balance:', col3, row1);
+  pdf.text('Resident ID', col1, rowY);
+  pdf.text('CNIC', col2, rowY);
+  pdf.text('Contact', col3, rowY);
+  pdf.text('Sector', col4, rowY);
+  pdf.text('Balance', col5, rowY);
+  
+  rowY += 3.5;
   pdf.setFont('helvetica', 'normal');
-  pdf.text(String(resident.residentId || '—'), col1 + 22, row1);
-  pdf.text(String(resident.name || '—').substring(0, 28), col1 + 14, row2);
-  pdf.text(String(resident.cnic || '—').substring(0, 22), col1 + 12, row3);
-  pdf.text(String(contactStr).substring(0, 32), col2 + 18, row1);
-  pdf.text(String(resident.address || '—').substring(0, 38), col2 + 18, row2);
-  pdf.text(String(sectorVal).substring(0, 20), col2 + 16, row3);
-  pdf.text(`PKR ${formatAmount(resident.balance)}`, col3 + 18, row1);
+  pdf.text(String(resident.residentId || '—').substring(0, 12), col1, rowY);
+  pdf.text(String(resident.cnic || '—').substring(0, 18), col2, rowY);
+  pdf.text(String(contactStr).substring(0, 18), col3, rowY);
+  pdf.text(String(sectorVal).substring(0, 18), col4, rowY);
+  pdf.text(`PKR ${formatAmount(totalOutstandingBalance)}`, col5, rowY);
+  
+  // Row 2: Name, Address (full width for these longer fields)
+  rowY += 6.5;
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Name', col1, rowY);
+  pdf.text('Address', pageWidth / 2, rowY);
+  
+  rowY += 3.5;
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(String(resident.name || '—').substring(0, 45), col1, rowY);
+  pdf.text(String(resident.address || '—').substring(0, 65), pageWidth / 2, rowY);
 
   y += infoBoxHeight + PDF_CONFIG.sectionSpacing;
 
-  const invoiceTableHead = [['Invoice Date', 'Invoice No', 'Due Date', 'Period', 'Invoice Amount', 'Arrears', 'Amount Due', 'Balance']];
+  const invoiceTableHead = [['Invoice Date', 'Invoice No', 'Due Date', 'Period From', 'Period To', 'Invoice Amount', 'Arrears', 'Amount Due', 'Balance']];
 
   const addInvoiceTable = (sectionTitle, list) => {
-    checkNewPage(25);
     pdf.setFontSize(PDF_CONFIG.fontSizeSection);
     pdf.setFont('helvetica', 'bold');
     pdf.text(sectionTitle, margin, y);
-    y += 6;
+    y += 4;
 
     const body = list.length === 0
-      ? [['No records', '', '', '', '', '', '', '']]
+      ? [['No records', '', '', '', '', '', '', '', '']]
       : list.map(inv => [
           formatDate(inv.invoiceDate),
-          String(inv.invoiceNumber || '—').substring(0, 14),
+          String(inv.invoiceNumber || '—'),
           formatDate(inv.dueDate),
-          inv.periodFrom && inv.periodTo
-            ? `${dayjs(inv.periodFrom).format('DD MMM YY')} - ${dayjs(inv.periodTo).format('DD MMM YY')}`
-            : inv.periodTo ? dayjs(inv.periodTo).format('MMM YYYY') : '—',
+          inv.periodFrom ? formatDate(inv.periodFrom, 'DD MMM YY') : '—',
+          inv.periodTo ? formatDate(inv.periodTo, 'DD MMM YY') : '—',
           formatAmount(inv.subtotal),
           formatAmount(inv.totalArrears),
           formatAmount(inv.grandTotal),
           formatAmount(inv.balance)
         ]);
 
+    // Calculate totals
+    let foot = [];
+    if (list.length > 0) {
+      const totalInvoiceAmount = list.reduce((sum, inv) => sum + (Number(inv.subtotal) || 0), 0);
+      const totalArrears = list.reduce((sum, inv) => sum + (Number(inv.totalArrears) || 0), 0);
+      const totalAmountDue = list.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
+      const totalBalance = list.reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
+      
+      foot = [[
+        '', '', '', '', 'Total:',
+        formatAmount(totalInvoiceAmount),
+        formatAmount(totalArrears),
+        formatAmount(totalAmountDue),
+        formatAmount(totalBalance)
+      ]];
+    }
+
     autoTable(pdf, {
       startY: y,
       head: invoiceTableHead,
       body,
+      foot,
       margin: { left: margin, right: margin },
       theme: 'grid',
-      styles: { fontSize: PDF_CONFIG.fontSizeSmall },
-      headStyles: { fillColor: [220, 220, 220], fontStyle: 'bold' },
+      styles: { 
+        fontSize: PDF_CONFIG.fontSizeTable,
+        textColor: PDF_CONFIG.textColor,
+        lineColor: [100, 100, 100],
+        lineWidth: 0.2,
+        cellPadding: 1.5
+      },
+      headStyles: { 
+        fillColor: PDF_CONFIG.headerFillColor, 
+        fontStyle: 'bold',
+        textColor: [0, 0, 0],
+        fontSize: PDF_CONFIG.fontSizeTable
+      },
+      footStyles: { 
+        fillColor: PDF_CONFIG.footerFillColor, 
+        fontStyle: 'bold',
+        textColor: [0, 0, 0],
+        fontSize: PDF_CONFIG.fontSizeTable
+      },
       columnStyles: {
-        0: { cellWidth: 22 },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 22, halign: 'right' },
-        5: { cellWidth: 18, halign: 'right' },
-        6: { cellWidth: 22, halign: 'right' },
-        7: { cellWidth: 20, halign: 'right' }
+        0: { cellWidth: 20 },
+        1: { cellWidth: 30 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 21, halign: 'right' },
+        6: { cellWidth: 17, halign: 'right' },
+        7: { cellWidth: 23, halign: 'right' },
+        8: { cellWidth: 23, halign: 'right' }
       }
     });
     y = pdf.lastAutoTable.finalY + PDF_CONFIG.sectionSpacing;
@@ -161,17 +215,18 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
     addInvoiceTable('Other / Mixed', otherInvoices);
   }
 
-  // Transactions
-  checkNewPage(25);
+  // Transactions (only deposits)
+  const depositTransactions = transactions.filter(t => t.transactionType === 'deposit');
+  
   pdf.setFontSize(PDF_CONFIG.fontSizeSection);
   pdf.setFont('helvetica', 'bold');
   pdf.text('Transactions', margin, y);
-  y += 6;
+  y += 4;
 
   const txnHead = [['Date', 'Type', 'Description', 'Amount', 'Ref']];
-  const txnBody = transactions.length === 0
+  const txnBody = depositTransactions.length === 0
     ? [['No transactions', '', '', '', '']]
-    : transactions.map(t => {
+    : depositTransactions.map(t => {
         const diff = (t.balanceAfter ?? 0) - (t.balanceBefore ?? 0);
         const sign = diff >= 0 ? '+' : '-';
         const typeLabel = (t.transactionType || '').replace('_', ' ');
@@ -190,8 +245,18 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
     body: txnBody,
     margin: { left: margin, right: margin },
     theme: 'grid',
-    styles: { fontSize: PDF_CONFIG.fontSizeSmall },
-    headStyles: { fillColor: [220, 220, 220], fontStyle: 'bold' },
+    styles: { 
+      fontSize: PDF_CONFIG.fontSizeSmall,
+      textColor: PDF_CONFIG.textColor,
+      lineColor: [100, 100, 100],
+      lineWidth: 0.2,
+      cellPadding: 1.5
+    },
+    headStyles: { 
+      fillColor: PDF_CONFIG.headerFillColor, 
+      fontStyle: 'bold',
+      textColor: [0, 0, 0]
+    },
     columnStyles: {
       0: { cellWidth: 24 },
       1: { cellWidth: 22 },

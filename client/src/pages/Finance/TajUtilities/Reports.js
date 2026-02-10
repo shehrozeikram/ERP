@@ -469,47 +469,54 @@ const TajUtilitiesReports = () => {
               </Stack>
 
               {/* Resident Information (as per sketch) */}
-              <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
-                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
-                  Resident Information
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">Resident ID</Typography>
-                    <Typography variant="body2" fontWeight={500}>{ledger.resident?.residentId || '—'}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">Name</Typography>
-                    <Typography variant="body2" fontWeight={500}>{ledger.resident?.name || '—'}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">CNIC</Typography>
-                    <Typography variant="body2" fontWeight={500}>{ledger.resident?.cnic || '—'}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">Contact</Typography>
-                    <Typography variant="body2" fontWeight={500}>
-                      {[ledger.resident?.contactNumber, ledger.resident?.email].filter(Boolean).join(' • ') || '—'}
+              {(() => {
+                // Calculate total outstanding balance from all invoices
+                const totalOutstandingBalance = (ledger.invoices || []).reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
+                
+                return (
+                  <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                      Resident Information
                     </Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">Address</Typography>
-                    <Typography variant="body2" fontWeight={500}>{ledger.resident?.address || '—'}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">Sector</Typography>
-                    <Typography variant="body2" fontWeight={500}>
-                      {ledger.resident?.properties?.[0]?.sector?.name ?? ledger.resident?.properties?.[0]?.sector ?? '—'}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="caption" color="text.secondary" display="block">Balance</Typography>
-                    <Typography variant="body2" fontWeight={600} color="primary.main">
-                      {formatCurrency(ledger.resident?.balance)}
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </Paper>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Resident ID</Typography>
+                        <Typography variant="body2" fontWeight={500}>{ledger.resident?.residentId || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Name</Typography>
+                        <Typography variant="body2" fontWeight={500}>{ledger.resident?.name || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">CNIC</Typography>
+                        <Typography variant="body2" fontWeight={500}>{ledger.resident?.cnic || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Contact</Typography>
+                        <Typography variant="body2" fontWeight={500}>
+                          {[ledger.resident?.contactNumber, ledger.resident?.email].filter(Boolean).join(' • ') || '—'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Address</Typography>
+                        <Typography variant="body2" fontWeight={500}>{ledger.resident?.address || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Sector</Typography>
+                        <Typography variant="body2" fontWeight={500}>
+                          {ledger.resident?.properties?.[0]?.sector?.name ?? ledger.resident?.properties?.[0]?.sector ?? '—'}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={4}>
+                        <Typography variant="caption" color="text.secondary" display="block">Balance</Typography>
+                        <Typography variant="body2" fontWeight={600} color="primary.main">
+                          {formatCurrency(totalOutstandingBalance)}
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                );
+              })()}
 
               {/* Partition invoices by charge type */}
               {(() => {
@@ -530,52 +537,68 @@ const TajUtilitiesReports = () => {
                   return !['CAM', 'ELECTRICITY', 'RENT'].includes(types[0]);
                 });
 
-                const ledgerTable = (title, list) => (
-                  <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow sx={{ bgcolor: 'action.hover' }}>
-                          <TableCell><strong>Invoice Date</strong></TableCell>
-                          <TableCell><strong>Invoice No</strong></TableCell>
-                          <TableCell><strong>Due Date</strong></TableCell>
-                          <TableCell><strong>Period</strong></TableCell>
-                          <TableCell align="right"><strong>Invoice Amount</strong></TableCell>
-                          <TableCell align="right"><strong>Arrears</strong></TableCell>
-                          <TableCell align="right"><strong>Amount Due</strong></TableCell>
-                          <TableCell align="right"><strong>Balance</strong></TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {list.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={8} align="center" sx={{ py: 2 }}>
-                              <Typography variant="body2" color="text.secondary">No records</Typography>
-                            </TableCell>
+                const ledgerTable = (title, list) => {
+                  const totalInvoiceAmount = list.reduce((sum, inv) => sum + (Number(inv.subtotal) || 0), 0);
+                  const totalArrears = list.reduce((sum, inv) => sum + (Number(inv.totalArrears) || 0), 0);
+                  const totalAmountDue = list.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
+                  const totalBalance = list.reduce((sum, inv) => sum + (Number(inv.balance) || 0), 0);
+
+                  return (
+                    <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'action.hover' }}>
+                            <TableCell><strong>Invoice Date</strong></TableCell>
+                            <TableCell><strong>Invoice No</strong></TableCell>
+                            <TableCell><strong>Due Date</strong></TableCell>
+                            <TableCell><strong>Period From</strong></TableCell>
+                            <TableCell><strong>Period To</strong></TableCell>
+                            <TableCell align="right"><strong>Invoice Amount</strong></TableCell>
+                            <TableCell align="right"><strong>Arrears</strong></TableCell>
+                            <TableCell align="right"><strong>Amount Due</strong></TableCell>
+                            <TableCell align="right"><strong>Balance</strong></TableCell>
                           </TableRow>
-                        ) : (
-                          list.map((inv) => (
-                            <TableRow key={inv._id}>
-                              <TableCell>{inv.invoiceDate ? dayjs(inv.invoiceDate).format('DD MMM YYYY') : '—'}</TableCell>
-                              <TableCell>{inv.invoiceNumber}</TableCell>
-                              <TableCell>{inv.dueDate ? dayjs(inv.dueDate).format('DD MMM YYYY') : '—'}</TableCell>
-                              <TableCell>
-                                {inv.periodFrom && inv.periodTo
-                                  ? `${dayjs(inv.periodFrom).format('DD MMM YY')} - ${dayjs(inv.periodTo).format('DD MMM YY')}`
-                                  : inv.periodTo ? dayjs(inv.periodTo).format('MMM YYYY') : '—'}
-                              </TableCell>
-                              <TableCell align="right">{formatCurrency(inv.subtotal)}</TableCell>
-                              <TableCell align="right" sx={{ color: 'warning.main' }}>{formatCurrency(inv.totalArrears)}</TableCell>
-                              <TableCell align="right">{formatCurrency(inv.grandTotal)}</TableCell>
-                              <TableCell align="right" sx={{ color: (inv.balance || 0) > 0 ? 'warning.main' : 'text.primary' }}>
-                                {formatCurrency(inv.balance)}
+                        </TableHead>
+                        <TableBody>
+                          {list.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={9} align="center" sx={{ py: 2 }}>
+                                <Typography variant="body2" color="text.secondary">No records</Typography>
                               </TableCell>
                             </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                );
+                          ) : (
+                            <>
+                              {list.map((inv) => (
+                                <TableRow key={inv._id}>
+                                  <TableCell>{inv.invoiceDate ? dayjs(inv.invoiceDate).format('DD MMM YYYY') : '—'}</TableCell>
+                                  <TableCell>{inv.invoiceNumber}</TableCell>
+                                  <TableCell>{inv.dueDate ? dayjs(inv.dueDate).format('DD MMM YYYY') : '—'}</TableCell>
+                                  <TableCell>{inv.periodFrom ? dayjs(inv.periodFrom).format('DD MMM YY') : '—'}</TableCell>
+                                  <TableCell>{inv.periodTo ? dayjs(inv.periodTo).format('DD MMM YY') : '—'}</TableCell>
+                                  <TableCell align="right">{formatCurrency(inv.subtotal)}</TableCell>
+                                  <TableCell align="right" sx={{ color: 'warning.main' }}>{formatCurrency(inv.totalArrears)}</TableCell>
+                                  <TableCell align="right">{formatCurrency(inv.grandTotal)}</TableCell>
+                                  <TableCell align="right" sx={{ color: (inv.balance || 0) > 0 ? 'warning.main' : 'text.primary' }}>
+                                    {formatCurrency(inv.balance)}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                <TableCell colSpan={5} align="right"><strong>Total:</strong></TableCell>
+                                <TableCell align="right"><strong>{formatCurrency(totalInvoiceAmount)}</strong></TableCell>
+                                <TableCell align="right" sx={{ color: 'warning.main' }}><strong>{formatCurrency(totalArrears)}</strong></TableCell>
+                                <TableCell align="right"><strong>{formatCurrency(totalAmountDue)}</strong></TableCell>
+                                <TableCell align="right" sx={{ color: totalBalance > 0 ? 'warning.main' : 'text.primary' }}>
+                                  <strong>{formatCurrency(totalBalance)}</strong>
+                                </TableCell>
+                              </TableRow>
+                            </>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  );
+                };
 
                 return (
                   <>
@@ -608,60 +631,67 @@ const TajUtilitiesReports = () => {
                     )}
 
                     {/* Transactions */}
-                    <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1, mt: 3 }}>
-                      <TransactionIcon sx={{ fontSize: 20, verticalAlign: 'middle', mr: 0.5 }} />
-                      Transactions ({ledger.transactions?.length ?? 0})
-                    </Typography>
-                    <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 280 }}>
-                      <Table size="small" stickyHeader>
-                        <TableHead>
-                          <TableRow sx={{ bgcolor: 'action.hover' }}>
-                            <TableCell><strong>Date</strong></TableCell>
-                            <TableCell><strong>Type</strong></TableCell>
-                            <TableCell><strong>Description</strong></TableCell>
-                            <TableCell align="right"><strong>Amount</strong></TableCell>
-                            <TableCell><strong>Ref</strong></TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {(ledger.transactions || []).length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={5} align="center" sx={{ py: 2 }}>
-                                <Typography variant="body2" color="text.secondary">No transactions</Typography>
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            (ledger.transactions || []).map((txn) => {
-                              const typeConfig = getTransactionTypeLabel(txn.transactionType);
-                              const diff = (txn.balanceAfter ?? 0) - (txn.balanceBefore ?? 0);
-                              const isCredit = diff >= 0;
-                              return (
-                                <TableRow key={txn._id}>
-                                  <TableCell>{dayjs(txn.createdAt).format('DD MMM YYYY')}</TableCell>
-                                  <TableCell>
-                                    <Chip size="small" color={typeConfig.color} label={typeConfig.label} />
-                                  </TableCell>
-                                  <TableCell sx={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {txn.description || '—'}
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Typography component="span" color={isCredit ? 'success.main' : 'error.main'}>
-                                      {isCredit ? '+' : '-'}{formatCurrency(Math.abs(txn.amount || 0))}
-                                    </Typography>
-                                    {txn.transactionType === 'deposit' && txn.remainingAmount != null && (
-                                      <Typography variant="caption" display="block" color="text.secondary">
-                                        Remaining: {formatCurrency(txn.remainingAmount)}
-                                      </Typography>
-                                    )}
-                                  </TableCell>
-                                  <TableCell>{txn.referenceNumberExternal || txn.referenceNumber || '—'}</TableCell>
+                    {(() => {
+                      const depositTransactions = (ledger.transactions || []).filter(t => t.transactionType === 'deposit');
+                      return (
+                        <>
+                          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1, mt: 3 }}>
+                            <TransactionIcon sx={{ fontSize: 20, verticalAlign: 'middle', mr: 0.5 }} />
+                            Transactions ({depositTransactions.length})
+                          </Typography>
+                          <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 280 }}>
+                            <Table size="small" stickyHeader>
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                  <TableCell><strong>Date</strong></TableCell>
+                                  <TableCell><strong>Type</strong></TableCell>
+                                  <TableCell><strong>Description</strong></TableCell>
+                                  <TableCell align="right"><strong>Amount</strong></TableCell>
+                                  <TableCell><strong>Ref</strong></TableCell>
                                 </TableRow>
-                              );
-                            })
-                          )}
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
+                              </TableHead>
+                              <TableBody>
+                                {depositTransactions.length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={5} align="center" sx={{ py: 2 }}>
+                                      <Typography variant="body2" color="text.secondary">No transactions</Typography>
+                                    </TableCell>
+                                  </TableRow>
+                                ) : (
+                                  depositTransactions.map((txn) => {
+                                    const typeConfig = getTransactionTypeLabel(txn.transactionType);
+                                    const diff = (txn.balanceAfter ?? 0) - (txn.balanceBefore ?? 0);
+                                    const isCredit = diff >= 0;
+                                    return (
+                                      <TableRow key={txn._id}>
+                                        <TableCell>{dayjs(txn.createdAt).format('DD MMM YYYY')}</TableCell>
+                                        <TableCell>
+                                          <Chip size="small" color={typeConfig.color} label={typeConfig.label} />
+                                        </TableCell>
+                                        <TableCell sx={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                          {txn.description || '—'}
+                                        </TableCell>
+                                        <TableCell align="right">
+                                          <Typography component="span" color={isCredit ? 'success.main' : 'error.main'}>
+                                            {isCredit ? '+' : '-'}{formatCurrency(Math.abs(txn.amount || 0))}
+                                          </Typography>
+                                          {txn.transactionType === 'deposit' && txn.remainingAmount != null && (
+                                            <Typography variant="caption" display="block" color="text.secondary">
+                                              Remaining: {formatCurrency(txn.remainingAmount)}
+                                            </Typography>
+                                          )}
+                                        </TableCell>
+                                        <TableCell>{txn.referenceNumberExternal || txn.referenceNumber || '—'}</TableCell>
+                                      </TableRow>
+                                    );
+                                  })
+                                )}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </>
+                      );
+                    })()}
                   </>
                 );
               })()}

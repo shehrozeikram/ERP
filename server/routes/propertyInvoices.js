@@ -2269,7 +2269,10 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     // OPTIMIZATION: Select only needed fields and use lean with pagination
     // Fetch all matching invoices first (for search across all pages)
     let invoices = await PropertyInvoice.find(combinedFilter)
-      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus property createdBy customerName customerEmail customerPhone customerAddress sector')
+      // Include payments (amount + paymentDate) so frontend can apply
+      // "due date + grace period" logic correctly when deciding whether
+      // to use Payable vs Payable After Due Date for each invoice.
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal totalPaid balance status paymentStatus payments amountInWords property createdBy customerName customerEmail customerPhone customerAddress sector')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName resident sector areaValue areaUnit',

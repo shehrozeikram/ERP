@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import dayjs from 'dayjs';
 import { fetchPropertyById } from '../services/tajPropertiesService';
+import { getAdjustedBalance } from './invoiceGracePeriodUtils';
 
 
 // Helper function to load and add logo image to PDF
@@ -142,14 +143,19 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const unitsConsumed = calcData.unitsConsumed !== undefined ? calcData.unitsConsumed : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
   const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
   
-  // Arrears: prefer effectiveArrears (adjusted balance from previous invoices including 10% surcharge when overdue)
+  // Arrears: prefer values that come from the invoice itself so both
+  // Invoices page and Electricity Bills page behave the same.
+  // 1) effectiveArrears (if backend pre-calculated adjusted arrears)
+  // 2) invoice.totalArrears (module + overdue arrears from previous invoices)
+  // 3) electricityCharge.arrears (per-charge arrears fallback)
+  // 4) calcData.previousArrears (legacy calculation fallback)
   let arrears = 0;
   if (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null) {
     arrears = invoice.effectiveArrears;
-  } else if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
-    arrears = electricityCharge.arrears;
   } else if (invoice.totalArrears !== undefined && invoice.totalArrears !== null) {
     arrears = invoice.totalArrears;
+  } else if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
+    arrears = electricityCharge.arrears;
   } else if (calcData.previousArrears !== undefined && calcData.previousArrears !== null) {
     arrears = calcData.previousArrears;
   }
@@ -164,18 +170,13 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const latePaymentSurcharge = Math.max(Math.round(totalBill * 0.1), 0);
   const payableAfterDueDate = totalBill + arrears + latePaymentSurcharge - amountReceived;
   
-  // Always use "Payable Within Due Date" (no surcharge applied)
+  // Always use "Payable Within Due Date" (no surcharge applied) for the \"Payable\" row.
   const payableAmount = payableWithinDueDate;
   
-  // Calculate remaining balance: if overdue (after due date + 4-day grace period ends), use payableAfterDueDate, otherwise use payableWithinDueDate
-  const GRACE_PERIOD_DAYS = 6;
-  const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
-  const balance = (isOverdue && isUnpaid) ? (payableAfterDueDate - totalPaid) : (payableWithinDueDate - totalPaid);
+  // Remaining Balance in PDF should follow the same business rule as Invoices page:
+  // if full base amount was paid within due date + grace, remaining balance must be 0,
+  // otherwise include late surcharge when invoice is overdue.
+  const balance = getAdjustedBalance(invoice);
 
   pdf.setDrawColor(170);
   pdf.setLineWidth(0.3);

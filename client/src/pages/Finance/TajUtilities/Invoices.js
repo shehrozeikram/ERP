@@ -47,6 +47,7 @@ import {
   generateGeneralInvoicePDF,
   outputPDF
 } from '../../../utils/invoicePDFGenerators';
+import { getAdjustedGrandTotal, getAdjustedBalance } from '../../../utils/invoiceGracePeriodUtils';
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat('en-PK', {
@@ -67,39 +68,6 @@ const getPaymentStatusConfig = (status) => {
     default:
       return { color: 'error', label: 'Unpaid' };
   }
-};
-
-// Helper function to calculate adjusted grandTotal for Invoices page.
-// Surcharge applies ONLY after the 6-day grace period ends (today > dueDate + 6 days).
-// Within grace period: show payable within due date (base amount). After grace: show payable after due date (base + 10%).
-const getAdjustedGrandTotal = (invoice) => {
-  if (!invoice) return 0;
-
-  let chargesForMonth = invoice.subtotal || 0;
-  if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
-    const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-    if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
-  }
-  const baseAmount = chargesForMonth + (invoice.totalArrears || 0);
-
-  const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-  if (!invoiceDueDate) return invoice.grandTotal || baseAmount;
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const dueStart = new Date(invoiceDueDate);
-  dueStart.setHours(0, 0, 0, 0);
-  const graceEndDate = new Date(dueStart);
-  graceEndDate.setDate(graceEndDate.getDate() + 6);
-  const isOverdue = todayStart > graceEndDate;
-  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
-
-  if (!isOverdue || !isUnpaid) {
-    return baseAmount;
-  }
-
-  const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-  return baseAmount + latePaymentSurcharge;
 };
 
 const Invoices = () => {
@@ -658,8 +626,8 @@ const Invoices = () => {
       const adjustedGrandTotal = getAdjustedGrandTotal(invoice);
       grouped[monthKey].total += adjustedGrandTotal;
       grouped[monthKey].paid += invoice.totalPaid || 0;
-      // Calculate balance based on adjusted grandTotal
-      const adjustedBalance = adjustedGrandTotal - (invoice.totalPaid || 0);
+      // Calculate balance based on adjusted grandTotal (never negative)
+      const adjustedBalance = getAdjustedBalance(invoice);
       grouped[monthKey].balance += adjustedBalance;
     });
     
@@ -880,7 +848,7 @@ const Invoices = () => {
           <CardContent>
             <Typography variant="caption" color="text.secondary">Total Balance</Typography>
             <Typography variant="h5" fontWeight={600} color="error.main">
-              {formatCurrency(invoices.reduce((sum, inv) => sum + (inv.balance || 0), 0))}
+              {formatCurrency(invoices.reduce((sum, inv) => sum + getAdjustedBalance(inv), 0))}
             </Typography>
           </CardContent>
         </Card>
@@ -1053,21 +1021,30 @@ const Invoices = () => {
                                 {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
                               </TableCell>
                               {(() => {
-                                const adjustedGrandTotal = getAdjustedGrandTotal(invoice);
                                 const totalPaid = invoice.totalPaid || 0;
-                                const balance = adjustedGrandTotal - totalPaid;
-                                const displayStatus = balance <= 0 ? 'paid' : (invoice.paymentStatus || 'unpaid');
+                                const adjustedGrandTotal = getAdjustedGrandTotal(invoice);
+                                const balance = getAdjustedBalance(invoice);
+                                const displayStatus =
+                                  balance <= 0
+                                    ? 'paid'
+                                    : totalPaid > 0
+                                    ? 'partial_paid'
+                                    : 'unpaid';
                                 const { color, label } = getPaymentStatusConfig(displayStatus);
+
                                 return (
                                   <>
+                                    {/* Grand Total */}
                                     <TableCell align="right">
                                       <Typography fontWeight={600}>
-                                        {formatCurrency(Math.max(0, balance))}
+                                        {formatCurrency(adjustedGrandTotal)}
                                       </Typography>
                                     </TableCell>
+                                    {/* Paid */}
                                     <TableCell align="right">
                                       {formatCurrency(totalPaid)}
                                     </TableCell>
+                                    {/* Balance */}
                                     <TableCell align="right">
                                       <Typography
                                         fontWeight={600}
@@ -1076,6 +1053,7 @@ const Invoices = () => {
                                         {formatCurrency(balance)}
                                       </Typography>
                                     </TableCell>
+                                    {/* Payment Status */}
                                     <TableCell>
                                       <Chip
                                         label={label}

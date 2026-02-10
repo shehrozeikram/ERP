@@ -47,6 +47,7 @@ import {
   Edit as EditIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
+import { getAdjustedGrandTotal, getAdjustedBalance } from '../../../utils/invoiceGracePeriodUtils';
 import jsPDF from 'jspdf';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -55,7 +56,7 @@ import {
   updateElectricity,
   addPaymentToPropertyElectricity
 } from '../../../services/electricityService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getElectricityCalculation } from '../../../services/propertyInvoiceService';
+import { createInvoice, updateInvoice, fetchInvoicesForProperty, fetchInvoice, deleteInvoice, deletePaymentFromInvoice, getElectricityCalculation } from '../../../services/propertyInvoiceService';
 import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import { generateElectricityInvoicePDF as generateElectricityInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
 import api from '../../../services/api';
@@ -1126,8 +1127,23 @@ const Electricity = () => {
   };
 
   const generateElectricityVoucherPDF = async (propertyParam = null, invoiceParam = null, options = {}) => {
-    const invoice = invoiceParam || invoiceData;
-    const property = invoice?.property || propertyParam || invoiceProperty;
+    let invoice = invoiceParam || invoiceData;
+    let property = invoice?.property || propertyParam || invoiceProperty;
+    
+    if (!invoice) return;
+
+    // Fetch full invoice (with latest arrears, payments, etc.) so Electricity PDF
+    // matches the Invoices page and uses the same business logic.
+    try {
+      const fullInvoiceResponse = await fetchInvoice(invoice._id);
+      if (fullInvoiceResponse?.data?.data) {
+        invoice = fullInvoiceResponse.data.data;
+        property = invoice.property || property;
+      }
+    } catch (e) {
+      // If fetch fails, fall back to the original invoice object.
+      // We still generate a PDF, just without enriched data.
+    }
     
     if (!property || !invoice) return;
     
@@ -1518,35 +1534,6 @@ const Electricity = () => {
       default:
         return { color: 'error', label: 'Unpaid', iconColor: 'error.main' };
     }
-  };
-
-  // Helper function to calculate adjusted grandTotal for overdue unpaid invoices
-  // Uses effectiveArrears when available (corrected from previous invoice balance with surcharge)
-  const getAdjustedGrandTotal = (invoice) => {
-    if (!invoice) return 0;
-    
-    let chargesForMonth = invoice.subtotal || 0;
-    if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
-      const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-      if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
-    }
-    const arrears = invoice.effectiveArrears ?? invoice.totalArrears ?? 0;
-    const baseAmount = chargesForMonth + arrears;
-    
-    const GRACE_PERIOD_DAYS = 6;
-    const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-    const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-    const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-    const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
-    
-    if (!isOverdue || !isUnpaid) {
-      return invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null ? baseAmount : (invoice.grandTotal || baseAmount);
-    }
-    
-    const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-    return baseAmount + latePaymentSurcharge;
   };
 
   const handleOpenPaymentDialog = (property) => {
@@ -2471,10 +2458,13 @@ const Electricity = () => {
                                         </TableCell>
                                         <TableCell align="right">{formatCurrency(getAdjustedGrandTotal(invoice))}</TableCell>
                                         <TableCell align="right">{formatCurrency(invoice.totalPaid || 0)}</TableCell>
-                                        <TableCell align="right">{formatCurrency(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0))}</TableCell>
+                                        <TableCell align="right">{formatCurrency(getAdjustedBalance(invoice))}</TableCell>
                                         <TableCell>
                                           {(() => {
-                                            const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
+                                            const adjustedBalance = getAdjustedBalance(invoice);
+                                            const totalPaid = invoice.totalPaid || 0;
+                                            const displayStatus = adjustedBalance <= 0 ? 'paid' : totalPaid > 0 ? 'partial_paid' : 'unpaid';
+                                            const { color, label } = getPaymentStatusConfig(displayStatus);
                                             return (
                                               <Chip
                                                 label={label}
