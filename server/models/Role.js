@@ -10,8 +10,8 @@ const roleSchema = new mongoose.Schema({
   },
   displayName: {
     type: String,
-    required: true,
     trim: true
+    // Defaults to name in pre-save when not provided
   },
   description: {
     type: String,
@@ -22,16 +22,16 @@ const roleSchema = new mongoose.Schema({
     module: {
       type: String,
       required: true,
-      enum: ['admin', 'hr', 'finance', 'procurement', 'sales', 'crm', 'it', 'dashboard', 'audit', 'taj_residencia']
+      trim: true
     },
+    // Support both formats: array of strings (legacy) or array of objects with actions
     submodules: [{
-      type: String,
-      required: true
+      type: mongoose.Schema.Types.Mixed // Can be String or { submodule: String, actions: [String] }
     }],
+    // Module-level actions (for backward compatibility)
     actions: [{
       type: String,
-      required: true,
-      enum: ['create', 'read', 'update', 'delete', 'approve', 'export', 'import']
+      enum: ['create', 'read', 'update', 'delete', 'approve', 'export', 'import', 'view', 'manage']
     }]
   }],
   isActive: {
@@ -75,7 +75,14 @@ roleSchema.methods.hasModulePermission = function(module) {
 // Method to check if role has permission for a specific submodule
 roleSchema.methods.hasSubmodulePermission = function(module, submodule) {
   const modulePermission = this.permissions.find(p => p.module === module);
-  return modulePermission ? modulePermission.submodules.includes(submodule) : false;
+  if (!modulePermission) return false;
+  
+  // Check if submodule exists (support both string and object formats)
+  return modulePermission.submodules.some(sm => {
+    if (typeof sm === 'string') return sm === submodule;
+    if (sm && typeof sm === 'object') return sm.submodule === submodule;
+    return false;
+  });
 };
 
 // Method to check if role has permission for a specific action
@@ -83,10 +90,29 @@ roleSchema.methods.hasActionPermission = function(module, submodule, action) {
   const modulePermission = this.permissions.find(p => p.module === module);
   if (!modulePermission) return false;
   
-  const hasSubmodule = modulePermission.submodules.includes(submodule);
-  const hasAction = modulePermission.actions.includes(action);
+  // If submodule is provided, check per-submodule actions
+  if (submodule && modulePermission.submodules && modulePermission.submodules.length > 0) {
+    // Find the submodule (support both string and object formats)
+    const submoduleEntry = modulePermission.submodules.find(sm => {
+      if (typeof sm === 'string') return sm === submodule;
+      if (sm && typeof sm === 'object') return sm.submodule === submodule;
+      return false;
+    });
+    
+    if (submoduleEntry) {
+      // If it's an object with actions array, check those actions
+      if (submoduleEntry && typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
+        return submoduleEntry.actions.includes(action);
+      }
+      // If it's a string (legacy format), check module-level actions
+      if (typeof submoduleEntry === 'string') {
+        return modulePermission.actions.includes(action);
+      }
+    }
+  }
   
-  return hasSubmodule && hasAction;
+  // If no submodule specified or submodules array is empty, check module-level actions
+  return modulePermission.actions.includes(action);
 };
 
 // Method to get all allowed modules for this role
@@ -97,22 +123,49 @@ roleSchema.methods.getAllowedModules = function() {
 // Method to get all allowed submodules for a specific module
 roleSchema.methods.getAllowedSubmodules = function(module) {
   const modulePermission = this.permissions.find(p => p.module === module);
-  return modulePermission ? modulePermission.submodules : [];
+  if (!modulePermission) return [];
+  
+  // Extract submodule names (support both formats)
+  return modulePermission.submodules.map(sm => {
+    if (typeof sm === 'string') return sm;
+    if (sm && typeof sm === 'object') return sm.submodule;
+    return null;
+  }).filter(Boolean);
 };
 
 // Method to get all allowed actions for a specific module and submodule
 roleSchema.methods.getAllowedActions = function(module, submodule) {
   const modulePermission = this.permissions.find(p => p.module === module);
-  if (!modulePermission || !modulePermission.submodules.includes(submodule)) {
-    return [];
+  if (!modulePermission) return [];
+  
+  // Find the submodule entry
+  const submoduleEntry = modulePermission.submodules.find(sm => {
+    if (typeof sm === 'string') return sm === submodule;
+    if (sm && typeof sm === 'object') return sm.submodule === submodule;
+    return false;
+  });
+  
+  if (submoduleEntry) {
+    // If it's an object with actions array, return those actions
+    if (submoduleEntry && typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
+      return submoduleEntry.actions;
+    }
+    // If it's a string (legacy format), return module-level actions
+    if (typeof submoduleEntry === 'string') {
+      return modulePermission.actions;
+    }
   }
-  return modulePermission.actions;
+  
+  return [];
 };
 
-// Pre-save middleware to ensure lowercase name
+// Pre-save middleware: lowercase name, default displayName to name
 roleSchema.pre('save', function(next) {
   if (this.isModified('name')) {
     this.name = this.name.toLowerCase();
+  }
+  if (!this.displayName || !this.displayName.trim()) {
+    this.displayName = this.name;
   }
   next();
 });

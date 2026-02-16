@@ -304,7 +304,10 @@ router.post('/refresh-token', authMiddleware, asyncHandler(async (req, res) => {
 // @desc    Get current user profile
 // @access  Private
 router.get('/me', authMiddleware, asyncHandler(async (req, res) => {
-  // Populate subRoles before returning user profile
+  // Populate roleRef and roles (RBAC system) before returning user profile
+  await req.user.populate('roleRef', 'name displayName description permissions isActive');
+  await req.user.populate('roles', 'name displayName description permissions isActive');
+  // Populate subRoles (legacy system) before returning user profile
   await req.user.populate('subRoles', 'name module permissions description');
   
   res.json({
@@ -576,37 +579,7 @@ router.post('/users', [
   body('employeeId')
     .trim()
     .notEmpty()
-    .withMessage('Employee ID is required'),
-  body('role')
-    .optional()
-    .custom((value) => {
-      if (!value) return true; // Allow empty/undefined for optional field
-      
-      // Check if role is in predefined ROLE_VALUES
-      if (ROLE_VALUES.includes(value)) {
-        return true;
-      }
-      // Check if role exists in ROLE_MODULE_ACCESS (for custom roles like "Audit Director", "Hr General Manager")
-      if (ROLE_MODULE_ACCESS[value]) {
-        return true;
-      }
-      // Also check normalized variations (handle case and spaces)
-      const normalized = String(value).toLowerCase().replace(/\s+/g, '_');
-      const lowerCase = String(value).toLowerCase();
-      if (ROLE_MODULE_ACCESS[normalized] || ROLE_MODULE_ACCESS[lowerCase]) {
-        return true;
-      }
-      throw new Error('Invalid role');
-    })
-    .withMessage('Invalid role'),
-  body('subRoles')
-    .optional()
-    .isArray()
-    .withMessage('Sub-roles must be an array'),
-  body('subRoles.*')
-    .optional()
-    .isMongoId()
-    .withMessage('Invalid sub-role ID')
+    .withMessage('Employee ID is required')
 ], asyncHandler(async (req, res) => {
   // Check for validation errors
   const errors = validationResult(req);
@@ -627,10 +600,13 @@ router.post('/users', [
     position,
     employeeId,
     phone,
-    role = 'employee',
-    subRoles = [],
-    profileImage
+    profileImage,
+    employee // Employee ID to link
   } = req.body;
+  
+  // Default role to 'employee' - roles will be assigned through Role Management
+  const role = 'employee';
+  const subRoles = [];
 
   // Check if user already exists
   const existingUser = await User.findOne({
@@ -644,6 +620,31 @@ router.post('/users', [
         ? 'Email already registered' 
         : 'Employee ID already exists'
     });
+  }
+
+  // If employee ID is provided, verify it exists and doesn't have a user account
+  let employeeDoc = null;
+  if (employee) {
+    const Employee = require('../models/hr/Employee');
+    employeeDoc = await Employee.findById(employee);
+    
+    if (!employeeDoc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+    
+    if (employeeDoc.user) {
+      const linkedUserExists = await User.findById(employeeDoc.user);
+      if (linkedUserExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Employee already has a user account'
+        });
+      }
+      // Orphaned reference (user was deleted) – allow creating a new user; we'll link below
+    }
   }
 
   // Create new user
@@ -662,6 +663,12 @@ router.post('/users', [
   });
 
   await user.save();
+
+  // Link user to employee if employee ID was provided
+  if (employeeDoc) {
+    employeeDoc.user = user._id;
+    await employeeDoc.save();
+  }
 
   res.status(201).json({
     success: true,
@@ -713,6 +720,8 @@ router.get('/users',
     const users = await User.find(query)
       .select('-password')
       .populate('subRoles', 'name module permissions')
+      .populate('roleRef', 'name displayName description permissions isActive')
+      .populate('roles', 'name displayName description permissions isActive')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
@@ -740,7 +749,11 @@ router.get('/users/:id',
   authMiddleware,
   permissions.checkSubRolePermission('admin', 'user_management', 'read'),
   asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .populate('roleRef', 'name displayName description permissions isActive')
+      .populate('roles', 'name displayName description permissions isActive')
+      .populate('subRoles', 'name module permissions');
 
     if (!user) {
       return res.status(404).json({
@@ -984,6 +997,13 @@ router.delete('/users/:id',
       });
     }
 
+    // Clear employee.user reference so this employee shows again in "Create User" employee list
+    const Employee = require('../models/hr/Employee');
+    await Employee.updateMany(
+      { user: req.params.id },
+      { $unset: { user: 1 } }
+    );
+
     // Delete the user
     await User.findByIdAndDelete(req.params.id);
 
@@ -993,6 +1013,174 @@ router.delete('/users/:id',
     });
   })
 );
+
+// @route   PUT /api/auth/users/:id/permissions
+// @desc    Update user permissions (Admin only)
+// @access  Private (Admin)
+router.put('/users/:id/permissions', [
+  authMiddleware,
+  permissions.checkSubRolePermission('admin', 'user_management', 'update'),
+  body('permissions')
+    .isArray()
+    .withMessage('Permissions must be an array'),
+  body('permissions.*.module')
+    .notEmpty()
+    .trim()
+    .withMessage('Module is required for each permission'),
+  body('permissions.*.actions')
+    .isArray()
+    .withMessage('Actions must be an array for each permission'),
+  body('permissions.*.actions.*')
+    .isIn(['create', 'read', 'update', 'delete', 'approve', 'view', 'manage'])
+    .withMessage('Invalid action type')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found'
+    });
+  }
+
+  // Update permissions
+  user.permissions = req.body.permissions;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: 'Permissions updated successfully',
+    data: {
+      user: user.getProfile()
+    }
+  });
+}));
+
+// @route   PUT /api/auth/users/:id/role-ref
+// @desc    Assign role to user (Admin only)
+// @access  Private (Admin)
+router.put('/users/:id/role-ref', [
+  authMiddleware,
+  permissions.checkSubRolePermission('admin', 'user_management', 'update'),
+  body('roleRef')
+    .optional()
+    .isMongoId()
+    .withMessage('Role ID must be a valid MongoDB ObjectId')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found'
+    });
+  }
+
+  // If roleRef is provided, validate it exists
+  if (req.body.roleRef) {
+    const Role = require('../models/Role');
+    const role = await Role.findById(req.body.roleRef);
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Role not found'
+      });
+    }
+    if (!role.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot assign inactive role'
+      });
+    }
+  }
+
+  // Update roleRef
+  user.roleRef = req.body.roleRef || null;
+  await user.save();
+
+  // Populate roleRef for response
+  await user.populate('roleRef', 'name displayName description permissions');
+
+  res.json({
+    success: true,
+    message: 'Role assigned successfully',
+    data: {
+      user: user.getProfile()
+    }
+  });
+}));
+
+// @route   PUT /api/auth/users/:id/roles
+// @desc    Assign multiple roles to user (Admin only)
+// @access  Private (Admin)
+router.put('/users/:id/roles', [
+  authMiddleware,
+  permissions.checkSubRolePermission('admin', 'user_management', 'update'),
+  body('roles')
+    .isArray()
+    .withMessage('Roles must be an array'),
+  body('roles.*')
+    .isMongoId()
+    .withMessage('Each role ID must be a valid MongoDB ObjectId')
+], asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Validation failed',
+      errors: errors.array()
+    });
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found'
+    });
+  }
+
+  // Validate all roles exist and are active
+  const Role = require('../models/Role');
+  const roles = await Role.find({ _id: { $in: req.body.roles }, isActive: true });
+  if (roles.length !== req.body.roles.length) {
+    return res.status(400).json({
+      success: false,
+      message: 'One or more roles not found or inactive'
+    });
+  }
+
+  // Update roles array
+  user.roles = req.body.roles;
+  await user.save();
+
+  // Populate roles for response
+  await user.populate('roles', 'name displayName description permissions isActive');
+
+  res.json({
+    success: true,
+    message: 'Roles assigned successfully',
+    data: {
+      user: user.getProfile()
+    }
+  });
+}));
 
 // @route   GET /api/auth/sub-roles/:module
 // @desc    Get sub-roles for a specific module

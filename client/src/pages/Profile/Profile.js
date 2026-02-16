@@ -232,7 +232,7 @@ const Profile = () => {
               </Typography>
               
               <Chip 
-                label={user?.role?.toUpperCase() || 'EMPLOYEE'} 
+                label={(user?.roleRef?.name || user?.roleRef?.displayName || user?.roles?.[0]?.name || user?.role || 'Employee').toUpperCase()} 
                 color="primary" 
                 variant="outlined"
                 sx={{ fontWeight: 'bold' }}

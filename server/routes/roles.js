@@ -81,13 +81,14 @@ router.post('/',
   asyncHandler(async (req, res) => {
     const { name, displayName, description, permissions: rolePermissions, isActive = true } = req.body;
     
-    // Validate required fields
-    if (!name || !displayName) {
+    // Validate required fields (displayName defaults to name)
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: 'Name and display name are required'
+        message: 'Role name is required'
       });
     }
+    const effectiveDisplayName = displayName && displayName.trim() ? displayName.trim() : name;
     
     // Check if role already exists
     const existingRole = await Role.findOne({ name: name.toLowerCase() });
@@ -98,13 +99,50 @@ router.post('/',
       });
     }
     
-    // Validate permissions structure
+    // Validate and transform permissions structure
+    let cleanedPermissions = [];
     if (rolePermissions && Array.isArray(rolePermissions)) {
       for (const permission of rolePermissions) {
-        if (!permission.module || !Array.isArray(permission.submodules) || !Array.isArray(permission.actions)) {
+        if (!permission.module) {
           return res.status(400).json({
             success: false,
-            message: 'Invalid permission structure'
+            message: 'Invalid permission structure: module is required'
+          });
+        }
+        
+        // Transform submodules format: convert array of objects to proper format
+        let transformedSubmodules = [];
+        if (permission.submodules && Array.isArray(permission.submodules)) {
+          transformedSubmodules = permission.submodules.map(sm => {
+            // If it's already an object with submodule and actions, use it
+            if (sm && typeof sm === 'object' && sm.submodule) {
+              return {
+                submodule: sm.submodule,
+                actions: Array.isArray(sm.actions) ? sm.actions : []
+              };
+            }
+            // If it's a string (legacy format), keep it as is
+            if (typeof sm === 'string') {
+              return sm;
+            }
+            return null;
+          }).filter(Boolean);
+        }
+        
+        // Only include permissions that have either module-level actions or submodules with actions
+        const hasModuleActions = permission.actions && Array.isArray(permission.actions) && permission.actions.length > 0;
+        const hasSubmoduleActions = transformedSubmodules.some(sm => {
+          if (typeof sm === 'object' && sm.actions) {
+            return Array.isArray(sm.actions) && sm.actions.length > 0;
+          }
+          return false;
+        });
+        
+        if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
+          cleanedPermissions.push({
+            module: permission.module,
+            actions: permission.actions || [],
+            submodules: transformedSubmodules
           });
         }
       }
@@ -112,9 +150,9 @@ router.post('/',
     
     const role = new Role({
       name: name.toLowerCase(),
-      displayName,
+      displayName: effectiveDisplayName,
       description: description || '',
-      permissions: rolePermissions || [],
+      permissions: cleanedPermissions,
       isActive,
       createdBy: req.user.id
     });
@@ -156,22 +194,61 @@ router.put('/:id',
       });
     }
     
-    // Validate permissions structure if provided
-    if (rolePermissions && Array.isArray(rolePermissions)) {
-      for (const permission of rolePermissions) {
-        if (!permission.module || !Array.isArray(permission.submodules) || !Array.isArray(permission.actions)) {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid permission structure'
+    // Validate and transform permissions structure
+    if (rolePermissions !== undefined) {
+      let cleanedPermissions = [];
+      if (rolePermissions && Array.isArray(rolePermissions)) {
+        for (const permission of rolePermissions) {
+          if (!permission.module) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid permission structure: module is required'
+            });
+          }
+          
+          // Transform submodules format: convert array of objects to proper format
+          let transformedSubmodules = [];
+          if (permission.submodules && Array.isArray(permission.submodules)) {
+            transformedSubmodules = permission.submodules.map(sm => {
+              // If it's already an object with submodule and actions, use it
+              if (sm && typeof sm === 'object' && sm.submodule) {
+                return {
+                  submodule: sm.submodule,
+                  actions: Array.isArray(sm.actions) ? sm.actions : []
+                };
+              }
+              // If it's a string (legacy format), keep it as is
+              if (typeof sm === 'string') {
+                return sm;
+              }
+              return null;
+            }).filter(Boolean);
+          }
+          
+          // Only include permissions that have either module-level actions or submodules with actions
+          const hasModuleActions = permission.actions && Array.isArray(permission.actions) && permission.actions.length > 0;
+          const hasSubmoduleActions = transformedSubmodules.some(sm => {
+            if (typeof sm === 'object' && sm.actions) {
+              return Array.isArray(sm.actions) && sm.actions.length > 0;
+            }
+            return false;
           });
+          
+          if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
+            cleanedPermissions.push({
+              module: permission.module,
+              actions: permission.actions || [],
+              submodules: transformedSubmodules
+            });
+          }
         }
       }
+      role.permissions = cleanedPermissions;
     }
     
     // Update fields
     if (displayName !== undefined) role.displayName = displayName;
     if (description !== undefined) role.description = description;
-    if (rolePermissions !== undefined) role.permissions = rolePermissions;
     if (isActive !== undefined) role.isActive = isActive;
     role.updatedBy = req.user.id;
     

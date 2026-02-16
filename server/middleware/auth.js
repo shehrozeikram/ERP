@@ -35,7 +35,12 @@ const verifyToken = (token) => {
 
 const fetchUser = async (userId) => {
   try {
-    return { user: await User.findById(userId).select('-password').maxTimeMS(5000), error: null };
+    const user = await User.findById(userId)
+      .select('-password')
+      .populate('roleRef', 'name displayName description permissions isActive')
+      .populate('roles', 'name displayName description permissions isActive')
+      .maxTimeMS(5000);
+    return { user, error: null };
   } catch (error) {
     return { user: null, error };
   }
@@ -96,14 +101,86 @@ const optionalAuth = async (req, res, next) => {
   }
 };
 
+// Role-to-module mapping (shared constant)
+const ROLE_TO_MODULE_MAP = {
+  'hr_manager': 'hr',
+  'finance_manager': 'finance',
+  'procurement_manager': 'procurement',
+  'sales_manager': 'sales',
+  'crm_manager': 'crm',
+  'audit_manager': 'audit',
+  'it_manager': 'it',
+  'taj_residencia_manager': 'taj_residencia'
+};
+
+// Shared function to check if role has permission for required modules
+const checkRoleModulePermissions = (role, normalizedAllowedRoles, requiredModules, isDev = false) => {
+  if (!role || !role.isActive || !role.permissions || !Array.isArray(role.permissions)) {
+    return false;
+  }
+
+  // Check if super_admin or admin is required (they have access to everything)
+  if (normalizedAllowedRoles.includes('super_admin') || normalizedAllowedRoles.includes('admin')) {
+    const hasAnyReadPermission = role.permissions.some(p => 
+      p.actions && Array.isArray(p.actions) && p.actions.includes('read')
+    );
+    if (hasAnyReadPermission) {
+      if (isDev) console.log(`🔒 [Backend] ✅ Access granted (any read permission)`);
+      return true;
+    }
+  }
+
+  // Check if role has permission for required modules
+  for (const requiredModule of requiredModules) {
+    const modulePermission = role.permissions.find(p => p.module === requiredModule);
+    if (modulePermission) {
+      // Check module-level read permission
+      const hasModuleRead = modulePermission.actions && Array.isArray(modulePermission.actions) && modulePermission.actions.includes('read');
+      
+      // Check submodule-level read permissions
+      let hasSubmoduleRead = false;
+      if (modulePermission.submodules && Array.isArray(modulePermission.submodules) && modulePermission.submodules.length > 0) {
+        hasSubmoduleRead = modulePermission.submodules.some(sm => {
+          if (typeof sm === 'object' && sm.actions && Array.isArray(sm.actions)) {
+            return sm.actions.includes('read');
+          }
+          // If submodule is a string (legacy), module-level read applies
+          if (typeof sm === 'string' && hasModuleRead) {
+            return true;
+          }
+          return false;
+        });
+      }
+      
+      // Allow if either module-level or submodule-level read permission exists
+      if (hasModuleRead || hasSubmoduleRead) {
+        if (isDev) console.log(`🔒 [Backend] ✅ Access granted for module: ${requiredModule} (hasModuleRead: ${hasModuleRead}, hasSubmoduleRead: ${hasSubmoduleRead})`);
+        return true;
+      } else if (isDev) {
+        console.log(`🔒 [Backend] ❌ No read permission for module: ${requiredModule}`);
+      }
+    } else if (isDev) {
+      console.log(`🔒 [Backend] ❌ No permission found for module: ${requiredModule}`);
+    }
+  }
+  
+  return false;
+};
+
 // Role-based authorization middleware
 const authorize = (...roles) => {
   // Pre-normalize allowed roles once
   const normalizedAllowedRoles = roles.map(normalizeRole);
   const requiresHrManager = normalizedAllowedRoles.includes('hr_manager');
   const requiresAuditManager = normalizedAllowedRoles.includes('audit_manager');
+  const isDev = process.env.NODE_ENV === 'development';
   
-  return (req, res, next) => {
+  // Map required roles to modules
+  const requiredModules = normalizedAllowedRoles
+    .map(r => ROLE_TO_MODULE_MAP[r])
+    .filter(Boolean);
+  
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -116,6 +193,33 @@ const authorize = (...roles) => {
     // Super Admin and Higher Management have access to everything
     if (userRole === 'super_admin' || userRole === 'higher_management') {
       return next();
+    }
+
+    // NEW: Check roleRef permissions (RBAC system)
+    // roleRef should be populated by authMiddleware
+    const roleRef = req.user.roleRef;
+    
+    // If roleRef is populated and has permissions, check them
+    if (roleRef && roleRef.permissions) {
+      if (isDev) console.log(`🔒 [Backend] Checking roleRef: ${roleRef.name || roleRef.displayName || 'unknown'}`);
+      if (checkRoleModulePermissions(roleRef, normalizedAllowedRoles, requiredModules, isDev)) {
+        return next();
+      }
+    }
+    
+    // NEW: Check multiple roles permissions (RBAC system)
+    // roles should be populated by authMiddleware
+    const userRoles = req.user.roles;
+    if (userRoles && Array.isArray(userRoles) && userRoles.length > 0) {
+      if (isDev) console.log(`🔒 [Backend] Checking ${userRoles.length} role(s)`);
+      for (const role of userRoles) {
+        // Role should already be populated, but handle both cases
+        if (role && role.permissions) {
+          if (checkRoleModulePermissions(role, normalizedAllowedRoles, requiredModules, isDev)) {
+            return next();
+          }
+        }
+      }
     }
 
     // Check exact match (normalized)

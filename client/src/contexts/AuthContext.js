@@ -390,6 +390,22 @@ export const AuthProvider = ({ children }) => {
     });
   }, [verifyAuth]);
 
+  // Refresh user profile (useful after role assignment)
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await authService.getProfile();
+      const userData = response?.data?.data?.user;
+      if (userData) {
+        dispatch({ type: 'UPDATE_USER', payload: userData });
+        return { success: true, user: userData };
+      }
+      return { success: false, error: 'Invalid user data received' };
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
     user: state.user,
@@ -402,8 +418,9 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     changePassword,
     retryAuth,
+    refreshUser,
     isAuthenticated: !!state.user && !!state.token
-  }), [state.user, state.token, state.loading, state.error, login, register, logout, updateProfile, changePassword, retryAuth]);
+  }), [state.user, state.token, state.loading, state.error, login, register, logout, updateProfile, changePassword, retryAuth, refreshUser]);
 
   return (
     <AuthContext.Provider value={value}>

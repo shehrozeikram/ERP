@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const Employee = require('../models/hr/Employee');
+const User = require('../models/User');
 const Department = require('../models/hr/Department');
 const Position = require('../models/hr/Position');
 const Bank = require('../models/hr/Bank');
@@ -150,10 +151,21 @@ router.get('/employees',
       status,
       search,
       active,
-      getAll = false // New parameter to get all employees without pagination
+      getAll = false, // New parameter to get all employees without pagination
+      withoutUser = false // Filter employees without user accounts
     } = req.query;
 
     const query = { isDeleted: false }; // Return all non-deleted employees (both active and inactive)
+    
+    // Filter employees without user accounts: no user link, or user link points to deleted user
+    if (withoutUser === 'true' || withoutUser === true) {
+      const existingUserIds = await User.find({}).distinct('_id');
+      query.$or = [
+        { user: null },
+        { user: { $exists: false } },
+        { user: { $nin: existingUserIds } }
+      ];
+    }
     
     // Add active status filter if provided
     if (active !== undefined) {
@@ -173,19 +185,19 @@ router.get('/employees',
         { idCard: { $regex: search, $options: 'i' } },
         { religion: { $regex: search, $options: 'i' } },
         { maritalStatus: { $regex: search, $options: 'i' } },
-              { qualification: { $regex: search, $options: 'i' } },
-      { spouseName: { $regex: search, $options: 'i' } },
-      { 'placementCompany.name': { $regex: search, $options: 'i' } },
-      { 'placementSector.name': { $regex: search, $options: 'i' } },
-      { 'placementProject.name': { $regex: search, $options: 'i' } },
-      { 'placementDepartment.name': { $regex: search, $options: 'i' } },
-      { 'placementSection.name': { $regex: search, $options: 'i' } },
-      { 'placementDesignation.title': { $regex: search, $options: 'i' } },
-      { 'oldDesignation.title': { $regex: search, $options: 'i' } },
-      { 'placementLocation.name': { $regex: search, $options: 'i' } },
-                { 'address.city.name': { $regex: search, $options: 'i' } },
-                { 'address.state.name': { $regex: search, $options: 'i' } },
-                { 'address.country.name': { $regex: search, $options: 'i' } }
+        { qualification: { $regex: search, $options: 'i' } },
+        { spouseName: { $regex: search, $options: 'i' } },
+        { 'placementCompany.name': { $regex: search, $options: 'i' } },
+        { 'placementSector.name': { $regex: search, $options: 'i' } },
+        { 'placementProject.name': { $regex: search, $options: 'i' } },
+        { 'placementDepartment.name': { $regex: search, $options: 'i' } },
+        { 'placementSection.name': { $regex: search, $options: 'i' } },
+        { 'placementDesignation.title': { $regex: search, $options: 'i' } },
+        { 'oldDesignation.title': { $regex: search, $options: 'i' } },
+        { 'placementLocation.name': { $regex: search, $options: 'i' } },
+        { 'address.city.name': { $regex: search, $options: 'i' } },
+        { 'address.state.name': { $regex: search, $options: 'i' } },
+        { 'address.country.name': { $regex: search, $options: 'i' } }
       ];
     }
 

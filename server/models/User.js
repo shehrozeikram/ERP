@@ -37,11 +37,16 @@ const userSchema = new mongoose.Schema({
     default: 'employee'
     // Note: Role validation is handled at route level to support custom roles
   },
-  // New role reference (for future use)
+  // Role reference (RBAC system - primary role)
   roleRef: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Role'
   },
+  // Multiple roles support (users can have multiple roles)
+  roles: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Role'
+  }],
   subRoles: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SubRole'
@@ -108,11 +113,13 @@ const userSchema = new mongoose.Schema({
   permissions: [{
     module: {
       type: String,
-      enum: ['hr', 'finance', 'procurement', 'sales', 'crm']
+      required: true,
+      trim: true
     },
     actions: [{
       type: String,
-      enum: ['create', 'read', 'update', 'delete', 'approve']
+      enum: ['create', 'read', 'update', 'delete', 'approve', 'view', 'manage'],
+      required: true
     }]
   }]
 }, {
@@ -207,6 +214,8 @@ userSchema.methods.getProfile = function() {
     fullName: this.fullName,
     email: this.email,
     role: this.role,
+    roleRef: this.roleRef,
+    roles: this.roles,
     subRoles: this.subRoles,
     department: this.department,
     position: this.position,

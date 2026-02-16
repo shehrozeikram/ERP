@@ -24,7 +24,8 @@ import {
   TextField,
   Alert,
   Switch,
-  FormControlLabel
+  FormControlLabel,
+  Autocomplete
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -34,15 +35,16 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   PhotoCamera as CameraIcon,
-  CloudUpload as UploadIcon
+  CloudUpload as UploadIcon,
+  Security as SecurityIcon
 } from '@mui/icons-material';
 import { authService } from '../../services/authService';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { ROLES, MODULE_KEYS } from '../../utils/permissions';
+import RoleAssignmentDialog from '../../components/Admin/RoleAssignmentDialog';
 
 const UserManagement = () => {
-  const { user } = useAuth();
+  const { user, refreshUser: refreshAuthUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -56,41 +58,10 @@ const UserManagement = () => {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [departments, setDepartments] = useState(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
-  const [subRoles, setSubRoles] = useState([]);
-
-  // Fetch sub-roles for a specific module
-  const fetchSubRoles = async (role) => {
-    try {
-      // Map role names to module names
-      const roleToModuleMap = {
-        'admin': 'admin',
-        'hr_manager': 'hr',
-        'finance_manager': 'finance',
-        'procurement_manager': 'procurement',
-        'sales_manager': 'sales',
-        'crm_manager': 'crm',
-        'audit_manager': 'audit',
-        'it_manager': 'it',
-        'taj_residencia_manager': 'taj_residencia',
-        'appraisal_manager': 'hr'
-      };
-      
-      const module = roleToModuleMap[role];
-      if (!module) {
-        setSubRoles([]);
-        return;
-      }
-      
-      const response = await api.get(`/auth/sub-roles/${module}`);
-      setSubRoles(response.data.data.subRoles);
-    } catch (error) {
-      console.error('Error fetching sub-roles:', error);
-      setSubRoles([]);
-    }
-  };
 
   // Fetch departments from API
   const fetchDepartments = async () => {
@@ -120,10 +91,11 @@ const UserManagement = () => {
     employee: 'default'
   };
 
-  const loadUsers = useCallback(async () => {
+  const loadUsers = useCallback(async (options = {}) => {
     try {
+      const pageToUse = options.page !== undefined ? options.page : page;
       const params = {
-        page: page + 1,
+        page: pageToUse + 1,
         limit: rowsPerPage,
         search,
         department: departmentFilter,
@@ -132,8 +104,11 @@ const UserManagement = () => {
       };
 
       const response = await authService.getUsers(params);
-      setUsers(response.data.data.users);
-      setTotalUsers(response.data.data.pagination.total);
+      setUsers(response.data.data.users || []);
+      setTotalUsers(response.data.data.pagination?.total ?? 0);
+      if (options.page !== undefined) {
+        setPage(pageToUse);
+      }
     } catch (error) {
       console.error('Error loading users:', error);
     }
@@ -188,7 +163,8 @@ const UserManagement = () => {
       console.log('User created successfully:', response);
       setSuccess('User created successfully!');
       setCreateDialogOpen(false);
-      loadUsers();
+      setPage(0);
+      await loadUsers({ page: 0 });
     } catch (error) {
       console.error('Failed to create user:', error);
       
@@ -215,9 +191,57 @@ const UserManagement = () => {
       console.log('User deleted successfully');
       setDeleteDialogOpen(false);
       setSelectedUser(null);
-      loadUsers();
+      const currentPage = page;
+      const newTotal = Math.max(0, totalUsers - 1);
+      const maxPage = Math.max(0, Math.ceil(newTotal / rowsPerPage) - 1);
+      if (currentPage > maxPage) {
+        setPage(maxPage);
+        await loadUsers({ page: maxPage });
+      } else {
+        await loadUsers();
+      }
     } catch (error) {
       console.error('Failed to delete user:', error);
+    }
+  };
+
+  const handleAssignRole = async (userId, roleId, roleIds = null) => {
+    console.log('handleAssignRole called:', { userId, roleId, roleIds });
+    try {
+      if (!userId) {
+        console.error('User ID is missing in handleAssignRole');
+        setError('User ID is missing');
+        return;
+      }
+      
+      if (roleIds && Array.isArray(roleIds) && roleIds.length > 0) {
+        // Multiple roles assignment
+        console.log('Assigning multiple roles:', roleIds);
+        await api.put(`/auth/users/${userId}/roles`, { roles: roleIds });
+        setSuccess('Roles assigned successfully!');
+      } else if (roleId) {
+        // Single role assignment (roleRef)
+        console.log('Assigning single role:', roleId);
+        await api.put(`/auth/users/${userId}/role-ref`, { roleRef: roleId });
+        setSuccess('Role assigned successfully!');
+      } else {
+        console.error('No role selected');
+        setError('Please select a role to assign');
+        return;
+      }
+      setRoleDialogOpen(false);
+      setSelectedUser(null);
+      loadUsers();
+      
+      // If the assigned user is the current logged-in user, refresh their profile
+      if (userId === user?._id || userId === user?.id) {
+        console.log('Refreshing current user profile after role assignment');
+        await refreshAuthUser();
+      }
+    } catch (error) {
+      console.error('Failed to assign role:', error);
+      console.error('Error details:', error.response?.data);
+      setError(error.response?.data?.message || error.message || 'Failed to assign role');
     }
   };
 
@@ -338,9 +362,9 @@ const UserManagement = () => {
                 <TableCell>Email</TableCell>
                 <TableCell>Employee ID</TableCell>
                 <TableCell>Department</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Sub-Roles</TableCell>
-                <TableCell>Status</TableCell>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Assigned Role</TableCell>
+                  <TableCell>Status</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -370,18 +394,30 @@ const UserManagement = () => {
                   </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {user.subRoles?.map((subRole) => (
-                        <Chip 
-                          key={subRole._id} 
-                          label={subRole.name} 
-                          size="small" 
-                          color="secondary"
+                      {user.roleRef && (
+                        <Chip
+                          label={user.roleRef.displayName || user.roleRef.name}
+                          color="primary"
+                          size="small"
                           variant="outlined"
                         />
-                      ))}
-                      {(!user.subRoles || user.subRoles.length === 0) && (
+                      )}
+                      {user.roles && user.roles.length > 0 && (
+                        <>
+                          {user.roles.map((role) => (
+                            <Chip
+                              key={role._id}
+                              label={role.displayName || role.name}
+                              color="secondary"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                        </>
+                      )}
+                      {(!user.roleRef && (!user.roles || user.roles.length === 0)) && (
                         <Typography variant="caption" color="text.secondary">
-                          None
+                          No role assigned
                         </Typography>
                       )}
                     </Box>
@@ -411,6 +447,17 @@ const UserManagement = () => {
                       }}
                     >
                       <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      onClick={() => {
+                        setSelectedUser(user);
+                        setRoleDialogOpen(true);
+                      }}
+                      title="Assign Role"
+                    >
+                      <SecurityIcon />
                     </IconButton>
                                          {user.isActive ? (
                        <IconButton
@@ -493,8 +540,6 @@ const UserManagement = () => {
             onSave={handleCreateUser}
             onCancel={() => setCreateDialogOpen(false)}
             departments={departments}
-            subRoles={subRoles}
-            onRoleChange={fetchSubRoles}
           />
         </DialogContent>
       </Dialog>
@@ -537,6 +582,14 @@ const UserManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Role Assignment Dialog */}
+      <RoleAssignmentDialog
+        open={roleDialogOpen}
+        onClose={() => setRoleDialogOpen(false)}
+        user={selectedUser}
+        onSave={handleAssignRole}
+      />
     </Box>
   );
 };
@@ -688,7 +741,7 @@ const ViewUserDetails = ({ user, onUpdateRole, onClose }) => {
 };
 
 // Create User Form Component
-const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange }) => {
+const CreateUserForm = ({ onSave, onCancel, departments }) => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -697,16 +750,136 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
     department: '',
     position: '',
     employeeId: '',
-    role: 'employee',
     phone: '',
-    subRoles: [],
-    profileImage: ''
+    profileImage: '',
+    employee: null // Store selected employee ID
   });
 
   const [errors, setErrors] = useState({});
   const [imagePreview, setImagePreview] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [employeeSearchValue, setEmployeeSearchValue] = useState('');
+
+  // Fetch employees without user accounts
+  useEffect(() => {
+    const fetchEmployeesWithoutUsers = async () => {
+      try {
+        setLoadingEmployees(true);
+        const response = await api.get('/hr/employees?getAll=true&withoutUser=true');
+        const allEmployees = response.data.data || [];
+        setEmployees(Array.isArray(allEmployees) ? allEmployees : []);
+      } catch (error) {
+        console.error('Error fetching employees:', error);
+        setEmployees([]);
+      } finally {
+        setLoadingEmployees(false);
+      }
+    };
+    fetchEmployeesWithoutUsers();
+  }, []);
+
+  // Handle employee selection
+  const handleEmployeeSelect = (employee) => {
+    if (employee) {
+      setSelectedEmployeeId(employee._id);
+      
+      // Get department name from placementDepartment (populated by API)
+      const departmentName = employee.placementDepartment?.name || 
+                            (typeof employee.placementDepartment === 'string' ? employee.placementDepartment : '') ||
+                            employee._departmentName || '';
+      
+      // Get position name from placementDesignation (populated by API)
+      const positionName = employee.placementDesignation?.title || 
+                          employee.placementDesignation?.name ||
+                          (typeof employee.placementDesignation === 'string' ? employee.placementDesignation : '') ||
+                          employee._positionName || '';
+      
+      // Clean and validate phone number
+      let phoneNumber = '';
+      if (employee.phone) {
+        // Remove spaces, dashes, parentheses, and other non-digit characters except +
+        const cleaned = employee.phone.toString().replace(/[\s\-\(\)\.]/g, '');
+        // Check if it matches the validation pattern: optional +, then 1-9, then 0-15 digits
+        if (/^[\+]?[1-9][\d]{0,15}$/.test(cleaned)) {
+          phoneNumber = cleaned;
+        } else {
+          // If it doesn't match, try to fix common formats
+          // Remove leading zeros and ensure it starts with 1-9
+          const fixed = cleaned.replace(/^\+?0+/, '').replace(/^\+/, '');
+          if (/^[1-9][\d]{0,15}$/.test(fixed)) {
+            phoneNumber = fixed;
+          }
+          // If still invalid, leave empty (phone is optional)
+        }
+      }
+      
+      console.log('Setting form data from employee:', {
+        employeeId: employee.employeeId,
+        placementDepartment: employee.placementDepartment,
+        placementDesignation: employee.placementDesignation,
+        departmentName,
+        positionName,
+        originalPhone: employee.phone,
+        cleanedPhone: phoneNumber
+      });
+      
+      setFormData({
+        ...formData,
+        firstName: employee.firstName || '',
+        lastName: employee.lastName || '',
+        employeeId: employee.employeeId || '',
+        phone: phoneNumber,
+        department: departmentName,
+        position: positionName,
+        employee: employee._id,
+        profileImage: employee.profileImage || ''
+      });
+    } else {
+      // Reset form when no employee is selected
+      setSelectedEmployeeId('');
+      setFormData({
+        ...formData,
+        firstName: '',
+        lastName: '',
+        employeeId: '',
+        phone: '',
+        department: '',
+        position: '',
+        employee: null,
+        profileImage: ''
+      });
+    }
+  };
+
+  // Filter employees based on search (fuzzy search)
+  const filteredEmployees = employees.filter(employee => {
+    if (!employeeSearchValue) return true;
+    
+    const searchTerm = employeeSearchValue.toLowerCase();
+    const employeeId = (employee.employeeId || '').toLowerCase();
+    const firstName = (employee.firstName || '').toLowerCase();
+    const lastName = (employee.lastName || '').toLowerCase();
+    const fullName = `${firstName} ${lastName}`.trim();
+    const idCard = (employee.idCard || '').toLowerCase();
+    const email = (employee.email || '').toLowerCase();
+    const phone = (employee.phone || '').toLowerCase();
+    const department = (employee.department?.name || employee.department || '').toLowerCase();
+    
+    return (
+      employeeId.includes(searchTerm) ||
+      firstName.includes(searchTerm) ||
+      lastName.includes(searchTerm) ||
+      fullName.includes(searchTerm) ||
+      idCard.includes(searchTerm) ||
+      email.includes(searchTerm) ||
+      phone.includes(searchTerm) ||
+      department.includes(searchTerm)
+    );
+  });
 
   // Handle image upload
   const handleImageUpload = async (file) => {
@@ -748,11 +921,12 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
   const validateForm = () => {
     const newErrors = {};
     
-    // Check required fields with better error handling
-    if (!formData.firstName || formData.firstName.trim() === '') {
-      newErrors.firstName = 'First name is required';
+    // Employee selection is required
+    if (!selectedEmployeeId) {
+      newErrors.employee = 'Please select an employee';
     }
     
+    // Email and password are always required
     if (!formData.email || formData.email.trim() === '') {
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
@@ -765,18 +939,20 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
       newErrors.password = 'Password must be at least 6 characters';
     }
     
-    if (!formData.department || formData.department === '') {
-      newErrors.department = 'Department is required';
+    // Check if department and position are set (they should be auto-filled from employee)
+    if (!formData.department || formData.department.trim() === '') {
+      newErrors.department = 'Department is required. Please select an employee with a department assigned.';
     }
     
     if (!formData.position || formData.position.trim() === '') {
-      newErrors.position = 'Position is required';
-    }
-    
-    if (!formData.employeeId || formData.employeeId.trim() === '') {
-      newErrors.employeeId = 'Employee ID is required';
+      newErrors.position = 'Position is required. Please select an employee with a position assigned.';
     }
 
+    console.log('Form data during validation:', {
+      department: formData.department,
+      position: formData.position,
+      employeeId: formData.employeeId
+    });
     console.log('Validation errors:', newErrors);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -809,32 +985,106 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
       )}
       
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {/* Employee Selection with Fuzzy Search */}
+        <Autocomplete
+          fullWidth
+          options={filteredEmployees}
+          getOptionLabel={(option) => {
+            if (!option) return '';
+            const name = `${option.firstName || ''} ${option.lastName || ''}`.trim();
+            const dept = option.department?.name || option.department || '';
+            return `${option.employeeId || ''} - ${name}${dept ? ` (${dept})` : ''}`;
+          }}
+          value={employees.find(emp => emp._id === selectedEmployeeId) || null}
+          onChange={(event, newValue) => handleEmployeeSelect(newValue)}
+          onInputChange={(event, newInputValue) => {
+            setEmployeeSearchValue(newInputValue);
+          }}
+          loading={loadingEmployees}
+          disabled={loadingEmployees}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Select Employee"
+              required
+              error={!!errors.employee}
+              helperText={errors.employee || 'Search by employee code, name, CNIC, email, phone, or department'}
+              placeholder="Type to search..."
+            />
+          )}
+          renderOption={(props, option) => (
+            <Box component="li" {...props} key={option._id}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                <Typography variant="body1">
+                  <strong>{option.employeeId}</strong> - {option.firstName} {option.lastName || ''}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                  {option.idCard && (
+                    <Chip 
+                      label={`CNIC: ${option.idCard}`} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ fontSize: '0.7rem', height: '20px' }}
+                    />
+                  )}
+                  {option.email && (
+                    <Chip 
+                      label={`Email: ${option.email}`} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ fontSize: '0.7rem', height: '20px' }}
+                    />
+                  )}
+                  {option.phone && (
+                    <Chip 
+                      label={`Phone: ${option.phone}`} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ fontSize: '0.7rem', height: '20px' }}
+                    />
+                  )}
+                  {(option.department?.name || option.department) && (
+                    <Chip 
+                      label={`Dept: ${option.department?.name || option.department}`} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ fontSize: '0.7rem', height: '20px' }}
+                    />
+                  )}
+                </Box>
+              </Box>
+            </Box>
+          )}
+          noOptionsText={
+            loadingEmployees 
+              ? 'Loading employees...' 
+              : employeeSearchValue 
+                ? `No employees found matching "${employeeSearchValue}"`
+                : 'No employees without user accounts found'
+          }
+          sx={{ mt: 2 }}
+        />
+
+        {/* Auto-filled fields (read-only when employee is selected) */}
         <TextField
           fullWidth
           label="First Name"
           value={formData.firstName}
-          onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
           margin="normal"
-          required
-          error={!!errors.firstName}
-          helperText={errors.firstName}
           variant="outlined"
-          InputLabelProps={{
-            shrink: true,
-          }}
+          InputLabelProps={{ shrink: true }}
+          InputProps={{ readOnly: true }}
+          sx={{ backgroundColor: 'action.disabledBackground' }}
         />
         <TextField
           fullWidth
-          label="Last Name (Optional)"
+          label="Last Name"
           value={formData.lastName}
-          onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
           margin="normal"
-          error={!!errors.lastName}
-          helperText={errors.lastName}
           variant="outlined"
-          InputLabelProps={{
-            shrink: true,
-          }}
+          InputLabelProps={{ shrink: true }}
+          InputProps={{ readOnly: true }}
+          sx={{ backgroundColor: 'action.disabledBackground' }}
         />
         <TextField
           fullWidth
@@ -870,126 +1120,44 @@ const CreateUserForm = ({ onSave, onCancel, departments, subRoles, onRoleChange 
           fullWidth
           label="Employee ID"
           value={formData.employeeId}
-          onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
           margin="normal"
-          required
-          error={!!errors.employeeId}
-          helperText={errors.employeeId}
           variant="outlined"
-          InputLabelProps={{
-            shrink: true,
-          }}
+          InputLabelProps={{ shrink: true }}
+          InputProps={{ readOnly: true }}
+          sx={{ backgroundColor: 'action.disabledBackground' }}
         />
         <TextField
           fullWidth
           label="Position"
           value={formData.position}
-          onChange={(e) => setFormData({ ...formData, position: e.target.value })}
           margin="normal"
-          required
-          error={!!errors.position}
-          helperText={errors.position}
           variant="outlined"
-          InputLabelProps={{
-            shrink: true,
-          }}
+          InputLabelProps={{ shrink: true }}
+          InputProps={{ readOnly: true }}
+          sx={{ backgroundColor: 'action.disabledBackground' }}
         />
         
-        <FormControl fullWidth margin="normal" error={!!errors.department}>
-        <InputLabel>Department</InputLabel>
-        <Select
-          value={formData.department}
-          onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-          label="Department"
-        >
-          {departments.map((dept) => (
-            <MenuItem key={dept.name || dept} value={dept.name || dept}>
-              {dept.name || dept}
-            </MenuItem>
-          ))}
-        </Select>
-        {errors.department && (
-          <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
-            {errors.department}
-          </Typography>
-        )}
-      </FormControl>
-      <FormControl fullWidth margin="normal">
-        <InputLabel>Role</InputLabel>
-        <Select
-          value={formData.role}
-          onChange={(e) => {
-            setFormData({ ...formData, role: e.target.value, subRoles: [] });
-            onRoleChange(e.target.value);
-          }}
-          label="Role"
-        >
-          {['super_admin', 'higher_management', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'Audit Director', 'it_manager', 'taj_residencia_manager', 'appraisal_manager', 'employee'].map((role) => (
-            <MenuItem key={role} value={role}>
-              {role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
-      
-      {/* Sub-Role Selection - Only show for roles that support sub-roles */}
-      {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'it_manager', 'taj_residencia_manager'].includes(formData.role) && (
         <FormControl fullWidth margin="normal">
-          <InputLabel>Sub-Roles (Optional)</InputLabel>
+          <InputLabel>Department</InputLabel>
           <Select
-            multiple
-            value={formData.subRoles}
-            onChange={(e) => setFormData({ ...formData, subRoles: e.target.value })}
-            label="Sub-Roles (Optional)"
-            renderValue={(selected) => (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {selected.map((subRoleId) => {
-                  const subRole = subRoles.find(sr => sr._id === subRoleId);
-                  return <Chip key={subRoleId} label={subRole?.name} size="small" />;
-                })}
-              </Box>
-            )}
+            value={formData.department}
+            label="Department"
+            disabled
+            sx={{ backgroundColor: 'action.disabledBackground' }}
           >
-            {subRoles
-              .filter(subRole => {
-                // Map role names to module names for filtering
-                const roleToModuleMap = {
-                  'admin': 'admin',
-                  'hr_manager': 'hr',
-                  'finance_manager': 'finance',
-                  'procurement_manager': 'procurement',
-                  'sales_manager': 'sales',
-                  'crm_manager': 'crm',
-                  'audit_manager': 'audit',
-                  'it_manager': 'it',
-                  'taj_residencia_manager': 'taj_residencia'
-                };
-                return subRole.module === roleToModuleMap[formData.role];
-              })
-              .map((subRole) => (
-                <MenuItem key={subRole._id} value={subRole._id}>
-                  <Box>
-                    <Typography variant="body1">{subRole.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {subRole.description}
-                    </Typography>
-                  </Box>
-                </MenuItem>
-              ))}
+            <MenuItem value={formData.department}>{formData.department || 'N/A'}</MenuItem>
           </Select>
         </FormControl>
-      )}
       
       <TextField
         fullWidth
-        label="Phone (Optional)"
+        label="Phone"
         value={formData.phone}
-        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
         margin="normal"
         variant="outlined"
-        InputLabelProps={{
-          shrink: true,
-        }}
+        InputLabelProps={{ shrink: true }}
+        InputProps={{ readOnly: true }}
+        sx={{ backgroundColor: 'action.disabledBackground' }}
       />
       </Box>
       

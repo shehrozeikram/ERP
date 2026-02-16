@@ -26,21 +26,18 @@ import {
   Snackbar,
   FormControlLabel,
   Switch,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Checkbox,
-  FormGroup,
   Divider
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  ExpandMore as ExpandMoreIcon,
   Visibility as VisibilityIcon,
   People as PeopleIcon
 } from '@mui/icons-material';
+import RolePermissionMatrix from '../../components/Admin/RolePermissionMatrix';
+import RoleTemplates from '../../components/Admin/RoleTemplates';
+import api from '../../services/api';
 
 const RoleManagement = () => {
   const [roles, setRoles] = useState([]);
@@ -53,36 +50,25 @@ const RoleManagement = () => {
   const [editingRole, setEditingRole] = useState(null);
   const [viewingRole, setViewingRole] = useState(null);
   const [roleUsers, setRoleUsers] = useState([]);
-  const [availableModules, setAvailableModules] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState('all');
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
-    displayName: '',
-    description: '',
     permissions: [],
     isActive: true
   });
 
   useEffect(() => {
     fetchRoles();
-    fetchAvailableModules();
   }, []);
 
   const fetchRoles = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/roles', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (!response.ok) throw new Error('Failed to fetch roles');
-      
-      const data = await response.json();
-      setRoles(data.data.roles);
+      const response = await api.get('/roles');
+      setRoles(response.data.data?.roles || []);
     } catch (err) {
       setError('Failed to fetch roles');
     } finally {
@@ -90,35 +76,11 @@ const RoleManagement = () => {
     }
   };
 
-  const fetchAvailableModules = async () => {
-    try {
-      const response = await fetch('/api/roles/modules/available', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (!response.ok) throw new Error('Failed to fetch available modules');
-      
-      const data = await response.json();
-      setAvailableModules(data.data.modules);
-    } catch (err) {
-      setError('Failed to fetch available modules');
-    }
-  };
 
   const fetchRoleUsers = async (roleId) => {
     try {
-      const response = await fetch(`/api/roles/${roleId}/users`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (!response.ok) throw new Error('Failed to fetch role users');
-      
-      const data = await response.json();
-      setRoleUsers(data.data.users);
+      const response = await api.get(`/roles/${roleId}/users`);
+      setRoleUsers(response.data.data?.users || []);
     } catch (err) {
       setError('Failed to fetch role users');
     }
@@ -128,20 +90,26 @@ const RoleManagement = () => {
     setEditingRole(null);
     setFormData({
       name: '',
-      displayName: '',
-      description: '',
       permissions: [],
       isActive: true
     });
+    setShowTemplates(true);
     setDialogOpen(true);
+  };
+
+  const handleSelectTemplate = (template) => {
+    setFormData({
+      name: template.name || template.displayName,
+      permissions: template.permissions,
+      isActive: true
+    });
+    setShowTemplates(false);
   };
 
   const handleEditRole = (role) => {
     setEditingRole(role);
     setFormData({
       name: role.name,
-      displayName: role.displayName,
-      description: role.description,
       permissions: role.permissions || [],
       isActive: role.isActive
     });
@@ -163,14 +131,18 @@ const RoleManagement = () => {
     try {
       const url = editingRole ? `/api/roles/${editingRole._id}` : '/api/roles';
       const method = editingRole ? 'PUT' : 'POST';
-      
+      const payload = {
+        ...formData,
+        displayName: formData.name,
+        description: ''
+      };
       const response = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
       
       if (!response.ok) {
@@ -180,6 +152,8 @@ const RoleManagement = () => {
       
       setSuccess(editingRole ? 'Role updated successfully' : 'Role created successfully');
       setDialogOpen(false);
+      setShowTemplates(false);
+      resetForm();
       fetchRoles();
     } catch (err) {
       setError(err.message);
@@ -187,82 +161,24 @@ const RoleManagement = () => {
   };
 
   const handleDeleteRole = async (role) => {
-    if (!window.confirm(`Are you sure you want to delete the role "${role.displayName}"?`)) {
+    if (!window.confirm(`Are you sure you want to delete the role "${role.name}"?`)) {
       return;
     }
     
     try {
-      const response = await fetch(`/api/roles/${role._id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete role');
-      }
-      
+      await api.delete(`/roles/${role._id}`);
       setSuccess('Role deleted successfully');
       fetchRoles();
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.message || err.message || 'Failed to delete role');
     }
   };
 
-  const handlePermissionChange = (moduleKey, submodule, action, checked) => {
-    setFormData(prev => {
-      const newPermissions = [...prev.permissions];
-      let modulePermission = newPermissions.find(p => p.module === moduleKey);
-      
-      if (!modulePermission) {
-        modulePermission = {
-          module: moduleKey,
-          submodules: [],
-          actions: []
-        };
-        newPermissions.push(modulePermission);
-      }
-      
-      if (checked) {
-        if (!modulePermission.submodules.includes(submodule)) {
-          modulePermission.submodules.push(submodule);
-        }
-        if (!modulePermission.actions.includes(action)) {
-          modulePermission.actions.push(action);
-        }
-      } else {
-        modulePermission.submodules = modulePermission.submodules.filter(s => s !== submodule);
-        modulePermission.actions = modulePermission.actions.filter(a => a !== action);
-      }
-      
-      // Remove module permission if no submodules or actions
-      if (modulePermission.submodules.length === 0 || modulePermission.actions.length === 0) {
-        return {
-          ...prev,
-          permissions: newPermissions.filter(p => p.module !== moduleKey)
-        };
-      }
-      
-      return {
-        ...prev,
-        permissions: newPermissions
-      };
-    });
-  };
-
-  const isPermissionChecked = (moduleKey, submodule, action) => {
-    const modulePermission = formData.permissions.find(p => p.module === moduleKey);
-    return modulePermission && 
-           modulePermission.submodules.includes(submodule) && 
-           modulePermission.actions.includes(action);
-  };
 
   const filteredRoles = roles.filter(role => {
     const matchesSearch = role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         role.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         role.description.toLowerCase().includes(searchTerm.toLowerCase());
+                         (role.displayName || role.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (role.description || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesFilter = filterActive === 'all' || 
                          (filterActive === 'active' && role.isActive) ||
@@ -274,11 +190,10 @@ const RoleManagement = () => {
   const resetForm = () => {
     setFormData({
       name: '',
-      displayName: '',
-      description: '',
       permissions: [],
       isActive: true
     });
+    setShowTemplates(false);
   };
 
   return (
@@ -326,8 +241,6 @@ const RoleManagement = () => {
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell>
-              <TableCell>Display Name</TableCell>
-              <TableCell>Description</TableCell>
               <TableCell>Permissions</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Users</TableCell>
@@ -340,12 +253,6 @@ const RoleManagement = () => {
                 <TableCell>
                   <Typography variant="body1" fontWeight="medium">
                     {role.name}
-                  </Typography>
-                </TableCell>
-                <TableCell>{role.displayName}</TableCell>
-                <TableCell>
-                  <Typography variant="body2" color="text.secondary">
-                    {role.description || 'No description'}
                   </Typography>
                 </TableCell>
                 <TableCell>
@@ -433,21 +340,7 @@ const RoleManagement = () => {
               disabled={editingRole}
               fullWidth
               required
-            />
-            <TextField
-              label="Display Name"
-              value={formData.displayName}
-              onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-              fullWidth
-              required
-            />
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              multiline
-              rows={3}
-              fullWidth
+              helperText="This name will be shown in the sidebar and profile"
             />
             <FormControlLabel
               control={
@@ -461,50 +354,54 @@ const RoleManagement = () => {
             
             <Divider />
             
-            <Typography variant="h6">Permissions</Typography>
-            {availableModules && availableModules.length > 0 ? availableModules.map((module) => (
-              <Accordion key={module.key}>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="subtitle1">
-                    {module.name} ({module.submodules?.length || 0} submodules)
-                  </Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {(module.submodules || []).map((submodule) => (
-                      <Box key={submodule} sx={{ ml: 2 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                          {submodule.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                        </Typography>
-                        <FormGroup row>
-                          {['create', 'read', 'update', 'delete', 'approve'].map((action) => (
-                            <FormControlLabel
-                              key={action}
-                              control={
-                                <Checkbox
-                                  checked={isPermissionChecked(module.key, submodule, action)}
-                                  onChange={(e) => handlePermissionChange(module.key, submodule, action, e.target.checked)}
-                                />
-                              }
-                              label={action.charAt(0).toUpperCase() + action.slice(1)}
-                            />
-                          ))}
-                        </FormGroup>
-                      </Box>
-                    ))}
-                  </Box>
-                </AccordionDetails>
-              </Accordion>
-            )) : (
-              <Typography variant="body2" color="text.secondary">
-                No modules available
-              </Typography>
+            {showTemplates && !editingRole ? (
+              <>
+                <RoleTemplates onSelectTemplate={handleSelectTemplate} />
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                  <Button
+                    variant="outlined"
+                    onClick={() => setShowTemplates(false)}
+                  >
+                    Create Custom Role Instead
+                  </Button>
+                </Box>
+              </>
+            ) : (
+              <RolePermissionMatrix
+                permissions={formData.permissions}
+                onChange={(permissions) => setFormData({ ...formData, permissions })}
+              />
             )}
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleSaveRole} variant="contained">
+          <Button onClick={() => {
+            setDialogOpen(false);
+            setShowTemplates(false);
+            resetForm();
+          }}>Cancel</Button>
+          <Button 
+            onClick={handleSaveRole} 
+            variant="contained"
+            disabled={
+              !formData.name || 
+              (formData.permissions && formData.permissions.length > 0 && 
+                formData.permissions.every(p => {
+                  // Check if permission has module-level actions
+                  const hasModuleActions = p.actions && Array.isArray(p.actions) && p.actions.length > 0;
+                  // Check if permission has submodules with actions
+                  const hasSubmoduleActions = p.submodules && Array.isArray(p.submodules) && 
+                    p.submodules.some(sm => {
+                      if (typeof sm === 'object' && sm.actions) {
+                        return Array.isArray(sm.actions) && sm.actions.length > 0;
+                      }
+                      return false;
+                    });
+                  // Permission is valid if it has either module-level actions or submodules with actions
+                  return !hasModuleActions && !hasSubmoduleActions;
+                }))
+            }
+          >
             {editingRole ? 'Update' : 'Create'}
           </Button>
         </DialogActions>
@@ -517,16 +414,8 @@ const RoleManagement = () => {
           {viewingRole && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
               <Box>
-                <Typography variant="subtitle2" color="text.secondary">Name</Typography>
+                <Typography variant="subtitle2" color="text.secondary">Role Name</Typography>
                 <Typography variant="body1">{viewingRole.name}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="subtitle2" color="text.secondary">Display Name</Typography>
-                <Typography variant="body1">{viewingRole.displayName}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="subtitle2" color="text.secondary">Description</Typography>
-                <Typography variant="body1">{viewingRole.description || 'No description'}</Typography>
               </Box>
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">Status</Typography>
@@ -567,7 +456,7 @@ const RoleManagement = () => {
 
       {/* Users Dialog */}
       <Dialog open={usersDialogOpen} onClose={() => setUsersDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Users with Role: {viewingRole?.displayName}</DialogTitle>
+        <DialogTitle>Users with Role: {viewingRole?.name}</DialogTitle>
         <DialogContent>
           <TableContainer>
             <Table size="small">

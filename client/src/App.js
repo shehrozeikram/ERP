@@ -124,7 +124,6 @@ import RentalAgreementDetail from './pages/Admin/RentalAgreements/RentalAgreemen
 import RentalManagementDashboard from './pages/Admin/RentalManagement/RentalManagementDashboard';
 import RentalManagementDetail from './pages/Admin/RentalManagement/RentalManagementDetail';
 import PaymentSettlement from './pages/Admin/PaymentSettlement/PaymentSettlement';
-import SubRoleManagement from './pages/Admin/SubRoleManagement';
 import RoleManagement from './pages/Admin/RoleManagement';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 
@@ -1274,10 +1273,6 @@ function App() {
             <Route 
               path="/admin/users" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "appraisal_manager"]}><UserManagement /></ProtectedRoute>} 
-            />
-            <Route 
-              path="/admin/sub-roles" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><SubRoleManagement /></ProtectedRoute>} 
             />
             <Route 
               path="/admin/roles" 

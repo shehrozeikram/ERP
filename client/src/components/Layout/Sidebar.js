@@ -40,7 +40,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getModuleMenuItems } from '../../utils/permissions';
+import { getModuleMenuItems, MODULES } from '../../utils/permissions';
 import NotificationService from '../../services/notificationService';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { getImageUrl, handleImageError } from '../../utils/imageService';
@@ -241,27 +241,279 @@ const Sidebar = () => {
     return pathToSubmoduleMap[path];
   };
 
-  // Helper function to get module name from module path
+  // Helper function to get module name from path
   const getModuleNameFromPath = (path) => {
-    if (path.startsWith('/admin')) return 'admin';
-    if (path.startsWith('/hr')) return 'hr';
-    if (path.startsWith('/finance')) return 'finance';
-    if (path.startsWith('/procurement')) return 'procurement';
-    if (path.startsWith('/sales')) return 'sales';
-    if (path.startsWith('/crm')) return 'crm';
-    if (path.startsWith('/audit')) return 'audit';
-    if (path.startsWith('/it')) return 'it';
-    if (path.startsWith('/taj-residencia')) return 'taj_residencia';
-    if (path.startsWith('/documents-tracking')) return 'general';
-    if (path.startsWith('/general/indents')) return 'general';
-    if (path.startsWith('/general/project-management')) return 'general';
-    if (path.startsWith('/general/ceo-secretariat')) return 'general';
-    return null;
+    if (!path) return '';
+    const parts = path.split('/').filter(p => p);
+    if (parts.length === 0) return '';
+    
+    // Map common paths to module names
+    const pathToModuleMap = {
+      '/dashboard': 'dashboard',
+      '/hr': 'hr',
+      '/finance': 'finance',
+      '/procurement': 'procurement',
+      '/sales': 'sales',
+      '/crm': 'crm',
+      '/audit': 'audit',
+      '/it': 'it',
+      '/taj-residencia': 'taj_residencia',
+      '/admin': 'admin',
+      '/documents-tracking': 'general',
+      '/indents': 'general',
+      '/user-tracking': 'general',
+      '/ceo-secretariat': 'general'
+    };
+    
+    return pathToModuleMap[path] || parts[0];
   };
 
-  // Filter menu items based on user's sub-roles
+  // Helper function to check if user has permission for a submodule
+  const hasSubmodulePermission = useCallback((rolePermissions, moduleName, submoduleName) => {
+    if (!rolePermissions || !Array.isArray(rolePermissions)) return false;
+    
+    const modulePermission = rolePermissions.find(p => p.module === moduleName);
+    if (!modulePermission) return false;
+    
+    // Check if submodule has permissions (actions array)
+    if (modulePermission.submodules && Array.isArray(modulePermission.submodules)) {
+      const submodule = modulePermission.submodules.find(sm => {
+        const smName = typeof sm === 'object' ? sm.submodule : sm;
+        return smName === submoduleName;
+      });
+      
+      if (submodule) {
+        // If it's an object with actions, check if it has 'read' action
+        if (typeof submodule === 'object' && submodule.actions) {
+          return Array.isArray(submodule.actions) && submodule.actions.includes('read');
+        }
+        // If it's a string, check module-level actions
+        if (modulePermission.actions && Array.isArray(modulePermission.actions)) {
+          return modulePermission.actions.includes('read');
+        }
+      }
+    }
+    
+    // Fallback: check module-level actions
+    if (modulePermission.actions && Array.isArray(modulePermission.actions)) {
+      return modulePermission.actions.includes('read');
+    }
+    
+    return false;
+  }, []);
+
+  // Helper function to build menu items from MODULES object
+  const buildMenuItemsFromModules = useCallback((moduleKeys) => {
+    if (!moduleKeys || moduleKeys.length === 0) return [];
+    
+    return moduleKeys.map(moduleKey => {
+      const module = MODULES[moduleKey];
+      if (!module) return null;
+      
+      return {
+        text: module.name,
+        icon: getIconComponent(module.icon),
+        path: module.path,
+        subItems: module.subItems ? module.subItems.map(subItem => ({
+          text: subItem.name,
+          path: subItem.path,
+          subItems: subItem.subItems ? subItem.subItems.map(subSubItem => ({
+            text: subSubItem.name,
+            path: subSubItem.path
+          })) : undefined
+        })) : undefined
+      };
+    }).filter(item => item !== null);
+  }, []);
+
+  // Filter menu items based on user's roleRef (RBAC) or sub-roles
   const getFilteredMenuItems = useCallback((userRole) => {
-    const baseMenuItems = getMenuItems(userRole);
+    // Get ALL menu items first (use a role that has access to all modules)
+    // We'll filter based on actual permissions, not the legacy role field
+    let baseMenuItems = getMenuItems('super_admin') || [];
+    
+    // If that doesn't work, build from MODULES directly
+    if (baseMenuItems.length === 0) {
+      const allModuleKeys = Object.keys(MODULES);
+      baseMenuItems = buildMenuItemsFromModules(allModuleKeys);
+    }
+    
+    // Debug logging (dev mode only)
+    const isDev = process.env.NODE_ENV === 'development';
+    if (isDev) {
+      console.log('🔍 Sidebar Filter Debug:', {
+        user: user ? { id: user._id || user.id, email: user.email } : null,
+        userRole: userRole,
+        hasRoles: user?.roles && Array.isArray(user.roles) && user.roles.length > 0,
+        hasRoleRef: !!user?.roleRef,
+        roleRefName: user?.roleRef?.name || user?.roleRef?.displayName,
+        hasSubRoles: user?.subRoles && user.subRoles.length > 0,
+        baseMenuItemsCount: baseMenuItems.length
+      });
+    }
+    
+    // NEW: Check multiple roles first (if assigned)
+    if (user?.roles && Array.isArray(user.roles) && user.roles.length > 0) {
+      // Collect all permissions from all roles
+      const allPermissions = [];
+      user.roles.forEach(role => {
+        if (role.isActive && role.permissions && Array.isArray(role.permissions)) {
+          allPermissions.push(...role.permissions);
+        }
+      });
+      
+      if (isDev) {
+        console.log('📋 Multiple Roles Permissions:', {
+          rolesCount: user.roles.length,
+          permissionsCount: allPermissions.length,
+          permissions: allPermissions.map(p => ({ module: p.module, hasActions: !!p.actions, hasSubmodules: !!p.submodules }))
+        });
+      }
+      
+      // Get modules with read permission
+      const allowedModules = new Set();
+      allPermissions.forEach(p => {
+        // Check module-level read permission
+        if (p.actions && Array.isArray(p.actions) && p.actions.includes('read')) {
+          allowedModules.add(p.module);
+        }
+        // Check submodule-level read permissions
+        if (p.submodules && Array.isArray(p.submodules)) {
+          p.submodules.forEach(sm => {
+            if (typeof sm === 'object' && sm.actions && Array.isArray(sm.actions) && sm.actions.includes('read')) {
+              allowedModules.add(p.module);
+            }
+          });
+        }
+      });
+      
+      if (isDev) console.log('✅ Allowed Modules from Roles:', Array.from(allowedModules));
+      
+      // Filter modules and their submenu items
+      const filtered = baseMenuItems.map(module => {
+        const moduleName = getModuleNameFromPath(module.path);
+        const isAllowed = allowedModules.has(moduleName);
+        
+        if (isDev) console.log(`  Module: ${module.text} (${module.path}) -> ${moduleName} - ${isAllowed ? 'ALLOWED' : 'FILTERED'}`);
+        
+        if (!isAllowed) {
+          return null;
+        }
+        
+        // Filter submenu items based on submodule permissions
+        if (module.subItems) {
+          const filteredSubItems = module.subItems.filter(subItem => {
+            const submoduleName = getSubmoduleFromPath(subItem.path);
+            
+            // If no submodule mapping, allow if module has permission
+            if (!submoduleName) {
+              return true;
+            }
+            
+            // Check if any role has permission for this submodule
+            const hasPermission = user.roles.some(role => {
+              if (!role.isActive || !role.permissions) return false;
+              return hasSubmodulePermission(role.permissions, moduleName, submoduleName);
+            });
+            
+            return hasPermission;
+          });
+          
+          return {
+            ...module,
+            subItems: filteredSubItems
+          };
+        }
+        
+        return module;
+      }).filter(module => module !== null && (!module.subItems || module.subItems.length > 0));
+      
+      if (isDev) console.log('📊 Filtered Menu Items Count:', filtered.length);
+      
+      // If no modules matched, fall back to base menu items
+      if (filtered.length === 0) {
+        if (isDev) console.warn('⚠️ No modules matched role permissions, falling back to base menu items');
+        return baseMenuItems;
+      }
+      
+      return filtered;
+    }
+    
+    // NEW: Check roleRef permissions (primary role - RBAC system)
+    if (user?.roleRef && user.roleRef.isActive && user.roleRef.permissions) {
+      const rolePermissions = user.roleRef.permissions;
+      
+      if (isDev) {
+        console.log('📋 RoleRef Permissions:', {
+          roleName: user.roleRef.name || user.roleRef.displayName,
+          permissionsCount: rolePermissions.length,
+          permissions: rolePermissions.map(p => ({ module: p.module, hasActions: !!p.actions, hasSubmodules: !!p.submodules }))
+        });
+      }
+      
+      // Get modules with read permission
+      const allowedModules = new Set();
+      rolePermissions.forEach(p => {
+        // Check module-level read permission
+        if (p.actions && Array.isArray(p.actions) && p.actions.includes('read')) {
+          allowedModules.add(p.module);
+        }
+        // Check submodule-level read permissions
+        if (p.submodules && Array.isArray(p.submodules)) {
+          p.submodules.forEach(sm => {
+            if (typeof sm === 'object' && sm.actions && Array.isArray(sm.actions) && sm.actions.includes('read')) {
+              allowedModules.add(p.module);
+            }
+          });
+        }
+      });
+      
+      if (isDev) console.log('✅ Allowed Modules from RoleRef:', Array.from(allowedModules));
+      
+      // Filter modules and their submenu items
+      const filtered = baseMenuItems.map(module => {
+        const moduleName = getModuleNameFromPath(module.path);
+        const isAllowed = allowedModules.has(moduleName);
+        
+        if (isDev) console.log(`  Module: ${module.text} (${module.path}) -> ${moduleName} - ${isAllowed ? 'ALLOWED' : 'FILTERED'}`);
+        
+        if (!isAllowed) {
+          return null;
+        }
+        
+        // Filter submenu items based on submodule permissions
+        if (module.subItems) {
+          const filteredSubItems = module.subItems.filter(subItem => {
+            const submoduleName = getSubmoduleFromPath(subItem.path);
+            
+            // If no submodule mapping, allow if module has permission
+            if (!submoduleName) {
+              return true;
+            }
+            
+            // Check if role has permission for this submodule
+            return hasSubmodulePermission(rolePermissions, moduleName, submoduleName);
+          });
+          
+          return {
+            ...module,
+            subItems: filteredSubItems
+          };
+        }
+        
+        return module;
+      }).filter(module => module !== null && (!module.subItems || module.subItems.length > 0));
+      
+      if (isDev) console.log('📊 Filtered Menu Items Count:', filtered.length);
+      
+      // If no modules matched, fall back to base menu items
+      if (filtered.length === 0) {
+        if (isDev) console.warn('⚠️ No modules matched roleRef permissions, falling back to base menu items');
+        return baseMenuItems;
+      }
+      
+      return filtered;
+    }
     
     // If user has sub-roles, show only items they have permissions for
     if (user?.subRoles && user.subRoles.length > 0) {
@@ -334,8 +586,9 @@ const Sidebar = () => {
       });
     }
     
-    // If user has NO sub-roles, return base menu items (main role permissions)
+    // If user has NO roles/roleRef/subRoles, return base menu items (fallback)
     // But filter HR module for hr_manager to only show Evaluation & Appraisal
+    if (isDev) console.log('⚠️ No roles found, using base menu items (fallback)');
     return baseMenuItems.map(module => {
       if (module.subItems && module.path === '/hr' && userRole === 'hr_manager') {
         const filteredSubItems = module.subItems.filter(subItem => {
@@ -350,7 +603,7 @@ const Sidebar = () => {
       }
       return module;
     });
-  }, [user]);
+  }, [user, hasSubmodulePermission, buildMenuItemsFromModules]);
 
   // Fetch candidate hired notification count for Employee submodule badge
   const fetchCandidateHiredCount = useCallback(async () => {
@@ -498,7 +751,7 @@ const Sidebar = () => {
                 letterSpacing: '0.5px'
               }}
             >
-              {user?.role || 'Employee'}
+              {user?.roleRef?.name || user?.roleRef?.displayName || (user?.roles?.[0]?.name) || user?.role || 'Employee'}
             </Typography>
           </Box>
         </Box>
@@ -551,7 +804,20 @@ const Sidebar = () => {
         },
       }}>
         <List sx={{ pt: 1 }}>
-        {getFilteredMenuItems(user?.role).map((item) => (
+        {(() => {
+          const menuItems = getFilteredMenuItems(user?.role);
+          if (!menuItems || menuItems.length === 0) {
+            console.warn('⚠️ No menu items found for user:', user?.email);
+            return (
+              <ListItem>
+                <ListItemText 
+                  primary="No modules available" 
+                  secondary="Please contact administrator to assign roles"
+                />
+              </ListItem>
+            );
+          }
+          return menuItems.map((item) => (
           <Box key={item.text}>
             <ListItem disablePadding>
               <ListItemButton
@@ -745,9 +1011,8 @@ const Sidebar = () => {
               </Collapse>
             )}
           </Box>
-        ))}
-
-        
+          ));
+        })()}
         </List>
       </Box>
 

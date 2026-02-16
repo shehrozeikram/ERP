@@ -610,14 +610,91 @@ const getUserAllowedSubmodules = async (userId, module) => {
 const checkSubRoleAccess = async (userId, module, submodule, action) => {
   const User = require('../models/User');
   const UserSubRole = require('../models/UserSubRole');
+  const Role = require('../models/Role');
   
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).populate('roleRef').populate('roles');
   if (!user) return false;
   
   // Super admin and higher management have access to everything
   if (user.role === ROLES.SUPER_ADMIN || user.role === ROLES.HIGHER_MANAGEMENT) return true;
   
-  // Get user's active sub-role assignments
+  // NEW: Check multiple roles first (if assigned)
+  if (user.roles && Array.isArray(user.roles) && user.roles.length > 0) {
+    for (const roleRef of user.roles) {
+      const role = await Role.findById(roleRef._id || roleRef);
+      if (role && role.isActive) {
+        const modulePermission = role.permissions.find(p => p.module === module);
+        if (modulePermission) {
+          // If submodule is specified, check per-submodule actions
+          if (submodule && modulePermission.submodules && modulePermission.submodules.length > 0) {
+            // Find the submodule entry (support both string and object formats)
+            const submoduleEntry = modulePermission.submodules.find(sm => {
+              if (typeof sm === 'string') return sm === submodule;
+              if (sm && typeof sm === 'object') return sm.submodule === submodule;
+              return false;
+            });
+            
+            if (submoduleEntry) {
+              // If it's an object with actions array, check those actions
+              if (submoduleEntry && typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
+                if (submoduleEntry.actions.includes(action)) {
+                  return true;
+                }
+              }
+              // If it's a string (legacy format), check module-level actions
+              if (typeof submoduleEntry === 'string' && modulePermission.actions.includes(action)) {
+                return true;
+              }
+            }
+          } else {
+            // If no submodule specified or submodules array is empty, check module-level actions
+            if (modulePermission.actions.includes(action)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // NEW: Check roleRef permissions (primary role - RBAC system)
+  if (user.roleRef && user.roleRef.isActive) {
+    const role = await Role.findById(user.roleRef._id || user.roleRef);
+    if (role && role.isActive) {
+      const modulePermission = role.permissions.find(p => p.module === module);
+      if (modulePermission) {
+        // If submodule is specified, check per-submodule actions
+        if (submodule && modulePermission.submodules && modulePermission.submodules.length > 0) {
+          // Find the submodule entry (support both string and object formats)
+          const submoduleEntry = modulePermission.submodules.find(sm => {
+            if (typeof sm === 'string') return sm === submodule;
+            if (sm && typeof sm === 'object') return sm.submodule === submodule;
+            return false;
+          });
+          
+          if (submoduleEntry) {
+            // If it's an object with actions array, check those actions
+            if (submoduleEntry && typeof submoduleEntry === 'object' && Array.isArray(submoduleEntry.actions)) {
+              if (submoduleEntry.actions.includes(action)) {
+                return true;
+              }
+            }
+            // If it's a string (legacy format), check module-level actions
+            if (typeof submoduleEntry === 'string' && modulePermission.actions.includes(action)) {
+              return true;
+            }
+          }
+        } else {
+          // If no submodule specified or submodules array is empty, check module-level actions
+          if (modulePermission.actions.includes(action)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  
+  // Get user's active sub-role assignments (legacy system)
   const userSubRoles = await UserSubRole.findActiveByUser(userId);
   
   // If user has sub-roles, check specific sub-role permissions

@@ -681,8 +681,7 @@ export const MODULES = {
         path: '/admin/users',
         subItems: [
           { name: 'Users', path: '/admin/users' },
-          { name: 'Roles', path: '/admin/roles' },
-          { name: 'Sub-Roles', path: '/admin/sub-roles' }
+          { name: 'Roles', path: '/admin/roles' }
         ]
       },
       { 
@@ -974,8 +973,8 @@ export const getModuleMenuItems = (userRole) => {
   }).filter(module => module !== null); // Remove any null modules
 };
 
-export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
-  if (!userRole || !path) return false;
+export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef = null, userRoles = null) => {
+  if (!path) return false;
   
   // Profile is always accessible
   if (path === '/profile') return true;
@@ -995,8 +994,24 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
     return false;
   }
   
+  // Helper function to get module name from path
+  const getModuleNameFromPathHelper = (pathToCheck) => {
+    if (pathToCheck.startsWith('/admin')) return 'admin';
+    if (pathToCheck.startsWith('/hr')) return 'hr';
+    if (pathToCheck.startsWith('/finance')) return 'finance';
+    if (pathToCheck.startsWith('/procurement')) return 'procurement';
+    if (pathToCheck.startsWith('/sales')) return 'sales';
+    if (pathToCheck.startsWith('/crm')) return 'crm';
+    if (pathToCheck.startsWith('/audit')) return 'audit';
+    if (pathToCheck.startsWith('/it')) return 'it';
+    if (pathToCheck.startsWith('/taj-residencia')) return 'taj_residencia';
+    if (pathToCheck.startsWith('/documents-tracking')) return 'general';
+    if (pathToCheck.startsWith('/general')) return 'general';
+    return null;
+  };
+  
   // Helper function to map paths to submodule names
-  const getSubmoduleFromPath = (path) => {
+  const getSubmoduleFromPathHelper = (pathToCheck) => {
     const pathToSubmoduleMap = {
       // Admin Module
       '/admin/dashboard': 'admin_dashboard',
@@ -1153,24 +1168,139 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
     
     return null;
   };
-
-  // Helper function to get module name from path
-  const getModuleNameFromPath = (path) => {
-    if (path.startsWith('/admin')) return 'admin';
-    if (path.startsWith('/hr')) return 'hr';
-    if (path.startsWith('/finance')) return 'finance';
-    if (path.startsWith('/procurement')) return 'procurement';
-    if (path.startsWith('/sales')) return 'sales';
-    if (path.startsWith('/crm')) return 'crm';
-    if (path.startsWith('/audit')) return 'audit';
-    if (path.startsWith('/it')) return 'it';
-    if (path.startsWith('/taj-residencia')) return 'taj_residencia';
-    if (path.startsWith('/documents-tracking')) return 'general';
-    if (path.startsWith('/general')) return 'general';
-    return null;
+  
+  // NEW: Check roleRef/roles permissions first (RBAC system)
+  const isDev = process.env.NODE_ENV === 'development';
+  
+  // Helper function to check if role permissions allow access to a path
+  const checkRolePermissions = (rolePermissions, pathToCheck, roleName = 'unknown') => {
+    if (!rolePermissions || !Array.isArray(rolePermissions)) {
+      if (isDev) console.log(`🔒 [${roleName}] No permissions array`);
+      return false;
+    }
+    
+    const moduleName = getModuleNameFromPathHelper(pathToCheck);
+    if (!moduleName) {
+      if (isDev) console.log(`🔒 [${roleName}] No module found for path: ${pathToCheck}`);
+      return false;
+    }
+    
+    const submoduleName = getSubmoduleFromPathHelper(pathToCheck);
+    
+    if (isDev) {
+      console.log(`🔒 [${roleName}] Checking path: ${pathToCheck}, module: ${moduleName}, submodule: ${submoduleName || 'none'}`);
+    }
+    
+    // Find permission for this module
+    const modulePermission = rolePermissions.find(p => p.module === moduleName);
+    if (!modulePermission) {
+      if (isDev) console.log(`🔒 [${roleName}] No permission found for module: ${moduleName}`);
+      return false;
+    }
+    
+    const hasModuleLevelRead = modulePermission.actions && Array.isArray(modulePermission.actions) && modulePermission.actions.includes('read');
+    
+    // If no submodule specified, check module-level permission
+    if (!submoduleName) {
+      if (hasModuleLevelRead) {
+        if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (module-level read, no submodule)`);
+        return true;
+      } else {
+        if (isDev) console.log(`🔒 [${roleName}] ❌ No module-level read permission`);
+        return false;
+      }
+    }
+    
+    // Check submodule-level permissions
+    if (modulePermission.submodules && Array.isArray(modulePermission.submodules) && modulePermission.submodules.length > 0) {
+      const submodule = modulePermission.submodules.find(sm => {
+        const smName = typeof sm === 'object' ? sm.submodule : sm;
+        return smName === submoduleName;
+      });
+      
+      if (submodule) {
+        // If it's an object with actions, check if it has 'read' action
+        if (typeof submodule === 'object' && submodule.actions && Array.isArray(submodule.actions)) {
+          const hasRead = submodule.actions.includes('read');
+          if (hasRead) {
+            if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (submodule-level read)`);
+            return true;
+          } else {
+            // Submodule exists but doesn't have read - check if module-level read applies
+            if (hasModuleLevelRead) {
+              if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (module-level read, submodule has no explicit read)`);
+              return true;
+            } else {
+              if (isDev) console.log(`🔒 [${roleName}] ❌ Submodule exists but no read permission (module or submodule)`);
+              return false;
+            }
+          }
+        } else if (typeof submodule === 'string') {
+          // If it's a string (legacy), check module-level read permission
+          if (hasModuleLevelRead) {
+            if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (submodule as string, using module-level)`);
+            return true;
+          } else {
+            if (isDev) console.log(`🔒 [${roleName}] ❌ Submodule as string but no module-level read`);
+            return false;
+          }
+        } else {
+          // Object without actions array - check module-level
+          if (hasModuleLevelRead) {
+            if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (submodule object without actions, using module-level)`);
+            return true;
+          } else {
+            if (isDev) console.log(`🔒 [${roleName}] ❌ Submodule object without actions and no module-level read`);
+            return false;
+          }
+        }
+      } else {
+        // Submodule not found in permissions array
+        if (hasModuleLevelRead) {
+          if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (module-level read, submodule ${submoduleName} not in permissions)`);
+          return true;
+        } else {
+          if (isDev) console.log(`🔒 [${roleName}] ❌ Submodule ${submoduleName} not found and no module-level read`);
+          return false;
+        }
+      }
+    } else {
+      // No submodules array or empty
+      if (hasModuleLevelRead) {
+        if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (module-level read, no submodules array)`);
+        return true;
+      } else {
+        if (isDev) console.log(`🔒 [${roleName}] ❌ No submodules array and no module-level read`);
+        return false;
+      }
+    }
   };
   
-  // Check if the path matches any module
+  // Check multiple roles first (if assigned)
+  if (userRoles && Array.isArray(userRoles) && userRoles.length > 0) {
+    if (isDev) console.log('🔒 Checking multiple roles:', userRoles.length);
+    for (const role of userRoles) {
+      if (role.isActive && role.permissions && Array.isArray(role.permissions)) {
+        const roleName = role.name || role.displayName || 'role';
+        if (checkRolePermissions(role.permissions, path, roleName)) {
+          return true;
+        }
+      }
+    }
+  }
+  
+  // Check roleRef permissions (primary role - RBAC system)
+  if (userRoleRef && userRoleRef.isActive && userRoleRef.permissions && Array.isArray(userRoleRef.permissions)) {
+    const roleName = userRoleRef.name || userRoleRef.displayName || 'roleRef';
+    if (isDev) console.log(`🔒 Checking roleRef: ${roleName}`);
+    if (checkRolePermissions(userRoleRef.permissions, path, roleName)) {
+      return true;
+    }
+  }
+  
+  if (isDev) console.log('🔒 No RBAC permissions matched, falling back to legacy checks');
+  
+  // Check if the path matches any module (legacy role-based check)
   for (const [moduleKey, module] of Object.entries(MODULES)) {
     // Check both main role AND sub-roles (users can have multiple roles/subroles)
     const hasMainRoleAccess = hasPermission(userRole, moduleKey);
@@ -1215,8 +1345,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
           for (const subItem of module.subItems) {
             if (path === subItem.path) {
               // Get the submodule name from the path
-              const submoduleName = getSubmoduleFromPath(path);
-              const moduleName = getModuleNameFromPath(path);
+              const submoduleName = getSubmoduleFromPathHelper(path);
+              const moduleName = getModuleNameFromPathHelper(path);
               
               // If no specific submodule mapping exists, allow if user has sub-role for this module
               if (!submoduleName) {
@@ -1265,5 +1395,24 @@ export const isRouteAccessible = (userRole, path, userSubRoles = []) => {
     }
   }
   
+  return false;
+};
+
+/**
+ * Check if user has access to a module via roleRef or roles (RBAC), not legacy user.role.
+ * Used by ProtectedRoute when requiredRole lists module-manager roles (e.g. finance_manager).
+ */
+export const hasModuleAccessViaRoleRef = (user, moduleKey) => {
+  if (!user) return false;
+  const checkPermissions = (permissions) => {
+    if (!permissions || !Array.isArray(permissions)) return false;
+    return permissions.some(p => p.module === moduleKey);
+  };
+  if (user.roleRef && user.roleRef.isActive && checkPermissions(user.roleRef.permissions)) return true;
+  if (user.roles && Array.isArray(user.roles)) {
+    for (const role of user.roles) {
+      if (role.isActive && checkPermissions(role.permissions)) return true;
+    }
+  }
   return false;
 }; 
