@@ -101,8 +101,16 @@ router.post('/',
     
     // Validate and transform permissions structure
     let cleanedPermissions = [];
-    if (rolePermissions && Array.isArray(rolePermissions)) {
-      for (const permission of rolePermissions) {
+    let permsList = rolePermissions;
+    if (typeof permsList === 'string') {
+      try {
+        permsList = JSON.parse(permsList);
+      } catch (_) {
+        permsList = [];
+      }
+    }
+    if (permsList && Array.isArray(permsList)) {
+      for (const permission of permsList) {
         if (!permission.module) {
           return res.status(400).json({
             success: false,
@@ -112,8 +120,16 @@ router.post('/',
         
         // Transform submodules format: convert array of objects to proper format
         let transformedSubmodules = [];
-        if (permission.submodules && Array.isArray(permission.submodules)) {
-          transformedSubmodules = permission.submodules.map(sm => {
+        let submodulesRaw = permission.submodules;
+        if (typeof submodulesRaw === 'string') {
+          try {
+            submodulesRaw = JSON.parse(submodulesRaw);
+          } catch (_) {
+            submodulesRaw = [];
+          }
+        }
+        if (submodulesRaw && Array.isArray(submodulesRaw)) {
+          transformedSubmodules = submodulesRaw.map(sm => {
             // If it's already an object with submodule and actions, use it
             if (sm && typeof sm === 'object' && sm.submodule) {
               return {
@@ -197,8 +213,16 @@ router.put('/:id',
     // Validate and transform permissions structure
     if (rolePermissions !== undefined) {
       let cleanedPermissions = [];
-      if (rolePermissions && Array.isArray(rolePermissions)) {
-        for (const permission of rolePermissions) {
+      let permsList = rolePermissions;
+      if (typeof permsList === 'string') {
+        try {
+          permsList = JSON.parse(permsList);
+        } catch (_) {
+          permsList = [];
+        }
+      }
+      if (permsList && Array.isArray(permsList)) {
+        for (const permission of permsList) {
           if (!permission.module) {
             return res.status(400).json({
               success: false,
@@ -208,8 +232,16 @@ router.put('/:id',
           
           // Transform submodules format: convert array of objects to proper format
           let transformedSubmodules = [];
-          if (permission.submodules && Array.isArray(permission.submodules)) {
-            transformedSubmodules = permission.submodules.map(sm => {
+          let submodulesRaw = permission.submodules;
+          if (typeof submodulesRaw === 'string') {
+            try {
+              submodulesRaw = JSON.parse(submodulesRaw);
+            } catch (_) {
+              submodulesRaw = [];
+            }
+          }
+          if (submodulesRaw && Array.isArray(submodulesRaw)) {
+            transformedSubmodules = submodulesRaw.map(sm => {
               // If it's already an object with submodule and actions, use it
               if (sm && typeof sm === 'object' && sm.submodule) {
                 return {
