@@ -139,6 +139,11 @@ router.post('/register', [
 
   await user.save();
 
+  // Populate RBAC roles + legacy sub-roles before returning
+  await user.populate('roleRef', 'name displayName description permissions isActive');
+  await user.populate('roles', 'name displayName description permissions isActive');
+  await user.populate('subRoles', 'name module permissions description');
+
   // Generate JWT token
   const token = user.generateAuthToken();
 
@@ -213,8 +218,10 @@ router.post('/login', [
     user.lastLogin = new Date();
     await user.save();
 
-    // Populate sub-roles before generating response
-    await user.populate('subRoles');
+    // Populate RBAC roles + legacy sub-roles before generating response
+    await user.populate('roleRef', 'name displayName description permissions isActive');
+    await user.populate('roles', 'name displayName description permissions isActive');
+    await user.populate('subRoles', 'name module permissions description');
     
     // Generate JWT token
     const token = user.generateAuthToken();
@@ -273,8 +280,10 @@ router.post('/login', [
 router.post('/refresh-token', authMiddleware, asyncHandler(async (req, res) => {
   try {
     // User is already authenticated via authMiddleware
-    // Populate sub-roles before generating new token
-    await req.user.populate('subRoles');
+    // Populate RBAC roles + legacy sub-roles before generating new token
+    await req.user.populate('roleRef', 'name displayName description permissions isActive');
+    await req.user.populate('roles', 'name displayName description permissions isActive');
+    await req.user.populate('subRoles', 'name module permissions description');
     
     // Generate new token
     const newToken = req.user.generateAuthToken();

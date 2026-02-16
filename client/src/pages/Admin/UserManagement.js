@@ -51,7 +51,6 @@ const UserManagement = () => {
   const [totalUsers, setTotalUsers] = useState(0);
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'active', 'inactive'
   const [selectedUser, setSelectedUser] = useState(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -74,22 +73,6 @@ const UserManagement = () => {
       setDepartments(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
     }
   };
-  const roles = ['super_admin', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'Audit Director', 'it_manager', 'taj_residencia_manager', 'employee'];
-
-  const roleColors = {
-    super_admin: 'error',
-    admin: 'secondary',
-    hr_manager: 'primary',
-    finance_manager: 'success',
-    procurement_manager: 'warning',
-    sales_manager: 'info',
-    crm_manager: 'secondary',
-    audit_manager: 'warning',
-    auditor: 'info',
-    it_manager: 'primary',
-    taj_residencia_manager: 'secondary',
-    employee: 'default'
-  };
 
   const loadUsers = useCallback(async (options = {}) => {
     try {
@@ -99,7 +82,6 @@ const UserManagement = () => {
         limit: rowsPerPage,
         search,
         department: departmentFilter,
-        role: roleFilter,
         status: statusFilter
       };
 
@@ -112,11 +94,11 @@ const UserManagement = () => {
     } catch (error) {
       console.error('Error loading users:', error);
     }
-  }, [page, rowsPerPage, search, departmentFilter, roleFilter, statusFilter]);
+  }, [page, rowsPerPage, search, departmentFilter, statusFilter]);
 
   useEffect(() => {
     loadUsers();
-  }, [page, rowsPerPage, search, departmentFilter, roleFilter, statusFilter, loadUsers]);
+  }, [page, rowsPerPage, search, departmentFilter, statusFilter, loadUsers]);
 
   useEffect(() => {
     fetchDepartments();
@@ -132,16 +114,6 @@ const UserManagement = () => {
       loadUsers();
     } catch (error) {
       console.error('Failed to update user:', error);
-    }
-  };
-
-  const handleUpdateRole = async (userId, newRole) => {
-    try {
-      await authService.updateUserRole(userId, newRole);
-      console.log('User role updated successfully');
-      loadUsers();
-    } catch (error) {
-      console.error('Failed to update user role:', error);
     }
   };
 
@@ -323,21 +295,6 @@ const UserManagement = () => {
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Role</InputLabel>
-            <Select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              label="Role"
-            >
-              <MenuItem value="">All Roles</MenuItem>
-              {roles.map((role) => (
-                <MenuItem key={role} value={role}>
-                  {role.replace('_', ' ').toUpperCase()}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 150 }}>
             <InputLabel>Status</InputLabel>
             <Select
               value={statusFilter}
@@ -362,7 +319,6 @@ const UserManagement = () => {
                 <TableCell>Email</TableCell>
                 <TableCell>Employee ID</TableCell>
                 <TableCell>Department</TableCell>
-                  <TableCell>Role</TableCell>
                   <TableCell>Assigned Role</TableCell>
                   <TableCell>Status</TableCell>
                 <TableCell>Actions</TableCell>
@@ -385,13 +341,6 @@ const UserManagement = () => {
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.employeeId}</TableCell>
                   <TableCell>{user.department}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={user.role.replace('_', ' ').toUpperCase()}
-                      color={roleColors[user.role]}
-                      size="small"
-                    />
-                  </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                       {user.roleRef && (
@@ -525,7 +474,6 @@ const UserManagement = () => {
           {selectedUser && (
             <ViewUserDetails
               user={selectedUser}
-              onUpdateRole={handleUpdateRole}
               onClose={() => setViewDialogOpen(false)}
             />
           )}
@@ -599,7 +547,6 @@ const EditUserForm = ({ user, onSave, onCancel, departments }) => {
   const [formData, setFormData] = useState({
     firstName: user.firstName,
     lastName: user.lastName,
-    role: user.role,
     department: user.department,
     isActive: user.isActive
   });
@@ -627,20 +574,6 @@ const EditUserForm = ({ user, onSave, onCancel, departments }) => {
         margin="normal"
         required
       />
-      <FormControl fullWidth margin="normal">
-        <InputLabel>Role</InputLabel>
-        <Select
-          value={formData.role}
-          onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-          label="Role"
-        >
-          {['super_admin', 'higher_management', 'admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'Audit Director', 'it_manager', 'taj_residencia_manager', 'appraisal_manager', 'employee'].map((role) => (
-            <MenuItem key={role} value={role}>
-              {role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
       <FormControl fullWidth margin="normal">
         <InputLabel>Department</InputLabel>
         <Select
@@ -674,14 +607,7 @@ const EditUserForm = ({ user, onSave, onCancel, departments }) => {
 };
 
 // View User Details Component
-const ViewUserDetails = ({ user, onUpdateRole, onClose }) => {
-  const [selectedRole, setSelectedRole] = useState(user.role);
-
-  const handleRoleUpdate = () => {
-    onUpdateRole(user._id, selectedRole);
-    onClose();
-  };
-
+const ViewUserDetails = ({ user, onClose }) => {
   return (
     <Box sx={{ mt: 1 }}>
       <Typography variant="h6" gutterBottom>
@@ -706,35 +632,8 @@ const ViewUserDetails = ({ user, onUpdateRole, onClose }) => {
         Last Login: {user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}
       </Typography>
 
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="subtitle1" gutterBottom>
-          Update Role
-        </Typography>
-        <FormControl fullWidth>
-          <InputLabel>Role</InputLabel>
-          <Select
-            value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
-            label="Role"
-          >
-            {['admin', 'hr_manager', 'finance_manager', 'procurement_manager', 'sales_manager', 'crm_manager', 'audit_manager', 'auditor', 'Audit Director', 'it_manager', 'taj_residencia_manager', 'employee'].map((role) => (
-              <MenuItem key={role} value={role}>
-                {role.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
-
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button 
-          variant="contained" 
-          onClick={handleRoleUpdate}
-          disabled={selectedRole === user.role}
-        >
-          Update Role
-        </Button>
       </DialogActions>
     </Box>
   );
