@@ -284,6 +284,14 @@ const IndentDetail = () => {
                 Details
               </Typography>
               <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">
+                    Title
+                  </Typography>
+                  <Typography variant="body1" fontWeight={500}>
+                    {indent.title || '—'}
+                  </Typography>
+                </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography variant="body2" color="text.secondary">
                     Status
@@ -366,16 +374,6 @@ const IndentDetail = () => {
                     </Typography>
                   </Grid>
                 )}
-                {indent.description && (
-                  <Grid item xs={12}>
-                    <Typography variant="body2" color="text.secondary">
-                      Description
-                    </Typography>
-                    <Typography variant="body1">
-                      {indent.description}
-                    </Typography>
-                  </Grid>
-                )}
                 {indent.rejectionReason && (
                   <Grid item xs={12}>
                     <Alert severity="error">
@@ -403,26 +401,28 @@ const IndentDetail = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell><strong>S#</strong></TableCell>
                         <TableCell><strong>Item Name</strong></TableCell>
-                        <TableCell><strong>Description</strong></TableCell>
-                        <TableCell align="right"><strong>Quantity</strong></TableCell>
+                        <TableCell><strong>Item Description</strong></TableCell>
+                        <TableCell><strong>Brand</strong></TableCell>
                         <TableCell><strong>Unit</strong></TableCell>
+                        <TableCell align="right"><strong>Qty</strong></TableCell>
+                        <TableCell><strong>Purpose</strong></TableCell>
                         <TableCell align="right"><strong>Est. Cost</strong></TableCell>
-                        <TableCell><strong>Priority</strong></TableCell>
                         <TableCell align="right"><strong>Total</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {indent.items.map((item, index) => (
                         <TableRow key={index}>
-                          <TableCell>{item.itemName}</TableCell>
+                          <TableCell>{(index + 1).toString().padStart(2, '0')}</TableCell>
+                          <TableCell>{item.itemName || '—'}</TableCell>
                           <TableCell>{item.description || '—'}</TableCell>
-                          <TableCell align="right">{item.quantity}</TableCell>
-                          <TableCell>{item.unit}</TableCell>
+                          <TableCell>{item.brand || '—'}</TableCell>
+                          <TableCell>{item.unit || '—'}</TableCell>
+                          <TableCell align="right">{item.quantity ?? '—'}</TableCell>
+                          <TableCell>{item.purpose || '—'}</TableCell>
                           <TableCell align="right">{formatCurrency(item.estimatedCost)}</TableCell>
-                          <TableCell>
-                            <Chip label={item.priority} size="small" variant="outlined" />
-                          </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" fontWeight={600}>
                               {formatCurrency((item.estimatedCost || 0) * (item.quantity || 0))}

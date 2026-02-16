@@ -219,7 +219,8 @@ const IndentsList = () => {
           digitalSignature: approvalSignature
         });
         let successMessage = 'Purchase order approved successfully';
-        if (response.data?.accountsPayableCreated) successMessage += ' and added to Accounts Payable';
+        if (response.data?.sentToFinance) successMessage = 'Purchase order approved by CEO and sent to Finance (advance/partial advance terms)';
+        else if (response.data?.accountsPayableCreated) successMessage += ' and added to Accounts Payable';
         toast.success(successMessage);
         setApprovePaymentDialog({ open: false, payment: null });
         setApprovalComments('');

@@ -4,7 +4,7 @@ const goodsIssueSchema = new mongoose.Schema({
   issueNumber: {
     type: String,
     unique: true,
-    required: true,
+    required: false, // Auto-generated in pre-save hook
     trim: true
   },
   sinNumber: {

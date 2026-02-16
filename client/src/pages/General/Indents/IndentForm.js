@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -43,6 +43,7 @@ const IndentForm = () => {
   const { user } = useAuth();
   const { departments, fetchDepartments } = useData();
   const isEdit = !!id;
+  const hasRunCreateLoad = useRef(false);
 
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -50,6 +51,7 @@ const IndentForm = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   const [formData, setFormData] = useState({
+    title: '',
     erpRef: '',
     date: dayjs().format('YYYY-MM-DD'),
     requiredDate: '',
@@ -58,6 +60,8 @@ const IndentForm = () => {
     originator: user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : '',
     items: [],
     justification: '',
+    priority: 'Medium',
+    category: 'Other',
     signatures: {
       requester: { name: '', date: '' },
       headOfDepartment: { name: '', date: '' },
@@ -66,7 +70,12 @@ const IndentForm = () => {
     }
   });
 
-  // Load indent data if editing
+  // Reset create-load flag when switching to edit
+  useEffect(() => {
+    if (isEdit) hasRunCreateLoad.current = false;
+  }, [isEdit]);
+
+  // Load indent data if editing, or run next-number/next-erp-ref + departments once for create
   useEffect(() => {
     const loadData = async () => {
       if (isEdit) {
@@ -76,6 +85,7 @@ const IndentForm = () => {
           const indent = response.data;
           
           setFormData({
+            title: indent.title || '',
             erpRef: indent.erpRef || '',
             date: indent.requestedDate ? dayjs(indent.requestedDate).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
             requiredDate: indent.requiredDate ? dayjs(indent.requiredDate).format('YYYY-MM-DD') : '',
@@ -86,9 +96,12 @@ const IndentForm = () => {
               : '',
             items: indent.items?.map(item => ({
               ...item,
-              brand: item.brand || ''
+              brand: item.brand || '',
+              estimatedCost: item.estimatedCost ?? 0
             })) || [],
             justification: indent.justification || '',
+            priority: indent.priority || 'Medium',
+            category: indent.category || 'Other',
             signatures: indent.signatures || {
               requester: { name: '', date: '' },
               headOfDepartment: { name: '', date: '' },
@@ -101,42 +114,35 @@ const IndentForm = () => {
         } finally {
           setLoadingData(false);
         }
-      } else {
-        // Generate next indent number and ERP Ref for new indent
-        const generateNumbers = async () => {
-          try {
-            const [indentResponse, erpRefResponse] = await Promise.all([
-              indentService.getNextIndentNumber(),
-              indentService.getNextERPRef()
-            ]);
-            
-            if (indentResponse.data?.nextIndentNumber) {
-              setFormData(prev => ({
-                ...prev,
-                indentNumber: indentResponse.data.nextIndentNumber
-              }));
-            }
-            
-            if (erpRefResponse.data?.nextERPRef) {
-              setFormData(prev => ({
-                ...prev,
-                erpRef: erpRefResponse.data.nextERPRef
-              }));
-            }
-          } catch (err) {
-            // If API fails, backend will generate it
-          }
-        };
-        generateNumbers();
+        return;
       }
-      
+
+      // Create: run only once per mount so we don't loop (fetchDepartments/departments change triggers re-run otherwise)
+      if (hasRunCreateLoad.current) return;
+      hasRunCreateLoad.current = true;
+
+      try {
+        const [indentResponse, erpRefResponse] = await Promise.all([
+          indentService.getNextIndentNumber(),
+          indentService.getNextERPRef()
+        ]);
+        if (indentResponse.data?.nextIndentNumber) {
+          setFormData(prev => ({ ...prev, indentNumber: indentResponse.data.nextIndentNumber }));
+        }
+        if (erpRefResponse.data?.nextERPRef) {
+          setFormData(prev => ({ ...prev, erpRef: erpRefResponse.data.nextERPRef }));
+        }
+      } catch (err) {
+        // If API fails, backend will generate on save
+      }
+
       if (departments.length === 0) {
         await fetchDepartments();
       }
     };
 
     loadData();
-  }, [id, isEdit, fetchDepartments, departments.length, user]);
+  }, [id, isEdit]);
 
   const handleChange = (field, value) => {
     setFormData(prev => ({
@@ -168,7 +174,8 @@ const IndentForm = () => {
           brand: '',
           quantity: 1,
           unit: 'Piece',
-          purpose: ''
+          purpose: '',
+          estimatedCost: 0
         }
       ]
     }));
@@ -195,8 +202,28 @@ const IndentForm = () => {
   };
 
   const validateForm = () => {
+    if (!formData.title?.trim()) {
+      setError('Title is required');
+      return false;
+    }
     if (!formData.department) {
       setError('Department is required');
+      return false;
+    }
+    if (!formData.requiredDate) {
+      setError('Required date is required');
+      return false;
+    }
+    if (!formData.justification?.trim()) {
+      setError('Justification is required');
+      return false;
+    }
+    if (!formData.priority) {
+      setError('Priority is required');
+      return false;
+    }
+    if (!formData.category) {
+      setError('Category is required');
       return false;
     }
     if (!formData.originator.trim()) {
@@ -210,11 +237,31 @@ const IndentForm = () => {
     for (let i = 0; i < formData.items.length; i++) {
       const item = formData.items[i];
       if (!item.itemName?.trim()) {
-        setError(`Item ${i + 1}: Description is required`);
+        setError(`Item ${i + 1}: Item name is required`);
+        return false;
+      }
+      if (!item.description?.trim()) {
+        setError(`Item ${i + 1}: Item description is required`);
+        return false;
+      }
+      if (!item.brand?.trim()) {
+        setError(`Item ${i + 1}: Brand is required`);
         return false;
       }
       if (!item.quantity || item.quantity < 1) {
         setError(`Item ${i + 1}: Quantity must be at least 1`);
+        return false;
+      }
+      if (!item.unit?.trim()) {
+        setError(`Item ${i + 1}: Unit is required`);
+        return false;
+      }
+      if (!item.purpose?.trim()) {
+        setError(`Item ${i + 1}: Purpose is required`);
+        return false;
+      }
+      if (item.estimatedCost === undefined || item.estimatedCost === null || Number(item.estimatedCost) < 0) {
+        setError(`Item ${i + 1}: Estimated cost is required and must be 0 or greater`);
         return false;
       }
     }
@@ -231,19 +278,22 @@ const IndentForm = () => {
       setError('');
 
       const indentData = {
-        title: `Purchase Request - ${formData.department ? departments.find(d => d._id === formData.department)?.name : ''}`,
+        title: formData.title.trim(),
         requestedDate: formData.date,
-        requiredDate: formData.requiredDate || undefined,
+        requiredDate: formData.requiredDate,
         department: formData.department,
+        priority: formData.priority,
+        category: formData.category,
         items: formData.items.map(item => ({
           itemName: item.itemName,
           description: item.description || '',
           brand: item.brand || '',
           quantity: item.quantity,
           unit: item.unit || 'Piece',
-          purpose: item.purpose || ''
+          purpose: item.purpose || '',
+          estimatedCost: Number(item.estimatedCost) >= 0 ? Number(item.estimatedCost) : 0
         })),
-        justification: formData.justification || undefined,
+        justification: formData.justification.trim(),
         signatures: formData.signatures,
         status: submitForApproval ? 'Submitted' : 'Draft'
       };
@@ -337,6 +387,21 @@ const IndentForm = () => {
       )}
 
       <Paper elevation={2} sx={{ p: 3, border: '1px solid #ccc' }}>
+        {/* Title */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Title"
+              value={formData.title}
+              onChange={(e) => handleChange('title', e.target.value)}
+              required
+              size="small"
+              placeholder="e.g. Purchase Request - Office Supplies"
+            />
+          </Grid>
+        </Grid>
+
         {/* Reference Information */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={12} sm={6} md={3}>
@@ -368,6 +433,7 @@ const IndentForm = () => {
               value={formData.requiredDate}
               onChange={(e) => handleChange('requiredDate', e.target.value)}
               InputLabelProps={{ shrink: true }}
+              required
               size="small"
             />
           </Grid>
@@ -383,9 +449,9 @@ const IndentForm = () => {
           </Grid>
         </Grid>
 
-        {/* Department and Originator */}
+        {/* Department, Originator, Priority, Category */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControl fullWidth size="small" required>
               <InputLabel>Department</InputLabel>
               <Select
@@ -401,7 +467,7 @@ const IndentForm = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} sm={6} md={3}>
             <TextField
               fullWidth
               label="Originator"
@@ -415,6 +481,39 @@ const IndentForm = () => {
               helperText={!isEdit ? 'Logged-in user (read-only)' : undefined}
             />
           </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={formData.priority}
+                label="Priority"
+                onChange={(e) => handleChange('priority', e.target.value)}
+              >
+                <MenuItem value="Low">Low</MenuItem>
+                <MenuItem value="Medium">Medium</MenuItem>
+                <MenuItem value="High">High</MenuItem>
+                <MenuItem value="Urgent">Urgent</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={formData.category}
+                label="Category"
+                onChange={(e) => handleChange('category', e.target.value)}
+              >
+                <MenuItem value="Office Supplies">Office Supplies</MenuItem>
+                <MenuItem value="IT Equipment">IT Equipment</MenuItem>
+                <MenuItem value="Furniture">Furniture</MenuItem>
+                <MenuItem value="Maintenance">Maintenance</MenuItem>
+                <MenuItem value="Raw Materials">Raw Materials</MenuItem>
+                <MenuItem value="Services">Services</MenuItem>
+                <MenuItem value="Other">Other</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
         </Grid>
 
         <Divider sx={{ my: 3 }} />
@@ -423,7 +522,7 @@ const IndentForm = () => {
         <Box sx={{ mb: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" fontWeight={600}>
-              Items
+              Items <span style={{ color: 'red', fontWeight: 400, fontSize: '0.875rem' }}>(all fields required)</span>
             </Typography>
             <Button
               variant="outlined"
@@ -445,11 +544,13 @@ const IndentForm = () => {
                 <TableHead>
                   <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
                     <TableCell align="center" sx={{ fontWeight: 700, border: '1px solid #ddd' }}>S#</TableCell>
-                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Description</TableCell>
+                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Item Name</TableCell>
+                    <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Item Description</TableCell>
                     <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Brand</TableCell>
                     <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Unit</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Qty.</TableCell>
                     <TableCell sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Purpose</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, border: '1px solid #ddd' }}>Est. Cost</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, border: '1px solid #ddd', width: 50 }}>Action</TableCell>
                   </TableRow>
                 </TableHead>
@@ -465,7 +566,20 @@ const IndentForm = () => {
                           size="small"
                           value={item.itemName}
                           onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
-                          placeholder="Item description"
+                          placeholder="Item name"
+                          required
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          value={item.description || ''}
+                          onChange={(e) => handleItemChange(index, 'description', e.target.value)}
+                          placeholder="Description"
                           required
                           variant="standard"
                           InputProps={{ disableUnderline: true }}
@@ -479,6 +593,7 @@ const IndentForm = () => {
                           value={item.brand || ''}
                           onChange={(e) => handleItemChange(index, 'brand', e.target.value)}
                           placeholder="Brand"
+                          required
                           variant="standard"
                           InputProps={{ disableUnderline: true }}
                           sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
@@ -488,9 +603,10 @@ const IndentForm = () => {
                         <TextField
                           fullWidth
                           size="small"
-                          value={item.unit}
+                          value={item.unit ?? 'Piece'}
                           onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
                           placeholder="Unit"
+                          required
                           variant="standard"
                           InputProps={{ disableUnderline: true }}
                           sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
@@ -516,9 +632,23 @@ const IndentForm = () => {
                           value={item.purpose || ''}
                           onChange={(e) => handleItemChange(index, 'purpose', e.target.value)}
                           placeholder="Purpose"
+                          required
                           variant="standard"
                           InputProps={{ disableUnderline: true }}
                           sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={item.estimatedCost ?? ''}
+                          onChange={(e) => handleItemChange(index, 'estimatedCost', parseFloat(e.target.value) >= 0 ? parseFloat(e.target.value) : 0)}
+                          inputProps={{ min: 0, step: 0.01, style: { textAlign: 'right' } }}
+                          required
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ width: 90, '& .MuiInputBase-input': { py: 0.5 } }}
                         />
                       </TableCell>
                       <TableCell align="center" sx={{ border: '1px solid #ddd' }}>
@@ -543,7 +673,7 @@ const IndentForm = () => {
         {/* Justification */}
         <Box sx={{ mb: 3 }}>
           <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-            Justification:
+            Justification <span style={{ color: 'red' }}>*</span>
           </Typography>
           <TextField
             fullWidth
@@ -552,6 +682,7 @@ const IndentForm = () => {
             value={formData.justification}
             onChange={(e) => handleChange('justification', e.target.value)}
             placeholder="Enter justification for this purchase request..."
+            required
             variant="outlined"
             size="small"
           />

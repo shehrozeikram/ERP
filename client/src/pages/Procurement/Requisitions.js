@@ -71,7 +71,7 @@ const Requisitions = () => {
   // Dialog states
   const [viewDialog, setViewDialog] = useState({ open: false, data: null, tab: 0 });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
-  const [emailDialog, setEmailDialog] = useState({ open: false, requisition: null, selectedVendors: [] });
+  const [emailDialog, setEmailDialog] = useState({ open: false, requisition: null, selectedVendors: [], paymentTerms: '', attachmentFile: null });
   const [quotations, setQuotations] = useState([]);
   const [loadingQuotations, setLoadingQuotations] = useState(false);
 
@@ -170,26 +170,38 @@ const Requisitions = () => {
   };
 
   const handleSendEmail = (requisition) => {
-    setEmailDialog({ open: true, requisition, selectedVendors: [] });
+    setEmailDialog({ open: true, requisition, selectedVendors: [], paymentTerms: '', attachmentFile: null });
   };
 
   const handleSendEmailToVendors = async () => {
     try {
       setLoading(true);
-      const { requisition, selectedVendors } = emailDialog;
+      const { requisition, selectedVendors, paymentTerms, attachmentFile } = emailDialog;
       
       if (selectedVendors.length === 0) {
         setError('Please select at least one vendor');
         return;
       }
 
-      await api.post('/procurement/requisitions/send-email', {
-        requisitionId: requisition._id,
-        vendorIds: selectedVendors
-      });
+      if (attachmentFile) {
+        const formData = new FormData();
+        formData.append('requisitionId', requisition._id);
+        formData.append('vendorIds', JSON.stringify(selectedVendors));
+        if (paymentTerms) formData.append('paymentTerms', paymentTerms);
+        formData.append('attachment', attachmentFile);
+        await api.post('/procurement/requisitions/send-email', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+      } else {
+        await api.post('/procurement/requisitions/send-email', {
+          requisitionId: requisition._id,
+          vendorIds: selectedVendors,
+          ...(paymentTerms && { paymentTerms })
+        });
+      }
 
       setSuccess(`Requisition sent to ${selectedVendors.length} vendor(s) successfully`);
-      setEmailDialog({ open: false, requisition: null, selectedVendors: [] });
+      setEmailDialog({ open: false, requisition: null, selectedVendors: [], paymentTerms: '', attachmentFile: null });
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send requisition to vendors');
     } finally {
@@ -992,7 +1004,7 @@ const Requisitions = () => {
       {/* EMAIL DIALOG */}
       <Dialog 
         open={emailDialog.open} 
-        onClose={() => setEmailDialog({ open: false, requisition: null, selectedVendors: [] })}
+        onClose={() => setEmailDialog({ open: false, requisition: null, selectedVendors: [], paymentTerms: '', attachmentFile: null })}
         maxWidth="sm"
         fullWidth
       >
@@ -1008,6 +1020,47 @@ const Requisitions = () => {
                 <strong>Title:</strong> {emailDialog.requisition.title}<br />
                 <strong>Department:</strong> {emailDialog.requisition.department?.name || '-'}
               </Typography>
+              <TextField
+                fullWidth
+                select
+                size="small"
+                label="Payment Terms"
+                value={emailDialog.paymentTerms || ''}
+                onChange={(e) => setEmailDialog({ ...emailDialog, paymentTerms: e.target.value })}
+                sx={{ mt: 2, mb: 1 }}
+              >
+                <MenuItem value="">None</MenuItem>
+                <MenuItem value="Full Advance">Full Advance</MenuItem>
+                <MenuItem value="Partial Advance">Partial Advance</MenuItem>
+                <MenuItem value="Payment After Delivery">Payment After Delivery</MenuItem>
+              </TextField>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>Attachment (optional)</Typography>
+                <input
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                  style={{ display: 'none' }}
+                  id="requisition-email-attachment"
+                  type="file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    setEmailDialog({ ...emailDialog, attachmentFile: file || null });
+                    e.target.value = '';
+                  }}
+                />
+                <label htmlFor="requisition-email-attachment">
+                  <Button variant="outlined" component="span" size="small">
+                    {emailDialog.attachmentFile ? emailDialog.attachmentFile.name : 'Choose file'}
+                  </Button>
+                </label>
+                {emailDialog.attachmentFile && (
+                  <Chip
+                    label="Remove"
+                    size="small"
+                    onDelete={() => setEmailDialog({ ...emailDialog, attachmentFile: null })}
+                    sx={{ ml: 1 }}
+                  />
+                )}
+              </Box>
               <Divider sx={{ my: 2 }} />
               <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                 Select Vendors to Send
@@ -1055,7 +1108,7 @@ const Requisitions = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEmailDialog({ open: false, requisition: null, selectedVendors: [] })}>
+          <Button onClick={() => setEmailDialog({ open: false, requisition: null, selectedVendors: [], paymentTerms: '', attachmentFile: null })}>
             Cancel
           </Button>
           <Button 

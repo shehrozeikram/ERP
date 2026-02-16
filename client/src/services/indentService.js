@@ -73,9 +73,9 @@ const indentService = {
     return response.data;
   },
 
-  // Store: Move indent to Procurement Requisitions (items not in stock)
-  moveToProcurement: async (id) => {
-    const response = await api.post(`/indents/${id}/move-to-procurement`);
+  // Store: Move indent to Procurement Requisitions (items not in stock). Reason required.
+  moveToProcurement: async (id, reason) => {
+    const response = await api.post(`/indents/${id}/move-to-procurement`, { reason: reason || '' });
     return response.data;
   }
 };

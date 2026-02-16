@@ -21,6 +21,11 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
+  deliveryAddress: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   status: {
     type: String,
     enum: ['Draft', 'Pending Audit', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
@@ -46,7 +51,12 @@ const purchaseOrderSchema = new mongoose.Schema({
     observation: { type: String, required: true },
     severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
     addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    addedAt: { type: Date, default: Date.now }
+    addedAt: { type: Date, default: Date.now },
+    // Answer to the observation (provided by procurement when resubmitting)
+    answer: { type: String, trim: true },
+    answeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    answeredAt: { type: Date },
+    resolved: { type: Boolean, default: false }
   }],
   auditReturnedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   auditReturnedAt: { type: Date },
@@ -55,6 +65,10 @@ const purchaseOrderSchema = new mongoose.Schema({
   auditRejectedAt: { type: Date },
   auditRejectionComments: { type: String },
   auditRejectObservations: [{ observation: String, severity: String }],
+  // Snapshot of PO items/totals when returned or rejected from audit (for computing change summary on resubmit)
+  auditSnapshotAtReturn: { type: mongoose.Schema.Types.Mixed },
+  // Human-readable summary of changes made by procurement when resubmitting to audit (e.g. "Quantity of Chairs reduced from 10 to 5")
+  resubmissionChangeSummary: { type: String, trim: true },
   ceoForwardedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   ceoForwardedAt: { type: Date },
   ceoApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -81,11 +95,14 @@ const purchaseOrderSchema = new mongoose.Schema({
     default: 'Medium'
   },
   items: [{
+    productCode: { type: String, trim: true },
     description: {
       type: String,
       required: true,
       trim: true
     },
+    specification: { type: String, trim: true },
+    brand: { type: String, trim: true },
     quantity: {
       type: Number,
       required: true,
@@ -170,6 +187,14 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Approval authorities (names/designations) for signature section - prefilled from comparative statement when created from quotation
+  approvalAuthorities: {
+    preparedBy: { type: String, trim: true, default: '' },
+    verifiedBy: { type: String, trim: true, default: '' },
+    authorisedRep: { type: String, trim: true, default: '' },
+    financeRep: { type: String, trim: true, default: '' },
+    managerProcurement: { type: String, trim: true, default: '' }
+  },
   attachments: [{
     filename: String,
     url: String,
@@ -216,7 +241,16 @@ const purchaseOrderSchema = new mongoose.Schema({
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
-  }
+  },
+  // Workflow history for audit/CEO flow (shown in Pre-Audit, CEO Secretariat, Procurement, etc.)
+  workflowHistory: [{
+    fromStatus: { type: String, trim: true },
+    toStatus: { type: String, trim: true },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedAt: { type: Date, default: Date.now },
+    comments: { type: String, trim: true },
+    module: { type: String, trim: true } // e.g. 'Procurement', 'Pre-Audit', 'CEO Secretariat' – where the action was taken
+  }]
 }, {
   timestamps: true
 });

@@ -228,16 +228,21 @@ router.get('/:id',
 router.post('/',
   authMiddleware,
   [
-    body('title').trim().isLength({ min: 1, max: 200 }).withMessage('Title is required and must be less than 200 characters'),
+    body('title').trim().notEmpty().withMessage('Title is required').isLength({ max: 200 }).withMessage('Title cannot exceed 200 characters'),
     body('description').optional().trim().isLength({ max: 1000 }).withMessage('Description cannot exceed 1000 characters'),
     body('department').isMongoId().withMessage('Valid department is required'),
+    body('requiredDate').notEmpty().withMessage('Required date is required').isISO8601().withMessage('Required date must be a valid date'),
+    body('justification').trim().notEmpty().withMessage('Justification is required'),
+    body('priority').notEmpty().withMessage('Priority is required').isIn(['Low', 'Medium', 'High', 'Urgent']).withMessage('Invalid priority'),
+    body('category').notEmpty().withMessage('Category is required').isIn(['Office Supplies', 'IT Equipment', 'Furniture', 'Maintenance', 'Raw Materials', 'Services', 'Other']).withMessage('Invalid category'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('items.*.itemName').trim().notEmpty().withMessage('Item name is required'),
+    body('items.*.description').trim().notEmpty().withMessage('Item description is required'),
+    body('items.*.brand').trim().notEmpty().withMessage('Brand is required'),
     body('items.*.quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
-    body('items.*.estimatedCost').optional().isFloat({ min: 0 }).withMessage('Estimated cost must be non-negative'),
-    body('requiredDate').optional().isISO8601().withMessage('Invalid date format'),
-    body('priority').optional().isIn(['Low', 'Medium', 'High', 'Urgent']),
-    body('category').optional().isIn(['Office Supplies', 'IT Equipment', 'Furniture', 'Maintenance', 'Raw Materials', 'Services', 'Other'])
+    body('items.*.unit').trim().notEmpty().withMessage('Unit is required'),
+    body('items.*.purpose').trim().notEmpty().withMessage('Purpose is required'),
+    body('items.*.estimatedCost').isFloat({ min: 0 }).withMessage('Estimated cost is required and must be 0 or greater')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -334,6 +339,48 @@ router.put('/:id',
   })
 );
 
+// @route   PUT /api/indents/:id/comparative-statement-approvals
+// @desc    Save comparative statement approval authorities (names/designations) for an indent
+// @access  Private
+router.put('/:id/comparative-statement-approvals',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id);
+
+    if (!indent || !indent.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Indent not found'
+      });
+    }
+
+    const { preparedBy, verifiedBy, authorisedRep, financeRep, managerProcurement, notes } = req.body;
+
+    if (!indent.comparativeStatementApprovals) {
+      indent.comparativeStatementApprovals = {};
+    }
+    if (preparedBy !== undefined) indent.comparativeStatementApprovals.preparedBy = preparedBy || '';
+    if (verifiedBy !== undefined) indent.comparativeStatementApprovals.verifiedBy = verifiedBy || '';
+    if (authorisedRep !== undefined) indent.comparativeStatementApprovals.authorisedRep = authorisedRep || '';
+    if (financeRep !== undefined) indent.comparativeStatementApprovals.financeRep = financeRep || '';
+    if (managerProcurement !== undefined) indent.comparativeStatementApprovals.managerProcurement = managerProcurement || '';
+    if (notes !== undefined) indent.notes = notes == null ? '' : String(notes).trim();
+
+    indent.updatedBy = req.user.id;
+    await indent.save();
+
+    await indent.populate('department', 'name code');
+    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('updatedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Comparative statement approvals saved successfully',
+      data: indent
+    });
+  })
+);
+
 // @route   DELETE /api/indents/:id
 // @desc    Delete indent (soft delete)
 // @access  Private
@@ -359,7 +406,7 @@ router.delete('/:id',
 
     indent.isActive = false;
     indent.updatedBy = req.user.id;
-    await indent.save();
+    await indent.save({ validateBeforeSave: false }); // skip validation on soft-delete (old indents may lack new required fields)
 
     res.json({
       success: true,
@@ -454,12 +501,23 @@ router.post('/:id/approve',
 );
 
 // @route   POST /api/indents/:id/move-to-procurement
-// @desc    Store user moves approved indent to Procurement Requisitions (items not in stock)
+// @desc    Store user moves approved indent to Procurement Requisitions (items not in stock). Reason required.
 // @access  Private (Store/Procurement/Admin)
 router.post('/:id/move-to-procurement',
   authMiddleware,
   authorize('super_admin', 'admin', 'procurement_manager'),
+  [
+    body('reason').trim().notEmpty().withMessage('Reason for moving to procurement is required')
+  ],
   asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
     const indent = await Indent.findById(req.params.id);
 
     if (!indent || !indent.isActive) {
@@ -486,8 +544,9 @@ router.post('/:id/move-to-procurement',
     indent.storeRoutingStatus = 'moved_to_procurement';
     indent.movedToProcurementBy = req.user.id;
     indent.movedToProcurementAt = new Date();
+    indent.movedToProcurementReason = (req.body.reason || '').trim();
     indent.updatedBy = req.user.id;
-    await indent.save();
+    await indent.save({ validateBeforeSave: false });
 
     await indent.populate('department', 'name code');
     await indent.populate('requestedBy', 'firstName lastName email');

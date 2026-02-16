@@ -25,7 +25,9 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Divider
+  Divider,
+  alpha,
+  useTheme
 } from '@mui/material';
 import {
   Assignment,
@@ -296,8 +298,25 @@ const IndentsDashboard = () => {
     return parseFloat(num).toFixed(2);
   };
 
+  const theme = useTheme();
   // Purchase Order View Component
   const PurchaseOrderView = ({ poData }) => {
+    const observations = (poData?.auditObservations && poData.auditObservations.length > 0)
+      ? poData.auditObservations
+      : (poData?.auditRejectObservations || []).map((obs, idx) => ({
+          observation: typeof obs === 'object' ? obs.observation : obs,
+          severity: typeof obs === 'object' ? (obs.severity || 'medium') : 'medium',
+          addedBy: poData.auditRejectedBy,
+          addedAt: poData.auditRejectedAt,
+          answer: null,
+          answeredBy: null,
+          answeredAt: null,
+          resolved: false
+        }));
+    const hasObservations = Array.isArray(observations) && observations.length > 0;
+    const hasChangeSummary = poData?.resubmissionChangeSummary && String(poData.resubmissionChangeSummary).trim().length > 0;
+    const auth = poData?.approvalAuthorities || {};
+
     return (
       <Paper
         sx={{
@@ -333,6 +352,78 @@ const IndentsDashboard = () => {
         >
           Purchase Order
         </Typography>
+
+        {/* Audit Observations & Procurement Responses */}
+        {hasObservations && (
+          <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.warning.main, 0.08), border: '1px solid', borderColor: 'warning.main', borderRadius: 1 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: 'warning.dark', fontWeight: 'bold' }}>
+              Audit Observations &amp; Procurement Responses
+            </Typography>
+            {poData.auditReturnComments && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>{poData.auditReturnComments}</Typography>
+              </Box>
+            )}
+            {poData.auditRejectionComments && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>{poData.auditRejectionComments}</Typography>
+              </Box>
+            )}
+            {hasChangeSummary && (
+              <Box sx={{ mb: 2, p: 1.5, bgcolor: alpha(theme.palette.info.main, 0.08), borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
+                  Changes made to PO by Procurement (on resubmission):
+                </Typography>
+                <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.875rem', m: 0 }}>
+                  {poData.resubmissionChangeSummary}
+                </Typography>
+              </Box>
+            )}
+            {observations.map((obs, index) => (
+              <Box key={obs._id || index} sx={{ mb: 2, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Observation {index + 1}</Typography>
+                  {obs.severity && (
+                    <Chip
+                      label={String(obs.severity).charAt(0).toUpperCase() + String(obs.severity).slice(1)}
+                      size="small"
+                      color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                    />
+                  )}
+                </Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                  Raised by Audit{obs.addedBy ? `: ${obs.addedBy?.firstName || ''} ${obs.addedBy?.lastName || ''}` : ''}
+                  {obs.addedAt ? ` on ${formatDate(obs.addedAt)}` : ''}
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: obs.answer ? 1.5 : 0 }}>{obs.observation}</Typography>
+                {obs.answer ? (
+                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5, color: 'success.dark' }}>
+                      Response from Procurement (edit / correction):
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{obs.answer}</Typography>
+                    {obs.answeredBy && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                        Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                        {obs.answeredAt ? ` on ${formatDate(obs.answeredAt)}` : ''}
+                      </Typography>
+                    )}
+                  </Box>
+                ) : hasChangeSummary ? (
+                  <Typography variant="caption" sx={{ color: 'info.dark', display: 'block', mt: 1 }}>
+                    Procurement updated the PO in response (see changes above).
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic', display: 'block', mt: 1 }}>
+                    No response from Procurement yet
+                  </Typography>
+                )}
+              </Box>
+            ))}
+          </Box>
+        )}
 
         {/* Buyer Information - First Row */}
         <Box sx={{ mb: 2.5 }}>
@@ -560,14 +651,17 @@ const IndentsDashboard = () => {
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
+                  {auth.preparedBy && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.preparedBy}</Typography>}
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
+                  {auth.managerProcurement && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.managerProcurement}</Typography>}
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Procurement</Typography>
+                  {auth.verifiedBy && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.verifiedBy}</Typography>}
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
@@ -576,10 +670,12 @@ const IndentsDashboard = () => {
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Finance</Typography>
+                  {auth.financeRep && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.financeRep}</Typography>}
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
+                  {auth.authorisedRep && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{auth.authorisedRep}</Typography>}
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
@@ -608,7 +704,8 @@ const IndentsDashboard = () => {
           digitalSignature: approvalSignature
         });
         let successMessage = 'Purchase order approved successfully';
-        if (response.data?.accountsPayableCreated) successMessage += ' and added to Accounts Payable';
+        if (response.data?.sentToFinance) successMessage = 'Purchase order approved by CEO and sent to Finance (advance/partial advance terms)';
+        else if (response.data?.accountsPayableCreated) successMessage += ' and added to Accounts Payable';
         toast.success(successMessage);
         setApprovePaymentDialog({ open: false, payment: null });
         setApprovalComments('');
@@ -1830,16 +1927,14 @@ const IndentsDashboard = () => {
             )}
           </Box>
           <Box>
-            {!viewDialog.isPurchaseOrder && (
-              <Button 
-                variant="outlined" 
-                startIcon={<HistoryIcon />}
-                onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
-                sx={{ minWidth: 150, mr: 1 }}
-              >
-                See Workflow History
-              </Button>
-            )}
+            <Button 
+              variant="outlined" 
+              startIcon={<HistoryIcon />}
+              onClick={() => setWorkflowHistoryDialog({ open: true, settlement: viewDialog.settlement })}
+              sx={{ minWidth: 150, mr: 1 }}
+            >
+              See Workflow History
+            </Button>
             <Button 
               variant="outlined" 
               onClick={() => setViewDialog({ open: false, settlement: null, isPurchaseOrder: false })}
@@ -1935,7 +2030,7 @@ const IndentsDashboard = () => {
         open={workflowHistoryDialog.open}
         onClose={() => setWorkflowHistoryDialog({ open: false, settlement: null })}
         document={workflowHistoryDialog.settlement}
-        documentType="settlement"
+        documentType={workflowHistoryDialog.settlement?.orderNumber ? undefined : 'settlement'}
       />
 
       {/* Image Viewer Modal */}

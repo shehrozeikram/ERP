@@ -161,7 +161,7 @@ goodsReceiveSchema.pre('save', async function(next) {
   next();
 });
 
-// Shared logic: sync GRN items to inventory (find or create by itemCode, addStock)
+// Shared logic: sync GRN items to inventory (always create new inventory entry, never update existing)
 goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
   const receivedStatuses = ['Received', 'Complete', 'Partial'];
   if (!grnDoc || !receivedStatuses.includes(grnDoc.status) || !grnDoc.items || grnDoc.items.length === 0) return;
@@ -172,37 +172,43 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
     const item = items[idx] && typeof items[idx].toObject === 'function' ? items[idx].toObject() : items[idx];
     if (!item || item.quantity == null) continue;
     try {
-      let inv = null;
-      if (item.inventoryItem) {
-        inv = await Inventory.findById(item.inventoryItem);
-      }
       const codeStr = item.itemCode != null ? String(item.itemCode).trim() : '';
-      if (!inv && codeStr && codeStr !== '—') {
-        inv = await Inventory.findOne({ itemCode: codeStr });
+      const nameStr = item.itemName != null ? String(item.itemName).trim() : '';
+      
+      // Always create a new inventory entry with unique itemCode
+      // Generate unique code by appending GRN number and item index, or timestamp if needed
+      let baseCode = (codeStr && codeStr !== '—') ? codeStr : nameStr || `ITEM-${idx + 1}`;
+      let uniqueCode = `${baseCode}-GRN${receiveNumber}-${idx + 1}`;
+      
+      // Ensure uniqueness by checking if code exists and appending timestamp if needed
+      let existing = await Inventory.findOne({ itemCode: uniqueCode });
+      if (existing) {
+        const timestamp = Date.now().toString().slice(-6);
+        uniqueCode = `${baseCode}-GRN${receiveNumber}-${idx + 1}-${timestamp}`;
       }
-      if (!inv) {
-        const code = (codeStr && codeStr !== '—') ? codeStr : `GRN-${receiveNumber}-${idx + 1}`;
-        const nameStr = item.itemName != null ? String(item.itemName).trim() : '';
-        const name = (nameStr && nameStr !== '—') ? nameStr : code;
-        inv = new Inventory({
-          itemCode: code,
-          name,
-          category: 'Other',
-          unit: (item.unit && item.unit !== '—') ? item.unit : 'Nos',
-          quantity: 0,
-          unitPrice: Number(item.unitPrice) || 0,
-          createdBy: grnDoc.receivedBy
-        });
-        await inv.save();
-      }
-      if (inv) {
-        await inv.addStock(
-          Number(item.quantity) || 0,
-          receiveNumber,
-          item.notes || `Received via ${receiveNumber}`,
-          grnDoc.receivedBy
-        );
-      }
+      
+      const name = (nameStr && nameStr !== '—') ? nameStr : uniqueCode;
+      
+      // Always create new inventory entry
+      const inv = new Inventory({
+        itemCode: uniqueCode,
+        name,
+        description: item.description || `Received via GRN ${receiveNumber}`,
+        category: item.category || 'Other',
+        unit: (item.unit && item.unit !== '—') ? item.unit : 'Nos',
+        quantity: 0, // Start with 0, then add stock
+        unitPrice: Number(item.unitPrice) || 0,
+        createdBy: grnDoc.receivedBy
+      });
+      await inv.save();
+      
+      // Add stock to the newly created inventory item
+      await inv.addStock(
+        Number(item.quantity) || 0,
+        receiveNumber,
+        item.notes || `Received via GRN ${receiveNumber}`,
+        grnDoc.receivedBy
+      );
     } catch (error) {
       console.error(`GoodsReceive syncItemsToInventory error for item ${item.itemCode}:`, error);
     }

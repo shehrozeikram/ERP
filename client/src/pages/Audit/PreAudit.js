@@ -81,6 +81,8 @@ import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
+import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import dayjs from 'dayjs';
 
 const PreAudit = () => {
@@ -106,7 +108,7 @@ const PreAudit = () => {
   const [tabValue, setTabValue] = useState(0);
   
   // Dialog states
-  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false });
+  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [approveDialog, setApproveDialog] = useState({ open: false, document: null });
   const [forwardDialog, setForwardDialog] = useState({ open: false, document: null });
@@ -431,6 +433,8 @@ const PreAudit = () => {
 
   // Purchase Order View Component
   const PurchaseOrderView = ({ poData }) => {
+    if (!poData) return null;
+    
     return (
       <Paper
         sx={{
@@ -466,6 +470,146 @@ const PreAudit = () => {
         >
           Purchase Order
         </Typography>
+
+        {/* Audit Rejection Observations - Show if status is Rejected */}
+        {poData.status === 'Rejected' && poData.auditRejectObservations && poData.auditRejectObservations.length > 0 && (
+          <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.error.main, 0.1), border: `1px solid ${theme.palette.error.main}`, borderRadius: 1 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: 'error.main', fontWeight: 'bold' }}>
+              Audit Rejection Observations
+            </Typography>
+            {poData.auditRejectionComments && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                  {poData.auditRejectionComments}
+                </Typography>
+              </Box>
+            )}
+            {poData.auditRejectObservations.map((obs, index) => (
+              <Box key={index} sx={{ mb: 1.5, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'error.light' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    Observation {index + 1}
+                  </Typography>
+                  {obs.severity && (
+                    <Chip 
+                      label={obs.severity.charAt(0).toUpperCase() + obs.severity.slice(1)} 
+                      size="small" 
+                      color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                    />
+                  )}
+                </Box>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                  {obs.observation}
+                </Typography>
+              </Box>
+            ))}
+            {poData.auditRejectedBy && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
+                Rejected by: {poData.auditRejectedBy?.firstName || ''} {poData.auditRejectedBy?.lastName || ''}
+                {poData.auditRejectedAt && ` on ${formatDate(poData.auditRejectedAt)}`}
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Audit Observations & Procurement Responses - Show when PO was returned/rejected and resubmitted (Pending Audit) or has answers */}
+        {(() => {
+          const observations = poData.auditObservations && poData.auditObservations.length > 0
+            ? poData.auditObservations
+            : (poData.auditRejectObservations || []).map((obs, idx) => ({
+                observation: typeof obs === 'object' ? obs.observation : obs,
+                severity: typeof obs === 'object' ? (obs.severity || 'medium') : 'medium',
+                addedBy: poData.auditRejectedBy,
+                addedAt: poData.auditRejectedAt,
+                answer: null,
+                answeredBy: null,
+                answeredAt: null,
+                resolved: false
+              }));
+          const showSection = (poData.status === 'Pending Audit' || poData.status === 'Returned from Audit') && observations.length > 0;
+          const hasChangeSummary = poData.resubmissionChangeSummary && String(poData.resubmissionChangeSummary).trim().length > 0;
+          if (!showSection) return null;
+          return (
+            <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.warning.main, 0.08), border: '1px solid', borderColor: 'warning.main', borderRadius: 1 }}>
+              <Typography variant="h6" sx={{ mb: 2, color: 'warning.dark', fontWeight: 'bold' }}>
+                Audit Observations &amp; Procurement Responses
+              </Typography>
+              {poData.auditReturnComments && poData.status === 'Returned from Audit' && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                    {poData.auditReturnComments}
+                  </Typography>
+                </Box>
+              )}
+              {poData.auditRejectionComments && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                    {poData.auditRejectionComments}
+                  </Typography>
+                </Box>
+              )}
+              {/* Show changes made to PO by Procurement when they resubmitted (e.g. quantity reduced) */}
+              {hasChangeSummary && (
+                <Box sx={{ mb: 2, p: 1.5, bgcolor: alpha(theme.palette.info.main, 0.08), borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
+                    Changes made to PO by Procurement (on resubmission):
+                  </Typography>
+                  <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.875rem', m: 0 }}>
+                    {poData.resubmissionChangeSummary}
+                  </Typography>
+                </Box>
+              )}
+              {observations.map((obs, index) => (
+                <Box key={obs._id || index} sx={{ mb: 2, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                      Observation {index + 1}
+                    </Typography>
+                    {obs.severity && (
+                      <Chip
+                        label={String(obs.severity).charAt(0).toUpperCase() + String(obs.severity).slice(1)}
+                        size="small"
+                        color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                      />
+                    )}
+                  </Box>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                    Raised by Audit{obs.addedBy ? `: ${obs.addedBy?.firstName || ''} ${obs.addedBy?.lastName || ''}` : ''}
+                    {obs.addedAt ? ` on ${formatDate(obs.addedAt)}` : ''}
+                  </Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: obs.answer ? 1.5 : 0 }}>
+                    {obs.observation}
+                  </Typography>
+                  {obs.answer ? (
+                    <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
+                      <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5, color: 'success.dark' }}>
+                        Response from Procurement (edit / correction):
+                      </Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{obs.answer}</Typography>
+                      {obs.answeredBy && (
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                          Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                          {obs.answeredAt ? ` on ${formatDate(obs.answeredAt)}` : ''}
+                        </Typography>
+                      )}
+                    </Box>
+                  ) : hasChangeSummary ? (
+                    <Typography variant="caption" sx={{ color: 'info.dark', display: 'block', mt: 1 }}>
+                      Procurement updated the PO in response (see changes above).
+                    </Typography>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic', display: 'block', mt: 1 }}>
+                      No response from Procurement yet
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </Box>
+          );
+        })()}
 
         {/* Buyer Information - First Row */}
         <Box sx={{ mb: 2.5 }}>
@@ -525,9 +669,13 @@ const PreAudit = () => {
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-              <Typography component="span">{poData.shippingAddress ? 
-                `${poData.shippingAddress.street || ''} ${poData.shippingAddress.city || ''}`.trim() || '___________' 
-                : '___________'}</Typography>
+              <Typography component="span">
+                {typeof poData.deliveryAddress === 'string' && poData.deliveryAddress.trim()
+                  ? poData.deliveryAddress.trim()
+                  : poData.shippingAddress && typeof poData.shippingAddress === 'object'
+                    ? [poData.shippingAddress.street, poData.shippingAddress.city, poData.shippingAddress.state, poData.shippingAddress.zipCode, poData.shippingAddress.country].filter(Boolean).join(', ') || (poData.vendor?.address || '___________')
+                    : poData.vendor?.address || '___________'}
+              </Typography>
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
@@ -589,7 +737,7 @@ const PreAudit = () => {
                       {item.description || poData.indent?.items?.[index]?.itemName || '___________'}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                      {item.specification || poData.indent?.items?.[index]?.specification || '___________'}
+                      {item.specification || poData.indent?.items?.[index]?.specification || poData.indent?.items?.[index]?.description || poData.indent?.items?.[index]?.purpose || '___________'}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                       {item.brand || poData.indent?.items?.[index]?.brand || '___________'}
@@ -691,31 +839,59 @@ const PreAudit = () => {
             <tbody>
               <tr>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {poData.approvalAuthorities?.preparedBy || ''}
+                    </Typography>
+                  </Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {poData.approvalAuthorities?.verifiedBy || ''}
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Verified By: Procurement Committee</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {poData.approvalAuthorities?.authorisedRep || ''}
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Authorised Rep.</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {poData.approvalAuthorities?.financeRep || ''}
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Finance Rep.</Typography>
+                </td>
+                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {poData.approvalAuthorities?.managerProcurement || ''}
+                    </Typography>
+                  </Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
                 </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Procurement</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Internal Auditor</Typography>
-                </td>
-                <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Finance</Typography>
-                </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {''}
+                    </Typography>
+                  </Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
                 </td>
                 <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                    <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                      {''}
+                    </Typography>
+                  </Box>
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
                 </td>
               </tr>
@@ -1005,23 +1181,30 @@ const PreAudit = () => {
                                                     onClick={async () => {
                                                       setViewDialog({ open: true, document: doc, fullDocument: null, loading: true });
                                                       
-                                                      // If it's a Purchase Order, fetch the full PO details
+                                                      // If it's a Purchase Order, fetch full PO and related Comparative Statement data (quotations by indent)
                                                       if (doc.isPurchaseOrder) {
                                                         try {
                                                           const response = await api.get(`/procurement/purchase-orders/${doc._id}`);
-                                                          if (response.data.success) {
-                                                            setViewDialog({ 
-                                                              open: true, 
-                                                              document: doc, 
-                                                              fullDocument: response.data.data,
-                                                              loading: false 
-                                                            });
-                                                          } else {
-                                                            setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
+                                                          let quotations = [];
+                                                          if (response.data.success && response.data.data?.indent?._id) {
+                                                            try {
+                                                              const qRes = await api.get(`/procurement/quotations/by-indent/${response.data.data.indent._id}`);
+                                                              if (qRes.data?.success && Array.isArray(qRes.data.data)) {
+                                                                quotations = qRes.data.data;
+                                                              }
+                                                            } catch (_) { /* ignore */ }
                                                           }
+                                                          setViewDialog({ 
+                                                            open: true, 
+                                                            document: { ...doc, isPurchaseOrder: true }, 
+                                                            fullDocument: response.data.success ? response.data.data : null,
+                                                            loading: false,
+                                                            quotations,
+                                                            poAuditTab: 0
+                                                          });
                                                         } catch (error) {
                                                           console.error('Error fetching purchase order:', error);
-                                                          setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
+                                                          setViewDialog({ open: true, document: { ...doc, isPurchaseOrder: true }, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 });
                                                         }
                                                       }
                                                       // If it's a workflow document (payment settlement), check if it's related to a PO
@@ -1048,11 +1231,21 @@ const PreAudit = () => {
                                                               }
                                                               
                                                               if (poResponse?.data?.success) {
+                                                                let quotations = [];
+                                                                const poData = poResponse.data.data;
+                                                                if (poData?.indent?._id) {
+                                                                  try {
+                                                                    const qRes = await api.get(`/procurement/quotations/by-indent/${poData.indent._id}`);
+                                                                    if (qRes.data?.success && Array.isArray(qRes.data.data)) quotations = qRes.data.data;
+                                                                  } catch (_) {}
+                                                                }
                                                                 setViewDialog({ 
                                                                   open: true, 
                                                                   document: { ...doc, isPurchaseOrder: true }, 
-                                                                  fullDocument: poResponse.data.data,
-                                                                  loading: false 
+                                                                  fullDocument: poData,
+                                                                  loading: false,
+                                                                  quotations,
+                                                                  poAuditTab: 0
                                                                 });
                                                               } else {
                                                                 // Fallback to payment settlement view
@@ -1092,7 +1285,17 @@ const PreAudit = () => {
                                                           });
                                                         }
                                                       } else {
-                                                        setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
+                                                        // Check if doc has originalDocument with isPurchaseOrder flag
+                                                        if (doc.originalDocument?.isPurchaseOrder || doc.originalDocument?.orderNumber) {
+                                                          setViewDialog({ 
+                                                            open: true, 
+                                                            document: { ...doc, isPurchaseOrder: true }, 
+                                                            fullDocument: doc.originalDocument || null, 
+                                                            loading: false 
+                                                          });
+                                                        } else {
+                                                          setViewDialog({ open: true, document: doc, fullDocument: null, loading: false });
+                                                        }
                                                       }
                                                     }}
                                                   >
@@ -1220,7 +1423,7 @@ const PreAudit = () => {
       {/* View Document Dialog */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 })}
         maxWidth={(viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? false : "md"}
         fullWidth
         PaperProps={{
@@ -1273,7 +1476,7 @@ const PreAudit = () => {
               )}
               <IconButton 
                 size="small" 
-                onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false })}
+                onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 })}
                 sx={{ color: '#666', '@media print': { display: 'none' } }}
               >
                 <CloseIcon />
@@ -1293,9 +1496,62 @@ const PreAudit = () => {
               background: '#ffffff',
               fontFamily: (viewDialog.document.isPurchaseOrder || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? 'Arial, sans-serif' : '"Times New Roman", serif'
             }} className={(viewDialog.document.isPurchaseOrder || (viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? "print-content" : ""}>
-              {/* Show Purchase Order details if it's a Purchase Order or payment settlement related to PO */}
+              {/* Show Purchase Order + Comparative Statement + Quotations when it's a PO (for audit) */}
               {(viewDialog.document.isPurchaseOrder && viewDialog.fullDocument) ? (
-                <PurchaseOrderView poData={viewDialog.fullDocument} />
+                <>
+                  <Tabs
+                    value={viewDialog.poAuditTab ?? 0}
+                    onChange={(_, v) => setViewDialog(prev => ({ ...prev, poAuditTab: v }))}
+                    sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                  >
+                    <Tab label="Purchase Order" />
+                    <Tab label="Comparative Statement" />
+                    <Tab label="Quotations" />
+                  </Tabs>
+                  {viewDialog.poAuditTab === 0 && (
+                    <PurchaseOrderView 
+                      poData={{
+                        ...viewDialog.fullDocument,
+                        auditObservations: viewDialog.fullDocument?.auditObservations || 
+                                          viewDialog.document?.auditObservations || 
+                                          viewDialog.document?.originalDocument?.auditObservations ||
+                                          []
+                      }} 
+                    />
+                  )}
+                  {viewDialog.poAuditTab === 1 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      <ComparativeStatementView
+                        requisition={viewDialog.fullDocument?.indent}
+                        quotations={viewDialog.quotations || []}
+                        approvalAuthority={viewDialog.fullDocument?.indent?.comparativeStatementApprovals || {}}
+                        note={viewDialog.fullDocument?.indent?.notes ?? ''}
+                        readOnly
+                        formatNumber={formatNumber}
+                        loadingQuotations={false}
+                        showPrintButton={false}
+                      />
+                    </Box>
+                  )}
+                  {viewDialog.poAuditTab === 2 && (
+                    <Box sx={{ p: 2 }}>
+                      {(!viewDialog.quotations || viewDialog.quotations.length === 0) ? (
+                        <Typography color="text.secondary">No quotations for this requisition.</Typography>
+                      ) : (
+                        <Stack spacing={4}>
+                          {viewDialog.quotations.map((q) => (
+                            <QuotationDetailView
+                              key={q._id}
+                              quotation={q}
+                              formatNumber={formatNumber}
+                              formatDateForPrint={formatDateForPrint}
+                            />
+                          ))}
+                        </Stack>
+                      )}
+                    </Box>
+                  )}
+                </>
               ) : viewDialog.document.isWorkflowDocument && viewDialog.fullDocument ? (
                 <>
                   {/* Document Header */}
@@ -1802,7 +2058,11 @@ const PreAudit = () => {
                       <Typography variant="body2">{formatPKR(viewDialog.document.amount)}</Typography>
                     </Grid>
                   )}
-                  {viewDialog.document.observations && viewDialog.document.observations.length > 0 && (
+                  {/* Show observations for regular PreAudit documents */}
+                  {viewDialog.document.observations && 
+                   !viewDialog.document.isPurchaseOrder && 
+                   !(viewDialog.document.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder) &&
+                   viewDialog.document.observations.length > 0 && (
                     <Grid item xs={12}>
                       <Typography variant="subtitle2" sx={{ mb: 1 }}>Observations</Typography>
                       {viewDialog.document.observations.map((obs, idx) => (
@@ -1817,7 +2077,69 @@ const PreAudit = () => {
                               {formatDate(obs.addedAt)}
                             </Typography>
                           </Box>
-                          <Typography variant="body2">{obs.observation}</Typography>
+                          <Typography variant="body2" sx={{ mb: obs.answer ? 1.5 : 0 }}>{obs.observation}</Typography>
+                          {obs.answer && (
+                            <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
+                              <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+                                Response from Procurement:
+                              </Typography>
+                              <Typography variant="body2">{obs.answer}</Typography>
+                              {obs.answeredBy && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                                  Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                                  {obs.answeredAt && ` on ${formatDate(obs.answeredAt)}`}
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+                        </Paper>
+                      ))}
+                    </Grid>
+                  )}
+                  {/* Show auditObservations for Purchase Orders */}
+                  {(() => {
+                    const isPO = viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder);
+                    const observations = viewDialog.fullDocument?.auditObservations || viewDialog.document?.auditObservations || [];
+                    const hasObservations = Array.isArray(observations) && observations.length > 0;
+                    return isPO && hasObservations;
+                  })() && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Audit Observations</Typography>
+                      {(viewDialog.fullDocument?.auditObservations || viewDialog.document?.auditObservations || []).map((obs, idx) => (
+                        <Paper key={obs._id || idx} sx={{ p: 2, mb: 1, bgcolor: alpha(theme.palette.warning.main, 0.1), border: '1px solid', borderColor: 'warning.light' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Chip
+                              label={obs.severity || 'medium'}
+                              size="small"
+                              color={getSeverityColor(obs.severity)}
+                            />
+                            <Typography variant="caption" color="text.secondary">
+                              {obs.addedAt ? formatDate(obs.addedAt) : 'N/A'}
+                              {obs.addedBy && ` by ${obs.addedBy?.firstName || ''} ${obs.addedBy?.lastName || ''}`}
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2" sx={{ mb: obs.answer ? 1.5 : 0, fontWeight: 500 }}>
+                            {obs.observation}
+                          </Typography>
+                          {obs.answer && (
+                            <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
+                              <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5, color: 'success.dark' }}>
+                                Response from Procurement:
+                              </Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{obs.answer}</Typography>
+                              {obs.answeredBy && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                                  Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                                  {obs.answeredAt && ` on ${formatDate(obs.answeredAt)}`}
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+                          {!obs.answer && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic', display: 'block', mt: 1 }}>
+                              No response provided yet
+                            </Typography>
+                          )}
                         </Paper>
                       ))}
                     </Grid>

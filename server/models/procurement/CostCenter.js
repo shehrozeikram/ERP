@@ -21,9 +21,8 @@ const costCenterSchema = new mongoose.Schema({
     maxlength: [500, 'Description cannot exceed 500 characters']
   },
   department: {
-    type: String,
-    enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general', 'it'],
-    default: 'general'
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department'
   },
   departmentName: {
     type: String,

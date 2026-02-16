@@ -44,10 +44,12 @@ const indentSchema = new mongoose.Schema({
     },
     description: {
       type: String,
+      required: [true, 'Item description is required'],
       trim: true
     },
     brand: {
       type: String,
+      required: [true, 'Brand is required'],
       trim: true
     },
     quantity: {
@@ -57,15 +59,18 @@ const indentSchema = new mongoose.Schema({
     },
     unit: {
       type: String,
+      required: [true, 'Unit is required'],
       trim: true,
       default: 'Piece'
     },
     purpose: {
       type: String,
+      required: [true, 'Purpose is required'],
       trim: true
     },
     estimatedCost: {
       type: Number,
+      required: [true, 'Estimated cost is required'],
       min: [0, 'Estimated cost cannot be negative'],
       default: 0
     },
@@ -100,6 +105,10 @@ const indentSchema = new mongoose.Schema({
   movedToProcurementAt: {
     type: Date
   },
+  movedToProcurementReason: {
+    type: String,
+    trim: true
+  },
   
   // Dates
   requestedDate: {
@@ -107,7 +116,8 @@ const indentSchema = new mongoose.Schema({
     default: Date.now
   },
   requiredDate: {
-    type: Date
+    type: Date,
+    required: [true, 'Required date is required']
   },
   approvedDate: {
     type: Date
@@ -153,9 +163,19 @@ const indentSchema = new mongoose.Schema({
   // Justification
   justification: {
     type: String,
+    required: [true, 'Justification is required'],
     trim: true
   },
   
+  // Comparative Statement approval authorities (editable names/designations at bottom of comparative statement)
+  comparativeStatementApprovals: {
+    preparedBy: { type: String, trim: true, default: '' },
+    verifiedBy: { type: String, trim: true, default: '' },
+    authorisedRep: { type: String, trim: true, default: '' },
+    financeRep: { type: String, trim: true, default: '' },
+    managerProcurement: { type: String, trim: true, default: '' }
+  },
+
   // Signatures
   signatures: {
     requester: {
@@ -199,11 +219,13 @@ const indentSchema = new mongoose.Schema({
   // Additional Information
   priority: {
     type: String,
+    required: [true, 'Priority is required'],
     enum: ['Low', 'Medium', 'High', 'Urgent'],
     default: 'Medium'
   },
   category: {
     type: String,
+    required: [true, 'Category is required'],
     trim: true,
     enum: ['Office Supplies', 'IT Equipment', 'Furniture', 'Maintenance', 'Raw Materials', 'Services', 'Other'],
     default: 'Other'

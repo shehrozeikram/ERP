@@ -2135,14 +2135,17 @@ Please complete all evaluations at your earliest convenience.
   }
 
   // Send requisition email to vendor
-  async sendRequisitionEmail(vendor, requisition, token) {
+  // options: { paymentTerms?, attachment?: { buffer, filename } }
+  async sendRequisitionEmail(vendor, requisition, token, options = {}) {
     try {
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       const quotationLink = `${frontendUrl}/public-quotation/${token}`;
-      
-      const htmlContent = this.generateRequisitionEmailHTML(vendor, requisition, quotationLink);
-      const textContent = this.generateRequisitionEmailText(vendor, requisition, quotationLink);
-      
+      const paymentTerms = options.paymentTerms || null;
+      const attachment = options.attachment || null;
+
+      const htmlContent = this.generateRequisitionEmailHTML(vendor, requisition, quotationLink, paymentTerms);
+      const textContent = this.generateRequisitionEmailText(vendor, requisition, quotationLink, paymentTerms);
+
       const mailOptions = {
         from: `"SGC Procurement Team" <${this.getFromAddress()}>`,
         to: vendor.email,
@@ -2150,6 +2153,9 @@ Please complete all evaluations at your earliest convenience.
         html: htmlContent,
         text: textContent
       };
+      if (attachment && attachment.buffer && attachment.filename) {
+        mailOptions.attachments = [{ filename: attachment.filename, content: attachment.buffer }];
+      }
 
       const result = await this.transporter.sendMail(mailOptions);
       console.log(`✅ Requisition email sent to ${vendor.email}: ${result.messageId}`);
@@ -2172,7 +2178,7 @@ Please complete all evaluations at your earliest convenience.
   }
 
   // Generate requisition email HTML
-  generateRequisitionEmailHTML(vendor, requisition, quotationLink) {
+  generateRequisitionEmailHTML(vendor, requisition, quotationLink, paymentTerms = null) {
     const itemsList = requisition.items.map((item, idx) => `
       <tr>
         <td style="padding: 8px; border-bottom: 1px solid #ddd;">${idx + 1}</td>
@@ -2222,6 +2228,7 @@ Please complete all evaluations at your earliest convenience.
               <p><strong>Department:</strong> ${requisition.department?.name || 'N/A'}</p>
               <p><strong>Priority:</strong> ${requisition.priority || 'Medium'}</p>
               <p><strong>Required Date:</strong> ${requisition.requiredDate ? new Date(requisition.requiredDate).toLocaleDateString() : 'As soon as possible'}</p>
+              ${paymentTerms ? `<p><strong>Payment Terms:</strong> ${paymentTerms}</p>` : ''}
               ${requisition.description ? `<p><strong>Description:</strong> ${requisition.description}</p>` : ''}
             </div>
 
@@ -2277,7 +2284,7 @@ Please complete all evaluations at your earliest convenience.
   }
 
   // Generate requisition email text
-  generateRequisitionEmailText(vendor, requisition, quotationLink) {
+  generateRequisitionEmailText(vendor, requisition, quotationLink, paymentTerms = null) {
     const itemsList = requisition.items.map((item, idx) => 
       `${idx + 1}. ${item.itemName} - Quantity: ${item.quantity} ${item.unit || 'pcs'}${item.estimatedCost ? ` - Estimated Cost: PKR ${item.estimatedCost.toLocaleString()}` : ''}`
     ).join('\n');
@@ -2295,6 +2302,7 @@ REQUISITION DETAILS:
 - Department: ${requisition.department?.name || 'N/A'}
 - Priority: ${requisition.priority || 'Medium'}
 - Required Date: ${requisition.requiredDate ? new Date(requisition.requiredDate).toLocaleDateString() : 'As soon as possible'}
+${paymentTerms ? `- Payment Terms: ${paymentTerms}` : ''}
 ${requisition.description ? `- Description: ${requisition.description}` : ''}
 
 ITEMS REQUIRED:

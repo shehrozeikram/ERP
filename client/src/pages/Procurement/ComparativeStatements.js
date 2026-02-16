@@ -27,11 +27,13 @@ import {
   Print as PrintIcon,
   Search as SearchIcon,
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon
+  CheckCircle as CheckCircleIcon,
+  Save as SaveIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
+import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 
 const ComparativeStatements = () => {
   // State management
@@ -44,6 +46,18 @@ const ComparativeStatements = () => {
   const [loadingQuotations, setLoadingQuotations] = useState(false);
   const [selectDialog, setSelectDialog] = useState({ open: false, quotation: null });
   const [updating, setUpdating] = useState(false);
+  // Editable approval authority (names/designations for signature section)
+  const [approvalAuthority, setApprovalAuthority] = useState({
+    preparedBy: '',
+    verifiedBy: '',
+    authorisedRep: '',
+    financeRep: '',
+    managerProcurement: ''
+  });
+  // Set to requisition id after user saves approval authorities; vendor Select enabled only then
+  const [approvalsSavedForRequisition, setApprovalsSavedForRequisition] = useState(null);
+  // Editable note (saved with approval authorities)
+  const [comparativeNote, setComparativeNote] = useState('');
 
   // Load requisitions on component mount
   useEffect(() => {
@@ -77,15 +91,29 @@ const ComparativeStatements = () => {
     }
   }, []);
 
+  const [savingApprovals, setSavingApprovals] = useState(false);
+
   const handleRequisitionSelect = async (requisition) => {
     setSelectedRequisition(requisition);
     setLoadingQuotations(true);
     setError('');
     try {
-      // First, get full requisition details with populated fields
+      // First, get full requisition details with populated fields (includes comparativeStatementApprovals)
       const reqResponse = await api.get(`/indents/${requisition._id}`);
       if (reqResponse.data.success) {
-        setSelectedRequisition(reqResponse.data.data);
+        const fullRequisition = reqResponse.data.data;
+        setSelectedRequisition(fullRequisition);
+        const approvals = fullRequisition.comparativeStatementApprovals || {};
+        setApprovalAuthority({
+          preparedBy: approvals.preparedBy || '',
+          verifiedBy: approvals.verifiedBy || '',
+          authorisedRep: approvals.authorisedRep || '',
+          financeRep: approvals.financeRep || '',
+          managerProcurement: approvals.managerProcurement || ''
+        });
+        setComparativeNote(fullRequisition.notes != null ? String(fullRequisition.notes) : '');
+        const hasExistingApprovals = approvals.preparedBy || approvals.verifiedBy || approvals.authorisedRep || approvals.financeRep || approvals.managerProcurement;
+        setApprovalsSavedForRequisition(hasExistingApprovals ? fullRequisition._id : null);
       }
       
       // Then get quotations
@@ -109,6 +137,25 @@ const ComparativeStatements = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
+  };
+
+  const handleSaveApprovals = async () => {
+    if (!selectedRequisition?._id) return;
+    try {
+      setSavingApprovals(true);
+      setError('');
+      await api.put(`/indents/${selectedRequisition._id}/comparative-statement-approvals`, {
+        ...approvalAuthority,
+        notes: comparativeNote
+      });
+      setApprovalsSavedForRequisition(selectedRequisition._id);
+      setSuccess('Approval authorities and note saved successfully.');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save approval authorities');
+    } finally {
+      setSavingApprovals(false);
+    }
   };
 
   const handleSelectVendor = (quotation) => {
@@ -223,370 +270,23 @@ const ComparativeStatements = () => {
 
         {/* Comparative Statement Display */}
         {selectedRequisition && (
-          <Paper
-            sx={{
-              p: { xs: 3, sm: 3.5, md: 4 },
-              maxWidth: '297mm',
-              mx: 'auto',
-              backgroundColor: '#fff',
-              boxShadow: 'none',
-              width: '100%',
-              fontFamily: 'Arial, sans-serif',
-              '@media print': {
-                boxShadow: 'none',
-                p: 1.5,
-                maxWidth: '100%',
-                backgroundColor: '#fff',
-                mx: 0,
-                width: '100%',
-                pageBreakInside: 'avoid',
-                pageBreakAfter: 'avoid',
-                pageBreakBefore: 'avoid'
-              }
-            }}
-            className="print-content"
-          >
-            {/* Header Section - Title and Reference Numbers */}
-            <Box sx={{ mb: 3, position: 'relative', '@media print': { mb: 1.5 } }}>
-              {/* Title - Centered */}
-              <Typography
-                variant="h4"
-                fontWeight={700}
-                align="center"
-                sx={{
-                  textTransform: 'uppercase',
-                  mb: { xs: 3, print: 1 },
-                  fontSize: { xs: '1.8rem', print: '1.3rem' },
-                  letterSpacing: 1,
-                  '@media print': { pageBreakAfter: 'avoid' }
-                }}
-              >
-                Comparative Statement
-              </Typography>
-              
-              {/* Taj Residencia - Centered below title with more spacing */}
-              <Typography
-                variant="h6"
-                align="center"
-                sx={{
-                  mb: { xs: 2, print: 0.5 },
-                  fontSize: { xs: '1.2rem', print: '0.9rem' },
-                  fontWeight: 500,
-                  '@media print': { pageBreakAfter: 'avoid' }
-                }}
-              >
-                Taj Residencia
-              </Typography>
-
-              {/* Reference Numbers - Top Right */}
-              <Box sx={{ position: 'absolute', top: 0, right: 0, textAlign: 'right', fontSize: { xs: '0.9rem', print: '0.75rem' } }}>
-                <Typography sx={{ mb: 0.5, '@media print': { mb: 0.25, fontSize: '0.7rem' } }}>
-                  POR {selectedRequisition.erpRef?.split('#').pop() || selectedRequisition.indentNumber || 'N/A'}
-                </Typography>
-                <Typography sx={{ '@media print': { fontSize: '0.7rem' } }}>
-                  Indent {selectedRequisition.indentNumber || 'N/A'}
-                </Typography>
-              </Box>
-            </Box>
-
-            {/* Print Button - Hidden in Print */}
-            <Box sx={{ mb: 2, textAlign: 'right', '@media print': { display: 'none' } }}>
-              <Button
-                variant="contained"
-                startIcon={<PrintIcon />}
-                onClick={() => window.print()}
-              >
-                Print
-              </Button>
-            </Box>
-
-            {/* Comparative Table */}
-            {loadingQuotations ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                <CircularProgress />
-              </Box>
-            ) : quotations.length === 0 ? (
-              <Box sx={{ p: 3, textAlign: 'center' }}>
-                <Typography>No quotations available for comparison</Typography>
-              </Box>
-            ) : (
-              <Box sx={{ mb: 3, overflowX: 'auto' }}>
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    border: '1px solid #000',
-                    fontSize: '0.85rem',
-                    fontFamily: 'Arial, sans-serif',
-                    minWidth: '1000px'
-                  }}
-                  className="comparative-table"
-                >
-                  <thead>
-                    {/* First Row - Vendor label and Vendor Names with Select Buttons */}
-                    <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                      <th colSpan={4} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem' }}>
-                        Vendor
-                      </th>
-                      {quotations.map((quote, idx) => (
-                        <th 
-                          key={idx} 
-                          colSpan={2} 
-                          style={{ 
-                            border: '1px solid #000', 
-                            padding: '8px 6px', 
-                            fontWeight: 700, 
-                            textAlign: 'center', 
-                            fontSize: '0.85rem',
-                            backgroundColor: quote.status === 'Finalized' ? '#c8e6c9' : '#f5f5f5',
-                            verticalAlign: 'top'
-                          }}
-                        >
-                          {/* Select Button - Hidden in Print */}
-                          <Box sx={{ mb: 1, '@media print': { display: 'none' } }}>
-                            <Button
-                              variant={quote.status === 'Finalized' ? 'contained' : 'outlined'}
-                              color={quote.status === 'Finalized' ? 'success' : 'primary'}
-                              startIcon={quote.status === 'Finalized' ? <CheckCircleIcon /> : null}
-                              onClick={() => handleSelectVendor(quote)}
-                              disabled={updating || quote.status === 'Finalized'}
-                              size="small"
-                              sx={{ 
-                                fontSize: '0.7rem',
-                                padding: '4px 8px',
-                                minWidth: 'auto'
-                              }}
-                            >
-                              {quote.status === 'Finalized' ? 'Selected' : 'Select'}
-                            </Button>
-                          </Box>
-                          {quote.vendor?.name || `Vendor ${idx + 1}`}
-                          {quote.status === 'Finalized' && (
-                            <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#2e7d32', fontWeight: 600 }}>
-                              (Selected)
-                            </Box>
-                          )}
-                        </th>
-                      ))}
-                    </tr>
-                    {/* Second Row - Column Headers */}
-                    <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                      <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '4%', fontSize: '0.8rem' }}>
-                        Sr no
-                      </th>
-                      <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'left', width: '35%', fontSize: '0.8rem' }}>
-                        Item Description
-                      </th>
-                      <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', width: '8%', fontSize: '0.8rem' }}>
-                        Unit
-                      </th>
-                      <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '6%', fontSize: '0.8rem' }}>
-                        Qty
-                      </th>
-                      {quotations.map((quote, idx) => (
-                        <React.Fragment key={idx}>
-                          <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>
-                            Rate
-                          </th>
-                          <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>
-                            Total
-                          </th>
-                        </React.Fragment>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedRequisition.items && selectedRequisition.items.length > 0 ? (
-                      selectedRequisition.items.map((item, itemIndex) => (
-                        <tr key={itemIndex} style={{ border: '1px solid #000' }}>
-                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                            {itemIndex + 1}
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                            {item.itemName || item.description || '___________'}
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                            {item.unit || 'Nos'}
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                            {item.quantity || '___'}
-                          </td>
-                          {quotations.map((quote, quoteIdx) => {
-                            const quoteItem = quote.items?.find((qi, idx) => idx === itemIndex) || quote.items?.[itemIndex];
-                            const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
-                            return (
-                              <React.Fragment key={quoteIdx}>
-                                <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                                  {quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}
-                                </td>
-                                <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                                  {quoteItem ? formatNumber(itemTotal) : '___________'}
-                                </td>
-                              </React.Fragment>
-                            );
-                          })}
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={4 + (quotations.length * 2)} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
-                          No items
-                        </td>
-                      </tr>
-                    )}
-                    {/* TOTAL Row */}
-                    <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
-                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
-                        TOTAL
-                      </td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
-                          {formatNumber(quote.totalAmount || 0)}
-                        </td>
-                      ))}
-                    </tr>
-                    {/* Income Tax Row */}
-                    <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
-                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
-                        Income Tax
-                      </td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>
-                          Not Included
-                        </td>
-                      ))}
-                    </tr>
-                    {/* Transportation Row */}
-                    <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
-                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
-                        Transportation
-                      </td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>
-                          Not Included
-                        </td>
-                      ))}
-                    </tr>
-                    {/* Grand Total Row */}
-                    <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#d0d0d0', fontWeight: 700 }}>
-                      <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
-                        Grand Total
-                      </td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
-                          {formatNumber(quote.totalAmount || 0)}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </Box>
-            )}
-
-            {/* Terms & Conditions Section */}
-            {quotations.length > 0 && (
-              <Box sx={{ mb: 3, mt: 3, '@media print': { mb: 1.5, mt: 1.5, pageBreakInside: 'avoid' } }}>
-                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: { xs: 2, print: 1 }, fontSize: { xs: '1rem', print: '0.85rem' }, textDecoration: 'underline' }}>
-                  Term & Condition
-                </Typography>
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    border: '1px solid #000',
-                    fontSize: '0.85rem',
-                    fontFamily: 'Arial, sans-serif'
-                  }}
-                  className="terms-table"
-                >
-                  <thead>
-                    <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                      <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left', fontWeight: 700, width: '20%', fontSize: '0.8rem' }}>
-                        Delivery Time
-                      </th>
-                      {quotations.map((quote, idx) => (
-                        <th key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontWeight: 700, fontSize: '0.8rem' }}>
-                          {idx + 1}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr style={{ border: '1px solid #000' }}>
-                      <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}></td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>
-                          {quote.deliveryTime || '7 Days'}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr style={{ border: '1px solid #000' }}>
-                      <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Payment Term</td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>
-                          {quote.paymentTerms || '100% Advance'}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr style={{ border: '1px solid #000' }}>
-                      <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 600, fontSize: '0.8rem' }}>Delivery Place</td>
-                      {quotations.map((quote, idx) => (
-                        <td key={idx} style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '0.8rem' }}>
-                          Ex-Site
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </Box>
-            )}
-
-            {/* Note Section */}
-            <Box sx={{ mb: 3, fontSize: '0.9rem', '@media print': { mb: 1, fontSize: '0.75rem', pageBreakInside: 'avoid' } }}>
-              <Typography component="span" fontWeight={600}>Note:</Typography>
-              <Typography component="span" sx={{ ml: 1 }}>
-                {selectedRequisition.notes || '_________________________________________________________________'}
-              </Typography>
-            </Box>
-
-            {/* Approval/Signature Section */}
-            <Box sx={{ mt: 4, '@media print': { mt: 1.5, pageBreakInside: 'avoid' } }}>
-              <table
-                style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: '0.85rem',
-                  fontFamily: 'Arial, sans-serif'
-                }}
-              >
-                <tbody>
-                  <tr>
-                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
-                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
-                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Prepared By</Typography>
-                      <Typography variant="caption" sx={{ fontSize: '0.75rem', display: 'block', mt: 0.5, '@media print': { fontSize: '0.6rem', mt: 0.25 } }}>Procurement Dept</Typography>
-                    </td>
-                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
-                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
-                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Verified By: Procurement Committee</Typography>
-                    </td>
-                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
-                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
-                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Authorised Rep.</Typography>
-                    </td>
-                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
-                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
-                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Finance Rep.</Typography>
-                    </td>
-                    <td style={{ padding: '20px 10px', textAlign: 'center', width: '20%', verticalAlign: 'bottom' }} className="signature-cell">
-                      <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '30px', mb: 0.5 } }}></Box>
-                      <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.6rem' } }}>Manager Procurement</Typography>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </Box>
-          </Paper>
+          <ComparativeStatementView
+            requisition={selectedRequisition}
+            quotations={quotations}
+            approvalAuthority={approvalAuthority}
+            note={comparativeNote}
+            readOnly={false}
+            formatNumber={formatNumber}
+            loadingQuotations={loadingQuotations}
+            onSaveApprovals={handleSaveApprovals}
+            onSelectVendor={handleSelectVendor}
+            savingApprovals={savingApprovals}
+            updating={updating}
+            approvalsSavedForRequisition={approvalsSavedForRequisition}
+            onNoteChange={setComparativeNote}
+            onApprovalChange={(key, value) => setApprovalAuthority((prev) => ({ ...prev, [key]: value }))}
+            showPrintButton
+          />
         )}
 
         {/* Print Styles */}

@@ -142,7 +142,7 @@ const IndentPrintView = () => {
           align="center"
           sx={{
             textTransform: 'uppercase',
-            mb: 2,
+            mb: 1,
             fontSize: { xs: '1.1rem', print: '0.95rem' },
             letterSpacing: 1.5,
             mt: -4
@@ -150,6 +150,13 @@ const IndentPrintView = () => {
         >
           Purchase Request Form
         </Typography>
+
+        {/* Indent Title */}
+        {indent.title && (
+          <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2, fontSize: '1rem' }}>
+            {indent.title}
+          </Typography>
+        )}
 
         {/* ERP Ref - Single Row (Centered) */}
         <Box sx={{ mb: 1.5, fontSize: '0.9rem', lineHeight: 1.8, textAlign: 'center' }}>
@@ -218,24 +225,14 @@ const IndentPrintView = () => {
           >
             <thead>
               <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '5%' }}>
-                  S#
-                </th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '30%' }}>
-                  Description
-                </th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '15%' }}>
-                  Brand
-                </th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '10%' }}>
-                  Unit
-                </th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '8%' }}>
-                  Qty.
-                </th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '32%' }}>
-                  Purpose
-                </th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '4%' }}>S#</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Item Name</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Item Description</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '10%' }}>Brand</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '8%' }}>Unit</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '6%' }}>Qty.</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '18%' }}>Purpose</th>
+                <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 700, width: '10%' }}>Est. Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -246,7 +243,10 @@ const IndentPrintView = () => {
                       {(index + 1).toString().padStart(2, '0')}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                      {item.itemName || item.description || '___________'}
+                      {item.itemName || '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                      {item.description || '___________'}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                       {item.brand || '___________'}
@@ -255,16 +255,19 @@ const IndentPrintView = () => {
                       {item.unit || '___________'}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
-                      {item.quantity || '___'}
+                      {item.quantity ?? '___'}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                       {item.purpose || '___________'}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                      {item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '___________'}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
+                  <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
                     No items
                   </td>
                 </tr>

@@ -44,12 +44,15 @@ import {
   Print as PrintIcon,
   LocalShipping as CreateGRNIcon,
   Assignment as IndentIcon,
-  Send as MoveToProcurementIcon
+  Send as MoveToProcurementIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
+import toast from 'react-hot-toast';
 import api from '../../../services/api';
 import indentService from '../../../services/indentService';
 import dayjs from 'dayjs';
 import PODocumentView from './PODocumentView';
+import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
 
 const StoreDashboard = () => {
   const theme = useTheme();
@@ -59,12 +62,15 @@ const StoreDashboard = () => {
   const [groupedData, setGroupedData] = useState([]);
   const [summary, setSummary] = useState({ totalCount: 0, totalAmount: 0 });
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
+  const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [expandedMonths, setExpandedMonths] = useState({});
   const [qaDialog, setQaDialog] = useState({ open: false, po: null, action: null, remarks: '' });
   const [qaSubmitting, setQaSubmitting] = useState(false);
   const [pendingIndents, setPendingIndents] = useState([]);
   const [movingIndentId, setMovingIndentId] = useState(null);
   const [indentViewDialog, setIndentViewDialog] = useState({ open: false, indent: null });
+  const [moveToProcurementDialog, setMoveToProcurementDialog] = useState({ open: false, indent: null, reason: '' });
+  const [moveToProcurementError, setMoveToProcurementError] = useState('');
 
   useEffect(() => {
     loadDashboardData();
@@ -99,16 +105,29 @@ const StoreDashboard = () => {
     }
   };
 
-  const handleMoveToProcurement = async (indent) => {
+  const openMoveToProcurementDialog = (indent) => {
+    setMoveToProcurementError('');
+    setMoveToProcurementDialog({ open: true, indent, reason: '' });
+  };
+
+  const handleMoveToProcurement = async () => {
+    const { indent, reason } = moveToProcurementDialog;
     if (!indent?._id) return;
+    const trimmedReason = (reason || '').trim();
+    if (!trimmedReason) {
+      setMoveToProcurementError('Please provide a reason for moving this indent to Procurement');
+      return;
+    }
     try {
       setMovingIndentId(indent._id);
-      setError('');
-      await indentService.moveToProcurement(indent._id);
+      setMoveToProcurementError('');
+      await indentService.moveToProcurement(indent._id, trimmedReason);
+      setMoveToProcurementDialog({ open: false, indent: null, reason: '' });
       await loadPendingIndents();
-      setIndentViewDialog({ open: false, indent: null });
+      setIndentViewDialog((prev) => (prev.indent?._id === indent._id ? { open: false, indent: null } : prev));
+      toast.success('Indent moved to Procurement Requisitions');
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to move indent to Procurement');
+      setMoveToProcurementError(err.response?.data?.message || err.response?.data?.errors?.[0]?.msg || 'Failed to move indent to Procurement');
     } finally {
       setMovingIndentId(null);
     }
@@ -322,7 +341,7 @@ const StoreDashboard = () => {
             Approved Indents – Stock Check
           </Typography>
           <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-            Check if items are available in store. If not, move to Procurement Requisitions.
+            Items are matched to store inventory by name. If all items are in stock, create a Store Issue Note; otherwise move to Procurement with a reason.
           </Typography>
           <TableContainer>
             <Table size="small">
@@ -333,6 +352,7 @@ const StoreDashboard = () => {
                   <TableCell><strong>Department</strong></TableCell>
                   <TableCell><strong>Approved Date</strong></TableCell>
                   <TableCell><strong>Items</strong></TableCell>
+                  <TableCell><strong>Stock</strong></TableCell>
                   <TableCell align="center"><strong>Actions</strong></TableCell>
                 </TableRow>
               </TableHead>
@@ -344,6 +364,15 @@ const StoreDashboard = () => {
                     <TableCell>{indent.department?.name || 'N/A'}</TableCell>
                     <TableCell>{formatDate(indent.approvedDate)}</TableCell>
                     <TableCell>{indent.items?.length || 0} item(s)</TableCell>
+                    <TableCell>
+                      {indent.allItemsInStock ? (
+                        <Chip size="small" label="All in stock" color="success" />
+                      ) : indent.someItemsInStock ? (
+                        <Chip size="small" label="Partial" color="warning" />
+                      ) : (
+                        <Chip size="small" label="Not in stock" color="error" />
+                      )}
+                    </TableCell>
                     <TableCell align="center">
                       <Tooltip title="View indent details">
                         <IconButton
@@ -353,13 +382,26 @@ const StoreDashboard = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Items not in stock – Move to Procurement Requisitions">
+                      {indent.allItemsInStock && (
+                        <Tooltip title="Create Store Issue Note for this indent">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            sx={{ mr: 0.5 }}
+                            onClick={() => navigate('/procurement/store/goods-issue', { state: { fromIndent: indent } })}
+                          >
+                            Create Issue Note
+                          </Button>
+                        </Tooltip>
+                      )}
+                      <Tooltip title={indent.allItemsInStock ? 'Move to Procurement (e.g. if not issuing from store)' : 'Move to Procurement – items not in store'}>
                         <Button
                           size="small"
                           variant="contained"
                           color="primary"
                           startIcon={<MoveToProcurementIcon />}
-                          onClick={() => handleMoveToProcurement(indent)}
+                          onClick={() => openMoveToProcurementDialog(indent)}
                           disabled={movingIndentId === indent._id}
                         >
                           {movingIndentId === indent._id ? 'Moving...' : 'Move to Procurement'}
@@ -594,6 +636,14 @@ const StoreDashboard = () => {
               )}
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<HistoryIcon />}
+                onClick={() => setWorkflowHistoryDialog({ open: true, document: viewDialog.data })}
+              >
+                See Workflow History
+              </Button>
               <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()}>
                 Print
               </Button>
@@ -630,6 +680,12 @@ const StoreDashboard = () => {
         </DialogActions>
       </Dialog>
 
+      <WorkflowHistoryDialog
+        open={workflowHistoryDialog.open}
+        onClose={() => setWorkflowHistoryDialog({ open: false, document: null })}
+        document={workflowHistoryDialog.document}
+      />
+
       {/* Indent Detail View Dialog (Approved Indents – Stock Check) */}
       <Dialog
         open={indentViewDialog.open}
@@ -640,14 +696,24 @@ const StoreDashboard = () => {
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
           <Typography variant="h6">Indent Details</Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {indentViewDialog.indent?.allItemsInStock && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="success"
+                onClick={() => { navigate('/procurement/store/goods-issue', { state: { fromIndent: indentViewDialog.indent } }); handleCloseIndentView(); }}
+              >
+                Create Issue Note
+              </Button>
+            )}
             {indentViewDialog.indent && (
               <Button
                 size="small"
                 variant="contained"
                 color="primary"
                 startIcon={<MoveToProcurementIcon />}
-                onClick={() => handleMoveToProcurement(indentViewDialog.indent)}
+                onClick={() => openMoveToProcurementDialog(indentViewDialog.indent)}
                 disabled={movingIndentId === indentViewDialog.indent?._id}
               >
                 {movingIndentId === indentViewDialog.indent?._id ? 'Moving...' : 'Move to Procurement'}
@@ -719,6 +785,7 @@ const StoreDashboard = () => {
                       <TableCell><strong>Description</strong></TableCell>
                       <TableCell align="right"><strong>Qty</strong></TableCell>
                       <TableCell><strong>Unit</strong></TableCell>
+                      <TableCell><strong>In Store</strong></TableCell>
                       <TableCell><strong>Purpose</strong></TableCell>
                       <TableCell align="right"><strong>Est. Cost</strong></TableCell>
                     </TableRow>
@@ -731,6 +798,15 @@ const StoreDashboard = () => {
                         <TableCell>{item.description || '-'}</TableCell>
                         <TableCell align="right">{item.quantity || 0}</TableCell>
                         <TableCell>{item.unit || 'Piece'}</TableCell>
+                        <TableCell>
+                          {item.inStock ? (
+                            <Chip size="small" label={`In stock (${item.availableQuantity} available)`} color="success" />
+                          ) : item.inventoryMatch ? (
+                            <Chip size="small" label={`Low stock (${item.availableQuantity} available)`} color="warning" />
+                          ) : (
+                            <Chip size="small" label="Not in store" color="error" />
+                          )}
+                        </TableCell>
                         <TableCell>{item.purpose || '-'}</TableCell>
                         <TableCell align="right">{formatPKR(item.estimatedCost)}</TableCell>
                       </TableRow>
@@ -746,6 +822,42 @@ const StoreDashboard = () => {
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* Move to Procurement – reason required */}
+      <Dialog
+        open={moveToProcurementDialog.open}
+        onClose={() => { setMoveToProcurementDialog({ open: false, indent: null, reason: '' }); setMoveToProcurementError(''); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Move to Procurement</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            Please provide the reason for moving this indent to Procurement (e.g. items not in stock).
+          </Typography>
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            label="Reason (required)"
+            value={moveToProcurementDialog.reason}
+            onChange={(e) => setMoveToProcurementDialog((prev) => ({ ...prev, reason: e.target.value }))}
+            placeholder="e.g. Items not available in store..."
+            error={!!moveToProcurementError}
+            helperText={moveToProcurementError}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setMoveToProcurementDialog({ open: false, indent: null, reason: '' }); setMoveToProcurementError(''); }}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleMoveToProcurement}
+            disabled={movingIndentId !== null || !(moveToProcurementDialog.reason || '').trim()}
+          >
+            {movingIndentId ? 'Moving...' : 'Confirm'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* QA Check confirmation dialog */}

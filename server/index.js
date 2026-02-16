@@ -148,7 +148,7 @@ if (NODE_ENV === 'production') {
 console.log('🔧 Environment Check:');
 console.log('   NODE_ENV:', NODE_ENV);
 console.log('   JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ NOT SET');
-console.log('   MONGODB_URI:', process.env.MONGODB_URI ? '✅ Set' : '❌ NOT SET');
+console.log('   Database:', process.env.NODE_ENV === 'production' ? (process.env.MONGODB_URI ? '✅ MONGODB_URI (production)' : '❌ MONGODB_URI NOT SET') : (process.env.MONGODB_URI_LOCAL ? '✅ MONGODB_URI_LOCAL (local)' : process.env.MONGODB_URI ? '✅ MONGODB_URI (fallback)' : '❌ No DB URI set'));
 
 if (!process.env.JWT_SECRET) {
   console.error('❌ CRITICAL: JWT_SECRET environment variable is not set!');

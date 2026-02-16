@@ -1,4 +1,7 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize, authMiddleware } = require('../middleware/auth');
@@ -19,6 +22,47 @@ const User = require('../models/User');
 console.log('✅ Procurement routes loaded successfully');
 
 const router = express.Router();
+
+// Multer for quotation attachments
+const quotationAttachmentsDir = path.join(__dirname, '../uploads/quotation-attachments');
+const quotationAttachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(quotationAttachmentsDir)) {
+      fs.mkdirSync(quotationAttachmentsDir, { recursive: true });
+    }
+    cb(null, quotationAttachmentsDir);
+  },
+  filename: (req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'quotation-' + unique + path.extname(file.originalname));
+  }
+});
+const uploadQuotationAttachment = multer({
+  storage: quotationAttachmentStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /\.(pdf|doc|docx|xls|xlsx|jpg|jpeg|png|gif)$/i.test(file.originalname) ||
+      file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf' ||
+      file.mimetype === 'application/msword' || file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.mimetype === 'application/vnd.ms-excel' || file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if (allowed) cb(null, true);
+    else cb(new Error('Invalid file type'), false);
+  }
+});
+
+// Multer memory storage for requisition send-email attachment (no disk write)
+const requisitionEmailAttachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /\.(pdf|doc|docx|xls|xlsx|jpg|jpeg|png|gif)$/i.test(file.originalname) ||
+      file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf' ||
+      file.mimetype === 'application/msword' || file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.mimetype === 'application/vnd.ms-excel' || file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if (allowed) cb(null, true);
+    else cb(new Error('Invalid file type'), false);
+  }
+});
 
 // ==================== PURCHASE ORDERS ROUTES ====================
 
@@ -177,7 +221,7 @@ router.get('/purchase-orders/:id',
       .populate('vendor', 'name email phone contactPerson address')
       .populate({
         path: 'indent',
-        select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy',
+        select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes comparativeStatementApprovals',
         populate: [
           { path: 'department', select: 'name code' },
           { path: 'requestedBy', select: 'firstName lastName email' }
@@ -187,7 +231,18 @@ router.get('/purchase-orders/:id',
       .populate('createdBy', 'firstName lastName email')
       .populate('approvedBy', 'firstName lastName email')
       .populate('receivedBy', 'firstName lastName email')
-      .populate('qaCheckedBy', 'firstName lastName');
+      .populate('qaCheckedBy', 'firstName lastName')
+      .populate('auditApprovedBy', 'firstName lastName email')
+      .populate('auditReturnedBy', 'firstName lastName email')
+      .populate('auditRejectedBy', 'firstName lastName email')
+      .populate('ceoForwardedBy', 'firstName lastName email')
+      .populate('ceoApprovedBy', 'firstName lastName email')
+      .populate('ceoRejectedBy', 'firstName lastName email')
+      .populate('ceoReturnedBy', 'firstName lastName email')
+      .populate('auditObservations.addedBy', 'firstName lastName email')
+      .populate('auditObservations.answeredBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email')
+      .populate('updatedBy', 'firstName lastName email');
 
     if (!purchaseOrder) {
       return res.status(404).json({
@@ -196,9 +251,51 @@ router.get('/purchase-orders/:id',
       });
     }
 
+    // For older POs with no workflow history, build from audit/CEO fields so Pre-Audit and Procurement show it
+    if (!purchaseOrder.workflowHistory || purchaseOrder.workflowHistory.length === 0) {
+      const backfill = buildBackfillWorkflowHistory(purchaseOrder);
+      if (backfill.length > 0) {
+        purchaseOrder.workflowHistory = backfill;
+      }
+    }
+
+    // When PO has a related indent, include indent workflow (created → approvals → moved to procurement) then PO workflow
+    let fullWorkflowHistory = null;
+    const indentId = purchaseOrder.indent && (purchaseOrder.indent._id || purchaseOrder.indent);
+    if (indentId) {
+      const indent = await Indent.findById(indentId)
+        .populate('createdBy', 'firstName lastName email')
+        .populate('updatedBy', 'firstName lastName email')
+        .populate('approvedBy', 'firstName lastName email')
+        .populate('requestedBy', 'firstName lastName email')
+        .populate('movedToProcurementBy', 'firstName lastName email')
+        .lean();
+      if (indent) {
+        const indentEntries = buildIndentWorkflowHistory(indent);
+        const poEntries = (purchaseOrder.workflowHistory || []).map((e) => ({
+          fromStatus: e.fromStatus,
+          toStatus: e.toStatus,
+          changedBy: e.changedBy,
+          changedAt: e.changedAt,
+          comments: e.comments,
+          module: e.module || 'Procurement'
+        }));
+        const merged = [...indentEntries, ...poEntries].sort(
+          (a, b) => new Date(a.changedAt || 0) - new Date(b.changedAt || 0)
+        );
+        fullWorkflowHistory = merged;
+      }
+    }
+
+    // Include fullWorkflowHistory in response (not in schema, so must add to plain object or it gets stripped by toJSON)
+    const data = purchaseOrder.toObject ? purchaseOrder.toObject() : { ...purchaseOrder };
+    if (fullWorkflowHistory) {
+      data.fullWorkflowHistory = fullWorkflowHistory;
+    }
+
     res.json({
       success: true,
-      data: purchaseOrder
+      data
     });
   })
 );
@@ -210,6 +307,7 @@ router.post('/purchase-orders', [
   body('vendor').isMongoId().withMessage('Valid vendor ID is required'),
   body('orderDate').isDate().withMessage('Valid order date is required'),
   body('expectedDeliveryDate').isDate().withMessage('Valid expected delivery date is required'),
+  body('deliveryAddress').optional().trim(),
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
   body('items.*.description').trim().notEmpty().withMessage('Item description is required'),
   body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Item quantity must be greater than 0'),
@@ -245,11 +343,30 @@ router.post('/purchase-orders', [
     createdBy: req.user.id
   });
 
+  if (req.body.quotation) {
+    const quotationDoc = await Quotation.findById(req.body.quotation).select('indent').lean();
+    if (quotationDoc && quotationDoc.indent) {
+      purchaseOrder.indent = quotationDoc.indent;
+    }
+  }
+  if (req.body.approvalAuthorities && typeof req.body.approvalAuthorities === 'object') {
+    purchaseOrder.approvalAuthorities = {
+      preparedBy: req.body.approvalAuthorities.preparedBy || '',
+      verifiedBy: req.body.approvalAuthorities.verifiedBy || '',
+      authorisedRep: req.body.approvalAuthorities.authorisedRep || '',
+      financeRep: req.body.approvalAuthorities.financeRep || '',
+      managerProcurement: req.body.approvalAuthorities.managerProcurement || ''
+    };
+  }
+
+  await purchaseOrder.save();
+  pushPOWorkflowHistory(purchaseOrder, '—', 'Draft', req.user.id, 'Created in Procurement', 'Procurement');
   await purchaseOrder.save();
 
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate('vendor', 'name email phone')
-    .populate('createdBy', 'firstName lastName email');
+    .populate('createdBy', 'firstName lastName email')
+    .populate('workflowHistory.changedBy', 'firstName lastName email');
 
   res.status(201).json({
     success: true,
@@ -265,6 +382,7 @@ router.put('/purchase-orders/:id', [
   body('vendor').optional().isMongoId().withMessage('Valid vendor ID is required'),
   body('orderDate').optional().isDate().withMessage('Valid order date is required'),
   body('expectedDeliveryDate').optional().isDate().withMessage('Valid expected delivery date is required'),
+  body('deliveryAddress').optional().trim(),
   body('items').optional().isArray({ min: 1 }).withMessage('At least one item is required')
 ], authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -356,6 +474,253 @@ router.put('/purchase-orders/:id/approve',
   })
 );
 
+// Push an entry to Purchase Order workflow history (for display in Pre-Audit, CEO Secretariat, Procurement, etc.)
+// module: 'Procurement' | 'Pre-Audit' | 'CEO Secretariat' – where the action was taken
+function pushPOWorkflowHistory(po, fromStatus, toStatus, userId, comments, module) {
+  if (!po) return;
+  po.workflowHistory = po.workflowHistory || [];
+  po.workflowHistory.push({
+    fromStatus: fromStatus || po.status || 'Draft',
+    toStatus: toStatus || po.status,
+    changedBy: userId,
+    changedAt: new Date(),
+    comments: comments || '',
+    module: module || ''
+  });
+}
+
+// Build workflow history entries from an indent (created → submitted → approved → moved to procurement) for display in PO workflow
+// indent must have createdBy, updatedBy, approvedBy, movedToProcurementBy populated (e.g. firstName, lastName)
+function buildIndentWorkflowHistory(indent) {
+  if (!indent) return [];
+  const entries = [];
+  const createdAt = indent.createdAt || indent.updatedAt;
+  const createdBy = indent.createdBy;
+
+  entries.push({
+    fromStatus: '—',
+    toStatus: 'Draft',
+    changedBy: createdBy,
+    changedAt: createdAt,
+    comments: 'Indent created',
+    module: 'Indent'
+  });
+
+  if (indent.status && indent.status !== 'Draft' && !['Approved', 'Rejected', 'Partially Fulfilled', 'Fulfilled', 'Cancelled'].includes(indent.status)) {
+    const submittedAt = indent.updatedAt || createdAt;
+    const submittedBy = indent.updatedBy || indent.requestedBy || createdBy;
+    entries.push({
+      fromStatus: 'Draft',
+      toStatus: indent.status === 'Submitted' ? 'Submitted' : 'Under Review',
+      changedBy: submittedBy,
+      changedAt: submittedAt,
+      comments: indent.status === 'Submitted' ? 'Indent submitted' : 'Indent under review',
+      module: 'Indent'
+    });
+  }
+
+  if (indent.status === 'Approved' && indent.approvedBy && indent.approvedDate) {
+    entries.push({
+      fromStatus: 'Under Review',
+      toStatus: 'Approved',
+      changedBy: indent.approvedBy,
+      changedAt: indent.approvedDate,
+      comments: 'Indent approved',
+      module: 'Indent'
+    });
+  }
+
+  if (indent.status === 'Rejected') {
+    entries.push({
+      fromStatus: 'Under Review',
+      toStatus: 'Rejected',
+      changedBy: indent.updatedBy || null,
+      changedAt: indent.updatedAt || new Date(),
+      comments: indent.rejectionReason || 'Indent rejected',
+      module: 'Indent'
+    });
+  }
+
+  if (indent.storeRoutingStatus === 'moved_to_procurement' && indent.movedToProcurementBy && indent.movedToProcurementAt) {
+    entries.push({
+      fromStatus: 'Approved',
+      toStatus: 'Moved to Procurement',
+      changedBy: indent.movedToProcurementBy,
+      changedAt: indent.movedToProcurementAt,
+      comments: indent.movedToProcurementReason || 'Moved to Procurement (requisition)',
+      module: 'Indent'
+    });
+    // Show Procurement Requisition stage so both Indent and Requisition appear in PO workflow history
+    entries.push({
+      fromStatus: 'Moved to Procurement',
+      toStatus: 'Requisition in Procurement',
+      changedBy: indent.movedToProcurementBy,
+      changedAt: indent.movedToProcurementAt,
+      comments: 'Requisition available in Procurement for quotations',
+      module: 'Requisition'
+    });
+  }
+
+  return entries;
+}
+
+// Build workflow history from existing PO audit/CEO fields when workflowHistory is empty (for older POs)
+function buildBackfillWorkflowHistory(po) {
+  const entries = [];
+  const status = po.status || 'Draft';
+
+  if (po.auditReturnedAt) {
+    entries.push({
+      fromStatus: 'Pending Audit',
+      toStatus: 'Returned from Audit',
+      changedBy: po.auditReturnedBy,
+      changedAt: po.auditReturnedAt,
+      comments: po.auditReturnComments || 'Returned from Pre-Audit with observations',
+      module: 'Pre-Audit'
+    });
+  }
+  if (po.auditRejectedAt) {
+    entries.push({
+      fromStatus: 'Pending Audit',
+      toStatus: 'Rejected',
+      changedBy: po.auditRejectedBy,
+      changedAt: po.auditRejectedAt,
+      comments: po.auditRejectionComments || 'Rejected with observations',
+      module: 'Pre-Audit'
+    });
+  }
+  if (po.auditApprovedAt) {
+    entries.push({
+      fromStatus: 'Pending Audit',
+      toStatus: 'Send to CEO Office',
+      changedBy: po.auditApprovedBy,
+      changedAt: po.auditApprovedAt,
+      comments: po.auditRemarks || 'Approved by Audit',
+      module: 'Pre-Audit'
+    });
+  }
+  if (po.ceoForwardedAt) {
+    entries.push({
+      fromStatus: status === 'Forwarded to CEO' ? 'Send to CEO Office' : 'Returned from CEO Office',
+      toStatus: 'Forwarded to CEO',
+      changedBy: po.ceoForwardedBy,
+      changedAt: po.ceoForwardedAt,
+      comments: 'Forwarded to CEO for approval',
+      module: 'CEO Secretariat'
+    });
+  }
+  if (po.ceoApprovedAt) {
+    const ceoToStatus = po.status === 'Pending Finance' ? 'Pending Finance' : 'Approved';
+    entries.push({
+      fromStatus: 'Forwarded to CEO',
+      toStatus: ceoToStatus,
+      changedBy: po.ceoApprovedBy,
+      changedAt: po.ceoApprovedAt,
+      comments: ceoToStatus === 'Pending Finance' ? (po.ceoApprovalComments || 'Approved by CEO – sent to Finance (advance/partial advance)') : (po.ceoApprovalComments || 'Approved by CEO'),
+      module: 'CEO Secretariat'
+    });
+  }
+  if (po.financeApprovedAt) {
+    entries.push({
+      fromStatus: 'Pending Finance',
+      toStatus: 'Approved',
+      changedBy: po.financeApprovedBy,
+      changedAt: po.financeApprovedAt,
+      comments: po.financeRemarks || 'Approved by Finance',
+      module: 'Finance'
+    });
+  }
+  if (po.ceoRejectedAt) {
+    entries.push({
+      fromStatus: 'Forwarded to CEO',
+      toStatus: 'Rejected',
+      changedBy: po.ceoRejectedBy,
+      changedAt: po.ceoRejectedAt,
+      comments: po.ceoRejectionComments || 'Rejected by CEO',
+      module: 'CEO Secretariat'
+    });
+  }
+  if (po.ceoReturnedAt) {
+    entries.push({
+      fromStatus: 'Forwarded to CEO',
+      toStatus: 'Returned from CEO Office',
+      changedBy: po.ceoReturnedBy,
+      changedAt: po.ceoReturnedAt,
+      comments: po.ceoReturnComments || 'Returned from CEO Office',
+      module: 'CEO Secretariat'
+    });
+  }
+  // If PO reached audit at some point, add "Sent to Audit" so it appears before other audit events
+  const hasAuditEvent = po.auditApprovedAt || po.auditRejectedAt || po.auditReturnedAt;
+  if (hasAuditEvent || status === 'Pending Audit' || status === 'Send to CEO Office' || status === 'Forwarded to CEO' || status === 'Pending Finance' || status === 'Approved') {
+    const auditDates = [po.auditApprovedAt, po.auditRejectedAt, po.auditReturnedAt].filter(Boolean).map(d => new Date(d).getTime());
+    const sentAt = auditDates.length ? new Date(Math.min(...auditDates) - 1000) : (po.updatedAt || po.createdAt);
+    const fromStatus = (status === 'Returned from Audit' || status === 'Rejected') && hasAuditEvent ? status : 'Draft';
+    entries.unshift({
+      fromStatus,
+      toStatus: 'Pending Audit',
+      changedBy: po.createdBy || po.updatedBy,
+      changedAt: sentAt,
+      comments: 'Sent to Pre-Audit',
+      module: 'Procurement'
+    });
+  }
+  // Add "Created in Procurement" as first step so full flow always starts from Procurement
+  const createdAt = po.createdAt ? new Date(po.createdAt) : (entries.length ? new Date(Math.min(...entries.map(e => new Date(e.changedAt).getTime())) - 2000) : new Date());
+  entries.unshift({
+    fromStatus: '—',
+    toStatus: 'Draft',
+    changedBy: po.createdBy || po.updatedBy,
+    changedAt: createdAt,
+    comments: 'Created in Procurement',
+    module: 'Procurement'
+  });
+
+  entries.sort((a, b) => new Date(a.changedAt) - new Date(b.changedAt));
+  return entries;
+}
+
+// Build human-readable summary of PO changes compared to snapshot (for audit resubmission)
+function buildPOChangeSummary(currentItems, snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.items)) return '';
+  const prev = snapshot.items;
+  const curr = currentItems || [];
+  const lines = [];
+  const maxLen = Math.max(prev.length, curr.length);
+  for (let i = 0; i < maxLen; i++) {
+    const p = prev[i];
+    const c = curr[i];
+    const desc = (c || p)?.description || `Item ${i + 1}`;
+    if (!p && c) {
+      lines.push(`• Added: "${desc}" — Quantity ${c.quantity || 0} ${(c.unit || '').trim() || 'units'}, Rate ${c.unitPrice != null ? c.unitPrice : '—'}, Amount ${c.amount != null ? c.amount : '—'}`);
+      continue;
+    }
+    if (p && !c) {
+      lines.push(`• Removed: "${desc}" (was Quantity ${p.quantity} ${(p.unit || '').trim() || 'units'})`);
+      continue;
+    }
+    if (!p || !c) continue;
+    const qtyChange = Number(p.quantity) !== Number(c.quantity);
+    const rateChange = (p.unitPrice != null && c.unitPrice != null && Number(p.unitPrice) !== Number(c.unitPrice));
+    const amtChange = (p.amount != null && c.amount != null && Number(p.amount) !== Number(c.amount));
+    if (qtyChange) {
+      lines.push(`• "${desc}": Quantity changed from ${p.quantity} to ${c.quantity}${(c.unit || p.unit) ? ` ${String(c.unit || p.unit).trim()}` : ''}`);
+    }
+    if (rateChange) {
+      lines.push(`• "${desc}": Unit price changed from ${p.unitPrice} to ${c.unitPrice}`);
+    }
+    if (amtChange && !qtyChange && !rateChange) {
+      lines.push(`• "${desc}": Amount changed from ${p.amount} to ${c.amount}`);
+    }
+  }
+  const totalPrev = snapshot.totalAmount != null ? Number(snapshot.totalAmount) : null;
+  const totalCurr = curr.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+  if (totalPrev != null && Math.abs(totalCurr - totalPrev) > 0.01) {
+    lines.push(`• Total amount changed from ${totalPrev} to ${totalCurr}`);
+  }
+  return lines.length ? lines.join('\n') : '';
+}
+
 // @route   PUT /api/procurement/purchase-orders/:id/send-to-audit
 // @desc    Send purchase order to audit module (status -> Pending Audit)
 // @access  Private (Procurement and Admin)
@@ -366,18 +731,50 @@ router.put('/purchase-orders/:id/send-to-audit',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    if (!['Draft', 'Returned from Audit', 'Returned from CEO Secretariat'].includes(purchaseOrder.status)) {
+    if (!['Draft', 'Returned from Audit', 'Returned from CEO Secretariat', 'Rejected'].includes(purchaseOrder.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only Draft, Returned from Audit, or Returned from CEO Secretariat purchase orders can be sent to audit'
+        message: 'Only Draft, Returned from Audit, Returned from CEO Secretariat, or Rejected purchase orders can be sent to audit'
       });
     }
+    
+    // Handle answers to observations when resubmitting from "Returned from Audit" or "Rejected"
+    if ((purchaseOrder.status === 'Returned from Audit' || purchaseOrder.status === 'Rejected') && req.body.observationAnswers) {
+      const { observationAnswers } = req.body; // Array of { observationId, answer }
+      
+      if (Array.isArray(observationAnswers) && purchaseOrder.auditObservations && purchaseOrder.auditObservations.length > 0) {
+        observationAnswers.forEach(({ observationId, answer }) => {
+          const observation = purchaseOrder.auditObservations.id(observationId);
+          if (observation && answer && answer.trim()) {
+            observation.answer = answer.trim();
+            observation.answeredBy = req.user.id;
+            observation.answeredAt = new Date();
+            observation.resolved = true;
+          }
+        });
+      }
+    }
+    
+    // When resubmitting after return/reject, compute change summary from snapshot so audit can see what was edited
+    if (purchaseOrder.status === 'Returned from Audit' || purchaseOrder.status === 'Rejected') {
+      const snapshot = purchaseOrder.auditSnapshotAtReturn;
+      if (snapshot && (purchaseOrder.items || []).length >= 0) {
+        const summary = buildPOChangeSummary(purchaseOrder.items, snapshot);
+        purchaseOrder.resubmissionChangeSummary = summary || purchaseOrder.resubmissionChangeSummary || '';
+      }
+    }
+    
+    const fromStatusSendAudit = purchaseOrder.status;
+    pushPOWorkflowHistory(purchaseOrder, fromStatusSendAudit, 'Pending Audit', req.user.id, 'Sent to Pre-Audit', 'Procurement');
     purchaseOrder.status = 'Pending Audit';
     purchaseOrder.updatedBy = req.user.id;
     await purchaseOrder.save();
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('updatedBy', 'firstName lastName email');
+      .populate('updatedBy', 'firstName lastName email')
+      .populate('auditObservations.addedBy', 'firstName lastName email')
+      .populate('auditObservations.answeredBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
     res.json({
       success: true,
       message: 'Purchase order sent to audit successfully',
@@ -402,6 +799,7 @@ router.put('/purchase-orders/:id/audit-approve',
         message: 'Only purchase orders in Pending Audit can be audit-approved'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Pending Audit', 'Send to CEO Office', req.user.id, req.body.approvalComments || req.body.comments || '', 'Pre-Audit');
     purchaseOrder.status = 'Send to CEO Office';
     purchaseOrder.auditApprovedBy = req.user.id;
     purchaseOrder.auditApprovedAt = new Date();
@@ -410,7 +808,8 @@ router.put('/purchase-orders/:id/audit-approve',
     await purchaseOrder.save();
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('auditApprovedBy', 'firstName lastName email');
+      .populate('auditApprovedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
     res.json({
       success: true,
       message: 'Purchase order audit-approved successfully and sent to CEO Office',
@@ -436,16 +835,38 @@ router.put('/purchase-orders/:id/audit-reject',
         message: 'Only purchase orders in Pending Audit can be audit-rejected'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Pending Audit', 'Rejected', req.user.id, rejectionComments || 'Rejected with observations', 'Pre-Audit');
     purchaseOrder.status = 'Rejected';
     purchaseOrder.auditRejectedBy = req.user.id;
     purchaseOrder.auditRejectedAt = new Date();
     purchaseOrder.auditRejectionComments = rejectionComments || '';
     purchaseOrder.auditRejectObservations = observations || [];
+    // Snapshot items and totals so we can compute change summary when procurement resubmits
+    purchaseOrder.auditSnapshotAtReturn = {
+      items: JSON.parse(JSON.stringify(purchaseOrder.items || [])),
+      totalAmount: purchaseOrder.totalAmount,
+      subtotal: purchaseOrder.subtotal
+    };
+    // Also add to auditObservations so procurement can answer each observation when resubmitting
+    if (observations && Array.isArray(observations) && observations.length > 0) {
+      purchaseOrder.auditObservations = purchaseOrder.auditObservations || [];
+      observations.forEach(obs => {
+        purchaseOrder.auditObservations.push({
+          observation: typeof obs === 'string' ? obs : (obs.observation || obs.text || ''),
+          severity: (typeof obs === 'object' && obs.severity ? obs.severity : 'medium').toLowerCase(),
+          addedBy: req.user.id,
+          addedAt: new Date(),
+          resolved: false
+        });
+      });
+    }
     purchaseOrder.updatedBy = req.user.id;
     await purchaseOrder.save();
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('auditRejectedBy', 'firstName lastName email');
+      .populate('auditRejectedBy', 'firstName lastName email')
+      .populate('auditObservations.addedBy', 'firstName lastName email')
+      .populate('auditObservations.answeredBy', 'firstName lastName email');
     res.json({
       success: true,
       message: 'Purchase order audit-rejected successfully',
@@ -470,6 +891,7 @@ router.put('/purchase-orders/:id/audit-return',
         message: 'Only purchase orders in Pending Audit can be returned from audit'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Pending Audit', 'Returned from Audit', req.user.id, req.body.returnComments || '', 'Pre-Audit');
     purchaseOrder.status = 'Returned from Audit';
     purchaseOrder.auditReturnedBy = req.user.id;
     purchaseOrder.auditReturnedAt = new Date();
@@ -478,7 +900,8 @@ router.put('/purchase-orders/:id/audit-return',
     await purchaseOrder.save();
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('auditReturnedBy', 'firstName lastName email');
+      .populate('auditReturnedBy', 'firstName lastName email')
+      .populate('workflowHistory.changedBy', 'firstName lastName email');
     res.json({
       success: true,
       message: 'Purchase order returned from audit successfully',
@@ -503,6 +926,7 @@ router.put('/purchase-orders/:id/forward-to-ceo',
         message: 'Only POs in Send to CEO Office or Returned from CEO Office can be forwarded to CEO'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, purchaseOrder.status, 'Forwarded to CEO', req.user.id, 'Forwarded to CEO for approval', 'CEO Secretariat');
     purchaseOrder.status = 'Forwarded to CEO';
     purchaseOrder.ceoForwardedBy = req.user.id;
     purchaseOrder.ceoForwardedAt = new Date();
@@ -519,8 +943,15 @@ router.put('/purchase-orders/:id/forward-to-ceo',
   })
 );
 
+// Helper: check if payment terms require Finance (advance or partial advance)
+function isAdvanceOrPartialAdvance(paymentTerms) {
+  const terms = (paymentTerms || '').toLowerCase().trim();
+  if (!terms) return false;
+  return terms.includes('advance') || terms.includes('partial advance');
+}
+
 // @route   PUT /api/procurement/purchase-orders/:id/ceo-approve
-// @desc    CEO approves PO (status -> Approved) and creates Accounts Payable entry
+// @desc    CEO approves PO. If payment terms are Advance/Partial Advance -> status Pending Finance; else -> Approved + AP entry
 // @access  Private (Super Admin, Admin, Higher Management / CEO)
 router.put('/purchase-orders/:id/ceo-approve',
   authorize('super_admin', 'admin', 'higher_management'),
@@ -536,7 +967,12 @@ router.put('/purchase-orders/:id/ceo-approve',
         message: 'Only POs in Forwarded to CEO can be approved by CEO'
       });
     }
-    purchaseOrder.status = 'Approved';
+
+    const sendToFinance = isAdvanceOrPartialAdvance(purchaseOrder.paymentTerms);
+    const nextStatus = sendToFinance ? 'Pending Finance' : 'Approved';
+
+    pushPOWorkflowHistory(purchaseOrder, 'Forwarded to CEO', nextStatus, req.user.id, approvalComments || '', 'CEO Secretariat');
+    purchaseOrder.status = nextStatus;
     purchaseOrder.ceoApprovedBy = req.user.id;
     purchaseOrder.ceoApprovedAt = new Date();
     purchaseOrder.ceoApprovalComments = approvalComments || '';
@@ -546,34 +982,38 @@ router.put('/purchase-orders/:id/ceo-approve',
 
     let accountsPayableCreated = false;
     let accountsPayableId = null;
-    try {
-      const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
-      const amount = Number(purchaseOrder.totalAmount) || 0;
-      if (!existingAP && amount > 0) {
-        const billDate = new Date();
-        billDate.setHours(0, 0, 0, 0);
-        const dueDate = new Date(billDate);
-        dueDate.setDate(dueDate.getDate() + 30);
-        const apEntry = await FinanceHelper.createAPFromBill({
-          vendorName: purchaseOrder.vendor?.name || 'Unknown Vendor',
-          vendorEmail: purchaseOrder.vendor?.email || '',
-          vendorId: purchaseOrder.vendor?._id,
-          billNumber: `PO-${purchaseOrder.orderNumber}`,
-          billDate,
-          dueDate,
-          amount,
-          department: 'procurement',
-          module: 'procurement',
-          referenceId: purchaseOrder._id,
-          referenceType: 'purchase_order',
-          lineDescription: `Purchase Order ${purchaseOrder.orderNumber}`,
-          createdBy: req.user.id
-        });
-        accountsPayableCreated = true;
-        accountsPayableId = apEntry._id;
+
+    // Create AP only when status is Approved (not when sent to Finance)
+    if (!sendToFinance) {
+      try {
+        const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
+        const amount = Number(purchaseOrder.totalAmount) || 0;
+        if (!existingAP && amount > 0) {
+          const billDate = new Date();
+          billDate.setHours(0, 0, 0, 0);
+          const dueDate = new Date(billDate);
+          dueDate.setDate(dueDate.getDate() + 30);
+          const apEntry = await FinanceHelper.createAPFromBill({
+            vendorName: purchaseOrder.vendor?.name || 'Unknown Vendor',
+            vendorEmail: purchaseOrder.vendor?.email || '',
+            vendorId: purchaseOrder.vendor?._id,
+            billNumber: `PO-${purchaseOrder.orderNumber}`,
+            billDate,
+            dueDate,
+            amount,
+            department: 'procurement',
+            module: 'procurement',
+            referenceId: purchaseOrder._id,
+            referenceType: 'purchase_order',
+            lineDescription: `Purchase Order ${purchaseOrder.orderNumber}`,
+            createdBy: req.user.id
+          });
+          accountsPayableCreated = true;
+          accountsPayableId = apEntry._id;
+        }
+      } catch (apError) {
+        console.error('❌ Error creating AP for CEO approved purchase order:', apError);
       }
-    } catch (apError) {
-      console.error('❌ Error creating AP for CEO approved purchase order:', apError);
     }
 
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
@@ -581,12 +1021,15 @@ router.put('/purchase-orders/:id/ceo-approve',
       .populate('ceoApprovedBy', 'firstName lastName email');
     res.json({
       success: true,
-      message: accountsPayableCreated
-        ? 'Purchase order approved by CEO and Accounts Payable entry created'
-        : 'Purchase order approved by CEO successfully',
+      message: sendToFinance
+        ? 'Purchase order approved by CEO and sent to Finance (advance/partial advance terms)'
+        : (accountsPayableCreated
+          ? 'Purchase order approved by CEO and Accounts Payable entry created'
+          : 'Purchase order approved by CEO successfully'),
       data: updatedOrder,
       accountsPayableCreated,
-      accountsPayableId
+      accountsPayableId,
+      sentToFinance: sendToFinance
     });
   })
 );
@@ -608,6 +1051,7 @@ router.put('/purchase-orders/:id/ceo-reject',
         message: 'Only POs in Forwarded to CEO can be rejected by CEO'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Forwarded to CEO', 'Rejected', req.user.id, rejectionComments || '', 'CEO Secretariat');
     purchaseOrder.status = 'Rejected';
     purchaseOrder.ceoRejectedBy = req.user.id;
     purchaseOrder.ceoRejectedAt = new Date();
@@ -640,6 +1084,7 @@ router.put('/purchase-orders/:id/ceo-return',
         message: 'Only POs in Forwarded to CEO can be returned by CEO'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Forwarded to CEO', 'Returned from CEO Office', req.user.id, returnComments || '', 'CEO Secretariat');
     purchaseOrder.status = 'Returned from CEO Office';
     purchaseOrder.ceoReturnedBy = req.user.id;
     purchaseOrder.ceoReturnedAt = new Date();
@@ -651,6 +1096,78 @@ router.put('/purchase-orders/:id/ceo-return',
       success: true,
       message: 'Purchase order returned by CEO successfully',
       data: purchaseOrder
+    });
+  })
+);
+
+// @route   PUT /api/procurement/purchase-orders/:id/finance-approve
+// @desc    Finance approves PO that was sent from CEO (status Pending Finance -> Approved) and creates AP entry
+// @access  Private (Super Admin, Admin, Finance Manager)
+router.put('/purchase-orders/:id/finance-approve',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { approvalComments } = req.body;
+    const purchaseOrder = await PurchaseOrder.findById(req.params.id).populate('vendor');
+    if (!purchaseOrder) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (purchaseOrder.status !== 'Pending Finance') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only POs in Pending Finance can be approved by Finance'
+      });
+    }
+    pushPOWorkflowHistory(purchaseOrder, 'Pending Finance', 'Approved', req.user.id, approvalComments || 'Approved by Finance', 'Finance');
+    purchaseOrder.status = 'Approved';
+    purchaseOrder.financeApprovedBy = req.user.id;
+    purchaseOrder.financeApprovedAt = new Date();
+    purchaseOrder.financeRemarks = approvalComments || '';
+    purchaseOrder.updatedBy = req.user.id;
+    await purchaseOrder.save();
+
+    let accountsPayableCreated = false;
+    let accountsPayableId = null;
+    try {
+      const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
+      const amount = Number(purchaseOrder.totalAmount) || 0;
+      if (!existingAP && amount > 0) {
+        const billDate = new Date();
+        billDate.setHours(0, 0, 0, 0);
+        const dueDate = new Date(billDate);
+        dueDate.setDate(dueDate.getDate() + 30);
+        const apEntry = await FinanceHelper.createAPFromBill({
+          vendorName: purchaseOrder.vendor?.name || 'Unknown Vendor',
+          vendorEmail: purchaseOrder.vendor?.email || '',
+          vendorId: purchaseOrder.vendor?._id,
+          billNumber: `PO-${purchaseOrder.orderNumber}`,
+          billDate,
+          dueDate,
+          amount,
+          department: 'procurement',
+          module: 'procurement',
+          referenceId: purchaseOrder._id,
+          referenceType: 'purchase_order',
+          lineDescription: `Purchase Order ${purchaseOrder.orderNumber} (Finance approved)`,
+          createdBy: req.user.id
+        });
+        accountsPayableCreated = true;
+        accountsPayableId = apEntry._id;
+      }
+    } catch (apError) {
+      console.error('❌ Error creating AP for Finance approved purchase order:', apError);
+    }
+
+    const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
+      .populate('vendor', 'name email phone')
+      .populate('financeApprovedBy', 'firstName lastName email');
+    res.json({
+      success: true,
+      message: accountsPayableCreated
+        ? 'Purchase order approved by Finance and Accounts Payable entry created'
+        : 'Purchase order approved by Finance successfully',
+      data: updatedOrder,
+      accountsPayableCreated,
+      accountsPayableId
     });
   })
 );
@@ -672,6 +1189,7 @@ router.put('/purchase-orders/:id/ceo-secretariat-reject',
         message: 'Only POs in Send to CEO Office can be rejected by CEO Secretariat'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Send to CEO Office', 'Rejected', req.user.id, rejectionComments || '', 'CEO Secretariat');
     purchaseOrder.status = 'Rejected';
     purchaseOrder.ceoRejectedBy = req.user.id;
     purchaseOrder.ceoRejectedAt = new Date();
@@ -704,6 +1222,7 @@ router.put('/purchase-orders/:id/ceo-secretariat-return',
         message: 'Only POs in Send to CEO Office can be returned by CEO Secretariat'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Send to CEO Office', 'Returned from CEO Secretariat', req.user.id, returnComments || '', 'CEO Secretariat');
     purchaseOrder.status = 'Returned from CEO Secretariat';
     purchaseOrder.ceoReturnedBy = req.user.id;
     purchaseOrder.ceoReturnedAt = new Date();
@@ -736,6 +1255,7 @@ router.put('/purchase-orders/:id/send-to-store',
         message: 'Only approved purchase orders can be sent to store'
       });
     }
+    pushPOWorkflowHistory(purchaseOrder, 'Approved', 'Sent to Store', req.user.id, comments || '', 'Procurement');
     purchaseOrder.status = 'Sent to Store';
     purchaseOrder.updatedBy = req.user.id;
     if (comments) {
@@ -755,8 +1275,39 @@ router.put('/purchase-orders/:id/send-to-store',
   })
 );
 
+// Helper: match indent item to store inventory by name (and optionally unit). Returns best match or null.
+function matchIndentItemToInventory(indentItem, inventoryList) {
+  const itemName = (indentItem.itemName || '').trim();
+  const itemNameNorm = itemName.toLowerCase();
+  const itemUnit = (indentItem.unit || '').trim().toLowerCase();
+  if (!itemNameNorm) return null;
+
+  const candidates = inventoryList.filter((inv) => {
+    const invName = (inv.name || '').trim().toLowerCase();
+    if (!invName) return false;
+    // Exact match (case-insensitive)
+    if (invName === itemNameNorm) return true;
+    // One contains the other (e.g. "chair" vs "chairs", "office chair")
+    if (invName.includes(itemNameNorm) || itemNameNorm.includes(invName)) return true;
+    // Optional: same word when singular/plural normalized (e.g. remove trailing 's')
+    const invBase = invName.replace(/\s*s$/, '');
+    const itemBase = itemNameNorm.replace(/\s*s$/, '');
+    if (invBase === itemBase || invName === itemBase || itemNameNorm === invBase) return true;
+    return false;
+  });
+
+  if (candidates.length === 0) return null;
+  // Prefer exact name match, then same unit, then by available quantity (desc)
+  const exact = candidates.find((c) => (c.name || '').trim().toLowerCase() === itemNameNorm);
+  if (exact) return exact;
+  const sameUnit = itemUnit ? candidates.filter((c) => (c.unit || '').trim().toLowerCase() === itemUnit) : candidates;
+  const list = sameUnit.length ? sameUnit : candidates;
+  list.sort((a, b) => (b.quantity || 0) - (a.quantity || 0));
+  return list[0];
+}
+
 // @route   GET /api/procurement/store/pending-indents
-// @desc    Get approved indents pending store stock check (items not yet verified/moved to procurement)
+// @desc    Get approved indents pending store stock check; each indent item enriched with inventory match and inStock flag
 // @access  Private (Procurement, Admin, Store Manager)
 router.get('/store/pending-indents',
   authorize('super_admin', 'admin', 'procurement_manager'),
@@ -771,9 +1322,37 @@ router.get('/store/pending-indents',
       .populate('approvedBy', 'firstName lastName email')
       .sort({ approvedDate: -1, createdAt: -1 })
       .lean();
+
+    const inventoryList = await Inventory.find({})
+      .select('_id itemCode name quantity unit')
+      .lean();
+
+    const enriched = indents.map((indent) => {
+      const items = (indent.items || []).map((item) => {
+        const inv = matchIndentItemToInventory(item, inventoryList);
+        const requiredQty = Number(item.quantity) || 0;
+        const availableQty = inv ? (Number(inv.quantity) || 0) : 0;
+        const inStock = inv && availableQty >= requiredQty;
+        return {
+          ...item,
+          inventoryMatch: inv ? { _id: inv._id, itemCode: inv.itemCode, name: inv.name, quantity: inv.quantity, unit: inv.unit } : null,
+          inStock: !!inStock,
+          availableQuantity: availableQty
+        };
+      });
+      const allInStock = items.length > 0 && items.every((i) => i.inStock);
+      const someInStock = items.some((i) => i.inStock);
+      return {
+        ...indent,
+        items,
+        allItemsInStock: allInStock,
+        someItemsInStock: someInStock
+      };
+    });
+
     res.json({
       success: true,
-      data: indents
+      data: enriched
     });
   })
 );
@@ -1578,13 +2157,14 @@ router.post('/inventory/:id/adjust-stock', [
 }));
 
 // @route   DELETE /api/procurement/inventory/:id
-// @desc    Delete inventory item
+// @desc    Delete inventory item. Use ?force=true to delete even when stock > 0 (use with care).
 // @access  Private (Admin only)
 router.delete('/inventory/:id', 
   authorize('super_admin', 'admin'), 
   asyncHandler(async (req, res) => {
     const item = await Inventory.findById(req.params.id);
-    
+    const force = req.query.force === 'true' || req.body?.force === true;
+
     if (!item) {
       return res.status(404).json({
         success: false,
@@ -1592,11 +2172,11 @@ router.delete('/inventory/:id',
       });
     }
 
-    // Check if item has quantity
-    if (item.quantity > 0) {
+    // Block delete when quantity > 0 unless force is set
+    if (item.quantity > 0 && !force) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete item with existing stock. Adjust stock to zero first.'
+        message: 'Cannot delete item with existing stock. Adjust stock to zero first, or use force delete.'
       });
     }
 
@@ -2015,6 +2595,7 @@ router.get('/cost-centers',
     
     const costCenters = await CostCenter.find(query)
       .populate('manager', 'firstName lastName email')
+      .populate('department', 'name code')
       .sort({ code: 1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -2044,6 +2625,7 @@ router.get('/cost-centers/:id',
   asyncHandler(async (req, res) => {
     const costCenter = await CostCenter.findById(req.params.id)
       .populate('manager', 'firstName lastName email')
+      .populate('department', 'name code')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName');
     
@@ -2063,7 +2645,7 @@ router.post('/cost-centers',
   [
     body('code').trim().notEmpty().withMessage('Cost center code is required'),
     body('name').trim().notEmpty().withMessage('Cost center name is required'),
-    body('department').isIn(['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general', 'it']).withMessage('Valid department is required')
+    body('department').optional().isMongoId().withMessage('Department must be a valid ID')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -2078,15 +2660,28 @@ router.post('/cost-centers',
       return res.status(400).json({ success: false, message: 'Cost center code already exists' });
     }
     
+    // Validate department exists if provided (and not empty string)
+    const deptId = department && department.trim() !== '' ? department : null;
+    if (deptId) {
+      const Department = require('../models/hr/Department');
+      const dept = await Department.findById(deptId);
+      if (!dept) {
+        return res.status(400).json({ success: false, message: 'Department not found' });
+      }
+    }
+    
+    // Convert empty strings to null for ObjectId fields
+    const managerId = manager && manager.trim() !== '' ? manager : null;
+    
     const costCenter = new CostCenter({
       code: code.toUpperCase(),
       name,
       description,
-      department,
-      departmentName,
+      department: deptId,
+      departmentName: departmentName || '',
       location,
-      manager,
-      managerName,
+      manager: managerId,
+      managerName: managerName || '',
       budget: budget || 0,
       budgetPeriod: budgetPeriod || 'Annual',
       isActive: isActive !== undefined ? isActive : true,
@@ -2096,6 +2691,7 @@ router.post('/cost-centers',
     
     await costCenter.save();
     await costCenter.populate('manager', 'firstName lastName');
+    await costCenter.populate('department', 'name code');
     
     res.status(201).json({
       success: true,
@@ -2129,10 +2725,25 @@ router.put('/cost-centers/:id',
     
     if (name) costCenter.name = name;
     if (description !== undefined) costCenter.description = description;
-    if (department) costCenter.department = department;
+    if (department !== undefined) {
+      const deptId = department && department.trim() !== '' ? department : null;
+      if (deptId) {
+        const Department = require('../models/hr/Department');
+        const dept = await Department.findById(deptId);
+        if (!dept) {
+          return res.status(400).json({ success: false, message: 'Department not found' });
+        }
+        costCenter.department = deptId;
+      } else {
+        costCenter.department = null;
+      }
+    }
     if (departmentName !== undefined) costCenter.departmentName = departmentName;
     if (location !== undefined) costCenter.location = location;
-    if (manager !== undefined) costCenter.manager = manager;
+    if (manager !== undefined) {
+      // Convert empty string to null for ObjectId field
+      costCenter.manager = manager && manager.trim() !== '' ? manager : null;
+    }
     if (managerName !== undefined) costCenter.managerName = managerName;
     if (budget !== undefined) costCenter.budget = budget;
     if (budgetPeriod) costCenter.budgetPeriod = budgetPeriod;
@@ -2142,6 +2753,7 @@ router.put('/cost-centers/:id',
     
     await costCenter.save();
     await costCenter.populate('manager', 'firstName lastName');
+    await costCenter.populate('department', 'name code');
     
     res.json({
       success: true,
@@ -2186,13 +2798,15 @@ router.delete('/cost-centers/:id',
 // ==================== REQUISITIONS ROUTES (Proxy to Indents) ====================
 
 // @route   POST /api/procurement/requisitions/send-email
-// @desc    Send requisition to vendors via email
+// @desc    Send requisition to vendors via email (optional: paymentTerms, attachment)
 // @access  Private (Procurement and Admin)
 router.post('/requisitions/send-email',
   authorize('super_admin', 'admin', 'procurement_manager'),
+  requisitionEmailAttachmentUpload.single('attachment'),
   [
     body('requisitionId').isMongoId().withMessage('Valid requisition ID is required'),
-    body('vendorIds').isArray({ min: 1 }).withMessage('At least one vendor must be selected')
+    body('vendorIds').optional(), // can be array (JSON) or string (multipart)
+    body('paymentTerms').optional().trim()
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -2203,7 +2817,12 @@ router.post('/requisitions/send-email',
       });
     }
 
-    const { requisitionId, vendorIds } = req.body;
+    const { requisitionId, vendorIds: vendorIdsRaw, paymentTerms } = req.body;
+    const attachment = req.file; // { buffer, originalname } if present
+    const vendorIds = Array.isArray(vendorIdsRaw) ? vendorIdsRaw : (typeof vendorIdsRaw === 'string' ? JSON.parse(vendorIdsRaw) : []);
+    if (!vendorIds.length) {
+      return res.status(400).json({ success: false, message: 'At least one vendor must be selected' });
+    }
 
     // Get requisition (indent)
     const indent = await Indent.findById(requisitionId)
@@ -2250,8 +2869,11 @@ router.post('/requisitions/send-email',
           await invitation.save();
         }
 
-        // Send email with invitation token
-        const emailResult = await emailService.sendRequisitionEmail(vendor, indent, invitation.token);
+        // Send email with invitation token (optional payment terms and attachment)
+        const emailResult = await emailService.sendRequisitionEmail(vendor, indent, invitation.token, {
+          paymentTerms: paymentTerms || undefined,
+          attachment: attachment ? { buffer: attachment.buffer, filename: attachment.originalname } : undefined
+        });
         results.push({
           vendorId: vendor._id,
           vendorName: vendor.name,
@@ -2637,7 +3259,7 @@ router.get('/quotations/:id',
     const quotation = await Quotation.findById(req.params.id)
       .populate({
         path: 'indent',
-        select: 'indentNumber title items erpRef requestedDate requiredDate department requestedBy justification signatures',
+        select: 'indentNumber title items erpRef requestedDate requiredDate department requestedBy justification signatures comparativeStatementApprovals',
         populate: [
           { path: 'department', select: 'name code' },
           { path: 'requestedBy', select: 'firstName lastName email' }
@@ -2657,6 +3279,24 @@ router.get('/quotations/:id',
     res.json({
       success: true,
       data: quotation
+    });
+  })
+);
+
+// @route   POST /api/procurement/quotations/upload
+// @desc    Upload attachment for quotation (single file)
+// @access  Private (Procurement and Admin)
+router.post('/quotations/upload',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  uploadQuotationAttachment.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+    const url = '/uploads/quotation-attachments/' + req.file.filename;
+    res.status(200).json({
+      success: true,
+      data: { filename: req.file.originalname, url }
     });
   })
 );
@@ -2719,6 +3359,13 @@ router.post('/quotations', [
     items,
     createdBy: req.user.id
   });
+  // Set expiryDate only when valid; clear when empty so Mongoose doesn't get '' (CastError)
+  const expiryStr = req.body.expiryDate && String(req.body.expiryDate).trim();
+  if (expiryStr) {
+    quotation.expiryDate = new Date(req.body.expiryDate);
+  } else {
+    quotation.expiryDate = undefined;
+  }
 
   await quotation.save();
 
@@ -2789,14 +3436,17 @@ router.put('/quotations/:id', [
 
   Object.assign(quotation, req.body);
   quotation.updatedBy = req.user.id;
-  
+  // Normalise expiryDate: valid date or unset (avoid empty string causing CastError)
+  const expiryStr = req.body.expiryDate != null && String(req.body.expiryDate).trim();
+  if (req.body.hasOwnProperty('expiryDate')) {
+    quotation.expiryDate = expiryStr ? new Date(req.body.expiryDate) : undefined;
+  }
+
   await quotation.save();
 
-  // Automatically create Purchase Order when quotation is finalized
-  if (isBeingFinalized) {
-    // Check if PO already exists for this quotation
+  // PO is created only when user clicks Create PO icon → opens dialog → clicks Create (not on finalize)
+  if (false && isBeingFinalized) {
     const existingPO = await PurchaseOrder.findOne({ quotation: quotation._id });
-    
     if (!existingPO) {
       // Populate quotation data for PO creation
       await quotation.populate('indent', 'indentNumber title');
@@ -2853,8 +3503,8 @@ router.put('/quotations/:id', [
     .populate('createdBy', 'firstName lastName email')
     .populate('updatedBy', 'firstName lastName email');
 
-  const message = isBeingFinalized 
-    ? 'Quotation finalized successfully and Purchase Order created automatically'
+  const message = isBeingFinalized
+    ? 'Quotation finalized successfully. Use "Create PO" to create a Purchase Order.'
     : 'Quotation updated successfully';
 
   res.json({

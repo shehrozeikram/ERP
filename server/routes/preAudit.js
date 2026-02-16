@@ -393,6 +393,7 @@ router.get('/:id',
         .populate('auditApprovedBy', 'firstName lastName email')
         .populate('auditReturnedBy', 'firstName lastName email')
         .populate('auditObservations.addedBy', 'firstName lastName email')
+        .populate('auditObservations.answeredBy', 'firstName lastName email')
         .lean();
       if (po && ['Pending Audit', 'Pending Finance', 'Returned from Audit'].includes(po.status)) {
         let preAuditStatus = 'pending';
@@ -1033,10 +1034,39 @@ router.put('/:id/return',
     const PurchaseOrderForReturn = require('../models/procurement/PurchaseOrder');
     const poForReturn = await PurchaseOrderForReturn.findById(req.params.id);
     if (poForReturn && poForReturn.status === 'Pending Audit') {
+      // Workflow history for display in Pre-Audit
+      poForReturn.workflowHistory = poForReturn.workflowHistory || [];
+      poForReturn.workflowHistory.push({
+        fromStatus: 'Pending Audit',
+        toStatus: 'Returned from Audit',
+        changedBy: req.user.id,
+        changedAt: new Date(),
+        comments: returnComments || 'Returned from Pre-Audit with observations',
+        module: 'Pre-Audit'
+      });
       poForReturn.status = 'Returned from Audit';
       poForReturn.auditReturnedBy = req.user.id;
       poForReturn.auditReturnedAt = new Date();
       poForReturn.auditReturnComments = returnComments || '';
+      // Snapshot items and totals so we can compute change summary when procurement resubmits
+      poForReturn.auditSnapshotAtReturn = {
+        items: JSON.parse(JSON.stringify(poForReturn.items || [])),
+        totalAmount: poForReturn.totalAmount,
+        subtotal: poForReturn.subtotal
+      };
+      // Store observations on the PO so procurement can see and answer them when resubmitting
+      if (observations && Array.isArray(observations) && observations.length > 0) {
+        poForReturn.auditObservations = poForReturn.auditObservations || [];
+        observations.forEach(obs => {
+          poForReturn.auditObservations.push({
+            observation: obs.observation || obs.text || obs,
+            severity: (obs.severity || 'medium').toLowerCase(),
+            addedBy: req.user.id,
+            addedAt: new Date(),
+            resolved: false
+          });
+        });
+      }
       poForReturn.updatedBy = req.user.id;
       await poForReturn.save();
       return res.json({

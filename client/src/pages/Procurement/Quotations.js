@@ -23,7 +23,8 @@ import {
   Alert,
   Stack,
   Divider,
-  Grid
+  Grid,
+  CircularProgress
 } from '@mui/material';
 import {
   Description as QuotationIcon,
@@ -37,12 +38,16 @@ import {
   ShoppingCart as POIcon,
   Print as PrintIcon
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import api from '../../services/api';
 import procurementService from '../../services/procurementService';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import dayjs from 'dayjs';
+import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 
 const Quotations = () => {
+  const navigate = useNavigate();
   // State management
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -75,8 +80,10 @@ const Quotations = () => {
     validityDays: 30,
     deliveryTime: '',
     paymentTerms: '',
-    notes: ''
+    notes: '',
+    attachments: []
   });
+  const [attachmentFiles, setAttachmentFiles] = useState([]);
 
   // Load data on component mount
   useEffect(() => {
@@ -149,8 +156,10 @@ const Quotations = () => {
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
-        notes: ''
+        notes: '',
+        attachments: []
       });
+      setAttachmentFiles([]);
       setFormDialog({ open: true, mode: 'create', data: null, requisition });
     } else {
       setFormData({
@@ -163,8 +172,10 @@ const Quotations = () => {
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
-        notes: ''
+        notes: '',
+        attachments: []
       });
+      setAttachmentFiles([]);
       setFormDialog({ open: true, mode: 'create', data: null, requisition: null });
     }
   };
@@ -185,30 +196,29 @@ const Quotations = () => {
       validityDays: quotation.validityDays || 30,
       deliveryTime: quotation.deliveryTime || '',
       paymentTerms: quotation.paymentTerms || '',
-      notes: quotation.notes || ''
+      notes: quotation.notes || '',
+      attachments: quotation.attachments || []
     });
+    setAttachmentFiles([]);
     setFormDialog({ open: true, mode: 'edit', data: quotation, requisition: null, editReason: 'Negotiating purpose' });
     setEditReasonDialog({ open: false, quotation: null });
   };
 
   const handleView = async (quotation) => {
     try {
-      // Fetch full quotation data with populated indent
       const response = await procurementService.getQuotationById(quotation._id);
-      if (response.success) {
-        setViewDialog({ open: true, data: response.data });
-      } else {
-        setViewDialog({ open: true, data: quotation });
-      }
+      // API returns { success, data: quotation }; use data so expiryDate and vendor show correctly
+      const quotationData = (response && response.success && response.data) ? response.data : quotation;
+      setViewDialog({ open: true, data: quotationData });
     } catch (err) {
-      // If fetch fails, use the quotation data we have
       setViewDialog({ open: true, data: quotation });
     }
   };
 
   const formatDateForPrint = (date) => {
-    if (!date) return '';
-    return dayjs(date).format('DD/MM/YYYY');
+    if (date === undefined || date === null || date === '') return '';
+    const d = dayjs(date);
+    return d.isValid() ? d.format('DD/MM/YYYY') : '';
   };
 
   const formatDateForQuotation = (date) => {
@@ -231,20 +241,10 @@ const Quotations = () => {
   const handleFinalize = async (id) => {
     try {
       const response = await procurementService.updateQuotation(id, { status: 'Finalized' });
-      setSuccess(response.data?.message || 'Quotation finalized successfully and Purchase Order created automatically');
+      setSuccess(response.data?.message || 'Quotation finalized successfully. Use Create PO to create Purchase Order.');
       loadQuotations();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to finalize quotation');
-    }
-  };
-
-  const handleCreatePO = async (id) => {
-    try {
-      await procurementService.createPOFromQuotation(id);
-      setSuccess('Purchase Order created from quotation');
-      loadQuotations();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create Purchase Order');
     }
   };
 
@@ -261,6 +261,17 @@ const Quotations = () => {
   const handleSubmit = async () => {
     try {
       setLoading(true);
+
+      // Upload any new attachment files
+      let attachments = [...(formData.attachments || [])];
+      if (attachmentFiles.length > 0) {
+        for (const file of attachmentFiles) {
+          const res = await procurementService.uploadQuotationAttachment(file);
+          if (res.success && res.data) {
+            attachments.push({ filename: res.data.filename, url: res.data.url });
+          }
+        }
+      }
       
       // Calculate amounts for items
       const items = formData.items.map(item => {
@@ -290,8 +301,13 @@ const Quotations = () => {
         subtotal,
         discountAmount,
         taxAmount,
-        totalAmount
+        totalAmount,
+        attachments
       };
+      // Omit expiryDate when empty so server doesn't receive '' (causes save error)
+      if (!quotationData.expiryDate || !String(quotationData.expiryDate).trim()) {
+        delete quotationData.expiryDate;
+      }
 
       if (formDialog.mode === 'create') {
         await procurementService.createQuotation(quotationData);
@@ -308,7 +324,9 @@ const Quotations = () => {
       setFormDialog({ open: false, mode: 'create', data: null, requisition: null, editReason: null });
       loadQuotations();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save quotation');
+      const res = err.response?.data;
+      const msg = res?.message || (Array.isArray(res?.errors) && res.errors[0]?.msg) || err.message || 'Failed to save quotation';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -480,7 +498,7 @@ const Quotations = () => {
                           <IconButton 
                             size="small" 
                             color="primary" 
-                            onClick={() => handleCreatePO(quote._id)}
+                            onClick={() => navigate('/procurement/purchase-orders', { state: { createFromQuotationId: quote._id } })}
                           >
                             <POIcon fontSize="small" />
                           </IconButton>
@@ -693,10 +711,59 @@ const Quotations = () => {
             />
             <TextField
               fullWidth
+              select
               label="Payment Terms"
-              value={formData.paymentTerms}
+              value={formData.paymentTerms || ''}
               onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
-            />
+            >
+              <MenuItem value="">Select payment terms</MenuItem>
+              <MenuItem value="Full Advance">Full Advance</MenuItem>
+              <MenuItem value="Partial Advance">Partial Advance</MenuItem>
+              <MenuItem value="Payment After Delivery">Payment After Delivery</MenuItem>
+            </TextField>
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Attachments</Typography>
+              <input
+                accept=".pdf,.doc,.docx,.xls,.xlsx,image/*"
+                style={{ display: 'none' }}
+                id="quotation-attachment-input"
+                type="file"
+                multiple
+                onChange={(e) => {
+                  const files = e.target.files ? Array.from(e.target.files) : [];
+                  setAttachmentFiles((prev) => [...prev, ...files]);
+                  e.target.value = '';
+                }}
+              />
+              <label htmlFor="quotation-attachment-input">
+                <Button variant="outlined" component="span" size="small" startIcon={<AddIcon />}>
+                  Add attachment
+                </Button>
+              </label>
+              <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1 }}>
+                {(formData.attachments || []).map((att, idx) => (
+                  <Chip
+                    key={'att-' + idx}
+                    label={att.filename || att.url}
+                    onDelete={() => setFormData({
+                      ...formData,
+                      attachments: (formData.attachments || []).filter((_, i) => i !== idx)
+                    })}
+                    size="small"
+                  />
+                ))}
+                {attachmentFiles.map((file, idx) => (
+                  <Chip
+                    key={'file-' + idx}
+                    label={file.name}
+                    onDelete={() => setAttachmentFiles((prev) => prev.filter((_, i) => i !== idx))}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                ))}
+              </Stack>
+            </Box>
             <TextField
               fullWidth
               multiline
@@ -756,277 +823,12 @@ const Quotations = () => {
         <DialogContent sx={{ p: 0, overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
           {viewDialog.data && (
             <Box sx={{ width: '100%' }} className="print-content">
-              {/* Print Content - Same as IndentPrintView */}
-              <Paper
-                sx={{
-                  p: { xs: 3, sm: 3.5, md: 4 },
-                  maxWidth: '210mm',
-                  mx: 'auto',
-                  backgroundColor: '#fff',
-                  boxShadow: 'none',
-                  width: '100%',
-                  fontFamily: 'Arial, sans-serif',
-                  '@media print': {
-                    boxShadow: 'none',
-                    p: 2.5,
-                    maxWidth: '100%',
-                    backgroundColor: '#fff',
-                    mx: 0,
-                    width: '100%',
-                    pageBreakInside: 'avoid'
-                  }
-                }}
-              >
-                {/* Header Section - Company Name (Top Left) and Details (Top Right) */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                  {/* Company Name - Top Left */}
-                  <Box sx={{ flex: 1 }}>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontSize: '1.2rem',
-                        fontWeight: 600,
-                        color: '#666',
-                        textTransform: 'uppercase'
-                      }}
-                    >
-                      {viewDialog.data.vendor?.name || 'Vendor Name'}
-                    </Typography>
-                  </Box>
-                  
-                  {/* Company Details - Top Right */}
-                  <Box sx={{ textAlign: 'right', flex: 1 }}>
-                    <Typography sx={{ fontSize: '0.95rem', fontWeight: 600, mb: 0.5 }}>
-                      {viewDialog.data.vendor?.name || 'Vendor Name'}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.85rem', mb: 0.3 }}>
-                      Date: {formatDateForQuotation(viewDialog.data.quotationDate)}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.85rem', mb: 0.3 }}>
-                      Ref No: {viewDialog.data.quotationNumber || 'N/A'}
-                    </Typography>
-                    {viewDialog.data.vendor?.ntnNo && (
-                      <Typography sx={{ fontSize: '0.85rem', mb: 0.3 }}>
-                        NTN No: {viewDialog.data.vendor.ntnNo}
-                      </Typography>
-                    )}
-                    {viewDialog.data.vendor?.gstNo && (
-                      <Typography sx={{ fontSize: '0.85rem', mb: 0.3 }}>
-                        GST No: {viewDialog.data.vendor.gstNo}
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-
-                {/* Quotation Title - Centered and Underlined */}
-                <Typography
-                  variant="h4"
-                  align="center"
-                  sx={{
-                    fontSize: { xs: '1.8rem', print: '1.6rem' },
-                    fontWeight: 700,
-                    mb: 3,
-                    textDecoration: 'underline',
-                    textDecorationThickness: '2px'
-                  }}
-                >
-                  Quotation
-                </Typography>
-
-                {/* Recipient - M/S: Taj Residencia Islamabad */}
-                <Box sx={{ mb: 3 }}>
-                  <Typography sx={{ fontSize: '0.95rem', fontWeight: 500 }}>
-                    M/S: Taj Residencia Islamabad
-                  </Typography>
-                </Box>
-
-                {/* Quotation Number - Single Row (Centered) */}
-                <Box sx={{ mb: 1.5, fontSize: '0.9rem', lineHeight: 1.8, textAlign: 'center' }}>
-                  <Box>
-                    <Typography component="span" fontWeight={600}>Quotation No.:</Typography>
-                    <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
-                      {viewDialog.data.quotationNumber || '___________'}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                {/* Quotation Date, Expiry Date, Indent No. - Single Row */}
-                <Box sx={{ mb: 1.5, fontSize: '0.9rem', lineHeight: 1.8 }}>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
-                    <Box sx={{ minWidth: '120px' }}>
-                      <Typography component="span" fontWeight={600}>Quotation Date:</Typography>
-                      <Typography component="span" sx={{ ml: 1 }}>
-                        {formatDateForPrint(viewDialog.data.quotationDate)}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ minWidth: '150px' }}>
-                      <Typography component="span" fontWeight={600}>Expiry Date:</Typography>
-                      <Typography component="span" sx={{ ml: 1 }}>
-                        {viewDialog.data.expiryDate ? formatDateForPrint(viewDialog.data.expiryDate) : '___________'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ minWidth: '120px' }}>
-                      <Typography component="span" fontWeight={600}>Indent No.:</Typography>
-                      <Typography component="span" sx={{ ml: 1 }}>
-                        {viewDialog.data.indent?.indentNumber || '___________'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-
-                {/* Vendor and Department - Single Row */}
-                <Box sx={{ mb: 3, fontSize: '0.9rem', lineHeight: 1.8 }}>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
-                    <Box sx={{ minWidth: '200px' }}>
-                      <Typography component="span" fontWeight={600}>Vendor:</Typography>
-                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
-                        {viewDialog.data.vendor?.name || '___________'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ minWidth: '200px' }}>
-                      <Typography component="span" fontWeight={600}>Department:</Typography>
-                      <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
-                        {viewDialog.data.indent?.department?.name || '___________'}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-
-                {/* Items Table */}
-                <Box sx={{ mb: 3 }}>
-                  <table
-                    style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
-                      border: '1px solid #000',
-                      fontSize: '0.9rem',
-                      fontFamily: 'Arial, sans-serif'
-                    }}
-                  >
-                    <thead>
-                      <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', fontWeight: 700, width: '8%' }}>
-                          S/No
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '50%' }}>
-                          Items Description
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700, width: '12%' }}>
-                          Qty.
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 700, width: '15%' }}>
-                          Unit Rate
-                        </th>
-                        <th style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 700, width: '15%' }}>
-                          Total Amount
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {viewDialog.data.items && viewDialog.data.items.length > 0 ? (
-                        viewDialog.data.items.map((item, index) => {
-                          // Calculate total amount for this item (quantity * unitPrice)
-                          const itemTotal = (item.quantity || 0) * (item.unitPrice || 0);
-                          return (
-                            <tr key={index} style={{ border: '1px solid #000' }}>
-                              <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'left', verticalAlign: 'top' }}>
-                                {index + 1}
-                              </td>
-                              <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                                {item.description || '___________'}
-                              </td>
-                              <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
-                                {item.quantity || '___'}
-                              </td>
-                              <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
-                                {formatNumber(item.unitPrice)}
-                              </td>
-                              <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
-                                {formatNumber(itemTotal)}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan={5} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
-                            No items
-                          </td>
-                        </tr>
-                      )}
-                      {/* Total Amount Row */}
-                      {viewDialog.data.items && viewDialog.data.items.length > 0 && (
-                        <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000' }}>
-                          <td colSpan={3} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', fontWeight: 700 }}>
-                            Total Amount
-                          </td>
-                          <td style={{ border: '1px solid #000', padding: '10px 8px' }}></td>
-                          <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', fontWeight: 700 }}>
-                            {formatNumber(viewDialog.data.totalAmount || 0)}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </Box>
-
-                {/* Terms and Conditions Section */}
-                <Box sx={{ mb: 2, fontSize: '0.9rem', lineHeight: 2 }}>
-                  <Typography sx={{ mb: 0.5 }}>
-                    Above prices are CASH
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-                    <Typography component="span" sx={{ minWidth: '100px' }}>Delivery:</Typography>
-                    <Typography component="span">
-                      {viewDialog.data.deliveryTime || '2 to 3 days'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 0.5 }}>
-                    <Typography component="span" sx={{ minWidth: '100px' }}>Payment:</Typography>
-                    <Typography component="span">
-                      {viewDialog.data.paymentTerms || 'Upon Delivery.'}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 1 }}>
-                    <Typography component="span" sx={{ minWidth: '100px' }}>Validity:</Typography>
-                    <Typography component="span">
-                      {viewDialog.data.validityDays ? `${viewDialog.data.validityDays}Days` : '30Days'}
-                    </Typography>
-                  </Box>
-                  <Typography sx={{ mb: 2 }}>
-                    For further Information, please feel free to contact us.
-                  </Typography>
-                </Box>
-
-                {/* Contact Information */}
-                <Box sx={{ mb: 3, fontSize: '0.9rem' }}>
-                  <Typography sx={{ mb: 0.5 }}>With regards.</Typography>
-                  <Typography sx={{ mb: 1, fontWeight: 600 }}>For {viewDialog.data.vendor?.name || 'Vendor Name'}</Typography>
-                  {viewDialog.data.vendor?.email && (
-                    <Typography sx={{ mb: 0.5, color: '#0066cc' }}>
-                      Email: {viewDialog.data.vendor.email}
-                    </Typography>
-                  )}
-                  {viewDialog.data.vendor?.website && (
-                    <Typography sx={{ mb: 0.5, color: '#0066cc' }}>
-                      {viewDialog.data.vendor.website}
-                    </Typography>
-                  )}
-                </Box>
-
-                {/* Footer - Address and Contact Numbers (Centered) */}
-                <Box sx={{ textAlign: 'center', fontSize: '0.8rem', mt: 4, pt: 2, borderTop: '1px solid #ccc' }}>
-                  <Typography>
-                    {viewDialog.data.vendor?.address || 'Vendor Address'}
-                    {viewDialog.data.vendor?.phone && (
-                      <span>
-                        {' '}Cell: {viewDialog.data.vendor.phone}
-                        {viewDialog.data.vendor?.officePhone && ` | Office: ${viewDialog.data.vendor.officePhone}`}
-                      </span>
-                    )}
-                  </Typography>
-                </Box>
-              </Paper>
+              <QuotationDetailView
+                quotation={viewDialog.data}
+                formatNumber={formatNumber}
+                formatDateForPrint={formatDateForPrint}
+                formatDateForQuotation={formatDateForQuotation}
+              />
             </Box>
           )}
         </DialogContent>

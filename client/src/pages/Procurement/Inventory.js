@@ -32,7 +32,9 @@ import {
   Tab,
   List,
   ListItem,
-  ListItemText
+  ListItemText,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -74,7 +76,7 @@ const Inventory = () => {
   // Dialog states
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null });
   const [viewDialog, setViewDialog] = useState({ open: false, data: null, tab: 0 });
-  const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, item: null, force: false, error: '' });
   const [stockDialog, setStockDialog] = useState({ open: false, type: '', item: null });
   
   // Form data
@@ -191,8 +193,8 @@ const Inventory = () => {
     setViewDialog({ open: true, data: item, tab: 0 });
   };
 
-  const handleDelete = (id) => {
-    setDeleteDialog({ open: true, id });
+  const handleDelete = (item) => {
+    setDeleteDialog({ open: true, item, force: false, error: '' });
   };
 
   const handleStockAction = (type, item) => {
@@ -201,14 +203,23 @@ const Inventory = () => {
   };
 
   const confirmDelete = async () => {
+    const id = deleteDialog.item?._id;
+    if (!id) return;
+    const hasStock = (deleteDialog.item?.quantity || 0) > 0;
+    const force = !!deleteDialog.force;
+    if (hasStock && !force) {
+      setDeleteDialog((prev) => ({ ...prev, error: 'Cannot delete item with existing stock. Adjust stock to zero first, or check "Force delete" below.' }));
+      return;
+    }
     try {
-      await api.delete(`/procurement/inventory/${deleteDialog.id}`);
+      const url = force ? `/procurement/inventory/${id}?force=true` : `/procurement/inventory/${id}`;
+      await api.delete(url);
       setSuccess('Inventory item deleted successfully');
-      setDeleteDialog({ open: false, id: null });
+      setDeleteDialog({ open: false, item: null, force: false, error: '' });
       loadInventory();
       loadStatistics();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete item');
+      setDeleteDialog((prev) => ({ ...prev, error: err.response?.data?.message || 'Failed to delete item' }));
     }
   };
 
@@ -486,7 +497,7 @@ const Inventory = () => {
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => handleDelete(item._id)}>
+                        <IconButton size="small" color="error" onClick={() => handleDelete(item)}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -825,17 +836,48 @@ const Inventory = () => {
       {/* Delete Confirmation Dialog */}
       <Dialog 
         open={deleteDialog.open} 
-        onClose={() => setDeleteDialog({ open: false, id: null })}
+        onClose={() => setDeleteDialog({ open: false, item: null, force: false, error: '' })}
       >
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
-          <Typography>
-            Are you sure you want to delete this item? You can only delete items with zero stock.
+          <Typography sx={{ mb: 2 }}>
+            {deleteDialog.item && (
+              <>Are you sure you want to delete <strong>{deleteDialog.item.name}</strong>{deleteDialog.item.quantity > 0 ? '? This item has existing stock.' : '?'}</>
+            )}
           </Typography>
+          {deleteDialog.item?.quantity > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              This item has <strong>{deleteDialog.item.quantity} {deleteDialog.item.unit}</strong> in stock. Adjust stock to zero first (use Adjust Stock), or use force delete below to delete anyway.
+            </Alert>
+          )}
+          {deleteDialog.item?.quantity > 0 && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={!!deleteDialog.force}
+                  onChange={(e) => setDeleteDialog((prev) => ({ ...prev, force: e.target.checked, error: '' }))}
+                  color="primary"
+                />
+              }
+              label="Force delete (delete even with existing stock – use with care)"
+            />
+          )}
+          {deleteDialog.error && (
+            <Alert severity="error" sx={{ mt: 2 }} onClose={() => setDeleteDialog((prev) => ({ ...prev, error: '' }))}>
+              {deleteDialog.error}
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialog({ open: false, id: null })}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={confirmDelete}>Delete</Button>
+          <Button onClick={() => setDeleteDialog({ open: false, item: null, force: false, error: '' })}>Cancel</Button>
+          <Button 
+            color="error" 
+            variant="contained" 
+            onClick={confirmDelete}
+            disabled={deleteDialog.item?.quantity > 0 && !deleteDialog.force}
+          >
+            Delete
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

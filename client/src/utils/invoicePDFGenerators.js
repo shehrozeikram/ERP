@@ -162,7 +162,7 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   
   const amountReceived = electricityBill.receivedAmount || 0;
   const totalPaid = invoice.totalPaid || amountReceived || 0;
-  const grandTotal = (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null)
+  const _grandTotal = (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null)
     ? (totalBill + arrears)
     : (invoice.grandTotal || (totalBill + arrears));
   const payableWithinDueDate = totalBill + arrears - amountReceived;
@@ -386,8 +386,8 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   const camCharge = invoice.charges?.find(c => c.type === 'CAM');
   const camAmount = camCharge?.amount || 0;
   const arrears = camCharge?.arrears || invoice.totalArrears || 0;
-  const totalPaid = invoice.totalPaid || 0;
-  const grandTotal = invoice.grandTotal || (camAmount + arrears);
+  const _totalPaid = invoice.totalPaid || 0;
+  const _grandTotal = invoice.grandTotal || (camAmount + arrears);
 
   const pdf = new jsPDF('landscape', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -615,7 +615,7 @@ export const generateRentInvoicePDF = async (invoice, propertyParam = null, opti
   const rentAmount = rentCharge?.amount || 0;
   const arrears = rentCharge?.arrears || invoice.totalArrears || 0;
   const totalPaidRent = invoice.totalPaid || 0;
-  const grandTotal = invoice.grandTotal || (rentAmount + arrears);
+  const _grandTotal = invoice.grandTotal || (rentAmount + arrears);
 
   const pdf = new jsPDF('landscape', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -863,7 +863,7 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
 
   // Handle invoices with or without properties
   const isOpenInvoice = !property; // Open invoice has no property
-  const ownerName = property?.ownerName || invoice?.customerName || '—';
+  const _ownerName = property?.ownerName || invoice?.customerName || '—';
   const propertyAddress = property?.fullAddress || property?.address || invoice?.customerAddress || [property?.plotNumber ? `Plot No ${property.plotNumber}` : '', property?.street].filter(Boolean).join(', ') || '—';
   const propertySector = isOpenInvoice ? (invoice?.sector || '—') : (property?.sector || '—');
   
@@ -886,7 +886,7 @@ export const generateGeneralInvoicePDF = async (invoice, propertyParam = null, o
   }
 
   const charges = invoice.charges || [];
-  const subtotal = invoice.subtotal || 0;
+  const _subtotal = invoice.subtotal || 0;
   const totalArrears = invoice.totalArrears || 0;
   const grandTotal = invoice.grandTotal || 0;
   const totalPaid = invoice.totalPaid || 0;

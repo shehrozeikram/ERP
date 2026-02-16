@@ -1,33 +1,61 @@
 const mongoose = require('mongoose');
 
+/**
+ * Choose database URI:
+ * - Local dev: use MONGODB_URI_LOCAL when set and not in production (keeps production DB untouched).
+ * - Production: use MONGODB_URI only (server production database).
+ */
+function getMongoUri() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const localUri = process.env.MONGODB_URI_LOCAL;
+  if (!isProduction && localUri) {
+    return { uri: localUri, isLocal: true };
+  }
+  return { uri: process.env.MONGODB_URI, isLocal: false };
+}
+
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+    const { uri, isLocal } = getMongoUri();
+    if (!uri) {
+      throw new Error(
+        isLocal
+          ? 'MONGODB_URI_LOCAL is not set (use it for local dev). Set MONGODB_URI for production.'
+          : 'MONGODB_URI is not set'
+      );
+    }
+
+    const baseOptions = {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      // Enhanced connection options for Atlas
-      maxPoolSize: 20, // Increased from 10 to handle more concurrent connections
-      minPoolSize: 2, // Increased from 1 to maintain minimum connections
+      maxPoolSize: 20,
+      minPoolSize: isLocal ? 1 : 2,
       maxIdleTimeMS: 30000,
-      serverSelectionTimeoutMS: 10000, // Reduced from 30000ms for faster failure detection
-      socketTimeoutMS: 45000, // Reduced from 60000ms
-      // SSL/TLS options
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 10000,
+      heartbeatFrequencyMS: 10000,
+      bufferCommands: true,
+      monitorCommands: false,
+    };
+
+    const atlasOptions = {
       tls: true,
       tlsAllowInvalidCertificates: false,
-      // Retry options
       retryWrites: true,
       w: 'majority',
-      // Connection timeout
-      connectTimeoutMS: 10000, // Reduced from 30000ms for faster connection attempts
-      // Heartbeat settings
-      heartbeatFrequencyMS: 10000,
-      // Buffer settings
-      bufferCommands: true,
-      // Connection pool monitoring
-      monitorCommands: false, // Disable in production for performance
-    });
+    };
 
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    const isAtlas = uri.includes('mongodb.net') || uri.includes('mongodb+srv');
+    const options = isAtlas ? { ...baseOptions, ...atlasOptions } : baseOptions;
+
+    const conn = await mongoose.connect(uri, options);
+
+    console.log(
+      isLocal
+        ? `✅ MongoDB Connected (LOCAL): ${conn.connection.host}`
+        : `✅ MongoDB Connected: ${conn.connection.host}`
+    );
 
     // Sync Employee indexes (email partial index, employeeId partial unique for non-deleted only)
     try {

@@ -43,16 +43,19 @@ import {
   FilterList as FilterIcon,
   Refresh as RefreshIcon,
   Send as SendIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
+import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
 
 const PurchaseOrders = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
   
   // State management
@@ -71,16 +74,30 @@ const PurchaseOrders = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   
-  // Dialog states
-  const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null });
+  // Dialog states (quotationId set when creating PO from Quotations page)
+  const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null, quotationId: null });
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
+  const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
+  
+  // Approval authorities for create/edit form (prefilled from comparative statement when creating from quotation)
+  const [approvalAuthority, setApprovalAuthority] = useState({
+    preparedBy: '',
+    verifiedBy: '',
+    authorisedRep: '',
+    financeRep: '',
+    managerProcurement: ''
+  });
+  
+  // Observation answers when resubmitting to audit
+  const [observationAnswers, setObservationAnswers] = useState({});
   
   // Form data
   const [formData, setFormData] = useState({
     vendor: '',
     orderDate: new Date().toISOString().split('T')[0],
     expectedDeliveryDate: '',
+    deliveryAddress: '',
     status: 'Draft',
     priority: 'Medium',
     items: [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
@@ -96,6 +113,59 @@ const PurchaseOrders = () => {
     loadStatistics();
     loadVendors();
   }, [page, rowsPerPage, search, statusFilter, priorityFilter]);
+
+  // When navigated from Quotations with createFromQuotationId, fetch quotation and open create form prefilled
+  useEffect(() => {
+    const quotationId = location.state?.createFromQuotationId;
+    if (!quotationId) return;
+
+    const openCreateFromQuotation = async () => {
+      try {
+        const res = await api.get(`/procurement/quotations/${quotationId}`);
+        if (!res.data?.success || !res.data?.data) return;
+        const q = res.data.data;
+        const indent = q.indent || {};
+        const approvals = indent.comparativeStatementApprovals || {};
+
+        setFormData({
+          vendor: q.vendor?._id || q.vendor || '',
+          orderDate: new Date().toISOString().split('T')[0],
+          expectedDeliveryDate: q.expiryDate ? dayjs(q.expiryDate).format('YYYY-MM-DD') : dayjs().add(30, 'day').format('YYYY-MM-DD'),
+          deliveryAddress: q.vendor?.address || '',
+          status: 'Draft',
+          priority: 'Medium',
+          items: (q.items && q.items.length > 0)
+            ? q.items.map(item => ({
+                description: item.description || '',
+                quantity: item.quantity || 1,
+                unit: item.unit || 'pcs',
+                unitPrice: item.unitPrice || 0,
+                taxRate: item.taxRate || 0,
+                discount: item.discount || 0
+              }))
+            : [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
+          shippingCost: 0,
+          paymentTerms: q.paymentTerms || '',
+          notes: q.notes ? `From quotation ${q.quotationNumber || ''}. ${q.notes}` : `Created from quotation ${q.quotationNumber || ''}`,
+          internalNotes: q.indent?.indentNumber ? `Source: Quotation ${q.quotationNumber || ''}, Indent: ${q.indent.indentNumber}` : ''
+        });
+        setApprovalAuthority({
+          preparedBy: approvals.preparedBy || '',
+          verifiedBy: approvals.verifiedBy || '',
+          authorisedRep: approvals.authorisedRep || '',
+          financeRep: approvals.financeRep || '',
+          managerProcurement: approvals.managerProcurement || ''
+        });
+        setFormDialog({ open: true, mode: 'create', data: null, quotationId });
+      } catch (err) {
+        console.error('Failed to load quotation for PO', err);
+        setError(err.response?.data?.message || 'Failed to load quotation');
+      }
+      navigate(location.pathname, { replace: true, state: {} });
+    };
+
+    openCreateFromQuotation();
+  }, [location.state?.createFromQuotationId, location.pathname, navigate]);
 
   const loadPurchaseOrders = useCallback(async () => {
     try {
@@ -145,10 +215,12 @@ const PurchaseOrders = () => {
   };
 
   const handleCreate = () => {
+    setApprovalAuthority({ preparedBy: '', verifiedBy: '', authorisedRep: '', financeRep: '', managerProcurement: '' });
     setFormData({
       vendor: '',
       orderDate: new Date().toISOString().split('T')[0],
       expectedDeliveryDate: '',
+      deliveryAddress: '',
       status: 'Draft',
       priority: 'Medium',
       items: [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0 }],
@@ -157,17 +229,64 @@ const PurchaseOrders = () => {
       notes: '',
       internalNotes: ''
     });
-    setFormDialog({ open: true, mode: 'create', data: null });
+    setFormDialog({ open: true, mode: 'create', data: null, quotationId: null });
   };
 
-  const handleEdit = (order) => {
-    setFormData({
-      ...order,
-      vendor: order.vendor._id,
-      orderDate: new Date(order.orderDate).toISOString().split('T')[0],
-      expectedDeliveryDate: new Date(order.expectedDeliveryDate).toISOString().split('T')[0]
-    });
-    setFormDialog({ open: true, mode: 'edit', data: order });
+  const handleEdit = async (order) => {
+    try {
+      // Fetch full PO data with populated fields (especially audit rejection fields)
+      const response = await api.get(`/procurement/purchase-orders/${order._id}`);
+      const fullOrder = response.data.success ? response.data.data : order;
+      
+      setFormData({
+        ...fullOrder,
+        vendor: fullOrder.vendor?._id || fullOrder.vendor,
+        orderDate: fullOrder.orderDate ? new Date(fullOrder.orderDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        expectedDeliveryDate: fullOrder.expectedDeliveryDate ? new Date(fullOrder.expectedDeliveryDate).toISOString().split('T')[0] : '',
+        deliveryAddress: fullOrder.deliveryAddress || ''
+      });
+      const approvals = fullOrder.approvalAuthorities || {};
+      setApprovalAuthority({
+        preparedBy: approvals.preparedBy || '',
+        verifiedBy: approvals.verifiedBy || '',
+        authorisedRep: approvals.authorisedRep || '',
+        financeRep: approvals.financeRep || '',
+        managerProcurement: approvals.managerProcurement || ''
+      });
+      // Initialize observation answers if there are observations
+      if (fullOrder.auditObservations && fullOrder.auditObservations.length > 0) {
+        const answers = {};
+        fullOrder.auditObservations.forEach(obs => {
+          if (obs.answer) {
+            answers[obs._id] = obs.answer;
+          }
+        });
+        setObservationAnswers(answers);
+      } else {
+        setObservationAnswers({});
+      }
+      
+      setFormDialog({ open: true, mode: 'edit', data: fullOrder, quotationId: null });
+    } catch (err) {
+      // Fallback to using the order passed in if fetch fails
+      setFormData({
+        ...order,
+        vendor: order.vendor?._id || order.vendor,
+        orderDate: order.orderDate ? new Date(order.orderDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        expectedDeliveryDate: order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toISOString().split('T')[0] : '',
+        deliveryAddress: order.deliveryAddress || ''
+      });
+      const approvals = order.approvalAuthorities || {};
+      setApprovalAuthority({
+        preparedBy: approvals.preparedBy || '',
+        verifiedBy: approvals.verifiedBy || '',
+        authorisedRep: approvals.authorisedRep || '',
+        financeRep: approvals.financeRep || '',
+        managerProcurement: approvals.managerProcurement || ''
+      });
+      setFormDialog({ open: true, mode: 'edit', data: order, quotationId: null });
+      setError('Failed to load full purchase order details');
+    }
   };
 
   const handleView = async (order) => {
@@ -246,16 +365,30 @@ const PurchaseOrders = () => {
   const handleSubmit = async () => {
     try {
       setLoading(true);
-      
+      const payload = { ...formData };
+      payload.approvalAuthorities = { ...approvalAuthority };
+      if (formDialog.mode === 'create' && formDialog.quotationId) {
+        payload.quotation = formDialog.quotationId;
+      }
+
+      // When editing, ensure status is always included
+      // If status is not set in formData, use the original status from the PO
+      if (formDialog.mode === 'edit' && formDialog.data) {
+        if (!payload.status || payload.status === '') {
+          payload.status = formDialog.data.status || 'Draft';
+        }
+      }
+
       if (formDialog.mode === 'create') {
-        await api.post('/procurement/purchase-orders', formData);
+        await api.post('/procurement/purchase-orders', payload);
         setSuccess('Purchase order created successfully');
       } else {
-        await api.put(`/procurement/purchase-orders/${formDialog.data._id}`, formData);
+        await api.put(`/procurement/purchase-orders/${formDialog.data._id}`, payload);
         setSuccess('Purchase order updated successfully');
       }
       
-      setFormDialog({ open: false, mode: 'create', data: null });
+      setFormDialog({ open: false, mode: 'create', data: null, quotationId: null });
+      setObservationAnswers({}); // Clear observation answers
       loadPurchaseOrders();
       loadStatistics();
     } catch (err) {
@@ -276,10 +409,25 @@ const PurchaseOrders = () => {
     }
   };
 
-  const handleSendToAudit = async (id) => {
+  const handleSendToAudit = async (id, order = null) => {
     try {
-      await api.put(`/procurement/purchase-orders/${id}/send-to-audit`);
+      // If order is provided and has observations, prepare observation answers
+      let payload = {};
+      if (order && order.auditObservations && order.auditObservations.length > 0) {
+        const answers = order.auditObservations
+          .filter(obs => observationAnswers[obs._id] && observationAnswers[obs._id].trim())
+          .map(obs => ({
+            observationId: obs._id,
+            answer: observationAnswers[obs._id].trim()
+          }));
+        if (answers.length > 0) {
+          payload.observationAnswers = answers;
+        }
+      }
+      
+      await api.put(`/procurement/purchase-orders/${id}/send-to-audit`, payload);
       setSuccess('Purchase order sent to audit successfully. It will appear in the Pre-Audit page.');
+      setObservationAnswers({}); // Clear observation answers
       loadPurchaseOrders();
       loadStatistics();
     } catch (err) {
@@ -596,16 +744,16 @@ const PurchaseOrders = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat') && (
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat' || order.status === 'Rejected') && (
                         <Tooltip title="Edit">
                           <IconButton size="small" onClick={() => handleEdit(order)}>
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
-                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat') && (
+                      {(order.status === 'Draft' || order.status === 'Returned from Audit' || order.status === 'Returned from CEO Secretariat' || order.status === 'Rejected') && (
                         <Tooltip title="Send to Audit">
-                          <IconButton size="small" color="primary" onClick={() => handleSendToAudit(order._id)}>
+                          <IconButton size="small" color="primary" onClick={() => handleSendToAudit(order._id, order)}>
                             <SendIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -655,7 +803,10 @@ const PurchaseOrders = () => {
       {/* Create/Edit Dialog */}
       <Dialog 
         open={formDialog.open} 
-        onClose={() => setFormDialog({ open: false, mode: 'create', data: null })}
+        onClose={() => {
+          setFormDialog({ open: false, mode: 'create', data: null, quotationId: null });
+          setObservationAnswers({}); // Clear observation answers
+        }}
         maxWidth="md"
         fullWidth
       >
@@ -721,6 +872,117 @@ const PurchaseOrders = () => {
                 </TextField>
               </Grid>
             )}
+            
+            {/* Audit Rejection Observations - Show in edit mode if PO was rejected */}
+            {formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected' && formDialog.data?.auditRejectObservations && formDialog.data.auditRejectObservations.length > 0 && (
+              <Grid item xs={12}>
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    Audit Rejection Observations - Please address these issues:
+                  </Typography>
+                  {formDialog.data.auditRejectionComments && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {formDialog.data.auditRejectionComments}
+                      </Typography>
+                    </Box>
+                  )}
+                  {formDialog.data.auditRejectObservations.map((obs, index) => (
+                    <Box key={index} sx={{ mb: 1.5, p: 1.5, bgcolor: alpha(theme.palette.error.main, 0.05), borderRadius: 1, border: '1px solid', borderColor: 'error.light' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                          Observation {index + 1}
+                        </Typography>
+                        {obs.severity && (
+                          <Chip 
+                            label={obs.severity.charAt(0).toUpperCase() + obs.severity.slice(1)} 
+                            size="small" 
+                            color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {obs.observation}
+                      </Typography>
+                    </Box>
+                  ))}
+                  {formDialog.data.auditRejectedBy && (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
+                      Rejected by: {formDialog.data.auditRejectedBy?.firstName || ''} {formDialog.data.auditRejectedBy?.lastName || ''}
+                      {formDialog.data.auditRejectedAt && ` on ${formatDate(formDialog.data.auditRejectedAt)}`}
+                    </Typography>
+                  )}
+                </Alert>
+              </Grid>
+            )}
+            
+            {/* Audit Observations with Answer Fields - Show when PO was returned from audit */}
+            {formDialog.mode === 'edit' && formDialog.data?.status === 'Returned from Audit' && formDialog.data?.auditObservations && formDialog.data.auditObservations.length > 0 && (
+              <Grid item xs={12}>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2 }}>
+                    Audit Observations - Please provide responses before resubmitting:
+                  </Typography>
+                  {formDialog.data.auditReturnComments && (
+                    <Box sx={{ mb: 1.5 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {formDialog.data.auditReturnComments}
+                      </Typography>
+                    </Box>
+                  )}
+                  {formDialog.data.auditObservations.map((obs, index) => (
+                    <Box key={obs._id || index} sx={{ mb: 2, p: 1.5, bgcolor: alpha(theme.palette.warning.main, 0.05), borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                          Observation {index + 1}
+                        </Typography>
+                        {obs.severity && (
+                          <Chip 
+                            label={obs.severity.charAt(0).toUpperCase() + obs.severity.slice(1)} 
+                            size="small" 
+                            color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: 1.5 }}>
+                        {obs.observation}
+                      </Typography>
+                      {obs.answer && (
+                        <Box sx={{ mb: 1.5, p: 1, bgcolor: 'success.light', borderRadius: 1 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+                            Previous Answer:
+                          </Typography>
+                          <Typography variant="body2">
+                            {obs.answer}
+                          </Typography>
+                          {obs.answeredBy && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                              Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                              {obs.answeredAt && ` on ${formatDate(obs.answeredAt)}`}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                      <TextField
+                        fullWidth
+                        multiline
+                        rows={3}
+                        label={`Your Response to Observation ${index + 1}${obs.answer ? ' (Update existing answer)' : ''}`}
+                        value={observationAnswers[obs._id] || obs.answer || ''}
+                        onChange={(e) => setObservationAnswers(prev => ({
+                          ...prev,
+                          [obs._id]: e.target.value
+                        }))}
+                        placeholder="Provide your response/correction to this observation..."
+                        sx={{ mt: 1 }}
+                      />
+                    </Box>
+                  ))}
+                </Alert>
+              </Grid>
+            )}
             <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
@@ -741,6 +1003,17 @@ const PurchaseOrders = () => {
                 onChange={(e) => setFormData({ ...formData, expectedDeliveryDate: e.target.value })}
                 InputLabelProps={{ shrink: true }}
                 required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Delivery Address"
+                value={formData.deliveryAddress || ''}
+                onChange={(e) => setFormData({ ...formData, deliveryAddress: e.target.value })}
+                placeholder="Enter delivery address for this order"
+                multiline
+                minRows={2}
               />
             </Grid>
             
@@ -865,10 +1138,35 @@ const PurchaseOrders = () => {
                 </Typography>
               </Paper>
             </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>Approval authorities</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6} md={4}>
+                  <TextField fullWidth size="small" label="Prepared By" value={approvalAuthority.preparedBy} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, preparedBy: e.target.value }))} placeholder="Name / Designation" />
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <TextField fullWidth size="small" label="Verified By (Procurement Committee)" value={approvalAuthority.verifiedBy} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, verifiedBy: e.target.value }))} placeholder="Name / Designation" />
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <TextField fullWidth size="small" label="Authorised Rep." value={approvalAuthority.authorisedRep} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, authorisedRep: e.target.value }))} placeholder="Name / Designation" />
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <TextField fullWidth size="small" label="Finance Rep." value={approvalAuthority.financeRep} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, financeRep: e.target.value }))} placeholder="Name / Designation" />
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <TextField fullWidth size="small" label="Manager Procurement" value={approvalAuthority.managerProcurement} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, managerProcurement: e.target.value }))} placeholder="Name / Designation" />
+                </Grid>
+              </Grid>
+            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFormDialog({ open: false, mode: 'create', data: null })}>
+          <Button onClick={() => {
+            setFormDialog({ open: false, mode: 'create', data: null, quotationId: null });
+            setObservationAnswers({}); // Clear observation answers
+          }}>
             Cancel
           </Button>
           <Button 
@@ -907,14 +1205,24 @@ const PurchaseOrders = () => {
         <DialogTitle sx={{ '@media print': { display: 'none' }, pb: 1 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">Purchase Order Details</Typography>
-            <Button
-              variant="contained"
-              startIcon={<PrintIcon />}
-              onClick={() => window.print()}
-              size="small"
-            >
-              Print
-            </Button>
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                startIcon={<HistoryIcon />}
+                onClick={() => setWorkflowHistoryDialog({ open: true, document: viewDialog.data })}
+                size="small"
+              >
+                Workflow History
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={() => window.print()}
+                size="small"
+              >
+                Print
+              </Button>
+            </Stack>
           </Box>
         </DialogTitle>
         <DialogContent sx={{ p: 0, overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
@@ -954,6 +1262,48 @@ const PurchaseOrders = () => {
                 >
                   Purchase Order
                 </Typography>
+
+                {/* Audit Rejection Observations - Show if status is Rejected */}
+                {viewDialog.data.status === 'Rejected' && viewDialog.data.auditRejectObservations && viewDialog.data.auditRejectObservations.length > 0 && (
+                  <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.error.main, 0.1), border: `1px solid ${theme.palette.error.main}`, borderRadius: 1 }}>
+                    <Typography variant="h6" sx={{ mb: 2, color: 'error.main', fontWeight: 'bold' }}>
+                      Audit Rejection Observations
+                    </Typography>
+                    {viewDialog.data.auditRejectionComments && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                          {viewDialog.data.auditRejectionComments}
+                        </Typography>
+                      </Box>
+                    )}
+                    {viewDialog.data.auditRejectObservations.map((obs, index) => (
+                      <Box key={index} sx={{ mb: 1.5, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'error.light' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                            Observation {index + 1}
+                          </Typography>
+                          {obs.severity && (
+                            <Chip 
+                              label={obs.severity.charAt(0).toUpperCase() + obs.severity.slice(1)} 
+                              size="small" 
+                              color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                            />
+                          )}
+                        </Box>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
+                          {obs.observation}
+                        </Typography>
+                      </Box>
+                    ))}
+                    {viewDialog.data.auditRejectedBy && (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
+                        Rejected by: {viewDialog.data.auditRejectedBy?.firstName || ''} {viewDialog.data.auditRejectedBy?.lastName || ''}
+                        {viewDialog.data.auditRejectedAt && ` on ${formatDate(viewDialog.data.auditRejectedAt)}`}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
 
                 {/* Buyer Information - First Row */}
                 <Box sx={{ mb: 2.5 }}>
@@ -1013,9 +1363,19 @@ const PurchaseOrders = () => {
                     </Box>
                     <Box sx={{ display: 'flex', mb: 0.5 }}>
                       <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-                      <Typography component="span">{viewDialog.data.shippingAddress ? 
-                        `${viewDialog.data.shippingAddress.street || ''} ${viewDialog.data.shippingAddress.city || ''}`.trim() || '___________' 
-                        : '___________'}</Typography>
+                      <Typography component="span">
+                        {(() => {
+                          const addr = viewDialog.data.shippingAddress;
+                          if (typeof viewDialog.data.deliveryAddress === 'string' && viewDialog.data.deliveryAddress.trim()) {
+                            return viewDialog.data.deliveryAddress.trim();
+                          }
+                          if (addr && typeof addr === 'object') {
+                            const parts = [addr.street, addr.city, addr.state, addr.zipCode, addr.country].filter(Boolean);
+                            return parts.length ? parts.join(', ') : (viewDialog.data.vendor?.address || '___________');
+                          }
+                          return viewDialog.data.vendor?.address || '___________';
+                        })()}
+                      </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', mb: 0.5 }}>
                       <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
@@ -1077,7 +1437,7 @@ const PurchaseOrders = () => {
                               {item.description || viewDialog.data.indent?.items?.[index]?.itemName || '___________'}
                             </td>
                             <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                              {item.specification || viewDialog.data.indent?.items?.[index]?.specification || '___________'}
+                              {item.specification || viewDialog.data.indent?.items?.[index]?.specification || viewDialog.data.indent?.items?.[index]?.description || viewDialog.data.indent?.items?.[index]?.purpose || '___________'}
                             </td>
                             <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                               {item.brand || viewDialog.data.indent?.items?.[index]?.brand || '___________'}
@@ -1179,31 +1539,59 @@ const PurchaseOrders = () => {
                     <tbody>
                       <tr>
                         <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {viewDialog.data.approvalAuthorities?.preparedBy || ''}
+                            </Typography>
+                          </Box>
                           <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Prepared By</Typography>
                         </td>
                         <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {viewDialog.data.approvalAuthorities?.verifiedBy || ''}
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Verified By: Procurement Committee</Typography>
+                        </td>
+                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {viewDialog.data.approvalAuthorities?.authorisedRep || ''}
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Authorised Rep.</Typography>
+                        </td>
+                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {viewDialog.data.approvalAuthorities?.financeRep || ''}
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Finance Rep.</Typography>
+                        </td>
+                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {viewDialog.data.approvalAuthorities?.managerProcurement || ''}
+                            </Typography>
+                          </Box>
                           <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Manager Procurement</Typography>
                         </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Procurement</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Internal Auditor</Typography>
-                        </td>
-                        <td style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
-                          <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Director Finance</Typography>
-                        </td>
                         <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {''}
+                            </Typography>
+                          </Box>
                           <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>Senior Executive Director</Typography>
                         </td>
                         <td style={{ padding: '20px 10px', textAlign: 'center', width: '15%', verticalAlign: 'bottom' }}>
-                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }}></Box>
+                          <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 }, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', pb: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 500, '@media print': { fontSize: '0.7rem' } }}>
+                              {''}
+                            </Typography>
+                          </Box>
                           <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>President</Typography>
                         </td>
                       </tr>
@@ -1284,6 +1672,13 @@ const PurchaseOrders = () => {
             }
           `
         }}
+      />
+
+      <WorkflowHistoryDialog
+        open={workflowHistoryDialog.open}
+        onClose={() => setWorkflowHistoryDialog({ open: false, document: null })}
+        document={workflowHistoryDialog.document}
+        documentType="document"
       />
 
       {/* Delete Confirmation Dialog */}

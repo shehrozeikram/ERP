@@ -27,12 +27,13 @@ const CostCenters = () => {
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
+  const [departments, setDepartments] = useState([]);
   const [formData, setFormData] = useState({
     code: '',
     name: '',
     description: '',
-    department: 'general',
-    departmentName: 'General',
+    department: '',
+    departmentName: '',
     location: '',
     manager: '',
     managerName: '',
@@ -42,20 +43,21 @@ const CostCenters = () => {
     notes: ''
   });
 
-  const departments = [
-    { value: 'hr', label: 'HR' },
-    { value: 'admin', label: 'Admin' },
-    { value: 'procurement', label: 'Procurement' },
-    { value: 'sales', label: 'Sales' },
-    { value: 'finance', label: 'Finance' },
-    { value: 'audit', label: 'Audit' },
-    { value: 'general', label: 'General' },
-    { value: 'it', label: 'IT' }
-  ];
-
   useEffect(() => {
     loadCostCenters();
+    loadDepartments();
   }, [page, rowsPerPage, search, departmentFilter]);
+
+  const loadDepartments = async () => {
+    try {
+      const response = await api.get('/hr/departments');
+      if (response.data.success) {
+        setDepartments(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading departments:', err);
+    }
+  };
 
   const loadCostCenters = useCallback(async () => {
     try {
@@ -78,8 +80,8 @@ const CostCenters = () => {
       code: '',
       name: '',
       description: '',
-      department: 'general',
-      departmentName: 'General',
+      department: '',
+      departmentName: '',
       location: '',
       manager: '',
       managerName: '',
@@ -96,8 +98,8 @@ const CostCenters = () => {
       code: cc.code,
       name: cc.name,
       description: cc.description || '',
-      department: cc.department,
-      departmentName: cc.departmentName || departments.find(d => d.value === cc.department)?.label || 'General',
+      department: cc.department?._id || cc.department || '',
+      departmentName: cc.department?.name || cc.departmentName || '',
       location: cc.location || '',
       manager: cc.manager?._id || '',
       managerName: cc.managerName || '',
@@ -197,7 +199,7 @@ const CostCenters = () => {
             sx={{ minWidth: 150 }}
           >
             <MenuItem value="">All</MenuItem>
-            {departments.map((dept) => <MenuItem key={dept.value} value={dept.value}>{dept.label}</MenuItem>)}
+            {departments.map((dept) => <MenuItem key={dept._id || dept.id} value={dept._id || dept.id}>{dept.name}</MenuItem>)}
           </TextField>
         </Box>
         <TableContainer>
@@ -223,7 +225,7 @@ const CostCenters = () => {
                   <TableRow key={cc._id} hover>
                     <TableCell><Typography variant="body2" fontWeight="bold">{cc.code}</Typography></TableCell>
                     <TableCell>{cc.name}</TableCell>
-                    <TableCell>{cc.departmentName || departments.find(d => d.value === cc.department)?.label || cc.department}</TableCell>
+                    <TableCell>{cc.department?.name || cc.departmentName || cc.department || '-'}</TableCell>
                     <TableCell>{cc.location || '-'}</TableCell>
                     <TableCell>{cc.budget ? formatPKR(cc.budget) : '-'}</TableCell>
                     <TableCell><Chip label={cc.isActive ? 'Active' : 'Inactive'} size="small" color={cc.isActive ? 'success' : 'default'} /></TableCell>
@@ -265,10 +267,11 @@ const CostCenters = () => {
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField fullWidth select label="Department *" value={formData.department} onChange={(e) => {
-                const dept = departments.find(d => d.value === e.target.value);
-                setFormData({ ...formData, department: e.target.value, departmentName: dept?.label || '' });
+                const dept = departments.find(d => (d._id || d.id) === e.target.value);
+                setFormData({ ...formData, department: e.target.value, departmentName: dept?.name || '' });
               }}>
-                {departments.map((dept) => <MenuItem key={dept.value} value={dept.value}>{dept.label}</MenuItem>)}
+                <MenuItem value="">Select Department</MenuItem>
+                {departments.map((dept) => <MenuItem key={dept._id || dept.id} value={dept._id || dept.id}>{dept.name}</MenuItem>)}
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -297,7 +300,7 @@ const CostCenters = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setFormDialog({ open: false, mode: 'create', data: null })}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.code || !formData.name}>
+          <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.code || !formData.name || !formData.department}>
             {formDialog.mode === 'create' ? 'Create' : 'Update'}
           </Button>
         </DialogActions>
@@ -312,7 +315,7 @@ const CostCenters = () => {
               <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Code</Typography><Typography variant="body1" fontWeight="bold">{viewDialog.data.code}</Typography></Grid>
               <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Name</Typography><Typography variant="body1">{viewDialog.data.name}</Typography></Grid>
               {viewDialog.data.description && <Grid item xs={12}><Typography variant="body2" color="textSecondary">Description</Typography><Typography variant="body1">{viewDialog.data.description}</Typography></Grid>}
-              <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Department</Typography><Typography variant="body1">{viewDialog.data.departmentName || departments.find(d => d.value === viewDialog.data.department)?.label || viewDialog.data.department}</Typography></Grid>
+              <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Department</Typography><Typography variant="body1">{viewDialog.data.department?.name || viewDialog.data.departmentName || viewDialog.data.department || '-'}</Typography></Grid>
               {viewDialog.data.location && <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Location</Typography><Typography variant="body1">{viewDialog.data.location}</Typography></Grid>}
               {viewDialog.data.budget > 0 && <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Budget ({viewDialog.data.budgetPeriod})</Typography><Typography variant="body1">{formatPKR(viewDialog.data.budget)}</Typography></Grid>}
               <Grid item xs={12} md={6}><Typography variant="body2" color="textSecondary">Status</Typography><Chip label={viewDialog.data.isActive ? 'Active' : 'Inactive'} size="small" color={viewDialog.data.isActive ? 'success' : 'default'} /></Grid>

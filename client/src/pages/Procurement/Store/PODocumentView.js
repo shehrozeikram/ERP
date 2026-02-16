@@ -1,11 +1,22 @@
 import React from 'react';
-import { Box, Typography, Paper, Divider } from '@mui/material';
+import { Box, Typography, Paper, Divider, Chip, alpha, useTheme } from '@mui/material';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
   const d = new Date(date);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
+};
+
+const formatDate = (date) => {
+  if (!date) return '';
+  try {
+    const d = new Date(date);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  } catch {
+    return String(date);
+  }
 };
 
 const formatNumber = (num) =>
@@ -36,9 +47,37 @@ const numberToWords = (num) => {
 /**
  * Full Purchase Order document view (same layout as Store Dashboard PO view).
  * Used by Store Dashboard and Quality Assurance view dialogs.
+ * Includes audit observations, approval authority values, and supports workflow history from parent.
  */
 const PODocumentView = ({ data }) => {
+  const theme = useTheme();
   if (!data) return null;
+
+  const observations = (data?.auditObservations && data.auditObservations.length > 0)
+    ? data.auditObservations
+    : (data?.auditRejectObservations || []).map((obs) => ({
+        observation: typeof obs === 'object' ? obs.observation : obs,
+        severity: typeof obs === 'object' ? (obs.severity || 'medium') : 'medium',
+        addedBy: data.auditRejectedBy,
+        addedAt: data.auditRejectedAt,
+        answer: null,
+        answeredBy: null,
+        answeredAt: null,
+        resolved: false
+      }));
+  const hasObservations = Array.isArray(observations) && observations.length > 0;
+  const hasChangeSummary = data?.resubmissionChangeSummary && String(data.resubmissionChangeSummary).trim().length > 0;
+  const auth = data?.approvalAuthorities || {};
+
+  const signatureColumns = [
+    { label: 'Prepared By', value: auth.preparedBy },
+    { label: 'Manager Procurement', value: auth.managerProcurement },
+    { label: 'Director Procurement', value: auth.verifiedBy },
+    { label: 'Internal Auditor', value: '' },
+    { label: 'Director Finance', value: auth.financeRep },
+    { label: 'Senior Executive Director', value: auth.authorisedRep },
+    { label: 'President', value: '' }
+  ];
 
   return (
     <Paper
@@ -64,6 +103,78 @@ const PODocumentView = ({ data }) => {
       <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3, fontSize: { xs: '1.8rem', print: '1.6rem' }, letterSpacing: 1 }}>
         Purchase Order
       </Typography>
+
+      {/* Audit Observations & Procurement Responses */}
+      {hasObservations && (
+        <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.warning.main, 0.08), border: '1px solid', borderColor: 'warning.main', borderRadius: 1 }}>
+          <Typography variant="h6" sx={{ mb: 2, color: 'warning.dark', fontWeight: 'bold' }}>
+            Audit Observations &amp; Procurement Responses
+          </Typography>
+          {data.auditReturnComments && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>{data.auditReturnComments}</Typography>
+            </Box>
+          )}
+          {data.auditRejectionComments && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>{data.auditRejectionComments}</Typography>
+            </Box>
+          )}
+          {hasChangeSummary && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: alpha(theme.palette.info.main, 0.08), borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
+                Changes made to PO by Procurement (on resubmission):
+              </Typography>
+              <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.875rem', m: 0 }}>
+                {data.resubmissionChangeSummary}
+              </Typography>
+            </Box>
+          )}
+          {observations.map((obs, index) => (
+            <Box key={obs._id || index} sx={{ mb: 2, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Observation {index + 1}</Typography>
+                {obs.severity && (
+                  <Chip
+                    label={String(obs.severity).charAt(0).toUpperCase() + String(obs.severity).slice(1)}
+                    size="small"
+                    color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
+                  />
+                )}
+              </Box>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                Raised by Audit{obs.addedBy ? `: ${obs.addedBy?.firstName || ''} ${obs.addedBy?.lastName || ''}` : ''}
+                {obs.addedAt ? ` on ${formatDate(obs.addedAt)}` : ''}
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: obs.answer ? 1.5 : 0 }}>{obs.observation}</Typography>
+              {obs.answer ? (
+                <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5, color: 'success.dark' }}>
+                    Response from Procurement (edit / correction):
+                  </Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{obs.answer}</Typography>
+                  {obs.answeredBy && (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                      Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                      {obs.answeredAt ? ` on ${formatDate(obs.answeredAt)}` : ''}
+                    </Typography>
+                  )}
+                </Box>
+              ) : hasChangeSummary ? (
+                <Typography variant="caption" sx={{ color: 'info.dark', display: 'block', mt: 1 }}>
+                  Procurement updated the PO in response (see changes above).
+                </Typography>
+              ) : (
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic', display: 'block', mt: 1 }}>
+                  No response from Procurement yet
+                </Typography>
+              )}
+            </Box>
+          ))}
+        </Box>
+      )}
 
       <Box sx={{ mb: 2.5 }}>
         <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>Residencia</Typography>
@@ -210,14 +321,16 @@ const PODocumentView = ({ data }) => {
         </Box>
       </Box>
 
+      {/* Approval authorities (signature section) */}
       <Box sx={{ mt: 4 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif' }}>
           <tbody>
             <tr>
-              {['Prepared By', 'Manager Procurement', 'Director Procurement', 'Internal Auditor', 'Director Finance', 'Senior Executive Director', 'President'].map((label) => (
+              {signatureColumns.map(({ label, value }) => (
                 <td key={label} style={{ padding: '20px 10px', textAlign: 'center', width: '14%', verticalAlign: 'bottom' }}>
                   <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }} />
                   <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>{label}</Typography>
+                  {value && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{value}</Typography>}
                 </td>
               ))}
             </tr>

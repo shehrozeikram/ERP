@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
@@ -9,6 +9,7 @@ import {
   ExitToApp as IssueIcon, Add as AddIcon, Visibility as ViewIcon,
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon
 } from '@mui/icons-material';
+import { useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,6 +25,7 @@ const formatSINDate = (d) => {
 const GoodsIssue = () => {
   const theme = useTheme();
   const { user } = useAuth();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -38,6 +40,7 @@ const GoodsIssue = () => {
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
   const [viewLoading, setViewLoading] = useState(false);
   const [formDialog, setFormDialog] = useState({ open: false });
+  const processedIndentRef = useRef(null);
   const [formData, setFormData] = useState({
     issueDate: new Date().toISOString().split('T')[0],
     department: 'general',
@@ -73,6 +76,77 @@ const GoodsIssue = () => {
     loadInventory();
     loadCostCenters();
   }, [page, rowsPerPage, search, departmentFilter]);
+
+  // Pre-fill form when navigating from Store Dashboard with indent
+  useEffect(() => {
+    const fromIndent = location.state?.fromIndent;
+    const indentId = fromIndent?._id || fromIndent?.indentNumber;
+    
+    // Skip if already processed or if dialog is already open or if inventory not loaded
+    if (!fromIndent || !indentId || inventory.length === 0 || formDialog.open || processedIndentRef.current === indentId) {
+      return;
+    }
+
+    // Map indent items to GoodsIssue items format
+    const mappedItems = (fromIndent.items || [])
+      .filter((item) => item.inventoryMatch && item.inStock) // Only include items that are matched and in stock
+      .map((item) => {
+        return {
+          inventoryItem: item.inventoryMatch._id || '',
+          itemCode: item.inventoryMatch.itemCode || '',
+          itemName: item.itemName || item.inventoryMatch.name || '',
+          unit: item.unit || item.inventoryMatch.unit || '',
+          qtyReturned: 0,
+          qtyIssued: item.quantity || 1,
+          balanceQty: 0,
+          issuedFromNewStock: true,
+          issuedFromOldStock: false,
+          notes: item.purpose || ''
+        };
+      });
+
+    if (mappedItems.length > 0) {
+      // Map department from indent to GoodsIssue department
+      const indentDeptName = fromIndent.department?.name || '';
+      // Try to match department name (case-insensitive, partial match)
+      let deptValue = 'general';
+      let deptLabel = 'General';
+      const matchedDept = departments.find((d) => {
+        const deptLabelLower = d.label.toLowerCase();
+        const indentDeptLower = indentDeptName.toLowerCase();
+        return deptLabelLower === indentDeptLower || indentDeptLower.includes(deptLabelLower) || deptLabelLower.includes(indentDeptLower);
+      });
+      if (matchedDept) {
+        deptValue = matchedDept.value;
+        deptLabel = matchedDept.label;
+      }
+
+      setFormData({
+        issueDate: new Date().toISOString().split('T')[0],
+        department: deptValue,
+        departmentName: deptLabel,
+        concernedDepartment: indentDeptName || '',
+        issuingLocation: 'Store',
+        costCenter: '',
+        costCenterCode: '',
+        costCenterName: '',
+        requiredFor: fromIndent.title || '',
+        justification: fromIndent.justification || '',
+        eprNo: fromIndent.erpRef || fromIndent.indentNumber || '',
+        requestedBy: fromIndent.requestedBy?._id || '',
+        requestedByName: fromIndent.requestedBy
+          ? `${fromIndent.requestedBy.firstName || ''} ${fromIndent.requestedBy.lastName || ''}`.trim() || fromIndent.requestedBy.email || ''
+          : '',
+        items: mappedItems,
+        purpose: fromIndent.items?.map((i) => i.purpose).filter(Boolean).join('; ') || '',
+        notes: `Created from Indent ${fromIndent.indentNumber || fromIndent._id}`
+      });
+      setFormDialog({ open: true });
+      processedIndentRef.current = indentId;
+      // Clear location state to prevent re-opening on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state, inventory, formDialog.open]);
 
   const loadIssues = useCallback(async () => {
     try {
@@ -113,6 +187,7 @@ const GoodsIssue = () => {
   };
 
   const handleCreate = () => {
+    processedIndentRef.current = null; // Reset so new indent can be processed
     setFormData({
       issueDate: new Date().toISOString().split('T')[0],
       department: 'general',
@@ -148,7 +223,29 @@ const GoodsIssue = () => {
       };
       await api.post('/procurement/goods-issue', payload);
       setSuccess('Store Issue Note created and inventory updated');
+      // Reset form data and close dialog
+      setFormData({
+        issueDate: new Date().toISOString().split('T')[0],
+        department: 'general',
+        departmentName: 'General',
+        concernedDepartment: '',
+        issuingLocation: 'Store',
+        costCenter: '',
+        costCenterCode: '',
+        costCenterName: '',
+        requiredFor: '',
+        justification: '',
+        eprNo: '',
+        requestedBy: '',
+        requestedByName: '',
+        items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', qtyReturned: 0, qtyIssued: 1, balanceQty: 0, issuedFromNewStock: true, issuedFromOldStock: false, notes: '' }],
+        purpose: '',
+        notes: ''
+      });
       setFormDialog({ open: false });
+      processedIndentRef.current = null;
+      // Clear location state to prevent reopening
+      window.history.replaceState({}, document.title);
       loadIssues();
       loadInventory();
     } catch (err) {
@@ -307,7 +404,11 @@ const GoodsIssue = () => {
       </Paper>
 
       {/* Create Dialog - Store Issue Note layout */}
-      <Dialog open={formDialog.open} onClose={() => setFormDialog({ open: false })} maxWidth="lg" fullWidth>
+      <Dialog open={formDialog.open} onClose={() => {
+        setFormDialog({ open: false });
+        processedIndentRef.current = null;
+        window.history.replaceState({}, document.title);
+      }} maxWidth="lg" fullWidth>
         <DialogTitle>Create Store Issue Note (Taj Residencia)</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -404,7 +505,11 @@ const GoodsIssue = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFormDialog({ open: false })}>Cancel</Button>
+          <Button onClick={() => {
+            setFormDialog({ open: false });
+            processedIndentRef.current = null;
+            window.history.replaceState({}, document.title);
+          }}>Cancel</Button>
           <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.items.some((i) => i.inventoryItem && (Number(i.qtyIssued) || 0) > 0)}>
             Create Store Issue Note
           </Button>

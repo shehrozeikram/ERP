@@ -29,11 +29,25 @@ const formatDateForDocument = (dateString) => {
 };
 
 const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'document' }) => {
-  const workflowHistory = document?.workflowHistory || [];
-  const referenceNumber = document?.referenceNumber || document?.documentNumber || document?.referenceNumber || 'N/A';
+  // Use fullWorkflowHistory when present (e.g. PO with related indent: indent flow then PO flow); otherwise workflowHistory
+  const rawHistory = document?.fullWorkflowHistory ?? document?.workflowHistory ?? [];
+  // Sort by changedAt so full flow is in chronological order (backend may not always send sorted)
+  const workflowHistory = [...rawHistory].sort((a, b) => new Date(a.changedAt || 0) - new Date(b.changedAt || 0));
+  const referenceNumber = document?.referenceNumber || document?.documentNumber || document?.orderNumber || 'N/A';
   const title = documentType === 'settlement' ? 'Payment Settlement' : 
                 documentType === 'preAudit' ? 'Pre Audit Document' : 
-                'Document';
+                document?.orderNumber ? 'Purchase Order' : 'Document';
+
+  const moduleColor = (module) => {
+    if (!module) return 'default';
+    if (module === 'Indent') return 'success';
+    if (module === 'Requisition') return 'success'; // Procurement Requisition (indent in procurement)
+    if (module === 'Procurement') return 'primary';
+    if (module === 'Pre-Audit') return 'secondary';
+    if (module === 'CEO Secretariat') return 'info';
+    if (module === 'Finance') return 'warning';
+    return 'default';
+  };
 
   return (
     <Dialog
@@ -52,6 +66,11 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
             {title} Reference: {referenceNumber}
           </Typography>
         )}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          {document?.orderNumber && document?.fullWorkflowHistory?.length
+            ? 'Full flow: Indent → Requisition → Purchase Order (Procurement → Pre-Audit → CEO Secretariat)'
+            : 'Full flow: Procurement → Pre-Audit → CEO Secretariat'}
+        </Typography>
       </DialogTitle>
       <DialogContent>
         {workflowHistory.length > 0 ? (
@@ -93,6 +112,14 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
                     {index + 1}
                   </Box>
                   <Box sx={{ flex: 1 }}>
+                    {entry.module && (
+                      <Chip
+                        label={entry.module}
+                        size="small"
+                        color={moduleColor(entry.module)}
+                        sx={{ mb: 0.5, fontSize: '10px' }}
+                      />
+                    )}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
                       <Chip
                         label={entry.fromStatus || 'Draft'}
@@ -114,6 +141,11 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                         By: {entry.changedBy.firstName} {entry.changedBy.lastName}
                         {entry.changedAt && ` • ${formatDateForDocument(entry.changedAt)}`}
+                      </Typography>
+                    )}
+                    {!entry.changedBy && entry.changedAt && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        {formatDateForDocument(entry.changedAt)}
                       </Typography>
                     )}
                   </Box>
