@@ -129,34 +129,29 @@ const RoleManagement = () => {
 
   const handleSaveRole = async () => {
     try {
-      const url = editingRole ? `/api/roles/${editingRole._id}` : '/api/roles';
-      const method = editingRole ? 'PUT' : 'POST';
       const payload = {
         ...formData,
         displayName: formData.name,
         description: ''
       };
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to save role');
+      if (editingRole) {
+        await api.put(`/roles/${editingRole._id}`, payload);
+      } else {
+        await api.post('/roles', payload);
       }
-      
       setSuccess(editingRole ? 'Role updated successfully' : 'Role created successfully');
       setDialogOpen(false);
       setShowTemplates(false);
       resetForm();
       fetchRoles();
     } catch (err) {
-      setError(err.message);
+      console.error('[RoleManagement] Save role error:', {
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+        fullError: err
+      });
+      setError(err.response?.data?.message || err.message || 'Failed to save role');
     }
   };
 
@@ -170,6 +165,11 @@ const RoleManagement = () => {
       setSuccess('Role deleted successfully');
       fetchRoles();
     } catch (err) {
+      console.error('[RoleManagement] Delete role error:', {
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data
+      });
       setError(err.response?.data?.message || err.message || 'Failed to delete role');
     }
   };

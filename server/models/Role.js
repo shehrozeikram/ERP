@@ -176,11 +176,13 @@ function ensureArray(val) {
 
 function normalizeSubmodule(sm) {
   if (sm == null) return null;
-  if (typeof sm === 'string') return sm;
+  if (typeof sm === 'string') {
+    return { submodule: sm, actions: [] };
+  }
   if (typeof sm === 'object' && sm.submodule) {
     return {
-      submodule: sm.submodule,
-      actions: Array.isArray(sm.actions) ? sm.actions : []
+      submodule: String(sm.submodule),
+      actions: Array.isArray(sm.actions) ? sm.actions.filter((a) => typeof a === 'string') : []
     };
   }
   return null;

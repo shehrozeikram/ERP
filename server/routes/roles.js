@@ -79,7 +79,18 @@ router.post('/',
   authMiddleware,
   permissions.checkSubRolePermission('admin', 'sub_roles', 'create'),
   asyncHandler(async (req, res) => {
-    const { name, displayName, description, permissions: rolePermissions, isActive = true } = req.body;
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        return res.status(400).json({ success: false, message: 'Invalid JSON body' });
+      }
+    }
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ success: false, message: 'Request body is required' });
+    }
+    const { name, displayName, description, permissions: rolePermissions, isActive = true } = body;
     
     // Validate required fields (displayName defaults to name)
     if (!name) {
@@ -130,29 +141,21 @@ router.post('/',
         }
         if (submodulesRaw && Array.isArray(submodulesRaw)) {
           transformedSubmodules = submodulesRaw.map(sm => {
-            // If it's already an object with submodule and actions, use it
             if (sm && typeof sm === 'object' && sm.submodule) {
               return {
-                submodule: sm.submodule,
-                actions: Array.isArray(sm.actions) ? sm.actions : []
+                submodule: String(sm.submodule),
+                actions: Array.isArray(sm.actions) ? sm.actions.filter((a) => typeof a === 'string') : []
               };
             }
-            // If it's a string (legacy format), keep it as is
             if (typeof sm === 'string') {
-              return sm;
+              return { submodule: String(sm), actions: [] };
             }
             return null;
           }).filter(Boolean);
         }
         
-        // Only include permissions that have either module-level actions or submodules with actions
         const hasModuleActions = permission.actions && Array.isArray(permission.actions) && permission.actions.length > 0;
-        const hasSubmoduleActions = transformedSubmodules.some(sm => {
-          if (typeof sm === 'object' && sm.actions) {
-            return Array.isArray(sm.actions) && sm.actions.length > 0;
-          }
-          return false;
-        });
+        const hasSubmoduleActions = transformedSubmodules.some(sm => sm && sm.actions && sm.actions.length > 0);
         
         if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
           let actionsList = permission.actions;
@@ -164,8 +167,8 @@ router.post('/',
             }
           }
           cleanedPermissions.push({
-            module: permission.module,
-            actions: Array.isArray(actionsList) ? actionsList : [],
+            module: String(permission.module),
+            actions: Array.isArray(actionsList) ? actionsList.filter((a) => typeof a === 'string') : [],
             submodules: transformedSubmodules
           });
         }
@@ -200,7 +203,16 @@ router.put('/:id',
   authMiddleware,
   permissions.checkSubRolePermission('admin', 'sub_roles', 'update'),
   asyncHandler(async (req, res) => {
-    const { displayName, description, permissions: rolePermissions, isActive } = req.body;
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        return res.status(400).json({ success: false, message: 'Invalid JSON body' });
+      }
+    }
+    body = body && typeof body === 'object' ? body : {};
+    const { displayName, description, permissions: rolePermissions, isActive } = body;
     
     const role = await Role.findById(req.params.id);
     if (!role) {
@@ -250,29 +262,21 @@ router.put('/:id',
           }
           if (submodulesRaw && Array.isArray(submodulesRaw)) {
             transformedSubmodules = submodulesRaw.map(sm => {
-              // If it's already an object with submodule and actions, use it
               if (sm && typeof sm === 'object' && sm.submodule) {
                 return {
-                  submodule: sm.submodule,
-                  actions: Array.isArray(sm.actions) ? sm.actions : []
+                  submodule: String(sm.submodule),
+                  actions: Array.isArray(sm.actions) ? sm.actions.filter((a) => typeof a === 'string') : []
                 };
               }
-              // If it's a string (legacy format), keep it as is
               if (typeof sm === 'string') {
-                return sm;
+                return { submodule: String(sm), actions: [] };
               }
               return null;
             }).filter(Boolean);
           }
           
-          // Only include permissions that have either module-level actions or submodules with actions
           const hasModuleActions = permission.actions && Array.isArray(permission.actions) && permission.actions.length > 0;
-          const hasSubmoduleActions = transformedSubmodules.some(sm => {
-            if (typeof sm === 'object' && sm.actions) {
-              return Array.isArray(sm.actions) && sm.actions.length > 0;
-            }
-            return false;
-          });
+          const hasSubmoduleActions = transformedSubmodules.some(sm => sm && sm.actions && sm.actions.length > 0);
           
           if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
             let actionsList = permission.actions;
@@ -284,8 +288,8 @@ router.put('/:id',
               }
             }
             cleanedPermissions.push({
-              module: permission.module,
-              actions: Array.isArray(actionsList) ? actionsList : [],
+              module: String(permission.module),
+              actions: Array.isArray(actionsList) ? actionsList.filter((a) => typeof a === 'string') : [],
               submodules: transformedSubmodules
             });
           }
