@@ -6,6 +6,29 @@ const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const { asyncHandler } = require('../middleware/errorHandler');
 
+// Parse JSON or JS-style (single-quoted, unquoted keys) string to array; production proxies sometimes send the latter
+function parseJsonOrJsArray(val) {
+  if (val == null) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val !== 'string') return [];
+  const s = val.trim();
+  if (!s.startsWith('[') && !s.startsWith('{')) return [];
+  try {
+    const parsed = JSON.parse(s);
+    return Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? [parsed] : []);
+  } catch (_) {
+    try {
+      let jsonLike = s
+        .replace(/(\w+):\s*/g, '"$1": ')  // unquoted keys -> "key":
+        .replace(/'/g, '"');               // single quotes -> double (values)
+      const parsed = JSON.parse(jsonLike);
+      return Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? [parsed] : []);
+    } catch (__) {
+      return [];
+    }
+  }
+}
+
 // Get all roles
 router.get('/', 
   authMiddleware,
@@ -112,33 +135,19 @@ router.post('/',
     
     // Validate and transform permissions structure
     let cleanedPermissions = [];
-    let permsList = rolePermissions;
-    if (typeof permsList === 'string') {
-      try {
-        permsList = JSON.parse(permsList);
-      } catch (_) {
-        permsList = [];
-      }
-    }
-    if (permsList && Array.isArray(permsList)) {
+    let permsList = parseJsonOrJsArray(rolePermissions);
+    if (permsList.length > 0) {
       for (const permission of permsList) {
-        if (!permission.module) {
+        if (!permission || !permission.module) {
           return res.status(400).json({
             success: false,
             message: 'Invalid permission structure: module is required'
           });
         }
         
-        // Transform submodules format: convert array of objects to proper format
+        // Transform submodules format; support string (including single-quoted from proxies)
         let transformedSubmodules = [];
-        let submodulesRaw = permission.submodules;
-        if (typeof submodulesRaw === 'string') {
-          try {
-            submodulesRaw = JSON.parse(submodulesRaw);
-          } catch (_) {
-            submodulesRaw = [];
-          }
-        }
+        let submodulesRaw = parseJsonOrJsArray(permission.submodules);
         if (submodulesRaw && Array.isArray(submodulesRaw)) {
           transformedSubmodules = submodulesRaw.map(sm => {
             if (sm && typeof sm === 'object' && sm.submodule) {
@@ -158,17 +167,10 @@ router.post('/',
         const hasSubmoduleActions = transformedSubmodules.some(sm => sm && sm.actions && sm.actions.length > 0);
         
         if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
-          let actionsList = permission.actions;
-          if (typeof actionsList === 'string') {
-            try {
-              actionsList = JSON.parse(actionsList);
-            } catch (_) {
-              actionsList = [];
-            }
-          }
+          const actionsList = parseJsonOrJsArray(permission.actions).filter((a) => typeof a === 'string');
           cleanedPermissions.push({
             module: String(permission.module),
-            actions: Array.isArray(actionsList) ? actionsList.filter((a) => typeof a === 'string') : [],
+            actions: actionsList,
             submodules: transformedSubmodules
           });
         }
@@ -233,34 +235,19 @@ router.put('/:id',
     // Validate and transform permissions structure
     if (rolePermissions !== undefined) {
       let cleanedPermissions = [];
-      let permsList = rolePermissions;
-      if (typeof permsList === 'string') {
-        try {
-          permsList = JSON.parse(permsList);
-        } catch (_) {
-          permsList = [];
-        }
-      }
-      if (permsList && Array.isArray(permsList)) {
+      let permsList = parseJsonOrJsArray(rolePermissions);
+      if (permsList.length > 0) {
         for (const permission of permsList) {
-          if (!permission.module) {
+          if (!permission || !permission.module) {
             return res.status(400).json({
               success: false,
               message: 'Invalid permission structure: module is required'
             });
           }
           
-          // Transform submodules format: convert array of objects to proper format
           let transformedSubmodules = [];
-          let submodulesRaw = permission.submodules;
-          if (typeof submodulesRaw === 'string') {
-            try {
-              submodulesRaw = JSON.parse(submodulesRaw);
-            } catch (_) {
-              submodulesRaw = [];
-            }
-          }
-          if (submodulesRaw && Array.isArray(submodulesRaw)) {
+          let submodulesRaw = parseJsonOrJsArray(permission.submodules);
+          if (submodulesRaw.length > 0) {
             transformedSubmodules = submodulesRaw.map(sm => {
               if (sm && typeof sm === 'object' && sm.submodule) {
                 return {
@@ -279,17 +266,10 @@ router.put('/:id',
           const hasSubmoduleActions = transformedSubmodules.some(sm => sm && sm.actions && sm.actions.length > 0);
           
           if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
-            let actionsList = permission.actions;
-            if (typeof actionsList === 'string') {
-              try {
-                actionsList = JSON.parse(actionsList);
-              } catch (_) {
-                actionsList = [];
-              }
-            }
+            const actionsList = parseJsonOrJsArray(permission.actions).filter((a) => typeof a === 'string');
             cleanedPermissions.push({
               module: String(permission.module),
-              actions: Array.isArray(actionsList) ? actionsList.filter((a) => typeof a === 'string') : [],
+              actions: actionsList,
               submodules: transformedSubmodules
             });
           }

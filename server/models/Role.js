@@ -164,11 +164,19 @@ function ensureArray(val) {
   if (val == null) return [];
   if (Array.isArray(val)) return val;
   if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s.startsWith('[') && !s.startsWith('{')) return [];
     try {
-      const parsed = JSON.parse(val);
+      const parsed = JSON.parse(s);
       return Array.isArray(parsed) ? parsed : [];
     } catch (_) {
-      return [];
+      try {
+        const jsonLike = s.replace(/(\w+):\s*/g, '"$1": ').replace(/'/g, '"');
+        const parsed = JSON.parse(jsonLike);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (__) {
+        return [];
+      }
     }
   }
   return [];
