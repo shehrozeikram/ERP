@@ -155,9 +155,17 @@ router.post('/',
         });
         
         if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
+          let actionsList = permission.actions;
+          if (typeof actionsList === 'string') {
+            try {
+              actionsList = JSON.parse(actionsList);
+            } catch (_) {
+              actionsList = [];
+            }
+          }
           cleanedPermissions.push({
             module: permission.module,
-            actions: permission.actions || [],
+            actions: Array.isArray(actionsList) ? actionsList : [],
             submodules: transformedSubmodules
           });
         }
@@ -267,9 +275,17 @@ router.put('/:id',
           });
           
           if (hasModuleActions || hasSubmoduleActions || transformedSubmodules.length > 0) {
+            let actionsList = permission.actions;
+            if (typeof actionsList === 'string') {
+              try {
+                actionsList = JSON.parse(actionsList);
+              } catch (_) {
+                actionsList = [];
+              }
+            }
             cleanedPermissions.push({
               module: permission.module,
-              actions: permission.actions || [],
+              actions: Array.isArray(actionsList) ? actionsList : [],
               submodules: transformedSubmodules
             });
           }

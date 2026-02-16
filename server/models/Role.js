@@ -159,13 +159,53 @@ roleSchema.methods.getAllowedActions = function(module, submodule) {
   return [];
 };
 
-// Pre-save middleware: lowercase name, default displayName to name
+// Normalize permissions so stringified values (e.g. from production proxies) never cause CastError
+function ensureArray(val) {
+  if (val == null) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeSubmodule(sm) {
+  if (sm == null) return null;
+  if (typeof sm === 'string') return sm;
+  if (typeof sm === 'object' && sm.submodule) {
+    return {
+      submodule: sm.submodule,
+      actions: Array.isArray(sm.actions) ? sm.actions : []
+    };
+  }
+  return null;
+}
+
+// Pre-save middleware: lowercase name, default displayName to name, normalize permissions
 roleSchema.pre('save', function(next) {
   if (this.isModified('name')) {
     this.name = this.name.toLowerCase();
   }
   if (!this.displayName || !this.displayName.trim()) {
     this.displayName = this.name;
+  }
+  // Normalize permissions so submodules/actions are always arrays (fixes production stringified payloads)
+  if (this.permissions && Array.isArray(this.permissions)) {
+    this.permissions = this.permissions.map((p) => {
+      if (!p || !p.module) return p;
+      const submodulesRaw = ensureArray(p.submodules);
+      const actionsRaw = ensureArray(p.actions);
+      return {
+        module: p.module,
+        actions: actionsRaw.filter((a) => typeof a === 'string'),
+        submodules: submodulesRaw.map(normalizeSubmodule).filter(Boolean)
+      };
+    });
   }
   next();
 });
