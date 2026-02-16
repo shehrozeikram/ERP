@@ -32,6 +32,7 @@ const GoodsIssue = () => {
   const [issues, setIssues] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
@@ -47,6 +48,8 @@ const GoodsIssue = () => {
     departmentName: 'General',
     concernedDepartment: '',
     issuingLocation: 'Store',
+    store: 'Main Store',
+    project: '',
     costCenter: '',
     costCenterCode: '',
     costCenterName: '',
@@ -75,6 +78,7 @@ const GoodsIssue = () => {
     loadIssues();
     loadInventory();
     loadCostCenters();
+    loadProjects();
   }, [page, rowsPerPage, search, departmentFilter]);
 
   // Pre-fill form when navigating from Store Dashboard with indent
@@ -127,6 +131,8 @@ const GoodsIssue = () => {
         departmentName: deptLabel,
         concernedDepartment: indentDeptName || '',
         issuingLocation: 'Store',
+        store: 'Main Store',
+        project: '',
         costCenter: '',
         costCenterCode: '',
         costCenterName: '',
@@ -186,6 +192,17 @@ const GoodsIssue = () => {
     }
   };
 
+  const loadProjects = async () => {
+    try {
+      const response = await api.get('/hr/projects', { params: { limit: 1000, status: 'Active' } });
+      if (response.data.success) {
+        setProjects(response.data.data.projects || response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading projects:', err);
+    }
+  };
+
   const handleCreate = () => {
     processedIndentRef.current = null; // Reset so new indent can be processed
     setFormData({
@@ -210,10 +227,15 @@ const GoodsIssue = () => {
   };
 
   const handleSubmit = async () => {
+    if (!formData.project) {
+      setError('Please select a project');
+      return;
+    }
     try {
       setLoading(true);
       const payload = {
         ...formData,
+        store: formData.store || formData.issuingLocation || 'Main Store',
         items: formData.items.map((item) => ({
           ...item,
           quantity: Number(item.qtyIssued) || 0,
@@ -230,6 +252,8 @@ const GoodsIssue = () => {
         departmentName: 'General',
         concernedDepartment: '',
         issuingLocation: 'Store',
+        store: 'Main Store',
+        project: '',
         costCenter: '',
         costCenterCode: '',
         costCenterName: '',
@@ -285,9 +309,42 @@ const GoodsIssue = () => {
 
   const issuedByName = user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}`.trim() : (user?.email || '');
 
+  const [projectStockBalances, setProjectStockBalances] = useState({});
+
+  // Load project-wise stock balances when project changes
+  useEffect(() => {
+    if (!formData.project || !formDialog.open) {
+      setProjectStockBalances({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api.get('/procurement/stock-balance', {
+          params: { store: formData.store || 'Main Store', project: formData.project }
+        });
+        if (!cancelled && response.data?.success && response.data?.data?.balances) {
+          const balances = {};
+          response.data.data.balances.forEach(b => {
+            balances[b.item.toString()] = b.balance;
+          });
+          setProjectStockBalances(balances);
+        }
+      } catch (err) {
+        if (!cancelled) console.error('Error loading project stock balances:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [formData.project, formData.store, formDialog.open]);
+
   const getAvailableStock = (itemId) => {
-    const item = inventory.find(inv => inv._id === itemId);
-    return item ? item.quantity : 0;
+    if (!formData.project) {
+      // Fallback to overall inventory quantity if no project selected
+      const item = inventory.find(inv => inv._id === itemId);
+      return item ? item.quantity : 0;
+    }
+    // Use project-wise balance
+    return projectStockBalances[itemId] || 0;
   };
 
   return (
@@ -414,7 +471,14 @@ const GoodsIssue = () => {
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}><Typography variant="overline" color="textSecondary">Details</Typography></Grid>
             <Grid item xs={12} md={6}>
-              <TextField fullWidth label="Issuing Location" value={formData.issuingLocation} onChange={(e) => setFormData({ ...formData, issuingLocation: e.target.value })} placeholder="e.g. Store" />
+              <TextField fullWidth select label="Project *" value={formData.project || ''} onChange={(e) => setFormData({ ...formData, project: e.target.value })} required>
+                <MenuItem value="">Select Project</MenuItem>
+                {projects.map((p) => (
+                  <MenuItem key={p._id} value={p._id}>{p.name} {p.projectId ? `(${p.projectId})` : ''}</MenuItem>
+                ))}
+              </TextField>
+              <TextField fullWidth label="Issuing Location" value={formData.issuingLocation} onChange={(e) => setFormData({ ...formData, issuingLocation: e.target.value })} placeholder="e.g. Store" sx={{ mt: 1 }} />
+              <TextField fullWidth label="Store" value={formData.store} onChange={(e) => setFormData({ ...formData, store: e.target.value })} placeholder="Main Store" sx={{ mt: 1 }} />
               <TextField fullWidth select label="Cost Center" value={formData.costCenter} onChange={(e) => {
                 const cc = costCenters.find(c => c._id === e.target.value);
                 setFormData({ ...formData, costCenter: e.target.value, costCenterCode: cc?.code || '', costCenterName: cc?.name || '' });
@@ -510,7 +574,7 @@ const GoodsIssue = () => {
             processedIndentRef.current = null;
             window.history.replaceState({}, document.title);
           }}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.items.some((i) => i.inventoryItem && (Number(i.qtyIssued) || 0) > 0)}>
+          <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.project || !formData.items.some((i) => i.inventoryItem && (Number(i.qtyIssued) || 0) > 0)}>
             Create Store Issue Note
           </Button>
         </DialogActions>

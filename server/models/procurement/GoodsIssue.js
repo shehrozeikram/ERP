@@ -18,7 +18,18 @@ const goodsIssueSchema = new mongoose.Schema({
   },
   issuingLocation: {
     type: String,
-    trim: true
+    trim: true,
+    default: 'Main Store'
+  },
+  store: {
+    type: String,
+    trim: true,
+    default: 'Main Store'
+  },
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project',
+    required: true
   },
   department: {
     type: String,
@@ -185,23 +196,57 @@ goodsIssueSchema.pre('save', async function(next) {
   next();
 });
 
-// Post-save: Update inventory if status is 'Issued'
+// Post-save: Update inventory and create stock transactions if status is 'Issued'
 goodsIssueSchema.post('save', async function(doc) {
   if (doc.status === 'Issued' && doc.items && doc.items.length > 0) {
+    if (!doc.project) {
+      console.error('GoodsIssue post-save: project is required');
+      return;
+    }
+    
     const Inventory = mongoose.model('Inventory');
+    const StockTransaction = mongoose.model('StockTransaction');
+    const store = doc.store || doc.issuingLocation || 'Main Store';
+    const projectId = doc.project._id || doc.project;
+    const issueNumber = doc.issueNumber || doc.sinNumber || 'SIN';
     const qtyToDeduct = (item) => item.qtyIssued ?? item.quantity ?? 0;
+    
     for (const item of doc.items) {
       const qty = qtyToDeduct(item);
       if (qty <= 0) continue;
       try {
         const inventory = await Inventory.findById(item.inventoryItem);
         if (inventory) {
+          // Update inventory (for backward compatibility)
           await inventory.removeStock(
             qty,
-            doc.issueNumber,
-            item.notes || `Issued via ${doc.issueNumber} (Store Issue Note)`,
+            issueNumber,
+            item.notes || `Issued via ${issueNumber} (Store Issue Note)`,
             doc.issuedBy
           );
+          
+          // Create StockTransaction record for project-wise tracking
+          const currentBalance = await StockTransaction.getBalance(store, projectId, inventory._id);
+          const balanceAfter = currentBalance - qty; // Negative quantity for OUT
+          
+          await StockTransaction.create({
+            store: store,
+            project: projectId,
+            item: inventory._id,
+            itemCode: item.itemCode || inventory.itemCode,
+            itemName: item.itemName || inventory.name,
+            transactionType: 'OUT',
+            quantity: -qty, // Negative for OUT
+            unit: item.unit || inventory.unit,
+            unitPrice: 0, // Issue doesn't have unit price
+            referenceType: 'SIN',
+            referenceId: doc._id,
+            referenceNumber: issueNumber,
+            balanceAfter: balanceAfter,
+            description: `Issued via ${issueNumber} (Store Issue Note)`,
+            notes: item.notes || '',
+            createdBy: doc.issuedBy
+          });
         }
       } catch (error) {
         console.error(`Error updating inventory for item ${item.itemCode}:`, error.message);

@@ -35,6 +35,7 @@ const GoodsReceive = () => {
   const [receives, setReceives] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
@@ -53,7 +54,8 @@ const GoodsReceive = () => {
     poNumber: '',
     narration: '',
     prNumber: '',
-    store: '',
+    store: 'Main Store',
+    project: '',
     gatePassNo: '',
     currency: 'Rupees',
     discount: 0,
@@ -71,6 +73,7 @@ const GoodsReceive = () => {
     loadReceives();
     loadInventory();
     loadSuppliers();
+    loadProjects();
   }, [page, rowsPerPage, search]);
 
   const loadReceives = useCallback(async () => {
@@ -111,6 +114,17 @@ const GoodsReceive = () => {
     }
   };
 
+  const loadProjects = async () => {
+    try {
+      const response = await api.get('/hr/projects', { params: { limit: 1000, status: 'Active' } });
+      if (response.data.success) {
+        setProjects(response.data.data.projects || response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading projects:', err);
+    }
+  };
+
   const prefillFormFromPO = useCallback((po) => {
     const vendor = (po.vendor && typeof po.vendor === 'object') ? po.vendor : { _id: po.vendor, name: '', address: '' };
     const addr = vendor.address || (po.shippingAddress && [po.shippingAddress.street, po.shippingAddress.city, po.shippingAddress?.country].filter(Boolean).join(', ')) || '';
@@ -146,6 +160,7 @@ const GoodsReceive = () => {
             selected: true
           }))
         : [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true }],
+      project: '',
       notes: ''
     });
   }, []);
@@ -198,7 +213,8 @@ const GoodsReceive = () => {
       poNumber: '',
       narration: '',
       prNumber: '',
-      store: '',
+      store: 'Main Store',
+      project: '',
       gatePassNo: '',
       currency: 'Rupees',
       discount: 0,
@@ -217,6 +233,10 @@ const GoodsReceive = () => {
   const preparedByName = user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}`.trim() : (user?.email || '');
 
   const handleSubmit = async () => {
+    if (!formData.project) {
+      setError('Please select a project');
+      return;
+    }
     const selectedItems = formData.items.filter(
       (i) => (i.selected !== false) && (Number(i.quantity) || 0) > 0
     );
@@ -462,6 +482,14 @@ const GoodsReceive = () => {
             {/* Two-column header like image */}
             <Grid item xs={12}><Typography variant="overline" color="textSecondary">Header details</Typography></Grid>
             <Grid item xs={12} md={6}>
+              <TextField fullWidth select label="Project *" value={formData.project || ''} onChange={(e) => setFormData({ ...formData, project: e.target.value })} required>
+                <MenuItem value="">Select Project</MenuItem>
+                {projects.map((p) => (
+                  <MenuItem key={p._id} value={p._id}>{p.name} {p.projectId ? `(${p.projectId})` : ''}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
               <TextField fullWidth select label="Supplier" value={formData.supplier} onChange={(e) => {
                 const s = suppliers.find((x) => x._id === e.target.value);
                 setFormData({
@@ -616,7 +644,7 @@ const GoodsReceive = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setFormDialog({ open: false })}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.items.some((i) => (i.selected !== false) && (Number(i.quantity) || 0) > 0)}>
+          <Button variant="contained" onClick={handleSubmit} disabled={loading || !formData.project || !formData.items.some((i) => (i.selected !== false) && (Number(i.quantity) || 0) > 0)}>
             Create GRN
           </Button>
         </DialogActions>

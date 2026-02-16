@@ -301,6 +301,8 @@ const IndentsDashboard = () => {
   const theme = useTheme();
   // Purchase Order View Component
   const PurchaseOrderView = ({ poData }) => {
+    if (!poData) return null;
+    
     const observations = (poData?.auditObservations && poData.auditObservations.length > 0)
       ? poData.auditObservations
       : (poData?.auditRejectObservations || []).map((obs, idx) => ({
@@ -483,9 +485,28 @@ const IndentsDashboard = () => {
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-              <Typography component="span">{poData.shippingAddress ? 
-                `${poData.shippingAddress.street || ''} ${poData.shippingAddress.city || ''}`.trim() || '___________' 
-                : '___________'}</Typography>
+              <Typography component="span">
+                {(() => {
+                  // Check deliveryAddress string field first
+                  if (poData.deliveryAddress && typeof poData.deliveryAddress === 'string' && poData.deliveryAddress.trim()) {
+                    return poData.deliveryAddress.trim();
+                  }
+                  // Check shippingAddress object
+                  if (poData.shippingAddress && typeof poData.shippingAddress === 'object') {
+                    const parts = [
+                      poData.shippingAddress.street,
+                      poData.shippingAddress.city,
+                      poData.shippingAddress.state,
+                      poData.shippingAddress.zipCode,
+                      poData.shippingAddress.country
+                    ].filter(Boolean);
+                    if (parts.length > 0) return parts.join(', ');
+                  }
+                  // Fallback to vendor address
+                  if (poData.vendor?.address) return poData.vendor.address;
+                  return '___________';
+                })()}
+              </Typography>
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
@@ -547,7 +568,26 @@ const IndentsDashboard = () => {
                       {item.description || poData.indent?.items?.[index]?.itemName || '___________'}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
-                      {item.specification || poData.indent?.items?.[index]?.specification || '___________'}
+                      {(() => {
+                        // Try PO item specification first
+                        if (item.specification && String(item.specification).trim()) {
+                          return item.specification.trim();
+                        }
+                        // Try indent item specification
+                        const indentItem = poData.indent?.items?.[index];
+                        if (indentItem?.specification && String(indentItem.specification).trim()) {
+                          return indentItem.specification.trim();
+                        }
+                        // Fallback to indent item description
+                        if (indentItem?.description && String(indentItem.description).trim()) {
+                          return indentItem.description.trim();
+                        }
+                        // Fallback to indent item purpose
+                        if (indentItem?.purpose && String(indentItem.purpose).trim()) {
+                          return indentItem.purpose.trim();
+                        }
+                        return '___________';
+                      })()}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
                       {item.brand || poData.indent?.items?.[index]?.brand || '___________'}

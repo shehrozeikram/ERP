@@ -42,7 +42,13 @@ const goodsReceiveSchema = new mongoose.Schema({
   },
   store: {
     type: String,
-    trim: true
+    trim: true,
+    default: 'Main Store'
+  },
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project',
+    required: true
   },
   gatePassNo: {
     type: String,
@@ -161,13 +167,22 @@ goodsReceiveSchema.pre('save', async function(next) {
   next();
 });
 
-// Shared logic: sync GRN items to inventory (always create new inventory entry, never update existing)
+// Shared logic: sync GRN items to inventory and create stock transactions
 goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
   const receivedStatuses = ['Received', 'Complete', 'Partial'];
   if (!grnDoc || !receivedStatuses.includes(grnDoc.status) || !grnDoc.items || grnDoc.items.length === 0) return;
+  if (!grnDoc.project) {
+    console.error('GoodsReceive syncItemsToInventory: project is required');
+    return;
+  }
+  
   const receiveNumber = grnDoc.receiveNumber || grnDoc._id?.toString() || 'GRN';
+  const store = grnDoc.store || 'Main Store';
+  const projectId = grnDoc.project._id || grnDoc.project;
   const Inventory = mongoose.model('Inventory');
+  const StockTransaction = mongoose.model('StockTransaction');
   const items = Array.isArray(grnDoc.items) ? grnDoc.items : [];
+  
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx] && typeof items[idx].toObject === 'function' ? items[idx].toObject() : items[idx];
     if (!item || item.quantity == null) continue;
@@ -202,13 +217,39 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
       });
       await inv.save();
       
-      // Add stock to the newly created inventory item
+      // Add stock to the newly created inventory item (for backward compatibility)
       await inv.addStock(
         Number(item.quantity) || 0,
         receiveNumber,
         item.notes || `Received via GRN ${receiveNumber}`,
         grnDoc.receivedBy
       );
+      
+      // Create StockTransaction record for project-wise tracking
+      const qty = Number(item.quantity) || 0;
+      if (qty > 0) {
+        const currentBalance = await StockTransaction.getBalance(store, projectId, inv._id);
+        const balanceAfter = currentBalance + qty;
+        
+        await StockTransaction.create({
+          store: store,
+          project: projectId,
+          item: inv._id,
+          itemCode: uniqueCode,
+          itemName: name,
+          transactionType: 'IN',
+          quantity: qty,
+          unit: inv.unit,
+          unitPrice: Number(item.unitPrice) || 0,
+          referenceType: 'GRN',
+          referenceId: grnDoc._id,
+          referenceNumber: receiveNumber,
+          balanceAfter: balanceAfter,
+          description: `Received via GRN ${receiveNumber}`,
+          notes: item.notes || '',
+          createdBy: grnDoc.receivedBy
+        });
+      }
     } catch (error) {
       console.error(`GoodsReceive syncItemsToInventory error for item ${item.itemCode}:`, error);
     }

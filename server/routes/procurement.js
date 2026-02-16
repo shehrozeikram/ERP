@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize, authMiddleware } = require('../middleware/auth');
@@ -13,10 +14,12 @@ const AccountsPayable = require('../models/finance/AccountsPayable');
 const Inventory = require('../models/procurement/Inventory');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const GoodsIssue = require('../models/procurement/GoodsIssue');
+const StockTransaction = require('../models/procurement/StockTransaction');
 const CostCenter = require('../models/procurement/CostCenter');
 const Quotation = require('../models/procurement/Quotation');
 const QuotationInvitation = require('../models/procurement/QuotationInvitation');
 const Indent = require('../models/general/Indent');
+const Project = require('../models/hr/Project');
 const User = require('../models/User');
 
 console.log('✅ Procurement routes loaded successfully');
@@ -2284,6 +2287,7 @@ router.post('/goods-receive',
   authorize('super_admin', 'admin', 'procurement_manager'),
   [
     body('receiveDate').optional().isISO8601(),
+    body('project').isMongoId().withMessage('Valid project ID is required'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('items.*.inventoryItem').optional().isMongoId().withMessage('Valid inventory item ID when provided'),
     body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Quantity must be greater than 0'),
@@ -2301,8 +2305,14 @@ router.post('/goods-receive',
     const {
       receiveDate, supplier, supplierName, purchaseOrder, poNumber, items, notes,
       narration, supplierAddress, prNumber, store, gatePassNo, currency,
-      discount, otherCharges, observation, status: bodyStatus
+      discount, otherCharges, observation, status: bodyStatus, project
     } = req.body;
+
+    // Validate project exists
+    const projectDoc = await Project.findById(project);
+    if (!projectDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid project ID' });
+    }
 
     let resolvedSupplierAddress = supplierAddress;
     if (supplier && !resolvedSupplierAddress) {
@@ -2355,7 +2365,8 @@ router.post('/goods-receive',
       poNumber,
       narration: narration || undefined,
       prNumber: prNumber || undefined,
-      store: store || undefined,
+      store: store || 'Main Store',
+      project: project,
       gatePassNo: gatePassNo || undefined,
       currency: currency || 'Rupees',
       discount: Number(discount) || 0,
@@ -2370,6 +2381,7 @@ router.post('/goods-receive',
 
     await receive.save();
     await receive.populate([
+      { path: 'project', select: 'name projectId' },
       { path: 'supplier', select: 'name contactPerson supplierId address' },
       { path: 'purchaseOrder', select: 'orderNumber' },
       { path: 'receivedBy', select: 'firstName lastName' },
@@ -2466,6 +2478,7 @@ router.post('/goods-issue',
   authorize('super_admin', 'admin', 'procurement_manager'),
   [
     body('issueDate').optional().isISO8601(),
+    body('project').isMongoId().withMessage('Valid project ID is required'),
     body('department').isIn(['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general', 'it']).withMessage('Valid department is required'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('items.*.inventoryItem').isMongoId().withMessage('Valid inventory item ID is required'),
@@ -2482,8 +2495,15 @@ router.post('/goods-issue',
       issueDate, department, departmentName, costCenter, costCenterCode, costCenterName,
       requestedBy, requestedByName, items, purpose, notes,
       issuingLocation, requiredFor, justification, eprNo, concernedDepartment,
-      returnedByName, approvedByName, receivedByName
+      returnedByName, approvedByName, receivedByName, project, store
     } = req.body;
+
+    // Validate project exists
+    const projectDoc = await Project.findById(project);
+    if (!projectDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid project ID' });
+    }
+    const storeName = store || issuingLocation || 'Main Store';
 
     if (costCenter) {
       const costCenterDoc = await CostCenter.findById(costCenter);
@@ -2502,6 +2522,14 @@ router.post('/goods-issue',
         if (qtyIssued <= 0) {
           throw new Error(`Quantity issued must be greater than 0 for ${inventory.name}`);
         }
+        
+        // Check project-wise stock balance
+        const projectBalance = await StockTransaction.getBalance(storeName, project, inventory._id);
+        if (projectBalance < qtyIssued) {
+          throw new Error(`Insufficient stock for ${inventory.name} in this project. Available: ${projectBalance}, Requested: ${qtyIssued}`);
+        }
+        
+        // Also check overall inventory quantity (for backward compatibility)
         if (inventory.quantity < qtyIssued) {
           throw new Error(`Insufficient stock for ${inventory.name}. Available: ${inventory.quantity}, Requested: ${qtyIssued}`);
         }
@@ -2533,6 +2561,8 @@ router.post('/goods-issue',
     const issue = new GoodsIssue({
       issueDate: issueDate || new Date(),
       issuingLocation: issuingLocation || undefined,
+      store: storeName,
+      project: project,
       department,
       departmentName,
       concernedDepartment: concernedDepartment || undefined,
@@ -2557,6 +2587,7 @@ router.post('/goods-issue',
 
     await issue.save();
     await issue.populate([
+      { path: 'project', select: 'name projectId' },
       { path: 'requestedBy', select: 'firstName lastName' },
       { path: 'issuedBy', select: 'firstName lastName' },
       { path: 'costCenter', select: 'code name department' },
@@ -2568,6 +2599,52 @@ router.post('/goods-issue',
       message: 'Store Issue Note created successfully and inventory updated',
       data: issue
     });
+  })
+);
+
+// ==================== STOCK BALANCE ROUTES ====================
+
+// @route   GET /api/procurement/stock-balance
+// @desc    Get project-wise stock balances
+// @access  Private
+router.get('/stock-balance',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const { store = 'Main Store', project, item } = req.query;
+    
+    if (!project) {
+      return res.status(400).json({ success: false, message: 'Project ID is required' });
+    }
+    
+    const projectDoc = await Project.findById(project);
+    if (!projectDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid project ID' });
+    }
+    
+    if (item) {
+      // Get balance for specific item
+      const balance = await StockTransaction.getBalance(store, project, item);
+      res.json({
+        success: true,
+        data: {
+          store,
+          project: { _id: projectDoc._id, name: projectDoc.name, projectId: projectDoc.projectId },
+          item,
+          balance
+        }
+      });
+    } else {
+      // Get all balances for the project
+      const balances = await StockTransaction.getProjectBalances(store, project);
+      res.json({
+        success: true,
+        data: {
+          store,
+          project: { _id: projectDoc._id, name: projectDoc.name, projectId: projectDoc.projectId },
+          balances
+        }
+      });
+    }
   })
 );
 
