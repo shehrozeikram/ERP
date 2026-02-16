@@ -29,6 +29,12 @@ function parseJsonOrJsArray(val) {
   }
 }
 
+// Helps confirm production is running latest code (check response headers)
+router.use((req, res, next) => {
+  res.setHeader('X-Roles-Parser', 'v4-2026-02-16');
+  next();
+});
+
 // Get all roles
 router.get('/', 
   authMiddleware,

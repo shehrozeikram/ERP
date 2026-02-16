@@ -134,6 +134,12 @@ const RoleManagement = () => {
         displayName: formData.name,
         description: ''
       };
+      console.log('[RoleManagement] Saving role payload (types):', {
+        name: payload.name,
+        permissionsType: typeof payload.permissions,
+        firstPermissionSubmodulesType: typeof payload.permissions?.[0]?.submodules,
+        firstPermissionFirstSubmoduleType: typeof payload.permissions?.[0]?.submodules?.[0]
+      });
       if (editingRole) {
         await api.put(`/roles/${editingRole._id}`, payload);
       } else {
