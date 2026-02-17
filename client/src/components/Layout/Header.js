@@ -24,6 +24,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useNotifications } from '../../contexts/NotificationContext';
 import Notifications from '../Notifications/Notifications';
+import AnnouncementBar from '../common/AnnouncementBar';
 
 const SearchWrapper = styled('div')(({ theme }) => ({
   position: 'relative',
@@ -115,6 +116,7 @@ const Header = () => {
         boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
       }}
     >
+      <AnnouncementBar />
       <Toolbar>
         {/* Search Bar */}
         <SearchWrapper>

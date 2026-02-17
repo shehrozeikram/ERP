@@ -126,6 +126,7 @@ import RentalManagementDetail from './pages/Admin/RentalManagement/RentalManagem
 import PaymentSettlement from './pages/Admin/PaymentSettlement/PaymentSettlement';
 import RoleManagement from './pages/Admin/RoleManagement';
 import AdminDashboard from './pages/Admin/AdminDashboard';
+import SettingsPage from './pages/Settings/SettingsPage';
 
 // IT Module Components
 import ITDashboard from './pages/IT/ITDashboard';
@@ -435,6 +436,10 @@ function App() {
             <Route 
               path="/dashboard" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><Dashboard /></ProtectedRoute>} 
+            />
+            <Route
+              path="/settings"
+              element={<ProtectedRoute><SettingsPage /></ProtectedRoute>}
             />
 
             {/* HR Module */}

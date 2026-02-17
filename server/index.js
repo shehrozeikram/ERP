@@ -62,6 +62,7 @@ const candidateApprovalRoutes = require('./routes/candidateApprovals');
 const publicApprovalRoutes = require('./routes/publicApprovals');
 const applicationRoutes = require('./routes/applications');
 const notificationRoutes = require('./routes/notifications');
+const settingsRoutes = require('./routes/settings');
 // const publicApplicationRoutes = require('./routes/publicApplications');
 const easyApplyRoutes = require('./routes/easyApply');
 const courseRoutes = require('./routes/courses');
@@ -484,6 +485,7 @@ app.use('/api/public/candidates', require('./routes/publicCandidates')); // Publ
 app.use('/api/candidate-approvals', authMiddleware, activityLogger, candidateApprovalRoutes);
 app.use('/api/applications', authMiddleware, activityLogger, applicationRoutes);
 app.use('/api/notifications', authMiddleware, activityLogger, notificationRoutes);
+app.use('/api/settings', settingsRoutes);
 app.use('/api/courses', authMiddleware, activityLogger, courseRoutes);
 app.use('/api/enrollments', authMiddleware, activityLogger, enrollmentRoutes);
 app.use('/api/training-programs', authMiddleware, activityLogger, trainingProgramRoutes);

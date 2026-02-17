@@ -202,6 +202,8 @@ export const getUserModules = (userRole) => {
 // Submodule Definitions (matching server config)
 export const SUBMODULES = {
   [MODULE_KEYS.ADMIN]: [
+    'admin_dashboard',
+    'admin_settings',
     'user_management',
     'sub_roles',
     'vehicle_management', 
@@ -225,6 +227,7 @@ export const SUBMODULES = {
     'learning_development',
     'organizational_development',
     'fbr_tax_management',
+    'evaluation_appraisal',
     'reports'
   ],
   [MODULE_KEYS.FINANCE]: [
@@ -244,12 +247,22 @@ export const SUBMODULES = {
     'taj_properties',
     'taj_deposits',
     'taj_suspense_account',
-    'taj_invoices'
+    'taj_invoices',
+    'taj_open_invoices',
+    'taj_utilities_reports',
+    'recovery',
+    'recovery_assignments',
+    'recovery_members',
+    'recovery_completed_tasks'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
+    'procurement_requisitions',
+    'quotations',
+    'comparative_statements',
     'purchase_orders',
     'vendors',
     'store',
+    'quality_assurance',
     'inventory',
     'goods_receive',
     'goods_issue',
@@ -276,7 +289,8 @@ export const SUBMODULES = {
     'corrective_actions',
     'audit_trail',
     'audit_reports',
-    'audit_schedules'
+    'audit_schedules',
+    'pre_audit'
   ],
   [MODULE_KEYS.IT]: [
     'asset_management',
@@ -303,6 +317,13 @@ export const SUBMODULES = {
     'encroachment_dispute',
     'reporting_framework',
     'complains_tickets'
+  ],
+  [MODULE_KEYS.GENERAL]: [
+    'document_tracking',
+    'indents',
+    'user_tracking',
+    'project_management',
+    'ceo_secretariat'
   ]
 };
 
@@ -997,6 +1018,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
   // Helper function to get module name from path
   const getModuleNameFromPathHelper = (pathToCheck) => {
     if (pathToCheck.startsWith('/admin')) return 'admin';
+    if (pathToCheck.startsWith('/settings')) return 'admin';
     if (pathToCheck.startsWith('/hr')) return 'hr';
     if (pathToCheck.startsWith('/finance')) return 'finance';
     if (pathToCheck.startsWith('/procurement')) return 'procurement';
@@ -1018,6 +1040,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/admin/users': 'user_management',
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
+      '/settings': 'admin_settings',
       '/admin/vehicle-management': 'vehicle_management',
       '/admin/groceries': 'grocery_management',
       '/admin/petty-cash': 'petty_cash_management',
@@ -1088,6 +1111,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       // Procurement Module
       '/procurement/requisitions': 'procurement_requisitions',
       '/procurement/quotations': 'quotations',
+      '/procurement/comparative-statements': 'comparative_statements',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
       '/procurement/store': 'store',
