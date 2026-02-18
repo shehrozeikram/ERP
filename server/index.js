@@ -547,6 +547,7 @@ app.use('/api/taj-utilities/charge-types', authMiddleware, activityLogger, charg
 app.use('/api/document-tracking', authMiddleware, activityLogger, documentTrackingRoutes);
 app.use('/api/evaluation-documents', authMiddleware, activityLogger, evaluationDocumentsRoutes);
 app.use('/api/indents', authMiddleware, activityLogger, indentsRoutes);
+app.use('/api/items', authMiddleware, activityLogger, require('./routes/items'));
 app.use('/api/evaluation-level0-authorities', authMiddleware, activityLogger, evaluationLevel0AuthoritiesRoutes);
 app.use('/api/tracking', authMiddleware, userTrackingRoutes); // Don't add activityLogger to tracking routes to avoid recursion
 // Public evaluation documents route (token-based access)

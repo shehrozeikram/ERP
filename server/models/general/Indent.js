@@ -227,8 +227,7 @@ const indentSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Category is required'],
     trim: true,
-    enum: ['Office Supplies', 'IT Equipment', 'Furniture', 'Maintenance', 'Raw Materials', 'Services', 'Other'],
-    default: 'Other'
+    maxlength: [200, 'Category cannot exceed 200 characters']
   },
   
   // Attachments

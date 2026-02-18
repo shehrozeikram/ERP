@@ -13,6 +13,8 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
+  Autocomplete,
+  Popper,
   Table,
   TableBody,
   TableCell,
@@ -35,7 +37,22 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../../../contexts/DataContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
+import api from '../../../services/api';
 import dayjs from 'dayjs';
+
+const WidePopper = (props) => {
+  const { style, ...rest } = props;
+  return (
+    <Popper
+      {...rest}
+      placement="bottom-start"
+      style={{
+        width: typeof window !== 'undefined' && window.innerWidth < 900 ? 'calc(100vw - 32px)' : 720,
+        ...style
+      }}
+    />
+  );
+};
 
 const IndentForm = () => {
   const { id } = useParams();
@@ -49,6 +66,12 @@ const IndentForm = () => {
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [itemCategories, setItemCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [itemOptions, setItemOptions] = useState([]);
+  const [itemOptionsLoading, setItemOptionsLoading] = useState(false);
+  const itemOptionsReqSeq = useRef(0);
+  const lastLoadedCategoryRef = useRef('');
 
   const [formData, setFormData] = useState({
     title: '',
@@ -61,7 +84,7 @@ const IndentForm = () => {
     items: [],
     justification: '',
     priority: 'Medium',
-    category: 'Other',
+    category: '',
     signatures: {
       requester: { name: '', date: '' },
       headOfDepartment: { name: '', date: '' },
@@ -151,6 +174,57 @@ const IndentForm = () => {
     }));
   };
 
+  const fetchCategories = async () => {
+    try {
+      setCategoriesLoading(true);
+      const res = await api.get('/items/categories');
+      const cats = Array.isArray(res.data?.data) ? res.data.data.filter(Boolean) : [];
+      setItemCategories(cats);
+      if (!isEdit) {
+        setFormData((prev) => ({
+          ...prev,
+          category: prev.category || cats[0] || ''
+        }));
+      }
+    } catch (e) {
+      // ignore; user can still type category manually if needed
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  const fetchItemsForCategory = async (category) => {
+    if (!category) return;
+    const seq = ++itemOptionsReqSeq.current;
+    lastLoadedCategoryRef.current = category;
+    try {
+      setItemOptionsLoading(true);
+      const res = await api.get('/items', { params: { category, limit: 5000 } });
+      if (seq !== itemOptionsReqSeq.current) return;
+      setItemOptions(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch (e) {
+      // silently ignore - free typing still works
+    } finally {
+      if (seq === itemOptionsReqSeq.current) setItemOptionsLoading(false);
+    }
+  };
+
+  const fetchItemOptions = async (q) => {
+    const seq = ++itemOptionsReqSeq.current;
+    try {
+      setItemOptionsLoading(true);
+      const res = await api.get('/items', {
+        params: { category: formData.category, q: q || '', limit: 200 }
+      });
+      if (seq !== itemOptionsReqSeq.current) return;
+      setItemOptions(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch (e) {
+      // silently ignore - free typing still works
+    } finally {
+      if (seq === itemOptionsReqSeq.current) setItemOptionsLoading(false);
+    }
+  };
+
   const handleItemChange = (index, field, value) => {
     const updatedItems = [...formData.items];
     updatedItems[index] = {
@@ -200,6 +274,18 @@ const IndentForm = () => {
       }
     }));
   };
+
+  // Refresh suggestions when category changes
+  useEffect(() => {
+    setItemOptions([]);
+    if (formData.category) {
+      fetchItemsForCategory(formData.category);
+    }
+  }, [formData.category]);
+
+  useEffect(() => {
+    fetchCategories();
+  }, []);
 
   const validateForm = () => {
     if (!formData.title?.trim()) {
@@ -504,13 +590,17 @@ const IndentForm = () => {
                 label="Category"
                 onChange={(e) => handleChange('category', e.target.value)}
               >
-                <MenuItem value="Office Supplies">Office Supplies</MenuItem>
-                <MenuItem value="IT Equipment">IT Equipment</MenuItem>
-                <MenuItem value="Furniture">Furniture</MenuItem>
-                <MenuItem value="Maintenance">Maintenance</MenuItem>
-                <MenuItem value="Raw Materials">Raw Materials</MenuItem>
-                <MenuItem value="Services">Services</MenuItem>
-                <MenuItem value="Other">Other</MenuItem>
+                {categoriesLoading ? (
+                  <MenuItem value="" disabled>
+                    Loading categories...
+                  </MenuItem>
+                ) : (
+                  itemCategories.map((cat) => (
+                    <MenuItem key={cat} value={cat}>
+                      {cat}
+                    </MenuItem>
+                  ))
+                )}
               </Select>
             </FormControl>
           </Grid>
@@ -560,17 +650,59 @@ const IndentForm = () => {
                       <TableCell align="center" sx={{ border: '1px solid #ddd' }}>
                         {(index + 1).toString().padStart(2, '0')}
                       </TableCell>
-                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          value={item.itemName}
-                          onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
-                          placeholder="Item name"
-                          required
-                          variant="standard"
-                          InputProps={{ disableUnderline: true }}
-                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                      <TableCell sx={{ border: '1px solid #ddd', p: 0.5, minWidth: 360 }}>
+                        <Autocomplete
+                          freeSolo
+                          options={itemOptions}
+                          loading={itemOptionsLoading}
+                          PopperComponent={WidePopper}
+                          getOptionLabel={(opt) => (typeof opt === 'string' ? opt : opt?.name || '')}
+                          isOptionEqualToValue={(opt, val) => {
+                            const optName = typeof opt === 'string' ? opt : opt?.name;
+                            const valName = typeof val === 'string' ? val : val?.name;
+                            return !!optName && !!valName && optName === valName;
+                          }}
+                          value={item.itemName || ''}
+                          onChange={(_, newValue) => {
+                            const name = typeof newValue === 'string' ? newValue : newValue?.name || '';
+                            handleItemChange(index, 'itemName', name);
+                          }}
+                          onInputChange={(_, newInputValue, reason) => {
+                            if (reason === 'input') {
+                              handleItemChange(index, 'itemName', newInputValue);
+                              if (!formData.category) return;
+                              // if category list is huge and not loaded for some reason, fetch by search
+                              if (!itemOptions.length || lastLoadedCategoryRef.current !== formData.category) {
+                                fetchItemOptions(newInputValue);
+                              }
+                            }
+                          }}
+                          onOpen={() => {
+                            if (formData.category && lastLoadedCategoryRef.current !== formData.category) {
+                              fetchItemsForCategory(formData.category);
+                            }
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              fullWidth
+                              size="small"
+                              placeholder="Item name"
+                              required
+                              variant="standard"
+                              InputProps={{
+                                ...params.InputProps,
+                                disableUnderline: true,
+                                endAdornment: (
+                                  <>
+                                    {itemOptionsLoading ? <CircularProgress color="inherit" size={14} /> : null}
+                                    {params.InputProps.endAdornment}
+                                  </>
+                                )
+                              }}
+                              sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                            />
+                          )}
                         />
                       </TableCell>
                       <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
