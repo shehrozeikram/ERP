@@ -173,15 +173,13 @@ const Sidebar = () => {
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/reports': 'financial_reports',
       
-      // Procurement Module
-      '/procurement/requisitions': 'requisitions',
+      // Procurement Module (must match permissions.js / Role Permission Matrix submodule keys)
+      '/procurement': null, // dashboard - no submodule, allow if module allowed
+      '/procurement/requisitions': 'procurement_requisitions',
       '/procurement/quotations': 'quotations',
       '/procurement/comparative-statements': 'comparative_statements',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
-      '/procurement/inventory': 'inventory',
-      '/procurement/goods-receive': 'inventory',
-      '/procurement/goods-issue': 'inventory',
       '/procurement/store': 'store',
       '/procurement/store/quality-assurance': 'quality_assurance',
       '/procurement/store/inventory': 'inventory',
@@ -400,25 +398,33 @@ const Sidebar = () => {
           return null;
         }
         
-        // Filter submenu items based on submodule permissions
+        // Filter submenu items (including nested) based on submodule permissions
         if (module.subItems) {
-          const filteredSubItems = module.subItems.filter(subItem => {
-            const submoduleName = getSubmoduleFromPath(subItem.path);
-            
-            // If no submodule mapping, allow if module has permission
-            if (!submoduleName) {
-              return true;
-            }
-            
-            // Check if any role has permission for this submodule
-            const hasPermission = user.roles.some(role => {
+          const filterSubItems = (items, checkPermission) => {
+            return items
+              .map(subItem => {
+                const submoduleName = getSubmoduleFromPath(subItem.path);
+                if (!submoduleName) return { ...subItem, keep: true };
+                const hasPermission = checkPermission(submoduleName);
+                const nestedFiltered = subItem.subItems
+                  ? filterSubItems(subItem.subItems, checkPermission)
+                  : undefined;
+                const hasNestedWithPermission = nestedFiltered && nestedFiltered.length > 0;
+                return {
+                  ...subItem,
+                  keep: hasPermission || hasNestedWithPermission,
+                  subItems: nestedFiltered
+                };
+              })
+              .filter(s => s.keep)
+              .map(({ keep, subItems, ...rest }) => ({ ...rest, subItems: subItems?.length ? subItems : undefined }));
+          };
+          const checkPermission = (submoduleName) =>
+            user.roles.some(role => {
               if (!role.isActive || !role.permissions) return false;
               return hasSubmodulePermission(role.permissions, moduleName, submoduleName);
             });
-            
-            return hasPermission;
-          });
-          
+          const filteredSubItems = filterSubItems(module.subItems, checkPermission);
           return {
             ...module,
             subItems: filteredSubItems
@@ -481,20 +487,30 @@ const Sidebar = () => {
           return null;
         }
         
-        // Filter submenu items based on submodule permissions
+        // Filter submenu items (including nested) based on submodule permissions
         if (module.subItems) {
-          const filteredSubItems = module.subItems.filter(subItem => {
-            const submoduleName = getSubmoduleFromPath(subItem.path);
-            
-            // If no submodule mapping, allow if module has permission
-            if (!submoduleName) {
-              return true;
-            }
-            
-            // Check if role has permission for this submodule
-            return hasSubmodulePermission(rolePermissions, moduleName, submoduleName);
-          });
-          
+          const filterSubItems = (items, checkPermission) => {
+            return items
+              .map(subItem => {
+                const submoduleName = getSubmoduleFromPath(subItem.path);
+                if (!submoduleName) return { ...subItem, keep: true };
+                const hasPermission = checkPermission(submoduleName);
+                const nestedFiltered = subItem.subItems
+                  ? filterSubItems(subItem.subItems, checkPermission)
+                  : undefined;
+                const hasNestedWithPermission = nestedFiltered && nestedFiltered.length > 0;
+                return {
+                  ...subItem,
+                  keep: hasPermission || hasNestedWithPermission,
+                  subItems: nestedFiltered
+                };
+              })
+              .filter(s => s.keep)
+              .map(({ keep, subItems, ...rest }) => ({ ...rest, subItems: subItems?.length ? subItems : undefined }));
+          };
+          const checkPermission = (submoduleName) =>
+            hasSubmodulePermission(rolePermissions, moduleName, submoduleName);
+          const filteredSubItems = filterSubItems(module.subItems, checkPermission);
           return {
             ...module,
             subItems: filteredSubItems

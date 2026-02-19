@@ -450,9 +450,7 @@ const TajProperties = () => {
         setFormData((prev) => ({ ...prev, propertyType: trimmedValue }));
         break;
       case 'zoneType':
-        if (!zoneTypes.includes(trimmedValue)) {
-          setZoneTypes([...zoneTypes, trimmedValue]);
-        }
+        setZoneTypes((prev) => (prev.includes(trimmedValue) ? prev : [...prev, trimmedValue]));
         setFormData((prev) => ({ ...prev, zoneType: trimmedValue }));
         break;
       case 'categoryType':
@@ -494,6 +492,17 @@ const TajProperties = () => {
     }
     
     handleCloseAddNewDialog();
+  };
+
+  const handleDeleteZoneType = (zone) => {
+    if (!zone) return;
+    if (defaultZoneTypes.includes(zone)) return; // keep defaults
+
+    setZoneTypes((prev) => prev.filter((z) => z !== zone));
+    setFormData((prev) => {
+      if (prev.zoneType !== zone) return prev;
+      return { ...prev, zoneType: defaultZoneTypes[0] || 'Residential' };
+    });
   };
 
   const handleSaveNewResident = async () => {
@@ -1506,7 +1515,25 @@ const TajProperties = () => {
                 >
                   {zoneTypes.map((zone) => (
                     <MenuItem key={zone} value={zone}>
-                      {zone}
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>{zone}</span>
+                        {!defaultZoneTypes.includes(zone) && (
+                          <Tooltip title="Delete">
+                            <IconButton
+                              size="small"
+                              edge="end"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleDeleteZoneType(zone);
+                              }}
+                              sx={{ ml: 1 }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
                     </MenuItem>
                   ))}
                   <MenuItem 

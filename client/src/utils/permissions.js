@@ -1229,10 +1229,31 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       if (hasModuleLevelRead) {
         if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (module-level read, no submodule)`);
         return true;
-      } else {
-        if (isDev) console.log(`🔒 [${roleName}] ❌ No module-level read permission`);
-        return false;
       }
+
+      // Some roles are configured with submodule permissions only (no module-level actions).
+      // For module root pages like `/procurement`, allow access if the user has read access
+      // to at least one submodule under this module.
+      const anySubmoduleRead =
+        modulePermission.submodules &&
+        Array.isArray(modulePermission.submodules) &&
+        modulePermission.submodules.some((sm) => {
+          if (!sm) return false;
+          if (typeof sm === 'string') return true; // legacy format implies access
+          if (typeof sm === 'object') {
+            const acts = Array.isArray(sm.actions) ? sm.actions : [];
+            return acts.includes('read');
+          }
+          return false;
+        });
+
+      if (anySubmoduleRead) {
+        if (isDev) console.log(`🔒 [${roleName}] ✅ Access granted (submodule read implies module root access)`);
+        return true;
+      }
+
+      if (isDev) console.log(`🔒 [${roleName}] ❌ No module-level read and no readable submodule`);
+      return false;
     }
     
     // Check submodule-level permissions

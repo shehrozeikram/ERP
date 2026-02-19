@@ -6,6 +6,7 @@ const tajResidentSchema = new mongoose.Schema(
     residentId: {
       type: String,
       unique: true,
+      sparse: true,
       trim: true
     },
     // Basic Information
@@ -81,7 +82,7 @@ const tajResidentSchema = new mongoose.Schema(
 tajResidentSchema.index({ name: 1 });
 tajResidentSchema.index({ cnic: 1 });
 tajResidentSchema.index({ isActive: 1 });
-tajResidentSchema.index({ residentId: 1 });
+// residentId index is created by the field definition (unique + sparse)
 
 // Pre-save middleware to auto-generate Resident ID
 // Skip auto-generation for suspense account residents (no name and no residentId)
