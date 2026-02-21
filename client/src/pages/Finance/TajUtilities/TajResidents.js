@@ -789,24 +789,38 @@ const TajResidents = () => {
       
       setInvoices(invoiceList);
       
-      // For deposit payments: exclude arrears from balance calculation
       // Only show invoices that have remaining balance (incl. arrears)
       const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
-      
-      setDepositPaymentAllocations(outstandingInvoices.map(inv => {
-        // Use exact same calculation as Invoices page Balance column
-        // Direct copy: getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0)
+
+      // Determine first invoice of each type (earliest period) — only they carry arrears
+      const typeGroups = {};
+      outstandingInvoices.forEach(inv => {
+        const t = getInvoiceTypeFromCharges(inv.chargeTypes);
+        if (!typeGroups[t]) typeGroups[t] = [];
+        typeGroups[t].push({ id: inv._id, period: inv.periodFrom || inv.invoiceDate || '' });
+      });
+      const firstOfTypeSet = new Set();
+      Object.values(typeGroups).forEach(arr => {
+        arr.sort((a, b) => a.period.localeCompare(b.period));
+        if (arr[0]) firstOfTypeSet.add(arr[0].id);
+      });
+
+      setDepositPaymentAllocations(outstandingInvoices.flatMap(inv => {
         const adjustedGrandTotal = getDepositInvoiceDisplayAmount(inv);
-        const balance = adjustedGrandTotal - (inv.totalPaid || 0);
-        
-        return {
+        const totalPaid = inv.totalPaid || 0;
+        // First of type: full balance (includes arrears). Others: current period only.
+        const balance = firstOfTypeSet.has(inv._id)
+          ? adjustedGrandTotal - totalPaid
+          : Math.max(0, adjustedGrandTotal - (inv.totalArrears || 0) - totalPaid);
+        if (balance <= 0) return []; // already paid — exclude
+        return [{
           invoice: inv._id,
           invoiceNumber: inv.invoiceNumber,
           invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
-          balance: balance, // Exact same value as Invoices page Balance column
+          balance,
           allocatedAmount: 0,
           remaining: balance
-        };
+        }];
       }));
     } catch (err) {
       handleError(err, 'Failed to load invoices');
@@ -972,21 +986,34 @@ const TajResidents = () => {
           
           // Only show invoices that have remaining balance (incl. arrears)
           const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
-          
-          setDepositPaymentAllocations(outstandingInvoices.map(inv => {
-            // Use exact same calculation as Invoices page Balance column
-            // Direct copy: getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0)
+
+          const typeGroups2 = {};
+          outstandingInvoices.forEach(inv => {
+            const t = getInvoiceTypeFromCharges(inv.chargeTypes);
+            if (!typeGroups2[t]) typeGroups2[t] = [];
+            typeGroups2[t].push({ id: inv._id, period: inv.periodFrom || inv.invoiceDate || '' });
+          });
+          const firstOfTypeSet2 = new Set();
+          Object.values(typeGroups2).forEach(arr => {
+            arr.sort((a, b) => a.period.localeCompare(b.period));
+            if (arr[0]) firstOfTypeSet2.add(arr[0].id);
+          });
+
+          setDepositPaymentAllocations(outstandingInvoices.flatMap(inv => {
             const adjustedGrandTotal = getDepositInvoiceDisplayAmount(inv);
-            const balance = adjustedGrandTotal - (inv.totalPaid || 0);
-            
-            return {
+            const totalPaid = inv.totalPaid || 0;
+            const balance = firstOfTypeSet2.has(inv._id)
+              ? adjustedGrandTotal - totalPaid
+              : Math.max(0, adjustedGrandTotal - (inv.totalArrears || 0) - totalPaid);
+            if (balance <= 0) return []; // already paid — exclude
+            return [{
               invoice: inv._id,
               invoiceNumber: inv.invoiceNumber,
               invoiceType: getInvoiceTypeFromCharges(inv.chargeTypes),
-              balance: balance, // Exact same value as Invoices page Balance column
+              balance,
               allocatedAmount: 0,
               remaining: balance
-            };
+            }];
           }));
         } catch (err) {
           // Error reloading invoices - non-critical, continue
@@ -2749,9 +2776,7 @@ const TajResidents = () => {
                           <TableCell>{periodText}</TableCell>
                           <TableCell>{dueDateText}</TableCell>
                           <TableCell align="right">
-                            {firstOfTypeIds.has(alloc.invoice) && (invoice?.totalArrears || 0) > 0
-                              ? formatCurrency((displayAmount || 0) - (invoice?.totalArrears || 0))
-                              : formatCurrency(alloc.balance)}
+                            {formatCurrency((displayAmount || 0) - (invoice?.totalArrears || 0))}
                           </TableCell>
                           <TableCell align="right">
                             {firstOfTypeIds.has(alloc.invoice) && (invoice?.totalArrears || 0) > 0
