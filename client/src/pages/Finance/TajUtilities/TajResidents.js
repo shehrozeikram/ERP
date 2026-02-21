@@ -1192,8 +1192,7 @@ const TajResidents = () => {
       return;
     }
 
-    // For TCM (open invoices): use totalRemainingDeposits when balance may be out of sync with deposits
-    const availableBalance = selectedResident?.totalRemainingDeposits ?? selectedResident?.balance ?? 0;
+    const availableBalance = selectedResident?.balance ?? 0;
     if (amountNum > availableBalance) {
       setError(`Insufficient balance. Current balance: ${formatCurrency(availableBalance)}`);
       return;
@@ -1554,7 +1553,7 @@ const TajResidents = () => {
                   <TableCell>{resident.propertyCount || 0}</TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold" color="primary">
-                      {formatCurrency(resident.totalRemainingDeposits ?? resident.balance ?? 0)}
+                      {formatCurrency(resident.balance ?? 0)}
                     </Typography>
                   </TableCell>
                   <TableCell>{resident.contactNumber || '-'}</TableCell>
@@ -1747,7 +1746,7 @@ const TajResidents = () => {
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
               <Alert severity="info">
-                Current Balance: {formatCurrency(selectedResident?.totalRemainingDeposits ?? selectedResident?.balance ?? 0)}
+                Current Balance: {formatCurrency(selectedResident?.balance ?? 0)}
               </Alert>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -1845,7 +1844,7 @@ const TajResidents = () => {
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={12}>
               <Alert severity="info">
-                Current Balance: {formatCurrency(selectedResident?.totalRemainingDeposits ?? selectedResident?.balance ?? 0)}
+                Current Balance: {formatCurrency(selectedResident?.balance ?? 0)}
               </Alert>
             </Grid>
             {/* Check if this is TAJ MANAGEMENT (TCM) - hide property selection for open invoices */}
