@@ -790,13 +790,8 @@ const TajResidents = () => {
       setInvoices(invoiceList);
       
       // For deposit payments: exclude arrears from balance calculation
-      // Only show invoices that have a balance excluding arrears (subtotal - totalPaid > 0)
-      const outstandingInvoices = invoiceList.filter(inv => {
-        const subtotal = calculateInvoiceSubtotal(inv);
-        const totalPaid = Number(inv.totalPaid) || 0;
-        const balanceWithoutArrears = subtotal - totalPaid;
-        return balanceWithoutArrears > 0; // Only show if balance (excluding arrears) > 0
-      });
+      // Only show invoices that have remaining balance (incl. arrears)
+      const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
       
       setDepositPaymentAllocations(outstandingInvoices.map(inv => {
         // Use exact same calculation as Invoices page Balance column
@@ -819,7 +814,7 @@ const TajResidents = () => {
     } finally {
       setLoadingInvoices(false);
     }
-  }, [handleError, selectedResident, calculateInvoiceSubtotal]);
+  }, [handleError, selectedResident]);
 
   const handleDepositPaymentAllocationChange = useCallback((index, value) => {
     const numValue = Number(value) || 0;
@@ -975,14 +970,8 @@ const TajResidents = () => {
           const invoiceList = response.data?.data || [];
           setInvoices(invoiceList);
           
-          // For deposit payments: exclude arrears from balance calculation
-          // Only show invoices that have a balance excluding arrears (subtotal - totalPaid > 0)
-          const outstandingInvoices = invoiceList.filter(inv => {
-            const subtotal = calculateInvoiceSubtotal(inv);
-            const totalPaid = Number(inv.totalPaid) || 0;
-            const balanceWithoutArrears = subtotal - totalPaid;
-            return balanceWithoutArrears > 0; // Only show if balance (excluding arrears) > 0
-          });
+          // Only show invoices that have remaining balance (incl. arrears)
+          const outstandingInvoices = invoiceList.filter(inv => (inv.balance || 0) > 0);
           
           setDepositPaymentAllocations(outstandingInvoices.map(inv => {
             // Use exact same calculation as Invoices page Balance column
@@ -1032,7 +1021,7 @@ const TajResidents = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedProperty, selectedDeposits, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError, calculateInvoiceSubtotal]);
+  }, [selectedProperty, selectedDeposits, depositPaymentAllocations, depositPaymentTotals, selectedResident, invoices, depositPaymentForm, loadResidents, showSuccess, handleError]);
 
   const handleAutoMatch = useCallback(async () => {
     try {
@@ -2702,6 +2691,20 @@ const TajResidents = () => {
               <CircularProgress />
             </Box>
           ) : depositPaymentAllocations.length > 0 ? (
+            (() => {
+              const byType = {};
+                depositPaymentAllocations.forEach((alloc) => {
+                  const inv = invoices.find((i) => i._id === alloc.invoice);
+                  const t = String(alloc.invoiceType || 'Other').toUpperCase();
+                  if (!byType[t]) byType[t] = [];
+                byType[t].push({ invoice: alloc.invoice, periodFrom: inv?.periodFrom || inv?.invoiceDate || '' });
+              });
+              const firstOfTypeIds = new Set();
+              Object.values(byType).forEach((arr) => {
+                arr.sort((a, b) => (a.periodFrom || '').localeCompare(b.periodFrom || ''));
+                if (arr[0]) firstOfTypeIds.add(arr[0].invoice);
+              });
+              return (
             <>
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
@@ -2712,6 +2715,7 @@ const TajResidents = () => {
                       <TableCell><strong>Invoice Period</strong></TableCell>
                       <TableCell><strong>Due Date</strong></TableCell>
                       <TableCell align="right"><strong>Amount</strong></TableCell>
+                      <TableCell align="right"><strong>Arrears</strong></TableCell>
                       <TableCell align="right"><strong>Paid</strong></TableCell>
                       <TableCell align="right"><strong>Balance</strong></TableCell>
                       <TableCell align="right"><strong>Pay Now</strong></TableCell>
@@ -2719,7 +2723,16 @@ const TajResidents = () => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {depositPaymentAllocations.map((alloc, index) => {
+                    {[...depositPaymentAllocations]
+                      .sort((a, b) => {
+                        const invA = invoices.find((i) => i._id === a.invoice);
+                        const invB = invoices.find((i) => i._id === b.invoice);
+                        const pA = invA?.periodFrom || invA?.invoiceDate || '';
+                        const pB = invB?.periodFrom || invB?.invoiceDate || '';
+                        return String(pA || '').localeCompare(String(pB || ''));
+                      })
+                      .map((alloc) => {
+                      const originalIndex = depositPaymentAllocations.findIndex((a) => a.invoice === alloc.invoice);
                       const invoice = invoices.find(inv => inv._id === alloc.invoice);
                       const periodText = invoice?.periodFrom && invoice?.periodTo
                         ? `${dayjs(invoice.periodFrom).format('DD MMM YYYY')} - ${dayjs(invoice.periodTo).format('DD MMM YYYY')}`
@@ -2736,14 +2749,23 @@ const TajResidents = () => {
                           <TableCell>{invoice?.invoiceDate ? dayjs(invoice.invoiceDate).format('DD MMM YYYY') : '-'}</TableCell>
                           <TableCell>{periodText}</TableCell>
                           <TableCell>{dueDateText}</TableCell>
-                          <TableCell align="right">{formatCurrency(displayAmount)}</TableCell>
+                          <TableCell align="right">
+                            {firstOfTypeIds.has(alloc.invoice) && (invoice?.totalArrears || 0) > 0
+                              ? formatCurrency((displayAmount || 0) - (invoice?.totalArrears || 0))
+                              : formatCurrency(alloc.balance)}
+                          </TableCell>
+                          <TableCell align="right">
+                            {firstOfTypeIds.has(alloc.invoice) && (invoice?.totalArrears || 0) > 0
+                              ? formatCurrency(invoice.totalArrears)
+                              : '—'}
+                          </TableCell>
                           <TableCell align="right">{formatCurrency(invoice?.totalPaid || 0)}</TableCell>
                           <TableCell align="right">{formatCurrency(alloc.balance)}</TableCell>
                           <TableCell align="right">
                             <TextField
                               type="number"
                               value={alloc.allocatedAmount || ''}
-                              onChange={(e) => handleDepositPaymentAllocationChange(index, e.target.value)}
+                              onChange={(e) => handleDepositPaymentAllocationChange(originalIndex, e.target.value)}
                               size="small"
                               inputProps={{ min: 0, max: alloc.balance, step: 1 }}
                               sx={{ width: 120 }}
@@ -2817,6 +2839,8 @@ const TajResidents = () => {
                 </Alert>
               )}
             </>
+              );
+            })()
           ) : selectedProperty ? (
             <Alert severity="info">No outstanding invoices found for this property.</Alert>
           ) : null}
