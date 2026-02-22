@@ -3688,4 +3688,109 @@ router.post('/quotations/:id/create-po',
   })
 );
 
+// @route   POST /api/procurement/quotations/by-indent/:indentId/create-split-pos
+// @desc    Create one PO per vendor based on per-item vendor assignments from the Comparative Statement.
+//          Body: { vendorAssignments: { "0": "quotationId", "1": "quotationId", ... } }
+//          Each key is the indent item index (0-based). Groups items by quotation/vendor, creates one PO per group.
+// @access  Private (procurement_manager, admin, super_admin)
+router.post('/quotations/by-indent/:indentId/create-split-pos',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const { vendorAssignments } = req.body; // { "0": quotationId, "2": quotationId, ... }
+
+    if (!vendorAssignments || typeof vendorAssignments !== 'object' || Object.keys(vendorAssignments).length === 0) {
+      return res.status(400).json({ success: false, message: 'vendorAssignments is required' });
+    }
+
+    const indent = await Indent.findById(req.params.indentId).lean();
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Indent not found' });
+    }
+
+    // Collect unique quotation IDs
+    const quotationIds = [...new Set(Object.values(vendorAssignments))];
+    const quotations = await Quotation.find({ _id: { $in: quotationIds } })
+      .populate('vendor', 'name email phone')
+      .lean();
+
+    const quotationMap = {};
+    quotations.forEach(q => { quotationMap[q._id.toString()] = q; });
+
+    // Group item indices by quotation
+    const groupsByQuotation = {}; // { quotationId: [itemIndex, ...] }
+    for (const [itemIndexStr, quotationId] of Object.entries(vendorAssignments)) {
+      const itemIndex = parseInt(itemIndexStr, 10);
+      if (isNaN(itemIndex) || itemIndex < 0 || itemIndex >= indent.items.length) continue;
+      if (!quotationMap[quotationId]) continue;
+      if (!groupsByQuotation[quotationId]) groupsByQuotation[quotationId] = [];
+      groupsByQuotation[quotationId].push(itemIndex);
+    }
+
+    if (Object.keys(groupsByQuotation).length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid vendor assignments found' });
+    }
+
+    const createdPOs = [];
+
+    for (const [quotationId, itemIndices] of Object.entries(groupsByQuotation)) {
+      const quotation = quotationMap[quotationId];
+
+      const poItems = itemIndices.map(idx => {
+        const indentItem = indent.items[idx];
+        const quoteItem = quotation.items[idx];
+        if (!indentItem) return null;
+        const unitPrice = quoteItem ? (quoteItem.unitPrice || 0) : 0;
+        const taxRate = quoteItem ? (quoteItem.taxRate || 0) : 0;
+        const discount = quoteItem ? (quoteItem.discount || 0) : 0;
+        const quantity = indentItem.quantity || 0;
+        const amount = (quantity * unitPrice) - discount + ((quantity * unitPrice - discount) * taxRate / 100);
+        return {
+          description: indentItem.itemName || indentItem.description || '',
+          specification: indentItem.description || '',
+          brand: indentItem.brand || '',
+          quantity,
+          unit: indentItem.unit || 'Piece',
+          unitPrice,
+          taxRate,
+          discount,
+          amount
+        };
+      }).filter(Boolean);
+
+      if (poItems.length === 0) continue;
+
+      const purchaseOrder = new PurchaseOrder({
+        vendor: quotation.vendor._id,
+        indent: indent._id,
+        quotation: quotation._id,
+        orderDate: new Date(),
+        expectedDeliveryDate: quotation.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        status: 'Draft',
+        priority: indent.priority || 'Medium',
+        items: poItems,
+        paymentTerms: quotation.paymentTerms || '',
+        notes: `Created from Comparative Statement for Indent ${indent.indentNumber}`,
+        internalNotes: `Source: Quotation ${quotation.quotationNumber}, Indent: ${indent.indentNumber}`,
+        createdBy: req.user.id
+      });
+
+      await purchaseOrder.save();
+      pushPOWorkflowHistory(purchaseOrder, '—', 'Draft', req.user.id, `Created from CS split for Indent ${indent.indentNumber}`, 'Procurement');
+      await purchaseOrder.save();
+
+      const populated = await PurchaseOrder.findById(purchaseOrder._id)
+        .populate('vendor', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .lean();
+      createdPOs.push(populated);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `${createdPOs.length} Purchase Order(s) created from Comparative Statement`,
+      data: createdPOs
+    });
+  })
+);
+
 module.exports = router;

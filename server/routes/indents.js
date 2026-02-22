@@ -6,6 +6,7 @@ const { authorize, authMiddleware } = require('../middleware/auth');
 const Indent = require('../models/general/Indent');
 const Department = require('../models/hr/Department');
 const User = require('../models/User');
+const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 
 const router = express.Router();
 
@@ -653,6 +654,25 @@ router.post('/:id/comment',
       message: 'Comment added successfully',
       data: indent
     });
+  })
+);
+
+// @route   GET /api/indents/:id/purchase-orders
+// @desc    Get all purchase orders linked to an indent (for PO tracking from requisition)
+// @access  Private
+router.get('/:id/purchase-orders',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id).select('_id').lean();
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Indent not found' });
+    }
+    const pos = await PurchaseOrder.find({ indent: req.params.id })
+      .populate('vendor', 'name email phone')
+      .select('orderNumber status vendor orderDate totalAmount items quotation createdAt')
+      .sort({ createdAt: 1 })
+      .lean();
+    res.json({ success: true, data: pos });
   })
 );
 

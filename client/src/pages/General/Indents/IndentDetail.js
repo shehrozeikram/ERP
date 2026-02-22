@@ -25,7 +25,8 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Avatar
+  Avatar,
+  Tooltip
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -35,11 +36,13 @@ import {
   Send as SendIcon,
   ArrowBack as ArrowBackIcon,
   Comment as CommentIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  ShoppingCart as POIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
+import api from '../../../services/api';
 import dayjs from 'dayjs';
 
 const IndentDetail = () => {
@@ -52,6 +55,8 @@ const IndentDetail = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [commentDialogOpen, setCommentDialogOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [linkedPOs, setLinkedPOs] = useState([]);
+  const [loadingPOs, setLoadingPOs] = useState(false);
 
   // Load indent data
   const loadIndent = useCallback(async () => {
@@ -67,9 +72,22 @@ const IndentDetail = () => {
     }
   }, [id]);
 
+  const loadLinkedPOs = useCallback(async () => {
+    try {
+      setLoadingPOs(true);
+      const res = await api.get(`/indents/${id}/purchase-orders`);
+      if (res.data.success) setLinkedPOs(res.data.data || []);
+    } catch {
+      // non-critical
+    } finally {
+      setLoadingPOs(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     loadIndent();
-  }, [loadIndent]);
+    loadLinkedPOs();
+  }, [loadIndent, loadLinkedPOs]);
 
   // Handle actions
   const handleApprove = async () => {
@@ -496,6 +514,62 @@ const IndentDetail = () => {
                   </>
                 )}
               </Stack>
+            </CardContent>
+          </Card>
+
+          {/* Linked Purchase Orders */}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="h6" fontWeight={600}>
+                  Purchase Orders {linkedPOs.length > 0 && `(${linkedPOs.length})`}
+                </Typography>
+                {loadingPOs && <CircularProgress size={18} />}
+              </Stack>
+              {linkedPOs.length === 0 && !loadingPOs ? (
+                <Typography variant="body2" color="text.secondary">
+                  No POs created for this requisition yet.
+                </Typography>
+              ) : (
+                <Stack spacing={1.5}>
+                  {linkedPOs.map((po) => (
+                    <Box key={po._id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <POIcon fontSize="small" color="primary" />
+                          <Box>
+                            <Typography variant="body2" fontWeight={600}>
+                              {po.orderNumber}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {po.vendor?.name || '—'}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                        <Chip
+                          label={po.status}
+                          size="small"
+                          color={
+                            po.status === 'Received' ? 'success'
+                            : po.status === 'Approved' || po.status === 'Ordered' ? 'primary'
+                            : po.status === 'Cancelled' || po.status === 'Rejected' ? 'error'
+                            : po.status === 'Draft' ? 'default'
+                            : 'warning'
+                          }
+                        />
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {po.items?.length || 0} item(s)
+                        </Typography>
+                        <Typography variant="caption" fontWeight={600}>
+                          {new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(po.totalAmount || 0)}
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
             </CardContent>
           </Card>
 

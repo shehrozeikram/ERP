@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Typography,
   Paper,
   Button,
   TextField,
-  CircularProgress
+  CircularProgress,
+  Chip,
+  Tooltip
 } from '@mui/material';
-import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon } from '@mui/icons-material';
+import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon, CallSplit as SplitIcon } from '@mui/icons-material';
 
 /**
  * Shared Comparative Statement view. Used in Procurement (Comparative Statements page) and Pre-Audit (PO view tab).
@@ -19,13 +21,15 @@ import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon } 
  * @param {function} formatNumber - (num) => string
  * @param {boolean} loadingQuotations - Show spinner instead of table
  * @param {function} onSaveApprovals - Called when Save approval authorities is clicked (optional)
- * @param {function} onSelectVendor - (quotation) => void (optional)
+ * @param {function} onSelectVendor - (quotation) => void — selects entire quotation as winner (optional)
  * @param {boolean} savingApprovals - Disable save button (optional)
  * @param {boolean} updating - Disable select buttons (optional)
  * @param {string} approvalsSavedForRequisition - Requisition id when approvals saved; enables Select (optional)
  * @param {function} onNoteChange - (value) => void when note is edited (optional, for !readOnly)
  * @param {function} onApprovalChange - (key, value) => void when approval field is edited (optional, for !readOnly)
  * @param {boolean} showPrintButton - Show Print button (default true when !readOnly)
+ * @param {function} onCreateSplitPOs - ({ vendorAssignments }) => void — called when user clicks "Create Split POs" (optional)
+ * @param {boolean} creatingSplitPOs - Disables the Create Split POs button while in progress (optional)
  */
 const ComparativeStatementView = ({
   requisition,
@@ -42,11 +46,41 @@ const ComparativeStatementView = ({
   approvalsSavedForRequisition = null,
   onNoteChange,
   onApprovalChange,
-  showPrintButton = !readOnly
+  showPrintButton = !readOnly,
+  onCreateSplitPOs,
+  creatingSplitPOs = false
 }) => {
   const selectedRequisition = requisition;
   const comparativeNote = note;
   const keys = ['preparedBy', 'verifiedBy', 'authorisedRep', 'financeRep', 'managerProcurement'];
+
+  // Per-item vendor assignment: { itemIndex: quotationId }
+  const [vendorAssignments, setVendorAssignments] = useState({});
+
+  const handleAssignVendorToItem = useCallback((itemIndex, quotationId) => {
+    setVendorAssignments(prev => {
+      // Toggle off if already assigned to same vendor
+      if (prev[itemIndex] === quotationId) {
+        const next = { ...prev };
+        delete next[itemIndex];
+        return next;
+      }
+      return { ...prev, [itemIndex]: quotationId };
+    });
+  }, []);
+
+  const allItemsAssigned =
+    selectedRequisition?.items?.length > 0 &&
+    selectedRequisition.items.every((_, idx) => vendorAssignments[idx]);
+
+  const assignedCount = Object.keys(vendorAssignments).length;
+  const totalItems = selectedRequisition?.items?.length || 0;
+
+  const handleCreateSplitPOs = () => {
+    if (onCreateSplitPOs) {
+      onCreateSplitPOs({ vendorAssignments });
+    }
+  };
 
   return (
     <Paper
@@ -139,92 +173,152 @@ const ComparativeStatementView = ({
       ) : !quotations || quotations.length === 0 ? (
         <Box sx={{ p: 3, textAlign: 'center' }}><Typography>No quotations available for comparison</Typography></Box>
       ) : (
-        <Box sx={{ mb: 3, overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif', minWidth: '1000px' }} className="comparative-table">
-            <thead>
-              <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                <th colSpan={4} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem' }}>Vendor</th>
-                {quotations.map((quote, idx) => (
-                  <th key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem', backgroundColor: quote.status === 'Finalized' ? '#c8e6c9' : '#f5f5f5', verticalAlign: 'top' }}>
-                    {!readOnly && onSelectVendor && (
-                      <Box sx={{ mb: 1, '@media print': { display: 'none' } }}>
-                        <Button
-                          variant={quote.status === 'Finalized' ? 'contained' : 'outlined'}
-                          color={quote.status === 'Finalized' ? 'success' : 'primary'}
-                          startIcon={quote.status === 'Finalized' ? <CheckCircleIcon /> : null}
-                          onClick={() => onSelectVendor(quote)}
-                          disabled={updating || quote.status === 'Finalized' || approvalsSavedForRequisition !== selectedRequisition?._id}
-                          size="small"
-                          sx={{ fontSize: '0.7rem', padding: '4px 8px', minWidth: 'auto' }}
-                        >
-                          {quote.status === 'Finalized' ? 'Selected' : 'Select'}
-                        </Button>
-                      </Box>
-                    )}
-                    {quote.vendor?.name || `Vendor ${idx + 1}`}
-                    {quote.status === 'Finalized' && <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#2e7d32', fontWeight: 600 }}>(Selected)</Box>}
-                  </th>
-                ))}
-              </tr>
-              <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '4%', fontSize: '0.8rem' }}>Sr no</th>
-                <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'left', width: '35%', fontSize: '0.8rem' }}>Item Description</th>
-                <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', width: '8%', fontSize: '0.8rem' }}>Unit</th>
-                <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '6%', fontSize: '0.8rem' }}>Qty</th>
-                {quotations.map((_, idx) => (
-                  <React.Fragment key={idx}>
-                    <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>Rate</th>
-                    <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>Total</th>
-                  </React.Fragment>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => (
-                <tr key={itemIndex} style={{ border: '1px solid #000' }}>
-                  <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{itemIndex + 1}</td>
-                  <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.itemName || item.description || '___________'}</td>
-                  <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.unit || 'Nos'}</td>
-                  <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.quantity ?? '___'}</td>
-                  {quotations.map((quote, quoteIdx) => {
-                    const quoteItem = quote.items?.[itemIndex];
-                    const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
-                    return (
-                      <React.Fragment key={quoteIdx}>
-                        <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem' }}>{quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}</td>
-                        <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem' }}>{quoteItem ? formatNumber(itemTotal) : '___________'}</td>
-                      </React.Fragment>
-                    );
-                  })}
+        <>
+          {/* Per-item vendor assignment info bar */}
+          {!readOnly && onCreateSplitPOs && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#f0f4ff', borderRadius: 1, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', '@media print': { display: 'none' } }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                Split PO Mode:
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Click a vendor cell in any item row to assign that item to that vendor. Then click "Create Split POs".
+              </Typography>
+              <Chip
+                size="small"
+                label={`${assignedCount} / ${totalItems} items assigned`}
+                color={allItemsAssigned ? 'success' : assignedCount > 0 ? 'warning' : 'default'}
+              />
+              <Button
+                variant="contained"
+                color="success"
+                size="small"
+                startIcon={creatingSplitPOs ? <CircularProgress size={16} color="inherit" /> : <SplitIcon />}
+                onClick={handleCreateSplitPOs}
+                disabled={creatingSplitPOs || assignedCount === 0}
+                sx={{ ml: 'auto' }}
+              >
+                {creatingSplitPOs ? 'Creating…' : 'Create Split POs'}
+              </Button>
+            </Box>
+          )}
+
+          <Box sx={{ mb: 3, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif', minWidth: '1000px' }} className="comparative-table">
+              <thead>
+                <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                  <th colSpan={4} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem' }}>Vendor</th>
+                  {quotations.map((quote, idx) => (
+                    <th key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.85rem', backgroundColor: quote.status === 'Finalized' ? '#c8e6c9' : '#f5f5f5', verticalAlign: 'top' }}>
+                      {!readOnly && onSelectVendor && (
+                        <Box sx={{ mb: 1, '@media print': { display: 'none' } }}>
+                          <Button
+                            variant={quote.status === 'Finalized' ? 'contained' : 'outlined'}
+                            color={quote.status === 'Finalized' ? 'success' : 'primary'}
+                            startIcon={quote.status === 'Finalized' ? <CheckCircleIcon /> : null}
+                            onClick={() => onSelectVendor(quote)}
+                            disabled={updating || quote.status === 'Finalized' || approvalsSavedForRequisition !== selectedRequisition?._id}
+                            size="small"
+                            sx={{ fontSize: '0.7rem', padding: '4px 8px', minWidth: 'auto' }}
+                          >
+                            {quote.status === 'Finalized' ? 'Selected' : 'Select All'}
+                          </Button>
+                        </Box>
+                      )}
+                      {quote.vendor?.name || `Vendor ${idx + 1}`}
+                      {quote.status === 'Finalized' && <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', mt: 0.5, color: '#2e7d32', fontWeight: 600 }}>(Selected)</Box>}
+                    </th>
+                  ))}
                 </tr>
-              )) : (
-                <tr>
-                  <td colSpan={4 + quotations.length * 2} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>No items</td>
+                <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
+                  <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '4%', fontSize: '0.8rem' }}>Sr no</th>
+                  <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'left', width: '35%', fontSize: '0.8rem' }}>Item Description</th>
+                  <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', width: '8%', fontSize: '0.8rem' }}>Unit</th>
+                  <th style={{ border: '1px solid #000', padding: '8px 6px', textAlign: 'center', fontWeight: 700, width: '6%', fontSize: '0.8rem' }}>Qty</th>
+                  {quotations.map((_, idx) => (
+                    <React.Fragment key={idx}>
+                      <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>Rate</th>
+                      <th style={{ border: '1px solid #000', padding: '8px 6px', fontWeight: 700, textAlign: 'center', fontSize: '0.8rem' }}>Total</th>
+                    </React.Fragment>
+                  ))}
                 </tr>
-              )}
-              <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
-                <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>TOTAL</td>
-                {quotations.map((quote, idx) => (
-                  <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>{formatNumber(quote.totalAmount || 0)}</td>
-                ))}
-              </tr>
-              <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
-                <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Income Tax</td>
-                {quotations.map((_, idx) => <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>Not Included</td>)}
-              </tr>
-              <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
-                <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Transportation</td>
-                {quotations.map((_, idx) => <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>Not Included</td>)}
-              </tr>
-              <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#d0d0d0', fontWeight: 700 }}>
-                <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>Grand Total</td>
-                {quotations.map((quote, idx) => (
-                  <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>{formatNumber(quote.totalAmount || 0)}</td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </Box>
+              </thead>
+              <tbody>
+                {selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => {
+                  const assignedQuotationId = vendorAssignments[itemIndex];
+                  return (
+                    <tr key={itemIndex} style={{ border: '1px solid #000', backgroundColor: assignedQuotationId ? '#f0fff0' : undefined }}>
+                      <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{itemIndex + 1}</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                        {item.itemName || item.description || '___________'}
+                        {assignedQuotationId && !readOnly && (
+                          <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', color: '#2e7d32', fontWeight: 600, '@media print': { display: 'none' } }}>
+                            → {quotations.find(q => q._id === assignedQuotationId)?.vendor?.name || 'Vendor'}
+                          </Box>
+                        )}
+                      </td>
+                      <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.unit || 'Nos'}</td>
+                      <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.quantity ?? '___'}</td>
+                      {quotations.map((quote, quoteIdx) => {
+                        const quoteItem = quote.items?.[itemIndex];
+                        const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
+                        const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
+                        const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
+                        return (
+                          <React.Fragment key={quoteIdx}>
+                            <td
+                              style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: !readOnly && onCreateSplitPOs ? 'pointer' : undefined }}
+                              onClick={!readOnly && onCreateSplitPOs && quoteItem ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
+                            >
+                              {quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}
+                            </td>
+                            <Tooltip
+                              title={!readOnly && onCreateSplitPOs && quoteItem ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : ''}
+                              placement="top"
+                            >
+                              <td
+                                style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: !readOnly && onCreateSplitPOs && quoteItem ? 'pointer' : undefined }}
+                                onClick={!readOnly && onCreateSplitPOs && quoteItem ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
+                              >
+                                {quoteItem ? formatNumber(itemTotal) : '___________'}
+                                {isAssignedToThis && !readOnly && (
+                                  <CheckCircleIcon sx={{ fontSize: '0.8rem', ml: 0.5, color: '#2e7d32', verticalAlign: 'middle', '@media print': { display: 'none' } }} />
+                                )}
+                              </td>
+                            </Tooltip>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  );
+                }) : (
+                  <tr>
+                    <td colSpan={4 + quotations.length * 2} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>No items</td>
+                  </tr>
+                )}
+                <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
+                  <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>TOTAL</td>
+                  {quotations.map((quote, idx) => (
+                    <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>{formatNumber(quote.totalAmount || 0)}</td>
+                  ))}
+                </tr>
+                <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
+                  <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Income Tax</td>
+                  {quotations.map((_, idx) => <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>Not Included</td>)}
+                </tr>
+                <tr style={{ border: '1px solid #000', fontWeight: 600 }}>
+                  <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>Transportation</td>
+                  {quotations.map((_, idx) => <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', fontSize: '0.8rem' }}>Not Included</td>)}
+                </tr>
+                <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#d0d0d0', fontWeight: 700 }}>
+                  <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>Grand Total</td>
+                  {quotations.map((quote, idx) => (
+                    <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>{formatNumber(quote.totalAmount || 0)}</td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </Box>
+        </>
       )}
 
       {/* Terms & Conditions */}

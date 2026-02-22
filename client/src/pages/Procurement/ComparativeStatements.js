@@ -58,6 +58,7 @@ const ComparativeStatements = () => {
   const [approvalsSavedForRequisition, setApprovalsSavedForRequisition] = useState(null);
   // Editable note (saved with approval authorities)
   const [comparativeNote, setComparativeNote] = useState('');
+  const [creatingSplitPOs, setCreatingSplitPOs] = useState(false);
 
   // Load requisitions on component mount
   useEffect(() => {
@@ -160,6 +161,26 @@ const ComparativeStatements = () => {
 
   const handleSelectVendor = (quotation) => {
     setSelectDialog({ open: true, quotation });
+  };
+
+  const handleCreateSplitPOs = async ({ vendorAssignments }) => {
+    if (!selectedRequisition?._id) return;
+    try {
+      setCreatingSplitPOs(true);
+      setError('');
+      const response = await api.post(
+        `/procurement/quotations/by-indent/${selectedRequisition._id}/create-split-pos`,
+        { vendorAssignments }
+      );
+      const pos = response.data.data || [];
+      const poNumbers = pos.map(p => p.orderNumber).join(', ');
+      setSuccess(`${pos.length} Purchase Order(s) created: ${poNumbers}. You can track them in Purchase Orders.`);
+      setTimeout(() => setSuccess(''), 8000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to create split purchase orders');
+    } finally {
+      setCreatingSplitPOs(false);
+    }
   };
 
   const confirmSelectVendor = async () => {
@@ -285,6 +306,8 @@ const ComparativeStatements = () => {
             approvalsSavedForRequisition={approvalsSavedForRequisition}
             onNoteChange={setComparativeNote}
             onApprovalChange={(key, value) => setApprovalAuthority((prev) => ({ ...prev, [key]: value }))}
+            onCreateSplitPOs={handleCreateSplitPOs}
+            creatingSplitPOs={creatingSplitPOs}
             showPrintButton
           />
         )}
