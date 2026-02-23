@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const TajProperty = require('../models/tajResidencia/TajProperty');
+const TajResident = require('../models/tajResidencia/TajResident');
 const CAMCharge = require('../models/tajResidencia/CAMCharge');
 const Electricity = require('../models/tajResidencia/Electricity');
 const {
@@ -147,12 +148,97 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Transfer ownership (must be before /:id to avoid route conflict)
+router.post('/:id/transfer-ownership', async (req, res) => {
+  try {
+    const property = await TajProperty.findById(req.params.id);
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+    const {
+      newOwnerName,
+      newContact,
+      newTenantName,
+      newTenantPhone,
+      newTenantEmail,
+      newTenantCNIC,
+      residentId,
+      effectiveDate,
+      notes
+    } = req.body;
+
+    const historyEntry = {
+      previousOwnerName: property.ownerName,
+      previousContact: property.contactNumber,
+      previousTenantName: property.tenantName,
+      previousTenantPhone: property.tenantPhone,
+      previousTenantEmail: property.tenantEmail,
+      previousTenantCNIC: property.tenantCNIC,
+      previousResident: property.resident,
+      newOwnerName: newOwnerName ?? property.ownerName,
+      newContact: newContact ?? property.contactNumber,
+      newTenantName: newTenantName ?? property.tenantName,
+      newTenantPhone: newTenantPhone ?? property.tenantPhone,
+      newTenantEmail: newTenantEmail ?? property.tenantEmail,
+      newTenantCNIC: newTenantCNIC ?? property.tenantCNIC,
+      newResident: residentId || null,
+      effectiveDate: effectiveDate ? new Date(effectiveDate) : new Date(),
+      transferredBy: req.user?._id || null,
+      notes: notes || ''
+    };
+
+    property.ownerName = historyEntry.newOwnerName;
+    property.contactNumber = historyEntry.newContact;
+    property.tenantName = historyEntry.newTenantName;
+    property.tenantPhone = historyEntry.newTenantPhone;
+    property.tenantEmail = historyEntry.newTenantEmail;
+    property.tenantCNIC = historyEntry.newTenantCNIC;
+    const prevResidentId = property.resident ? property.resident.toString() : null;
+    const newResidentId = residentId ? String(residentId) : null;
+    property.resident = newResidentId || null;
+    if (!property.ownershipHistory) property.ownershipHistory = [];
+    property.ownershipHistory.push(historyEntry);
+    property.updatedBy = req.user?._id || null;
+    await property.save();
+
+    // Sync resident.properties: remove from old, add to new
+    if (prevResidentId) {
+      await TajResident.findByIdAndUpdate(prevResidentId, {
+        $pull: { properties: property._id }
+      });
+    }
+    if (newResidentId) {
+      await TajResident.findByIdAndUpdate(newResidentId, {
+        $addToSet: { properties: property._id }
+      });
+    }
+
+    const updated = await TajProperty.findById(req.params.id)
+      .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
+      .populate('resident', 'name accountType contactNumber email residentId')
+      .populate('ownershipHistory.previousResident', 'name contactNumber email residentId')
+      .populate('ownershipHistory.newResident', 'name contactNumber email residentId')
+      .populate('ownershipHistory.transferredBy', 'firstName lastName email _id')
+      .populate('createdBy', 'firstName lastName email _id')
+      .populate('updatedBy', 'firstName lastName email _id');
+
+    clearCached(CACHE_KEYS.PROPERTIES_LIST);
+    clearCached(CACHE_KEYS.UNASSIGNED_PROPERTIES);
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 // Get property by id
 router.get('/:id', async (req, res) => {
   try {
     const property = await TajProperty.findById(req.params.id)
       .populate('rentalAgreement', 'agreementNumber propertyName propertyAddress tenantName tenantContact tenantIdCard monthlyRent securityDeposit annualRentIncreaseType annualRentIncreaseValue increasedRent startDate endDate terms agreementImage status createdAt updatedAt')
       .populate('resident', 'name accountType contactNumber email residentId')
+      .populate('ownershipHistory.previousResident', 'name contactNumber email residentId')
+      .populate('ownershipHistory.newResident', 'name contactNumber email residentId')
+      .populate('ownershipHistory.transferredBy', 'firstName lastName email _id')
       .populate('createdBy', 'firstName lastName email _id')
       .populate('updatedBy', 'firstName lastName email _id');
     if (!property) {

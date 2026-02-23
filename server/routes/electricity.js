@@ -1014,9 +1014,10 @@ router.post('/bulk-create', authMiddleware, [
             return;
           }
 
-          // Get previous reading and arrears
+          // Get previous reading and arrears (arrears = immediately previous invoice's balance only)
           const propertyKey = property.address || property.plotNumber || property.ownerName;
-          const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey);
+          const periodFrom = overrideFromDate ? new Date(overrideFromDate) : billingFromDate;
+          const { prvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, propertyId, periodFrom);
 
           // Calculate units consumed
           const curReading = parseFloat(currentReading) || 0;

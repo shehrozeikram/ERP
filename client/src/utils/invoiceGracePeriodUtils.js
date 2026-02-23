@@ -41,7 +41,10 @@ export function getAdjustedGrandTotal(invoice) {
     }
     return c;
   })();
-  const baseAmount = chargesForMonth + (invoice.totalArrears || 0);
+  const arrears = (invoice.chargeTypes?.includes('ELECTRICITY') && invoice.effectiveArrears != null)
+    ? invoice.effectiveArrears
+    : (invoice.totalArrears || 0);
+  const baseAmount = chargesForMonth + arrears;
 
   // IMPORTANT: Business wants late-surcharge behaviour ONLY for Electricity invoices.
   // For CAM, RENT, and other invoice types we just show the stored grandTotal/baseAmount

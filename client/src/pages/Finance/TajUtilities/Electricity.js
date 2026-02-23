@@ -805,7 +805,7 @@ const Electricity = () => {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [pendingReading, invoiceProperty?._id]);
+  }, [pendingReading, invoiceProperty?._id, invoiceData?.periodFrom]);
 
   // Debounced calculation effect for multiple meters
   useEffect(() => {
@@ -837,14 +837,15 @@ const Electricity = () => {
             // Get previous reading for this specific meter
             const meterReading = meterReadings[meterNo] || {};
             
-            // Send units consumed directly (simplified approach)
-            // Pass manual previous reading to ensure it's used in calculation
+            // Pass periodFrom so arrears = only immediately previous invoice's balance
+            const periodFromVal = invoiceData?.periodFrom ? (typeof invoiceData.periodFrom === 'string' ? invoiceData.periodFrom : invoiceData.periodFrom?.toISOString?.()?.slice(0, 10)) : undefined;
             const response = await getElectricityCalculation(
               invoiceProperty._id, 
               undefined, 
               meterNo, 
               unitsConsumed,
-              meterReading.previousReading
+              meterReading.previousReading,
+              periodFromVal
             );
             
             if (!response.data?.success) {
@@ -891,7 +892,7 @@ const Electricity = () => {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [pendingMeterCalculations, invoiceProperty?._id]);
+  }, [pendingMeterCalculations, invoiceProperty?._id, invoiceData?.periodFrom]);
 
   const handleInvoiceFieldChange = (field, value) => {
     if (!invoiceData) return;

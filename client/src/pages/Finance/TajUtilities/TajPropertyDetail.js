@@ -14,7 +14,12 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -22,11 +27,14 @@ import {
   Edit as EditIcon,
   Image as ImageIcon,
   Visibility as VisibilityIcon,
-  ReceiptLong as ReceiptIcon
+  ReceiptLong as ReceiptIcon,
+  SwapHoriz as TransferIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { useParams, useNavigate } from 'react-router-dom';
-import { fetchPropertyById, updatePropertyStatus } from '../../../services/tajPropertiesService';
+import { fetchPropertyById, updatePropertyStatus, transferPropertyOwnership } from '../../../services/tajPropertiesService';
+import { fetchResidents } from '../../../services/tajResidentsService';
 import { getImageUrl, handleImageError } from '../../../utils/imageService';
 import { useAuth } from '../../../contexts/AuthContext';
 import jsPDF from 'jspdf';
@@ -42,10 +50,46 @@ const TajPropertyDetail = () => {
   const [error, setError] = useState('');
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [statusError, setStatusError] = useState('');
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [transferForm, setTransferForm] = useState({
+    newOwnerName: '',
+    newContact: '',
+    newTenantName: '',
+    newTenantPhone: '',
+    newTenantEmail: '',
+    newTenantCNIC: '',
+    residentId: '',
+    effectiveDate: dayjs().format('YYYY-MM-DD'),
+    notes: ''
+  });
+  const [residents, setResidents] = useState([]);
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState('');
 
   useEffect(() => {
     fetchProperty();
   }, [id]);
+
+  useEffect(() => {
+    if (transferDialogOpen) {
+      fetchResidents({ isActive: 'true', limit: 500 })
+        .then((res) => setResidents(res.data?.data || res.data || []))
+        .catch(() => setResidents([]));
+      if (property) {
+        setTransferForm({
+          newOwnerName: property.ownerName || '',
+          newContact: property.contactNumber || '',
+          newTenantName: property.tenantName || '',
+          newTenantPhone: property.tenantPhone || '',
+          newTenantEmail: property.tenantEmail || '',
+          newTenantCNIC: property.tenantCNIC || '',
+          residentId: property.resident?._id || property.resident || '',
+          effectiveDate: dayjs().format('YYYY-MM-DD'),
+          notes: ''
+        });
+      }
+    }
+  }, [transferDialogOpen, property]);
 
   const fetchProperty = async () => {
     try {
@@ -73,6 +117,35 @@ const TajPropertyDetail = () => {
       setStatusError(err.response?.data?.message || 'Failed to update status');
     } finally {
       setStatusUpdating(false);
+    }
+  };
+
+  const handleTransferFormChange = (field, value) => {
+    setTransferForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleTransferOwnership = async () => {
+    try {
+      setTransferring(true);
+      setTransferError('');
+      const payload = {
+        newOwnerName: transferForm.newOwnerName || undefined,
+        newContact: transferForm.newContact || undefined,
+        newTenantName: transferForm.newTenantName || undefined,
+        newTenantPhone: transferForm.newTenantPhone || undefined,
+        newTenantEmail: transferForm.newTenantEmail || undefined,
+        newTenantCNIC: transferForm.newTenantCNIC || undefined,
+        residentId: transferForm.residentId || undefined,
+        effectiveDate: transferForm.effectiveDate || undefined,
+        notes: transferForm.notes || undefined
+      };
+      await transferPropertyOwnership(id, payload);
+      setTransferDialogOpen(false);
+      await fetchProperty();
+    } catch (err) {
+      setTransferError(err.response?.data?.message || 'Failed to transfer ownership');
+    } finally {
+      setTransferring(false);
     }
   };
 
@@ -668,9 +741,16 @@ const TajPropertyDetail = () => {
         </Typography>
         <Button
           variant="outlined"
+          startIcon={<TransferIcon />}
+          onClick={() => setTransferDialogOpen(true)}
+          sx={{ ml: 'auto' }}
+        >
+          Transfer Ownership
+        </Button>
+        <Button
+          variant="outlined"
           startIcon={<EditIcon />}
           onClick={() => navigate(`/finance/taj-utilities-charges/taj-properties?edit=${id}`)}
-          sx={{ ml: 'auto' }}
         >
           Edit
         </Button>
@@ -696,6 +776,102 @@ const TajPropertyDetail = () => {
           {statusError}
         </Alert>
       )}
+
+      <Dialog open={transferDialogOpen} onClose={() => !transferring && setTransferDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Transfer Ownership / Tenant</DialogTitle>
+        <DialogContent>
+          {transferError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setTransferError('')}>
+              {transferError}
+            </Alert>
+          )}
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary">New Owner</Typography>
+            <TextField
+              label="Owner Name"
+              value={transferForm.newOwnerName}
+              onChange={(e) => handleTransferFormChange('newOwnerName', e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Contact Number"
+              value={transferForm.newContact}
+              onChange={(e) => handleTransferFormChange('newContact', e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <FormControl fullWidth size="small">
+              <InputLabel>Link to Resident Profile</InputLabel>
+              <Select
+                value={transferForm.residentId}
+                label="Link to Resident Profile"
+                onChange={(e) => handleTransferFormChange('residentId', e.target.value)}
+              >
+                <MenuItem value="">None</MenuItem>
+                {residents.map((r) => (
+                  <MenuItem key={r._id} value={r._id}>
+                    {r.name || r.residentId || 'Unnamed'} {r.residentId ? `(${r.residentId})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 1 }}>New Tenant (if applicable)</Typography>
+            <TextField
+              label="Tenant Name"
+              value={transferForm.newTenantName}
+              onChange={(e) => handleTransferFormChange('newTenantName', e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Tenant Phone"
+              value={transferForm.newTenantPhone}
+              onChange={(e) => handleTransferFormChange('newTenantPhone', e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Tenant Email"
+              value={transferForm.newTenantEmail}
+              onChange={(e) => handleTransferFormChange('newTenantEmail', e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Tenant CNIC"
+              value={transferForm.newTenantCNIC}
+              onChange={(e) => handleTransferFormChange('newTenantCNIC', e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <TextField
+              label="Effective Date"
+              type="date"
+              value={transferForm.effectiveDate}
+              onChange={(e) => handleTransferFormChange('effectiveDate', e.target.value)}
+              fullWidth
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Notes"
+              value={transferForm.notes}
+              onChange={(e) => handleTransferFormChange('notes', e.target.value)}
+              fullWidth
+              size="small"
+              multiline
+              rows={2}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTransferDialogOpen(false)} disabled={transferring}>Cancel</Button>
+          <Button variant="contained" onClick={handleTransferOwnership} disabled={transferring}>
+            {transferring ? 'Transferring…' : 'Transfer'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={8}>
@@ -903,6 +1079,66 @@ const TajPropertyDetail = () => {
               </Grid>
             </CardContent>
           </Card>
+
+          {(property.ownershipHistory?.length > 0) && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
+                  <HistoryIcon color="action" />
+                  <Typography variant="h6" fontWeight={600}>
+                    Ownership & Tenant History
+                  </Typography>
+                </Stack>
+                <Divider sx={{ mb: 2 }} />
+                <Stack spacing={2}>
+                  {[...(property.ownershipHistory || [])].reverse().map((entry, idx) => (
+                    <Box
+                      key={idx}
+                      sx={{
+                        p: 2,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        bgcolor: 'grey.50'
+                      }}
+                    >
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                        {dayjs(entry.effectiveDate).format('DD MMM YYYY')}
+                        {entry.transferredBy && (
+                          <> • By {entry.transferredBy?.firstName} {entry.transferredBy?.lastName || entry.transferredBy?.email}</>
+                        )}
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="caption" color="text.secondary" display="block">Previous</Typography>
+                          <Typography variant="body2"><strong>Owner:</strong> {entry.previousOwnerName || '—'}</Typography>
+                          {entry.previousContact && <Typography variant="body2"><strong>Contact:</strong> {entry.previousContact}</Typography>}
+                          {entry.previousTenantName && <Typography variant="body2"><strong>Tenant:</strong> {entry.previousTenantName}</Typography>}
+                          {(entry.previousResident?.name || entry.previousResident?.residentId) && (
+                            <Typography variant="body2"><strong>Resident profile:</strong> {entry.previousResident?.name || entry.previousResident?.residentId}</Typography>
+                          )}
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="caption" color="text.secondary" display="block">New</Typography>
+                          <Typography variant="body2"><strong>Owner:</strong> {entry.newOwnerName || '—'}</Typography>
+                          {entry.newContact && <Typography variant="body2"><strong>Contact:</strong> {entry.newContact}</Typography>}
+                          {entry.newTenantName && <Typography variant="body2"><strong>Tenant:</strong> {entry.newTenantName}</Typography>}
+                          {(entry.newResident?.name || entry.newResident?.residentId) && (
+                            <Typography variant="body2"><strong>Resident profile:</strong> {entry.newResident?.name || entry.newResident?.residentId}</Typography>
+                          )}
+                        </Grid>
+                        {entry.notes && (
+                          <Grid item xs={12}>
+                            <Typography variant="body2" color="text.secondary"><em>{entry.notes}</em></Typography>
+                          </Grid>
+                        )}
+                      </Grid>
+                    </Box>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           {property.categoryType === 'Personal Rent' && (
             <>

@@ -108,44 +108,64 @@ const calculateElectricityCharges = (unitsConsumed, unitRate, fixRate = 0, meter
 };
 
 /**
- * Get previous reading from last bill for a property
+ * Get adjusted balance for an invoice (balance + 10% surcharge if overdue and unpaid).
+ * Shared by getPreviousReading and getEffectiveArrearsForInvoice.
+ */
+const getAdjustedBalanceForInvoice = (inv) => {
+  const GRACE_PERIOD_DAYS = 6;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const dueStart = inv.dueDate ? new Date(inv.dueDate) : null;
+  if (dueStart) dueStart.setHours(0, 0, 0, 0);
+  const dueWithGrace = dueStart ? new Date(dueStart) : null;
+  if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
+  const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
+  if (!isOverdue || !isUnpaid) return inv.balance || 0;
+  let chargesForMonth = inv.subtotal || 0;
+  if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
+    const totalChargesAmount = inv.charges.reduce((sum, c) => sum + (c.amount || 0), 0);
+    if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
+  }
+  const baseAmount = chargesForMonth + (inv.totalArrears || 0);
+  const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+  return Math.max(0, baseAmount + latePaymentSurcharge - (inv.totalPaid || 0));
+};
+
+/**
+ * Get previous reading from last bill for a property.
+ * previousArrears = adjusted balance of the IMMEDIATELY PREVIOUS invoice only (not sum of all unpaid).
  * @param {String} meterNo - Meter number
  * @param {String} propertyKey - Property identifier (address, plotNo, or owner)
  * @param {String|ObjectId} propertyId - Property ID (optional, for checking PropertyInvoice records)
+ * @param {String|Date} periodFrom - Optional. When creating invoice for periodFrom, arrears = previous month's balance only.
  * @returns {Promise<{prvReading: Number, previousArrears: Number}>}
  */
-const getPreviousReading = async (meterNo, propertyKey, propertyId = null) => {
+const getPreviousReading = async (meterNo, propertyKey, propertyId = null, periodFrom = null) => {
   try {
     // Try to find last bill by meter number first (must match exactly)
     let lastBill = null;
     if (meterNo) {
-      // Convert meterNo to string for consistent matching
       const meterNoStr = String(meterNo);
-      
-      // OPTIMIZATION: Find the latest Electricity record that is actually linked to an active PropertyInvoice
-      // This ensures that if an invoice is deleted, its reading is ignored
-      const validInvoices = await PropertyInvoice.find({ 
+      const validInvoices = await PropertyInvoice.find({
         property: propertyId,
         chargeTypes: { $in: ['ELECTRICITY'] }
       }).select('electricityBill').lean();
-      
       const validBillIds = validInvoices.map(inv => inv.electricityBill).filter(Boolean);
 
-      lastBill = await Electricity.findOne({ 
+      lastBill = await Electricity.findOne({
         meterNo: meterNoStr,
-        _id: { $in: validBillIds } // Only consider bills that still have an invoice
+        _id: { $in: validBillIds }
       })
         .sort({ toDate: -1, createdAt: -1 })
         .lean();
     }
-    
-    // If not found by meter, try by property key (fallback for legacy)
+
     if (!lastBill && propertyKey && (!meterNo || String(meterNo).trim() === '')) {
-      const validInvoices = await PropertyInvoice.find({ 
+      const validInvoices = await PropertyInvoice.find({
         property: propertyId,
         chargeTypes: { $in: ['ELECTRICITY'] }
       }).select('electricityBill').lean();
-      
       const validBillIds = validInvoices.map(inv => inv.electricityBill).filter(Boolean);
 
       lastBill = await Electricity.findOne({
@@ -156,86 +176,52 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null) => {
         ],
         _id: { $in: validBillIds }
       })
-      .sort({ toDate: -1, createdAt: -1 })
-      .lean();
+        .sort({ toDate: -1, createdAt: -1 })
+        .lean();
     }
 
-    // Get arrears from last Electricity bill
-    const electricityBillArrears = lastBill ? (lastBill.arrears || 0) : 0;
-    
-    // Calculate carry forward arrears from unpaid PropertyInvoice records
-    // Use same logic as Balance column: if invoice is overdue (after due date + 6-day grace), include 10% surcharge
-    let carryForwardArrears = 0;
+    // Arrears = adjusted balance of IMMEDIATELY PREVIOUS invoice only (same logic as getEffectiveArrearsForInvoice)
+    let previousArrears = 0;
     if (propertyId && mongoose.Types.ObjectId.isValid(propertyId)) {
-      try {
-        const previousElectricityInvoices = await PropertyInvoice.find({
-          property: propertyId,
-          chargeTypes: { $in: ['ELECTRICITY'] },
-          paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-          balance: { $gt: 0 }
-        })
+      const periodFilter = periodFrom ? { periodTo: { $lte: new Date(periodFrom) } } : {};
+      const previousInvoices = await PropertyInvoice.find({
+        property: propertyId,
+        chargeTypes: { $in: ['ELECTRICITY'] },
+        ...periodFilter
+      })
         .populate('electricityBill', 'meterNo')
         .select('charges chargeTypes grandTotal totalPaid balance dueDate subtotal totalArrears paymentStatus electricityBill')
-        .sort({ invoiceDate: 1 })
+        .sort({ periodTo: -1 })
         .lean();
 
-        const getAdjustedBalance = (inv) => {
-          const GRACE_PERIOD_DAYS = 6;
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          const dueStart = inv.dueDate ? new Date(inv.dueDate) : null;
-          if (dueStart) dueStart.setHours(0, 0, 0, 0);
-          const dueWithGrace = dueStart ? new Date(dueStart) : null;
-          if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-          const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-          const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
-          if (!isOverdue || !isUnpaid) return inv.balance || 0;
-          let chargesForMonth = inv.subtotal || 0;
-          if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
-            const totalChargesAmount = inv.charges.reduce((sum, c) => sum + (c.amount || 0), 0);
-            if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
-          }
-          const baseAmount = chargesForMonth + (inv.totalArrears || 0);
-          const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-          return Math.max(0, baseAmount + latePaymentSurcharge - (inv.totalPaid || 0));
-        };
+      let prevInv = null;
+      for (const inv of previousInvoices) {
+        const invMeterNo = inv.electricityBill?.meterNo || '';
+        if (meterNo && invMeterNo && String(invMeterNo) !== String(meterNo)) continue;
+        const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
+        if (electricityCharges.length > 0) {
+          prevInv = inv;
+          break;
+        }
+      }
 
-        previousElectricityInvoices.forEach(inv => {
-          // Arrears per meter: only include invoices for the same meter
-          if (meterNo) {
-            const invMeterNo = inv.electricityBill?.meterNo || '';
-            if (String(invMeterNo) !== String(meterNo)) return;
-          }
-          const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
-          if (electricityCharges.length > 0) {
-            const adjustedBalance = getAdjustedBalance(inv);
-            const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
-            if (hasOnlyElectricity) {
-              carryForwardArrears += adjustedBalance;
-            } else {
-              const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
-              const invoiceTotal = inv.grandTotal || 0;
-              if (invoiceTotal > 0) {
-                const electricityProportion = electricityTotal / invoiceTotal;
-                carryForwardArrears += adjustedBalance * electricityProportion;
-              }
-            }
-          }
-        });
-
-        carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
-      } catch (err) {
-        console.error('Error calculating carry forward arrears from PropertyInvoice:', err);
-        // Continue with electricityBillArrears only
+      if (prevInv) {
+        const adjustedBalance = getAdjustedBalanceForInvoice(prevInv);
+        const hasOnlyElectricity = prevInv.chargeTypes?.length === 1 && prevInv.chargeTypes[0] === 'ELECTRICITY';
+        if (hasOnlyElectricity) {
+          previousArrears = adjustedBalance;
+        } else {
+          const electricityTotal = (prevInv.charges || []).reduce((s, c) => s + (c.amount || 0) + (c.arrears || 0), 0);
+          const invTotal = prevInv.grandTotal || 0;
+          if (invTotal > 0) previousArrears = adjustedBalance * (electricityTotal / invTotal);
+        }
+        previousArrears = Math.round(previousArrears * 100) / 100;
       }
     }
 
-    // Combine arrears from Electricity bill and carry forward from invoices
-    const totalArrears = electricityBillArrears + carryForwardArrears;
-
     return {
       prvReading: lastBill ? (lastBill.curReading || 0) : 0,
-      previousArrears: totalArrears
+      previousArrears
     };
   } catch (error) {
     return { prvReading: 0, previousArrears: 0 };
@@ -285,71 +271,52 @@ const formatMonthString = (date) => {
 
 /**
  * Get effective arrears for an electricity invoice (for display/PDF).
- * Uses adjusted balance from previous unpaid invoices (same meter) - includes 10% surcharge when overdue.
+ * Arrears = Balance of the IMMEDIATELY PREVIOUS invoice for this meter only (not sum of all unpaid).
  * @param {Object} invoice - Invoice with property, periodFrom, electricityBill (with meterNo)
  * @returns {Promise<Number|null>}
  */
 const getEffectiveArrearsForInvoice = async (invoice) => {
   if (!invoice?.property || !invoice.periodFrom) return null;
   const propertyId = invoice.property?._id || invoice.property;
+  if (!propertyId) return null;
   const meterNo = invoice.electricityBill?.meterNo || '';
-  if (!propertyId || !meterNo) return null;
   try {
     const periodFrom = new Date(invoice.periodFrom);
     periodFrom.setHours(0, 0, 0, 0);
-
     const currentInvoiceId = invoice._id;
+
     const previousInvoices = await PropertyInvoice.find({
       property: propertyId,
       _id: { $ne: currentInvoiceId },
       chargeTypes: { $in: ['ELECTRICITY'] },
-      paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-      balance: { $gt: 0 },
       periodTo: { $lte: periodFrom }
     })
       .populate('electricityBill', 'meterNo')
       .select('charges chargeTypes grandTotal totalPaid balance dueDate subtotal totalArrears paymentStatus')
-      .sort({ invoiceDate: 1 })
+      .sort({ periodTo: -1 })
       .lean();
 
-    const getAdjustedBalance = (inv) => {
-      const GRACE_PERIOD_DAYS = 6;
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const dueStart = inv.dueDate ? new Date(inv.dueDate) : null;
-      if (dueStart) dueStart.setHours(0, 0, 0, 0);
-      const dueWithGrace = dueStart ? new Date(dueStart) : null;
-      if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-      const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-      const isUnpaid = inv.paymentStatus === 'unpaid' || inv.paymentStatus === 'partial_paid' || (inv.balance || 0) > 0;
-      if (!isOverdue || !isUnpaid) return inv.balance || 0;
-      let chargesForMonth = inv.subtotal || 0;
-      if (inv.charges && Array.isArray(inv.charges) && inv.charges.length > 0) {
-        const totalChargesAmount = inv.charges.reduce((sum, c) => sum + (c.amount || 0), 0);
-        if (totalChargesAmount > 0) chargesForMonth = totalChargesAmount;
-      }
-      const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-      return Math.max(0, chargesForMonth + (inv.totalArrears || 0) + latePaymentSurcharge - (inv.totalPaid || 0));
-    };
-
-    let carryForward = 0;
-    previousInvoices.forEach(inv => {
+    let prevInv = null;
+    for (const inv of previousInvoices) {
       const invMeterNo = inv.electricityBill?.meterNo || '';
-      if (String(invMeterNo) !== String(meterNo)) return;
+      if (meterNo && invMeterNo && String(invMeterNo) !== String(meterNo)) continue;
       const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
-      if (electricityCharges.length === 0) return;
-      const adjustedBalance = getAdjustedBalance(inv);
-      const hasOnlyElectricity = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY';
-      if (hasOnlyElectricity) {
-        carryForward += adjustedBalance;
-      } else {
-        const electricityTotal = electricityCharges.reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
-        const invoiceTotal = inv.grandTotal || 0;
-        if (invoiceTotal > 0) {
-          carryForward += adjustedBalance * (electricityTotal / invoiceTotal);
-        }
-      }
-    });
+      if (electricityCharges.length === 0) continue;
+      prevInv = inv;
+      break;
+    }
+    if (!prevInv) return 0;
+
+    const adjustedBalance = getAdjustedBalanceForInvoice(prevInv);
+    const hasOnlyElectricity = prevInv.chargeTypes?.length === 1 && prevInv.chargeTypes[0] === 'ELECTRICITY';
+    let carryForward = 0;
+    if (hasOnlyElectricity) {
+      carryForward = adjustedBalance;
+    } else {
+      const electricityTotal = (prevInv.charges || []).reduce((s, c) => s + (c.amount || 0) + (c.arrears || 0), 0);
+      const invTotal = prevInv.grandTotal || 0;
+      if (invTotal > 0) carryForward = adjustedBalance * (electricityTotal / invTotal);
+    }
     return Math.round(carryForward * 100) / 100;
   } catch (err) {
     console.error('Error in getEffectiveArrearsForInvoice:', err);

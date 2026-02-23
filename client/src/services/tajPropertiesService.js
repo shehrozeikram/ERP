@@ -20,12 +20,16 @@ export const deleteProperty = (id) =>
 export const updatePropertyStatus = (id, status, updatedBy = null) =>
   api.patch(`${base}/${id}/status`, { status, updatedBy });
 
+export const transferPropertyOwnership = (id, data) =>
+  api.post(`${base}/${id}/transfer-ownership`, data);
+
 export default {
   fetchProperties,
   fetchPropertyById,
   createProperty,
   updateProperty,
   deleteProperty,
-  updatePropertyStatus
+  updatePropertyStatus,
+  transferPropertyOwnership
 };
 

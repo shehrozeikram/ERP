@@ -302,6 +302,28 @@ rentalAgreement: {
         default: true
       }
     }],
+    // Ownership & tenant change history (for transfer tracking)
+    ownershipHistory: [{
+      // Previous owner/tenant snapshot (before transfer)
+      previousOwnerName: { type: String, trim: true },
+      previousContact: { type: String, trim: true },
+      previousTenantName: { type: String, trim: true },
+      previousTenantPhone: { type: String, trim: true },
+      previousTenantEmail: { type: String, trim: true },
+      previousTenantCNIC: { type: String, trim: true },
+      previousResident: { type: mongoose.Schema.Types.ObjectId, ref: 'TajResident' },
+      // New owner/tenant (after transfer)
+      newOwnerName: { type: String, trim: true },
+      newContact: { type: String, trim: true },
+      newTenantName: { type: String, trim: true },
+      newTenantPhone: { type: String, trim: true },
+      newTenantEmail: { type: String, trim: true },
+      newTenantCNIC: { type: String, trim: true },
+      newResident: { type: mongoose.Schema.Types.ObjectId, ref: 'TajResident' },
+      effectiveDate: { type: Date, default: Date.now },
+      transferredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      notes: { type: String, trim: true }
+    }],
     // Metadata
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
