@@ -174,7 +174,8 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null) => {
           paymentStatus: { $in: ['unpaid', 'partial_paid'] },
           balance: { $gt: 0 }
         })
-        .select('charges chargeTypes grandTotal totalPaid balance dueDate subtotal totalArrears paymentStatus')
+        .populate('electricityBill', 'meterNo')
+        .select('charges chargeTypes grandTotal totalPaid balance dueDate subtotal totalArrears paymentStatus electricityBill')
         .sort({ invoiceDate: 1 })
         .lean();
 
@@ -200,6 +201,11 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null) => {
         };
 
         previousElectricityInvoices.forEach(inv => {
+          // Arrears per meter: only include invoices for the same meter
+          if (meterNo) {
+            const invMeterNo = inv.electricityBill?.meterNo || '';
+            if (String(invMeterNo) !== String(meterNo)) return;
+          }
           const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
           if (electricityCharges.length > 0) {
             const adjustedBalance = getAdjustedBalance(inv);
