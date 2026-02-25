@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 const TajProperty = require('../models/tajResidencia/TajProperty');
@@ -6,12 +7,17 @@ const CAMCharge = require('../models/tajResidencia/CAMCharge');
 const Electricity = require('../models/tajResidencia/Electricity');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const TajTransaction = require('../models/tajResidencia/TajTransaction');
+const TajResident = require('../models/tajResidencia/TajResident');
 const { authMiddleware } = require('../middleware/auth');
 const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesHelper');
 const FinanceHelper = require('../utils/financeHelper');
 const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges, getEffectiveArrearsForInvoice } = require('../utils/electricityBillHelper');
 const dayjs = require('dayjs');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
+const ReconciliationRecord = require('../models/tajResidencia/ReconciliationRecord');
 const {
   getCached,
   setCached,
@@ -1702,9 +1708,11 @@ router.get('/reports', authMiddleware, asyncHandler(async (req, res) => {
     const start = startMonth ? dayjs(startMonth + '-01') : defaultStart.startOf('month');
     const end = endMonth ? dayjs(endMonth + '-01').endOf('month') : now.endOf('month');
 
-    const filter = { status: { $ne: 'Cancelled' } };
+    const monthStart = start.toDate();
+    const monthEnd = end.toDate();
 
-    // chargeType: all | CAM | ELECTRICITY | RENT | OPEN_INVOICE | Mixed
+    const filter = { status: { $ne: 'Cancelled' } };
+    // chargeType: all | CAM | ELECTRICITY | RENT | OPEN_INVOICE | Mixed | DEPOSITS
     if (chargeType && chargeType !== 'all') {
       if (chargeType === 'OPEN_INVOICE') {
         filter.property = null;
@@ -1715,9 +1723,40 @@ router.get('/reports', authMiddleware, asyncHandler(async (req, res) => {
       }
     }
 
-    const invoices = await PropertyInvoice.find(filter)
-      .select('periodFrom periodTo invoiceDate charges chargeTypes subtotal totalArrears grandTotal payments property')
-      .lean();
+    // Aggregation: same logic as month-summary so Payments Received matches Invoices page (sum of totalPaid by invoice month)
+    const periodField = { $ifNull: ['$periodTo', '$invoiceDate'] };
+    const subtotalExpr = {
+      $ifNull: [
+        '$subtotal',
+        {
+          $reduce: {
+            input: { $ifNull: ['$charges', []] },
+            initialValue: 0,
+            in: { $add: ['$$value', { $ifNull: ['$$this.amount', 0] }] }
+          }
+        }
+      ]
+    };
+    const pipeline = [
+      { $match: filter },
+      { $match: { $expr: { $and: [
+        { $gte: [periodField, monthStart] },
+        { $lte: [periodField, monthEnd] }
+      ] } } },
+      { $addFields: {
+        monthKey: { $dateToString: { format: '%Y-%m', date: periodField } },
+        subtotalComputed: subtotalExpr
+      } },
+      { $group: {
+        _id: '$monthKey',
+        invoiceAmount: { $sum: '$subtotalComputed' },
+        arrears: { $sum: { $ifNull: ['$totalArrears', 0] } },
+        paymentsReceived: { $sum: { $ifNull: ['$totalPaid', 0] } },
+        invoiceCount: { $sum: 1 }
+      } }
+    ];
+
+    const aggResult = await PropertyInvoice.aggregate(pipeline);
 
     const monthMap = {};
     let m = start.startOf('month');
@@ -1733,35 +1772,96 @@ router.get('/reports', authMiddleware, asyncHandler(async (req, res) => {
       };
       m = m.add(1, 'month');
     }
-
-    const monthStart = start.toDate();
-    const monthEnd = end.toDate();
-
-    for (const inv of invoices) {
-      const periodTo = inv.periodTo ? new Date(inv.periodTo) : (inv.invoiceDate ? new Date(inv.invoiceDate) : null);
-      const invMonthDate = periodTo || (inv.invoiceDate ? new Date(inv.invoiceDate) : null);
-      if (!invMonthDate || invMonthDate < monthStart || invMonthDate > monthEnd) continue;
-
-      const invMonth = dayjs(invMonthDate).format('YYYY-MM');
-      if (!monthMap[invMonth]) continue;
-
-      const subtotal = inv.subtotal ?? (inv.charges?.reduce((s, c) => s + (c.amount || 0), 0) ?? 0);
-      const totalArrears = inv.totalArrears ?? 0;
-
-      monthMap[invMonth].invoiceAmount += subtotal;
-      monthMap[invMonth].arrears += totalArrears;
-      monthMap[invMonth].invoiceCount += 1;
+    for (const row of aggResult) {
+      if (monthMap[row._id]) {
+        monthMap[row._id].invoiceAmount = row.invoiceAmount || 0;
+        monthMap[row._id].arrears = row.arrears || 0;
+        monthMap[row._id].paymentsReceived = row.paymentsReceived || 0;
+        monthMap[row._id].invoiceCount = row.invoiceCount || 0;
+      }
     }
 
-    for (const inv of invoices) {
-      const payments = inv.payments || [];
-      for (const p of payments) {
-        const payDate = p.paymentDate ? new Date(p.paymentDate) : null;
-        if (!payDate || payDate < monthStart || payDate > monthEnd) continue;
-        const payMonth = dayjs(payDate).format('YYYY-MM');
-        if (monthMap[payMonth]) {
-          monthMap[payMonth].paymentsReceived += p.amount || 0;
+    // Fetch deposits for export sheet only (Deposit Date, Resident ID, Amount in Excel)
+    const depositQuery = {
+      transactionType: 'deposit',
+      $or: [
+        { referenceNumberExternal: { $not: /^REV-/ } },
+        { referenceNumberExternal: { $exists: false } },
+        { referenceNumberExternal: null }
+      ]
+    };
+    const unknownResidents = await TajResident.find({
+      $or: [
+        { name: { $exists: false } },
+        { name: null },
+        { name: '' },
+        { residentId: { $exists: false } },
+        { residentId: null },
+        { residentId: '' }
+      ]
+    }).select('_id').lean();
+    const unknownResidentIds = (unknownResidents || []).map(r => r._id);
+    if (unknownResidentIds.length > 0) {
+      depositQuery.resident = { $nin: unknownResidentIds };
+    }
+    depositQuery.createdAt = { $gte: monthStart, $lte: monthEnd };
+
+    const deposits = await TajTransaction.find(depositQuery)
+      .select('amount createdAt')
+      .populate('resident', 'residentId name')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    for (const key of Object.keys(monthMap)) {
+      const monthStartKey = dayjs(key + '-01').startOf('month').toDate();
+      const monthEndKey = dayjs(key + '-01').endOf('month').toDate();
+      monthMap[key].deposits = (deposits || [])
+        .filter(d => {
+          const dDate = d.createdAt ? new Date(d.createdAt) : null;
+          return dDate && dDate >= monthStartKey && dDate <= monthEndKey;
+        })
+        .map(d => ({
+          depositDate: d.createdAt,
+          residentId: d.resident?.residentId || '—',
+          residentName: d.resident?.name || '—',
+          amount: d.amount || 0
+        }));
+      monthMap[key].depositTotal = (monthMap[key].deposits || []).reduce((s, d) => s + (d.amount || 0), 0);
+      monthMap[key].suspenseAmount = 0;
+    }
+
+    if (unknownResidentIds.length > 0) {
+      const suspenseDeposits = await TajTransaction.find({
+        transactionType: 'deposit',
+        resident: { $in: unknownResidentIds },
+        createdAt: { $gte: monthStart, $lte: monthEnd },
+        $or: [
+          { referenceNumberExternal: { $not: /^REV-/ } },
+          { referenceNumberExternal: { $exists: false } },
+          { referenceNumberExternal: null }
+        ]
+      })
+        .select('amount createdAt')
+        .lean();
+      for (const d of suspenseDeposits || []) {
+        const dDate = d.createdAt ? new Date(d.createdAt) : null;
+        if (!dDate) continue;
+        const monthKey = dayjs(dDate).format('YYYY-MM');
+        if (monthMap[monthKey]) {
+          monthMap[monthKey].suspenseAmount = (monthMap[monthKey].suspenseAmount || 0) + (d.amount || 0);
         }
+      }
+    }
+
+    if (chargeType === 'DEPOSITS') {
+      for (const key of Object.keys(monthMap)) {
+        const row = monthMap[key];
+        const depositTotal = row.depositTotal || 0;
+        const suspenseAmount = row.suspenseAmount || 0;
+        row.invoiceAmount = suspenseAmount;
+        row.arrears = depositTotal;
+        row.invoiceCount = 0;
+        row.paymentsReceived = depositTotal + suspenseAmount;
       }
     }
 
@@ -1781,6 +1881,99 @@ router.get('/reports', authMiddleware, asyncHandler(async (req, res) => {
       data: {
         byMonth,
         totals
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+// Reconciliation: multer for attachment uploads
+const reconciliationStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'reconciliation');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const monthKey = req.body?.monthKey || 'month';
+    const ext = path.extname(file.originalname) || '';
+    cb(null, `recon-${monthKey}-${Date.now()}${ext}`);
+  }
+});
+const reconciliationUpload = multer({
+  storage: reconciliationStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// Get reconciliation records (optionally by monthKeys)
+router.get('/reconciliation', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const { monthKeys } = req.query;
+    const filter = {};
+    if (monthKeys) {
+      const keys = monthKeys.split(',').map(k => k.trim()).filter(Boolean);
+      if (keys.length) filter.monthKey = { $in: keys };
+    }
+    const records = await ReconciliationRecord.find(filter).lean();
+    const byMonth = records.reduce((acc, r) => {
+      acc[r.monthKey] = {
+        reconcileAmount: r.reconcileAmount,
+        attachmentPath: r.attachmentPath,
+        attachmentOriginalName: r.attachmentOriginalName,
+        savedAt: r.updatedAt
+      };
+      return acc;
+    }, {});
+    res.json({ success: true, data: byMonth });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+// Save reconciliation (reconcile amount + optional attachment)
+router.post('/reconciliation/save', authMiddleware, reconciliationUpload.single('attachment'), asyncHandler(async (req, res) => {
+  try {
+    const { monthKey, reconcileAmount } = req.body;
+    if (!monthKey) {
+      return res.status(400).json({ success: false, message: 'monthKey is required' });
+    }
+    const amount = parseFloat(reconcileAmount);
+    if (Number.isNaN(amount) || amount < 0) {
+      return res.status(400).json({ success: false, message: 'Valid reconcileAmount is required' });
+    }
+    const attachmentPath = req.file ? req.file.path : null;
+    const attachmentOriginalName = req.file ? req.file.originalname : null;
+    const userId = req.user?.userId || req.user?._id;
+
+    let record = await ReconciliationRecord.findOne({ monthKey });
+    if (record) {
+      if (req.file && record.attachmentPath && fs.existsSync(record.attachmentPath)) {
+        try { fs.unlinkSync(record.attachmentPath); } catch (_) {}
+      }
+      record.reconcileAmount = amount;
+      if (attachmentPath) record.attachmentPath = attachmentPath;
+      if (attachmentOriginalName) record.attachmentOriginalName = attachmentOriginalName;
+      record.updatedAt = new Date();
+      if (userId) record.createdBy = userId;
+      await record.save();
+    } else {
+      record = await ReconciliationRecord.create({
+        monthKey,
+        reconcileAmount: amount,
+        attachmentPath,
+        attachmentOriginalName,
+        createdBy: userId
+      });
+    }
+    res.json({
+      success: true,
+      message: 'Reconciliation saved',
+      data: {
+        monthKey: record.monthKey,
+        reconcileAmount: record.reconcileAmount,
+        attachmentOriginalName: record.attachmentOriginalName,
+        savedAt: record.updatedAt
       }
     });
   } catch (error) {
@@ -2380,6 +2573,53 @@ router.get('/', authMiddleware, asyncHandler(async (req, res) => {
     }
     
     res.json(response);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
+// Month-wise summary (whole-month Total, Paid, Balance) — same filters as list; for Invoices page cards
+router.get('/month-summary', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const { propertyId, status, paymentStatus, chargeType, residentId, sector, openInvoices } = req.query;
+    const filter = { status: { $ne: 'Cancelled' } };
+    if (openInvoices === 'true') {
+      filter.property = null;
+    } else if (propertyId) {
+      filter.property = propertyId;
+    }
+    if (status) filter.status = status;
+    if (paymentStatus) {
+      if (paymentStatus.includes(',')) {
+        filter.paymentStatus = { $in: paymentStatus.split(',').map(s => s.trim()).filter(Boolean) };
+      } else {
+        filter.paymentStatus = paymentStatus;
+      }
+    }
+    if (chargeType) filter.chargeTypes = { $in: [chargeType] };
+
+    const pipeline = [{ $match: filter }];
+
+    if (residentId || sector) {
+      pipeline.push({ $lookup: { from: 'tajproperties', localField: 'property', foreignField: '_id', as: 'prop' } });
+      pipeline.push({ $unwind: { path: '$prop', preserveNullAndEmptyArrays: true } });
+      if (residentId) pipeline.push({ $match: { 'prop.resident': new mongoose.Types.ObjectId(residentId) } });
+      if (sector) pipeline.push({ $match: { $or: [{ 'prop.sector': sector }, { 'prop.sector.name': new RegExp(sector, 'i') }] } });
+    }
+
+    pipeline.push(
+      { $addFields: { monthKey: { $dateToString: { format: '%Y-%m', date: { $ifNull: ['$periodTo', '$invoiceDate'] } } } } },
+      { $group: { _id: '$monthKey', total: { $sum: '$grandTotal' }, paid: { $sum: '$totalPaid' }, balance: { $sum: '$balance' }, invoiceCount: { $sum: 1 } } },
+      { $sort: { _id: -1 } }
+    );
+
+    const summary = await PropertyInvoice.aggregate(pipeline);
+    const byMonth = summary.reduce((acc, row) => {
+      acc[row._id] = { total: row.total || 0, paid: row.paid || 0, balance: row.balance || 0, invoiceCount: row.invoiceCount || 0 };
+      return acc;
+    }, {});
+
+    res.json({ success: true, data: byMonth });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

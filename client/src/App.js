@@ -57,6 +57,7 @@ import Deposits from './pages/Finance/TajUtilities/Deposits';
 import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
+import TajUtilitiesReconciliation from './pages/Finance/TajUtilities/Reconciliation';
 import RecoveryAssignments from './pages/Finance/Recovery/RecoveryAssignments';
 import RecoveryMembers from './pages/Finance/Recovery/RecoveryMembers';
 import CompletedTasks from './pages/Finance/Recovery/CompletedTasks';
@@ -1048,6 +1049,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <TajUtilitiesReports />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/reconciliation"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <TajUtilitiesReconciliation />
                 </ProtectedRoute>
               }
             />

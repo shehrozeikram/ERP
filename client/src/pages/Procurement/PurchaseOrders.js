@@ -29,7 +29,9 @@ import {
   Tooltip,
   CircularProgress,
   Stack,
-  Divider
+  Divider,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   ShoppingCart as ShoppingCartIcon,
@@ -44,7 +46,8 @@ import {
   Refresh as RefreshIcon,
   Send as SendIcon,
   Print as PrintIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  LocalShipping as GRNIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
@@ -76,7 +79,7 @@ const PurchaseOrders = () => {
   
   // Dialog states (quotationId set when creating PO from Quotations page)
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null, quotationId: null });
-  const [viewDialog, setViewDialog] = useState({ open: false, data: null });
+  const [viewDialog, setViewDialog] = useState({ open: false, data: null, attachedGrns: [], poDetailTab: 0 });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, document: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   
@@ -291,15 +294,15 @@ const PurchaseOrders = () => {
 
   const handleView = async (order) => {
     try {
-      // Fetch full PO data with populated fields
-      const response = await api.get(`/procurement/purchase-orders/${order._id}`);
-      if (response.data.success) {
-        setViewDialog({ open: true, data: response.data.data });
-      } else {
-        setViewDialog({ open: true, data: order });
-      }
+      const [poRes, grnRes] = await Promise.all([
+        api.get(`/procurement/purchase-orders/${order._id}`),
+        api.get('/procurement/goods-receive', { params: { purchaseOrder: order._id, limit: 100 } })
+      ]);
+      const poData = poRes.data?.success ? poRes.data.data : order;
+      const grns = grnRes.data?.success ? (grnRes.data.data?.receives || []) : [];
+      setViewDialog({ open: true, data: poData, attachedGrns: grns, poDetailTab: 0 });
     } catch (err) {
-      setViewDialog({ open: true, data: order });
+      setViewDialog({ open: true, data: order, attachedGrns: [] });
     }
   };
 
@@ -345,6 +348,16 @@ const PurchaseOrders = () => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
   };
+
+  const formatGRNDate = (d) => {
+    if (!d) return '';
+    const x = new Date(d);
+    const days = String(x.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${days}-${months[x.getMonth()]}-${x.getFullYear()}`;
+  };
+
+  const formatGRNNumber = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const handleDelete = (id) => {
     setDeleteDialog({ open: true, id });
@@ -448,6 +461,17 @@ const PurchaseOrders = () => {
     }
   };
 
+  const handleSendToFinance = async (id) => {
+    try {
+      await api.post(`/procurement/store/po/${id}/send-to-finance`);
+      setSuccess('Purchase order sent to Finance for billing');
+      loadPurchaseOrders();
+      loadStatistics();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send purchase order to Finance');
+    }
+  };
+
   const addItem = () => {
     setFormData(prev => ({
       ...prev,
@@ -492,6 +516,9 @@ const PurchaseOrders = () => {
       'Forwarded to CEO': 'primary',
       'Approved': 'success',
       'Sent to Store': 'info',
+      'GRN Created': 'info',
+      'Sent to Procurement': 'info',
+      'Sent to Finance': 'primary',
       'Ordered': 'info',
       'Partially Received': 'secondary',
       'Received': 'success',
@@ -652,6 +679,9 @@ const PurchaseOrders = () => {
               <MenuItem value="Forwarded to CEO">Forwarded to CEO</MenuItem>
               <MenuItem value="Approved">Approved</MenuItem>
               <MenuItem value="Sent to Store">Sent to Store</MenuItem>
+              <MenuItem value="GRN Created">GRN Created</MenuItem>
+              <MenuItem value="Sent to Procurement">Sent to Procurement</MenuItem>
+              <MenuItem value="Sent to Finance">Sent to Finance</MenuItem>
               <MenuItem value="Ordered">Ordered</MenuItem>
               <MenuItem value="Partially Received">Partially Received</MenuItem>
               <MenuItem value="Received">Received</MenuItem>
@@ -772,6 +802,13 @@ const PurchaseOrders = () => {
                           </IconButton>
                         </Tooltip>
                       )}
+                      {order.status === 'Sent to Procurement' && (
+                        <Tooltip title="Send to Finance">
+                          <IconButton size="small" color="primary" onClick={() => handleSendToFinance(order._id)}>
+                            <SendIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {order.status === 'Draft' && (
                         <Tooltip title="Delete">
                           <IconButton size="small" color="error" onClick={() => handleDelete(order._id)}>
@@ -861,6 +898,8 @@ const PurchaseOrders = () => {
                   <MenuItem value="Forwarded to CEO">Forwarded to CEO</MenuItem>
                   <MenuItem value="Approved">Approved</MenuItem>
                   <MenuItem value="Sent to Store">Sent to Store</MenuItem>
+                  <MenuItem value="GRN Created">GRN Created</MenuItem>
+                  <MenuItem value="Sent to Procurement">Sent to Procurement</MenuItem>
                   <MenuItem value="Ordered">Ordered</MenuItem>
                   <MenuItem value="Partially Received">Partially Received</MenuItem>
                   <MenuItem value="Received">Received</MenuItem>
@@ -1182,7 +1221,7 @@ const PurchaseOrders = () => {
       {/* View Dialog */}
       <Dialog 
         open={viewDialog.open} 
-        onClose={() => setViewDialog({ open: false, data: null })}
+        onClose={() => setViewDialog({ open: false, data: null, attachedGrns: [], poDetailTab: 0 })}
         maxWidth={false}
         fullWidth
         PaperProps={{
@@ -1227,6 +1266,16 @@ const PurchaseOrders = () => {
         </DialogTitle>
         <DialogContent sx={{ p: 0, overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
           {viewDialog.data && (
+            <>
+              <Tabs
+                value={viewDialog.poDetailTab ?? 0}
+                onChange={(_, v) => setViewDialog(prev => ({ ...prev, poDetailTab: v }))}
+                sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+              >
+                <Tab label="Purchase Order" />
+                <Tab label={viewDialog.attachedGrns?.length > 0 ? `GRN(s) (${viewDialog.attachedGrns.length})` : 'GRN(s)'} />
+              </Tabs>
+              {viewDialog.poDetailTab === 0 && (
             <Box sx={{ width: '100%' }} className="print-content">
               <Paper
                 sx={{
@@ -1600,10 +1649,134 @@ const PurchaseOrders = () => {
                 </Box>
               </Paper>
             </Box>
+              )}
+              {viewDialog.poDetailTab === 1 && (
+            <Box sx={{ width: '100%', p: 2 }} className="print-content">
+              {viewDialog.attachedGrns && viewDialog.attachedGrns.length > 0 ? viewDialog.attachedGrns.map((grn) => (
+                <Paper
+                  key={grn._id}
+                  sx={{
+                    p: { xs: 3, sm: 3.5, md: 4 },
+                    maxWidth: '210mm',
+                    mx: 'auto',
+                    mt: 4,
+                    backgroundColor: '#fff',
+                    boxShadow: 'none',
+                    width: '100%',
+                    fontFamily: 'Arial, sans-serif',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    '@media print': {
+                      boxShadow: 'none',
+                      p: 2.5,
+                      maxWidth: '100%',
+                      mx: 0,
+                      width: '100%',
+                      pageBreakBefore: 'always',
+                      pageBreakInside: 'avoid'
+                    }
+                  }}
+                >
+                  <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Attached GRN (copy)</Typography>
+                  <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
+                    <Grid item xs={4}>
+                      <Typography variant="h6" fontWeight="bold">Taj Residencia</Typography>
+                      <Typography variant="body2" color="textSecondary">Head Office</Typography>
+                    </Grid>
+                    <Grid item xs={4} sx={{ textAlign: 'center' }}>
+                      <Typography variant="h5" fontWeight="bold">Goods Received Note</Typography>
+                    </Grid>
+                    <Grid item xs={4} />
+                  </Grid>
+                  <Grid container spacing={3} sx={{ mb: 2 }}>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="caption" color="textSecondary">No.</Typography>
+                      <Typography variant="body1" fontWeight="bold">{grn.receiveNumber || grn._id}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Supplier</Typography>
+                      <Typography variant="body2">{[grn.supplier?.supplierId, grn.supplierName || grn.supplier?.name].filter(Boolean).join(' ') || '-'}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Address</Typography>
+                      <Typography variant="body2">{grn.supplierAddress || grn.supplier?.address || '-'}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Narration</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{grn.narration || '—'}</Typography>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <Typography variant="caption" color="textSecondary">Date</Typography>
+                      <Typography variant="body2">{formatGRNDate(grn.receiveDate)}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Currency</Typography>
+                      <Typography variant="body2">{grn.currency || 'Rupees'}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.R No.</Typography>
+                      <Typography variant="body2">{grn.prNumber || '—'}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.O No.</Typography>
+                      <Typography variant="body2">{grn.poNumber || grn.purchaseOrder?.orderNumber || '—'}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Store</Typography>
+                      <Typography variant="body2">{grn.store || '—'}</Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Gate Pass No.</Typography>
+                      <Typography variant="body2">{grn.gatePassNo || '—'}</Typography>
+                    </Grid>
+                  </Grid>
+                  <TableContainer component={Box} variant="outlined" sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 'bold' }}>S. No</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Product Code</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Description</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }}>Unit</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }} align="right">Quantity</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }} align="right">Rate</TableCell>
+                          <TableCell sx={{ fontWeight: 'bold' }} align="right">Value Excluding Sales Tax</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(grn.items || []).map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{idx + 1}</TableCell>
+                            <TableCell>{item.itemCode || '—'}</TableCell>
+                            <TableCell>{item.itemName || '—'}</TableCell>
+                            <TableCell>{item.unit || '—'}</TableCell>
+                            <TableCell align="right">{formatGRNNumber(item.quantity)}</TableCell>
+                            <TableCell align="right">{formatGRNNumber(item.unitPrice)}</TableCell>
+                            <TableCell align="right">{formatGRNNumber(item.valueExcludingSalesTax ?? (item.quantity * item.unitPrice))}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                    <Grid container spacing={1} sx={{ maxWidth: 320 }}>
+                      <Grid item xs={6}><Typography variant="body2">Discount</Typography></Grid>
+                      <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.discount)}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="body2">Other Charges</Typography></Grid>
+                      <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.otherCharges)}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Net Amount</Typography></Grid>
+                      <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.netAmount)}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Total</Typography></Grid>
+                      <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.total ?? grn.netAmount)}</Typography></Grid>
+                    </Grid>
+                  </Box>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="caption" color="textSecondary">Observation</Typography>
+                  <Typography variant="body2" sx={{ minHeight: 24 }}>{grn.observation || ' '}</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mt: 3 }}>
+                    <Box>
+                      <Typography variant="caption" color="textSecondary">Prepared By</Typography>
+                      <Typography variant="body2" fontWeight="medium">{grn.preparedByName || (grn.receivedBy?.firstName && grn.receivedBy?.lastName ? `${grn.receivedBy.firstName} ${grn.receivedBy.lastName}` : '—')}</Typography>
+                    </Box>
+                    <Box sx={{ width: 120, height: 40, border: '1px dashed', borderColor: 'divider' }} />
+                  </Box>
+                </Paper>
+              )) : (
+                <Typography color="textSecondary" sx={{ py: 4, textAlign: 'center' }}>
+                  No GRN(s) attached to this Purchase Order.
+                </Typography>
+              )}
+            </Box>
+              )}
+            </>
           )}
         </DialogContent>
         <DialogActions sx={{ '@media print': { display: 'none' } }}>
-          <Button onClick={() => setViewDialog({ open: false, data: null })}>Close</Button>
+          <Button onClick={() => setViewDialog({ open: false, data: null, attachedGrns: [], poDetailTab: 0 })}>Close</Button>
         </DialogActions>
       </Dialog>
 

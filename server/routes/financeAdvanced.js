@@ -14,6 +14,8 @@ const AccountsReceivable = require('../models/finance/AccountsReceivable');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const Banking = require('../models/finance/Banking');
 const FinanceHelper = require('../utils/financeHelper');
+const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+const GoodsReceive = require('../models/procurement/GoodsReceive');
 
 const router = express.Router();
 
@@ -679,8 +681,77 @@ router.put('/accounts-payable/:id',
   })
 );
 
+// @route   GET /api/finance/accounts-payable/pos-for-billing
+// @desc    List POs with status "Sent to Finance" for billing
+// @access  Private (Finance and Admin)
+router.get('/accounts-payable/pos-for-billing',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const pos = await PurchaseOrder.find({ status: 'Sent to Finance' })
+      .populate('vendor', 'name email phone')
+      .populate('indent', 'indentNumber title department requestedBy')
+      .sort({ updatedAt: -1 })
+      .lean();
+    res.json({ success: true, data: pos });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/create-from-po
+// @desc    Create bill from purchase order (Indent, Quotations, CS, PO, GRN linked)
+// @access  Private (Finance and Admin)
+router.post('/accounts-payable/create-from-po',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('purchaseOrderId').trim().notEmpty().withMessage('Purchase order ID is required')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const po = await PurchaseOrder.findById(req.body.purchaseOrderId)
+      .populate('vendor', 'name email phone')
+      .populate('indent', 'indentNumber title');
+    if (!po) return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    if (po.status !== 'Sent to Finance') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only purchase orders with status "Sent to Finance" can be billed'
+      });
+    }
+    const billNumber = req.body.billNumber || `BILL-PO-${po.orderNumber}-${Date.now().toString(36).toUpperCase()}`;
+    const billDate = req.body.billDate || new Date();
+    const dueDate = req.body.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const lineItems = (po.items || []).map(it => ({
+      description: it.description || 'Item',
+      quantity: it.quantity || 1,
+      unitPrice: it.unitPrice || 0
+    }));
+    const apEntry = await FinanceHelper.createAPFromBill({
+      vendorName: po.vendor?.name || 'Unknown',
+      vendorEmail: po.vendor?.email || '',
+      vendorId: po.vendor?._id || po.vendor,
+      billNumber,
+      billDate,
+      dueDate,
+      amount: po.totalAmount || 0,
+      department: 'procurement',
+      module: 'procurement',
+      referenceId: po._id,
+      referenceType: 'purchase_order',
+      lineItems: lineItems.length > 0 ? lineItems : undefined,
+      createdBy: req.user._id
+    });
+    res.status(201).json({
+      success: true,
+      message: 'Bill created from purchase order',
+      data: apEntry
+    });
+  })
+);
+
 // @route   GET /api/finance/accounts-payable/:id
-// @desc    Get bill by ID
+// @desc    Get bill by ID (includes PO-linked docs: indent, quotations, comparative statement, PO, GRN)
 // @access  Private (Finance and Admin)
 router.get('/accounts-payable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
@@ -692,13 +763,33 @@ router.get('/accounts-payable/:id',
         message: 'Bill not found'
       });
     }
-
+    let poDetail = null;
+    if (bill.referenceType === 'purchase_order' && bill.referenceId) {
+      const Quotation = require('../models/procurement/Quotation');
+      const Indent = require('../models/general/Indent');
+      const po = await PurchaseOrder.findById(bill.referenceId)
+        .populate('vendor', 'name email phone address')
+        .populate('indent')
+        .lean();
+      if (po) {
+        const indentId = po.indent?._id || po.indent;
+        let quotations = [];
+        let indent = null;
+        if (indentId) {
+          indent = await Indent.findById(indentId).populate('requestedBy', 'firstName lastName name email').populate('department', 'name').lean();
+          quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
+        }
+        const grns = await GoodsReceive.find({ purchaseOrder: po._id }).populate('supplier', 'name').lean();
+        poDetail = { po, indent, quotations, grns };
+      }
+    }
     res.json({
       success: true,
       data: {
         ...bill,
         vendorName: bill.vendor?.name || 'Unknown Vendor',
-        vendorEmail: bill.vendor?.email || ''
+        vendorEmail: bill.vendor?.email || '',
+        poDetail
       }
     });
   })

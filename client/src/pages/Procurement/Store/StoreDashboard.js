@@ -71,6 +71,8 @@ const StoreDashboard = () => {
   const [indentViewDialog, setIndentViewDialog] = useState({ open: false, indent: null });
   const [moveToProcurementDialog, setMoveToProcurementDialog] = useState({ open: false, indent: null, reason: '' });
   const [moveToProcurementError, setMoveToProcurementError] = useState('');
+  const [sendPoToProcurementDialog, setSendPoToProcurementDialog] = useState({ open: false, po: null });
+  const [sendingPoId, setSendingPoId] = useState(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -130,6 +132,27 @@ const StoreDashboard = () => {
       setMoveToProcurementError(err.response?.data?.message || err.response?.data?.errors?.[0]?.msg || 'Failed to move indent to Procurement');
     } finally {
       setMovingIndentId(null);
+    }
+  };
+
+  const openSendPoToProcurementDialog = (po) => {
+    setSendPoToProcurementDialog({ open: true, po });
+  };
+
+  const handleSendPoToProcurement = async () => {
+    const { po } = sendPoToProcurementDialog;
+    if (!po?._id) return;
+    try {
+      setSendingPoId(po._id);
+      await api.post(`/procurement/store/po/${po._id}/send-to-procurement`);
+      setSendPoToProcurementDialog({ open: false, po: null });
+      await loadDashboardData();
+      handleCloseView();
+      toast.success('Purchase order sent to Procurement with GRN');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send to Procurement');
+    } finally {
+      setSendingPoId(null);
     }
   };
 
@@ -209,6 +232,8 @@ const StoreDashboard = () => {
       'Forwarded to CEO': 'primary',
       'Approved': 'success',
       'Sent to Store': 'info',
+      'GRN Created': 'success',
+      'Sent to Procurement': 'primary',
       'Ordered': 'info',
       'Partially Received': 'secondary',
       'Received': 'success',
@@ -577,7 +602,7 @@ const StoreDashboard = () => {
                                 <ViewIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                            {po.qaStatus === 'Passed' && (
+                            {po.status === 'Sent to Store' && po.qaStatus === 'Passed' && (
                               <Tooltip title="Create GRN">
                                 <IconButton
                                   size="small"
@@ -585,6 +610,17 @@ const StoreDashboard = () => {
                                   onClick={() => navigate(`/procurement/store/goods-receive?createFromPo=${po._id}`)}
                                 >
                                   <CreateGRNIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {po.status === 'GRN Created' && (
+                              <Tooltip title="Send to Procurement">
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => openSendPoToProcurementDialog(po)}
+                                >
+                                  <MoveToProcurementIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
                             )}
@@ -647,9 +683,14 @@ const StoreDashboard = () => {
               <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()}>
                 Print
               </Button>
-              {viewDialog.data && viewDialog.data.qaStatus === 'Passed' && (
+              {viewDialog.data && viewDialog.data.status === 'Sent to Store' && viewDialog.data.qaStatus === 'Passed' && (
                 <Button size="small" variant="contained" startIcon={<CreateGRNIcon />} onClick={() => { handleCloseView(); navigate(`/procurement/store/goods-receive?createFromPo=${viewDialog.data._id}`); }}>
                   Create GRN
+                </Button>
+              )}
+              {viewDialog.data && viewDialog.data.status === 'GRN Created' && (
+                <Button size="small" variant="contained" color="success" startIcon={<MoveToProcurementIcon />} onClick={() => openSendPoToProcurementDialog(viewDialog.data)}>
+                  Send to Procurement
                 </Button>
               )}
               {viewDialog.data && (viewDialog.data.qaStatus || 'Pending') === 'Pending' && (
@@ -856,6 +897,38 @@ const StoreDashboard = () => {
             disabled={movingIndentId !== null || !(moveToProcurementDialog.reason || '').trim()}
           >
             {movingIndentId ? 'Moving...' : 'Confirm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Send PO to Procurement confirmation dialog */}
+      <Dialog
+        open={sendPoToProcurementDialog.open}
+        onClose={() => setSendPoToProcurementDialog({ open: false, po: null })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Send to Procurement</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            This Purchase Order has GRN created. Sending to Procurement will make the PO and its GRN visible in the Procurement module.
+          </Typography>
+          {sendPoToProcurementDialog.po && (
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              PO: {sendPoToProcurementDialog.po.orderNumber || sendPoToProcurementDialog.po._id}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSendPoToProcurementDialog({ open: false, po: null })}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleSendPoToProcurement}
+            disabled={!!sendingPoId}
+            startIcon={sendingPoId ? <CircularProgress size={16} /> : <MoveToProcurementIcon />}
+          >
+            {sendingPoId ? 'Sending...' : 'Confirm'}
           </Button>
         </DialogActions>
       </Dialog>

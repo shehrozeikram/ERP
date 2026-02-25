@@ -34,7 +34,10 @@ import {
   Divider,
   List,
   ListItem,
-  ListItemText
+  ListItemText,
+  Tabs,
+  Tab,
+  Stack
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -56,6 +59,8 @@ import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
+import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
+import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 
 const AccountsPayable = () => {
   const navigate = useNavigate();
@@ -81,6 +86,10 @@ const AccountsPayable = () => {
     paymentDate: new Date().toISOString().split('T')[0]
   });
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [posForBilling, setPosForBilling] = useState([]);
+  const [loadingPosForBilling, setLoadingPosForBilling] = useState(false);
+  const [createFromPoDialog, setCreateFromPoDialog] = useState({ open: false, po: null, billNumber: '', creating: false });
+  const [billViewTab, setBillViewTab] = useState(0);
 
   const [filters, setFilters] = useState({
     status: '',
@@ -105,6 +114,19 @@ const AccountsPayable = () => {
   useEffect(() => {
     fetchAccountsPayable();
   }, [filters, pagination.currentPage]);
+
+  const fetchPosForBilling = async () => {
+    try {
+      setLoadingPosForBilling(true);
+      const res = await api.get('/finance/accounts-payable/pos-for-billing');
+      if (res.data?.success) setPosForBilling(res.data.data || []);
+    } catch (e) {
+      setPosForBilling([]);
+    } finally {
+      setLoadingPosForBilling(false);
+    }
+  };
+  useEffect(() => { fetchPosForBilling(); }, [viewDialogOpen]);
 
   const fetchAccountsPayable = async () => {
     try {
@@ -155,6 +177,7 @@ const AccountsPayable = () => {
   const handleViewBill = async (bill) => {
     try {
       setLoading(true);
+      setBillViewTab(0);
       const response = await api.get(`/finance/accounts-payable/${bill._id}`);
       if (response.data.success) {
         setSelectedBill(response.data.data);
@@ -226,6 +249,32 @@ const AccountsPayable = () => {
     }
   };
 
+  const handleCreateBillFromPo = async (po) => {
+    setCreateFromPoDialog({ open: true, po, billNumber: `BILL-PO-${po.orderNumber}`, creating: false });
+  };
+
+  const handleConfirmCreateFromPo = async () => {
+    const { po } = createFromPoDialog;
+    if (!po?._id) return;
+    try {
+      setCreateFromPoDialog(prev => ({ ...prev, creating: true }));
+      const res = await api.post('/finance/accounts-payable/create-from-po', {
+        purchaseOrderId: po._id,
+        billNumber: createFromPoDialog.billNumber || undefined
+      });
+      if (res.data?.success) {
+        toast.success('Bill created from purchase order');
+        setCreateFromPoDialog({ open: false, po: null, billNumber: '', creating: false });
+        fetchAccountsPayable();
+        fetchPosForBilling();
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create bill');
+    } finally {
+      setCreateFromPoDialog(prev => ({ ...prev, creating: false }));
+    }
+  };
+
   const getStatusColor = (status) => {
     const colorMap = {
       'draft': 'default',
@@ -266,6 +315,20 @@ const AccountsPayable = () => {
     if (days <= 30) return 'success';
     if (days <= 60) return 'warning';
     return 'error';
+  };
+
+  const formatGRNDate = (d) => {
+    if (!d) return '';
+    const x = new Date(d);
+    const days = String(x.getDate()).padStart(2, '0');
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${days}-${months[x.getMonth()]}-${x.getFullYear()}`;
+  };
+  const formatGRNNumber = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatDateForPrint = (date) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '/');
   };
 
   if (loading) {
@@ -385,6 +448,54 @@ const AccountsPayable = () => {
           </Grid>
         </Grid>
       </Paper>
+
+      {/* POs for Billing */}
+      {posForBilling.length > 0 && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ShoppingCartIcon /> POs for Billing (Create Bill from Purchase Order)
+            </Typography>
+            {loadingPosForBilling ? (
+              <LinearProgress sx={{ mb: 2 }} />
+            ) : (
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>PO Number</strong></TableCell>
+                      <TableCell><strong>Vendor</strong></TableCell>
+                      <TableCell><strong>Indent</strong></TableCell>
+                      <TableCell align="right"><strong>Amount</strong></TableCell>
+                      <TableCell align="center"><strong>Action</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {posForBilling.map((po) => (
+                      <TableRow key={po._id}>
+                        <TableCell>{po.orderNumber}</TableCell>
+                        <TableCell>{po.vendor?.name || 'N/A'}</TableCell>
+                        <TableCell>{po.indent?.indentNumber || 'N/A'}</TableCell>
+                        <TableCell align="right">{formatPKR(po.totalAmount)}</TableCell>
+                        <TableCell align="center">
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<AddIcon />}
+                            onClick={() => handleCreateBillFromPo(po)}
+                          >
+                            Create Bill
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error Alert */}
       {error && (
@@ -638,7 +749,7 @@ const AccountsPayable = () => {
       <Dialog 
         open={viewDialogOpen} 
         onClose={() => setViewDialogOpen(false)}
-        maxWidth="md"
+        maxWidth={selectedBill?.referenceType === 'purchase_order' ? 'lg' : 'md'}
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -649,64 +760,373 @@ const AccountsPayable = () => {
         </DialogTitle>
         <DialogContent dividers>
           {selectedBill && (
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle2" color="textSecondary">Vendor Information</Typography>
-                <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedBill.vendorName}</Typography>
-                <Typography variant="body2">{selectedBill.vendorEmail}</Typography>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle2" color="textSecondary">Bill Status</Typography>
-                <Chip 
-                  label={selectedBill.status?.toUpperCase()} 
-                  color={getStatusColor(selectedBill.status)}
-                  size="small"
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="subtitle2" color="textSecondary">Bill Date</Typography>
-                <Typography variant="body2">{formatDate(selectedBill.billDate)}</Typography>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="subtitle2" color="textSecondary">Due Date</Typography>
-                <Typography variant="body2">{formatDate(selectedBill.dueDate)}</Typography>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="subtitle2" color="textSecondary">Amount</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedBill.totalAmount)}</Typography>
+            <>
+              <Grid container spacing={3} sx={{ mb: 2 }}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="textSecondary">Vendor Information</Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 'bold' }}>{selectedBill.vendorName}</Typography>
+                  <Typography variant="body2">{selectedBill.vendorEmail}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" color="textSecondary">Bill Status</Typography>
+                  <Chip 
+                    label={selectedBill.status?.toUpperCase()} 
+                    color={getStatusColor(selectedBill.status)}
+                    size="small"
+                  />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Typography variant="subtitle2" color="textSecondary">Bill Date</Typography>
+                  <Typography variant="body2">{formatDate(selectedBill.billDate)}</Typography>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Typography variant="subtitle2" color="textSecondary">Due Date</Typography>
+                  <Typography variant="body2">{formatDate(selectedBill.dueDate)}</Typography>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Typography variant="subtitle2" color="textSecondary">Amount</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedBill.totalAmount)}</Typography>
+                </Grid>
               </Grid>
 
-              <Grid item xs={12}>
-                <Divider sx={{ my: 1 }} />
+              {/* PO-linked documents tabs */}
+              {selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail && (
+                <>
+                  <Tabs
+                    value={billViewTab}
+                    onChange={(_, v) => setBillViewTab(v)}
+                    sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+                  >
+                    <Tab label="Indent" />
+                    <Tab label={`Quotations (${selectedBill.poDetail.quotations?.length || 0})`} />
+                    <Tab label="Comparative Statement" />
+                    <Tab label="Purchase Order" />
+                    <Tab label={selectedBill.poDetail.grns?.length > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />
+                    <Tab label="Payment History" />
+                  </Tabs>
+                  {billViewTab === 0 && selectedBill.poDetail.indent && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                      <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none' }}>
+                        <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                          Purchase Request Form
+                        </Typography>
+                        {selectedBill.poDetail.indent.title && (
+                          <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>{selectedBill.poDetail.indent.title}</Typography>
+                        )}
+                        <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                          <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                          <Typography component="span" sx={{ ml: 1 }}>{selectedBill.poDetail.indent.erpRef || 'PR #' + (selectedBill.poDetail.indent.indentNumber?.split('-').pop() || '')}</Typography>
+                        </Box>
+                        <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          <Box><Typography component="span" fontWeight={600}>Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(selectedBill.poDetail.indent.requestedDate)}</Typography></Box>
+                          <Box><Typography component="span" fontWeight={600}>Required Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(selectedBill.poDetail.indent.requiredDate) || '—'}</Typography></Box>
+                          <Box><Typography component="span" fontWeight={600}>Indent No.:</Typography><Typography component="span" sx={{ ml: 1 }}>{selectedBill.poDetail.indent.indentNumber || '—'}</Typography></Box>
+                        </Box>
+                        <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          <Box><Typography component="span" fontWeight={600}>Department:</Typography><Typography component="span" sx={{ ml: 1 }}>{selectedBill.poDetail.indent.department?.name || selectedBill.poDetail.indent.department || '—'}</Typography></Box>
+                          <Box><Typography component="span" fontWeight={600}>Originator:</Typography><Typography component="span" sx={{ ml: 1 }}>{selectedBill.poDetail.indent.requestedBy?.firstName && selectedBill.poDetail.indent.requestedBy?.lastName ? `${selectedBill.poDetail.indent.requestedBy.firstName} ${selectedBill.poDetail.indent.requestedBy.lastName}` : selectedBill.poDetail.indent.requestedBy?.name || '—'}</Typography></Box>
+                        </Box>
+                        <Box sx={{ mb: 3 }}>
+                          <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {(selectedBill.poDetail.indent.items || []).map((item, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
+                                  <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                        {selectedBill.poDetail.indent.justification && (
+                          <Box sx={{ mb: 2 }}>
+                            <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>{selectedBill.poDetail.indent.justification}</Typography>
+                          </Box>
+                        )}
+                      </Paper>
+                    </Box>
+                  )}
+                  {billViewTab === 1 && (
+                    <Box sx={{ p: 2, maxHeight: 400, overflow: 'auto' }}>
+                      {(!selectedBill.poDetail.quotations || selectedBill.poDetail.quotations.length === 0) ? (
+                        <Typography color="textSecondary">No quotations.</Typography>
+                      ) : (
+                        <Stack spacing={4}>
+                          {selectedBill.poDetail.quotations.map((q) => (
+                            <QuotationDetailView
+                              key={q._id}
+                              quotation={{ ...q, indent: selectedBill.poDetail.indent || q.indent }}
+                              formatNumber={(n) => formatPKR(n)}
+                              formatDateForPrint={(d) => formatDate(d)}
+                            />
+                          ))}
+                        </Stack>
+                      )}
+                    </Box>
+                  )}
+                  {billViewTab === 2 && selectedBill.poDetail.indent && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      <ComparativeStatementView
+                        requisition={selectedBill.poDetail.indent}
+                        quotations={selectedBill.poDetail.quotations || []}
+                        approvalAuthority={selectedBill.poDetail.indent?.comparativeStatementApprovals || {}}
+                        note={selectedBill.poDetail.indent?.notes ?? ''}
+                        readOnly
+                        formatNumber={(n) => formatPKR(n)}
+                        loadingQuotations={false}
+                        showPrintButton={false}
+                      />
+                    </Box>
+                  )}
+                  {billViewTab === 3 && selectedBill.poDetail.po && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                      <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', fontFamily: 'Arial, sans-serif' }}>
+                        <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3 }}>Purchase Order</Typography>
+                        <Box sx={{ mb: 2.5 }}>
+                          <Typography variant="h6" fontWeight={600} sx={{ mb: 1 }}>Residencia</Typography>
+                          <Typography variant="body2">1st Avenue 18 4 Islamabad</Typography>
+                          <Typography variant="body2">1. Het Sne 1-8. Islamabad.</Typography>
+                        </Box>
+                        <Divider sx={{ my: 2.5 }} />
+                        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3, flexWrap: 'wrap' }}>
+                          <Box sx={{ width: { xs: '100%', md: '45%' }, fontSize: '0.9rem' }}>
+                            <Typography variant="h6" fontWeight={600} sx={{ mb: 1 }}>{selectedBill.poDetail.po.vendor?.name || 'Vendor Name'}</Typography>
+                            <Typography variant="body2" sx={{ mb: 2 }}>{typeof selectedBill.poDetail.po.vendor?.address === 'string' ? selectedBill.poDetail.po.vendor.address : (selectedBill.poDetail.po.vendor?.address ? Object.values(selectedBill.poDetail.po.vendor.address).filter(Boolean).join(', ') : 'Vendor Address')}</Typography>
+                            <Box>
+                              <Typography component="span" fontWeight={600}>Indent Details: </Typography>
+                              <Typography component="span">Indent# {selectedBill.poDetail.po.indent?.indentNumber || selectedBill.poDetail.indent?.indentNumber || 'N/A'} Dated. {formatDateForPrint(selectedBill.poDetail.po.indent?.requestedDate || selectedBill.poDetail.indent?.requestedDate) || 'N/A'}.
+                                {selectedBill.poDetail.po.indent?.title && ` ${selectedBill.poDetail.po.indent.title}.`}
+                                {selectedBill.poDetail.indent?.requestedBy && ` End User. ${selectedBill.poDetail.indent.requestedBy.firstName || ''} ${selectedBill.poDetail.indent.requestedBy.lastName || selectedBill.poDetail.indent.requestedBy.name || ''}`}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Box sx={{ width: { xs: '100%', md: '50%' }, fontSize: '0.9rem' }}>
+                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>P.O No.:</Typography><Typography component="span">{selectedBill.poDetail.po.orderNumber || 'N/A'}</Typography></Box>
+                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>Date:</Typography><Typography component="span">{formatDateForPrint(selectedBill.poDetail.po.orderDate)}</Typography></Box>
+                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>Delivery Date:</Typography><Typography component="span">{formatDateForPrint(selectedBill.poDetail.po.expectedDeliveryDate) || '—'}</Typography></Box>
+                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>Delivery Address:</Typography><Typography component="span">{selectedBill.poDetail.po.deliveryAddress || '—'}</Typography></Box>
+                          </Box>
+                        </Box>
+                        <TableContainer sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Sr</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Product</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Specification</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Qty Unit</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Rate</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Amount</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {(selectedBill.poDetail.po.items || []).map((item, idx) => {
+                                const indentItem = selectedBill.poDetail.indent?.items?.[idx];
+                                return (
+                                  <TableRow key={idx}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.productCode || indentItem?.itemCode || item.description?.split(' ')[0] || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || indentItem?.itemName || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.specification || indentItem?.description || indentItem?.specification || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || indentItem?.brand || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity} {item.unit || 'pcs'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatPKR(item.unitPrice)}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatPKR((item.quantity || 0) * (item.unitPrice || 0))}</TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                          <Typography variant="body1" fontWeight="bold">Total: {formatPKR(selectedBill.poDetail.po.totalAmount)}</Typography>
+                        </Box>
+                      </Paper>
+                    </Box>
+                  )}
+                  {billViewTab === 4 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }} className="print-content">
+                      {(!selectedBill.poDetail.grns || selectedBill.poDetail.grns.length === 0) ? (
+                        <Typography color="textSecondary" sx={{ py: 4, textAlign: 'center' }}>No GRN(s) attached to this Purchase Order.</Typography>
+                      ) : (
+                        selectedBill.poDetail.grns.map((grn) => (
+                          <Paper key={grn._id} sx={{ p: 4, mb: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Attached GRN (copy)</Typography>
+                            <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
+                              <Grid item xs={4}><Typography variant="h6" fontWeight="bold">Taj Residencia</Typography><Typography variant="body2" color="textSecondary">Head Office</Typography></Grid>
+                              <Grid item xs={4} sx={{ textAlign: 'center' }}><Typography variant="h5" fontWeight="bold">Goods Received Note</Typography></Grid>
+                              <Grid item xs={4} />
+                            </Grid>
+                            <Grid container spacing={3} sx={{ mb: 2 }}>
+                              <Grid item xs={12} md={6}>
+                                <Typography variant="caption" color="textSecondary">No.</Typography>
+                                <Typography variant="body1" fontWeight="bold">{grn.receiveNumber || grn._id}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Supplier</Typography>
+                                <Typography variant="body2">{[grn.supplier?.supplierId, grn.supplierName || grn.supplier?.name].filter(Boolean).join(' ') || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Address</Typography>
+                                <Typography variant="body2">{grn.supplierAddress || grn.supplier?.address || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Narration</Typography>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{grn.narration || '—'}</Typography>
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <Typography variant="caption" color="textSecondary">Date</Typography>
+                                <Typography variant="body2">{formatGRNDate(grn.receiveDate)}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Currency</Typography>
+                                <Typography variant="body2">{grn.currency || 'Rupees'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.R No.</Typography>
+                                <Typography variant="body2">{grn.prNumber || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.O No.</Typography>
+                                <Typography variant="body2">{grn.poNumber || selectedBill.poDetail.po?.orderNumber || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Store</Typography>
+                                <Typography variant="body2">{grn.store || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Gate Pass No.</Typography>
+                                <Typography variant="body2">{grn.gatePassNo || '—'}</Typography>
+                              </Grid>
+                            </Grid>
+                            <TableContainer sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S. No</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Product Code</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Quantity</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Rate</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Value Excl. ST</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {(grn.items || []).map((item, idx) => (
+                                    <TableRow key={idx}>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{idx + 1}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemCode || '—'}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.quantity)}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.unitPrice)}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatGRNNumber(item.valueExcludingSalesTax ?? (item.quantity * item.unitPrice))}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                              <Grid container spacing={1} sx={{ maxWidth: 320 }}>
+                                <Grid item xs={6}><Typography variant="body2">Discount</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.discount)}</Typography></Grid>
+                                <Grid item xs={6}><Typography variant="body2">Other Charges</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatGRNNumber(grn.otherCharges)}</Typography></Grid>
+                                <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Net Amount</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.netAmount)}</Typography></Grid>
+                                <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Total</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatGRNNumber(grn.total ?? grn.netAmount)}</Typography></Grid>
+                              </Grid>
+                            </Box>
+                            <Divider sx={{ my: 2 }} />
+                            <Typography variant="caption" color="textSecondary">Observation</Typography>
+                            <Typography variant="body2" sx={{ minHeight: 24 }}>{grn.observation || ' '}</Typography>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mt: 3 }}>
+                              <Box>
+                                <Typography variant="caption" color="textSecondary">Prepared By</Typography>
+                                <Typography variant="body2" fontWeight="medium">{grn.preparedByName || (grn.receivedBy?.firstName && grn.receivedBy?.lastName ? `${grn.receivedBy.firstName} ${grn.receivedBy.lastName}` : '—')}</Typography>
+                              </Box>
+                              <Box sx={{ width: 120, height: 40, border: '1px dashed', borderColor: 'divider' }} />
+                            </Box>
+                          </Paper>
+                        ))
+                      )}
+                    </Box>
+                  )}
+                  {billViewTab === 5 && (
+                    <Box sx={{ p: 2 }}>
+                      <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <HistoryIcon /> Payment History
+                      </Typography>
+                      {selectedBill.payments && selectedBill.payments.length > 0 ? (
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Method</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>Reference</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Amount</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {selectedBill.payments.map((payment, index) => (
+                                <TableRow key={index}>
+                                  <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                                  <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                                  <TableCell>{payment.reference || '—'}</TableCell>
+                                  <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      ) : (
+                        <Typography variant="body2" color="textSecondary">No payments recorded yet</Typography>
+                      )}
+                    </Box>
+                  )}
+                  <Divider sx={{ my: 2 }} />
+                </>
+              )}
+
+              {/* Payment History - always shown below for all bills */}
+              <Box sx={{ mt: 2 }}>
                 <Typography variant="subtitle1" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <HistoryIcon /> Payment History
                 </Typography>
                 {selectedBill.payments && selectedBill.payments.length > 0 ? (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Method</TableCell>
-                        <TableCell>Reference</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {selectedBill.payments.map((payment, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{formatDate(payment.paymentDate)}</TableCell>
-                          <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
-                          <TableCell>{payment.reference || '-'}</TableCell>
-                          <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Date</TableCell>
+                          <TableCell>Method</TableCell>
+                          <TableCell>Reference</TableCell>
+                          <TableCell align="right">Amount</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
+                      </TableHead>
+                      <TableBody>
+                        {selectedBill.payments.map((payment, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                            <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                            <TableCell>{payment.reference || '-'}</TableCell>
+                            <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
                   <Typography variant="body2" color="textSecondary">No payments recorded yet</Typography>
                 )}
-              </Grid>
-            </Grid>
+              </Box>
+            </>
           )}
         </DialogContent>
         <DialogActions>
@@ -721,6 +1141,34 @@ const AccountsPayable = () => {
             disabled={selectedBill?.status === 'paid'}
           >
             Record Payment
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Bill from PO Dialog */}
+      <Dialog open={createFromPoDialog.open} onClose={() => setCreateFromPoDialog({ open: false, po: null, billNumber: '', creating: false })} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Bill from Purchase Order</DialogTitle>
+        <DialogContent>
+          {createFromPoDialog.po && (
+            <Box sx={{ pt: 1 }}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                PO: <strong>{createFromPoDialog.po.orderNumber}</strong> | Vendor: {createFromPoDialog.po.vendor?.name} | Amount: {formatPKR(createFromPoDialog.po.totalAmount)}
+              </Typography>
+              <TextField
+                fullWidth
+                label="Bill Number"
+                value={createFromPoDialog.billNumber}
+                onChange={(e) => setCreateFromPoDialog(prev => ({ ...prev, billNumber: e.target.value }))}
+                size="small"
+                sx={{ mt: 2 }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateFromPoDialog({ open: false, po: null, billNumber: '', creating: false })}>Cancel</Button>
+          <Button variant="contained" onClick={handleConfirmCreateFromPo} disabled={createFromPoDialog.creating}>
+            {createFromPoDialog.creating ? 'Creating...' : 'Create Bill'}
           </Button>
         </DialogActions>
       </Dialog>

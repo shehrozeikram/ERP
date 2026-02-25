@@ -1361,14 +1361,14 @@ router.get('/store/pending-indents',
 );
 
 // @route   GET /api/procurement/store/dashboard
-// @desc    Get Purchase Orders with status "Sent to Store" grouped by month/year
+// @desc    Get Purchase Orders with status "Sent to Store" or "GRN Created" grouped by month/year
 // @access  Private (Procurement, Admin, Store Manager)
 router.get('/store/dashboard',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     try {
-      // Get all POs with status "Sent to Store"
-      const purchaseOrders = await PurchaseOrder.find({ status: 'Sent to Store' })
+      // Get POs with status "Sent to Store" (awaiting QA/GRN) or "GRN Created" (ready to send to Procurement)
+      const purchaseOrders = await PurchaseOrder.find({ status: { $in: ['Sent to Store', 'GRN Created'] } })
         .populate('vendor', 'name email phone contactPerson')
         .populate('createdBy', 'firstName lastName email')
         .populate('updatedBy', 'firstName lastName email')
@@ -1516,6 +1516,84 @@ router.post('/store/po/:id/qa-check',
     res.json({
       success: true,
       message: `Quality Assurance: ${status}`,
+      data: po
+    });
+  })
+);
+
+// @route   POST /api/procurement/store/po/:id/send-to-procurement
+// @desc    Send PO (with GRN) back to Procurement from Store
+// @access  Private (Procurement, Admin, Store Manager)
+router.post('/store/po/:id/send-to-procurement',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const po = await PurchaseOrder.findById(req.params.id);
+    if (!po) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (po.status !== 'GRN Created') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only purchase orders with status "GRN Created" can be sent to Procurement'
+      });
+    }
+    const previousStatus = po.status;
+    po.status = 'Sent to Procurement';
+    po.updatedBy = req.user.id;
+    po.workflowHistory = po.workflowHistory || [];
+    po.workflowHistory.push({
+      fromStatus: previousStatus,
+      toStatus: 'Sent to Procurement',
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: 'Sent to Procurement from Store (GRN attached)',
+      module: 'Store'
+    });
+    await po.save();
+    await po.populate('vendor', 'name email phone contactPerson');
+    await po.populate('indent', 'indentNumber title');
+    res.json({
+      success: true,
+      message: 'Purchase order sent to Procurement with GRN',
+      data: po
+    });
+  })
+);
+
+// @route   POST /api/procurement/store/po/:id/send-to-finance
+// @desc    Send PO (with GRN) from Procurement to Finance for billing
+// @access  Private (Procurement, Admin, Finance)
+router.post('/store/po/:id/send-to-finance',
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const po = await PurchaseOrder.findById(req.params.id);
+    if (!po) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (po.status !== 'Sent to Procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only purchase orders with status "Sent to Procurement" can be sent to Finance'
+      });
+    }
+    const previousStatus = po.status;
+    po.status = 'Sent to Finance';
+    po.updatedBy = req.user.id;
+    po.workflowHistory = po.workflowHistory || [];
+    po.workflowHistory.push({
+      fromStatus: previousStatus,
+      toStatus: 'Sent to Finance',
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: 'Sent to Finance for billing (Indent, Quotations, Comparative Statement, PO, GRN attached)',
+      module: 'Procurement'
+    });
+    await po.save();
+    await po.populate('vendor', 'name email phone contactPerson address');
+    await po.populate('indent', 'indentNumber title department requestedBy comparativeStatementApprovals');
+    res.json({
+      success: true,
+      message: 'Purchase order sent to Finance for billing',
       data: po
     });
   })
@@ -2200,11 +2278,12 @@ router.delete('/inventory/:id',
 router.get('/goods-receive',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 10, search, status, supplier, startDate, endDate } = req.query;
+    const { page = 1, limit = 10, search, status, supplier, purchaseOrder, startDate, endDate } = req.query;
     const query = {};
     
     if (status) query.status = status;
     if (supplier) query.supplier = supplier;
+    if (purchaseOrder) query.purchaseOrder = purchaseOrder;
     
     if (startDate || endDate) {
       query.receiveDate = {};
@@ -2387,6 +2466,27 @@ router.post('/goods-receive',
       { path: 'receivedBy', select: 'firstName lastName' },
       { path: 'items.inventoryItem' }
     ]);
+
+    // Update PO status to GRN Created when GRN is created
+    if (purchaseOrder) {
+      const po = await PurchaseOrder.findById(purchaseOrder).select('status').lean();
+      if (po) {
+        await PurchaseOrder.findByIdAndUpdate(purchaseOrder, {
+          status: 'GRN Created',
+          updatedBy: req.user.id,
+          $push: {
+            workflowHistory: {
+              fromStatus: po.status || 'Sent to Store',
+              toStatus: 'GRN Created',
+              changedBy: req.user.id,
+              changedAt: new Date(),
+              comments: 'GRN created in Store',
+              module: 'Store'
+            }
+          }
+        });
+      }
+    }
 
     res.status(201).json({
       success: true,

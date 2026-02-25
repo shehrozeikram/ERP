@@ -23,6 +23,17 @@ export const fetchAllInvoices = (params = {}) =>
 export const fetchReports = (params = {}) =>
   api.get(`${base}/reports`, { params });
 
+export const fetchMonthSummary = (params = {}) =>
+  api.get(`${base}/month-summary`, { params });
+
+export const fetchReconciliationRecords = (params = {}) =>
+  api.get(`${base}/reconciliation`, { params });
+
+export const saveReconciliation = (formData) =>
+  api.post(`${base}/reconciliation/save`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+
 export const updateInvoice = (invoiceId, data) =>
   api.put(`${base}/${invoiceId}`, data);
 

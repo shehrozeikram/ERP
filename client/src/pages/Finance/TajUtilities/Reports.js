@@ -76,7 +76,7 @@ const TajUtilitiesReports = () => {
     { value: 'ELECTRICITY', label: 'Electricity Bills' },
     { value: 'RENT', label: 'Rental Management' },
     { value: 'OPEN_INVOICE', label: 'Open Invoices' },
-    { value: 'Mixed', label: 'Mixed' }
+    { value: 'DEPOSITS', label: 'Deposits' }
   ];
 
   const [ledgerResidentId, setLedgerResidentId] = useState('');
@@ -136,8 +136,16 @@ const TajUtilitiesReports = () => {
     if (!monthKey) return;
     try {
       setExportingMonthKey(monthKey);
-      const response = await fetchAllInvoices({ monthYear: monthKey, limit: 10000 });
+      const params = { monthYear: monthKey, limit: 10000 };
+      if (chargeTypeFilter && chargeTypeFilter !== 'all') {
+        params.chargeType = chargeTypeFilter;
+        if (chargeTypeFilter === 'OPEN_INVOICE') params.openInvoices = 'true';
+      }
+      const response = await fetchAllInvoices(params);
       const invoices = response.data?.data || [];
+      const monthData = report.byMonth.find((r) => r.month === monthKey);
+      const deposits = monthData?.deposits || [];
+
       const headers = [
         'Invoice #',
         'Resident ID',
@@ -147,6 +155,7 @@ const TajUtilitiesReports = () => {
         'Period From',
         'Period To',
         'Due Date',
+        'Deposit Date',
         'Invoice Amount (Subtotal)',
         'Arrears',
         'Grand Total',
@@ -167,6 +176,16 @@ const TajUtilitiesReports = () => {
         const chargeTypes = Array.isArray(inv.chargeTypes) ? inv.chargeTypes.join(', ') : (inv.chargeTypes || '—');
         const recordedBy = inv.createdBy ? [inv.createdBy.firstName, inv.createdBy.lastName].filter(Boolean).join(' ') : '—';
         const num = (v) => Number(v) || 0;
+        const paid = inv.totalPaid != null && inv.totalPaid !== ''
+          ? num(inv.totalPaid)
+          : (Array.isArray(inv.payments) ? inv.payments.reduce((sum, p) => sum + (num(p.amount) || num(p.totalAmount)), 0) : 0);
+        const residentDeposits = (deposits || []).filter((d) => String(d.residentId || '').trim() !== '' && String(residentId || '').trim() !== '' && String(d.residentId) === String(residentId));
+        const depositDateStr = residentDeposits.length > 0
+          ? residentDeposits
+              .map((d) => d.depositDate ? dayjs(d.depositDate).format('DD MMM YYYY') : null)
+              .filter(Boolean)
+              .join(', ') || '—'
+          : '—';
         return [
           inv.invoiceNumber || '—',
           residentId,
@@ -176,10 +195,11 @@ const TajUtilitiesReports = () => {
           inv.periodFrom ? dayjs(inv.periodFrom).format('DD MMM YYYY') : '—',
           inv.periodTo ? dayjs(inv.periodTo).format('DD MMM YYYY') : '—',
           inv.dueDate ? dayjs(inv.dueDate).format('DD MMM YYYY') : '—',
+          depositDateStr,
           num(inv.subtotal),
           num(inv.totalArrears),
           num(inv.grandTotal),
-          num(inv.totalPaid),
+          paid,
           num(inv.balance),
           inv.paymentStatus || '—',
           inv.status || '—',
@@ -191,8 +211,9 @@ const TajUtilitiesReports = () => {
       });
       const { Workbook } = await import('exceljs');
       const workbook = new Workbook();
-      const worksheet = workbook.addWorksheet(monthKey, { views: [{ state: 'frozen', ySplit: 1 }] });
-      const colWidths = [18, 12, 22, 18, 20, 12, 12, 12, 14, 10, 14, 10, 10, 12, 12, 16, 18, 20, 10];
+
+      const worksheet = workbook.addWorksheet('Invoices', { views: [{ state: 'frozen', ySplit: 1 }] });
+      const colWidths = [20, 14, 26, 22, 24, 14, 14, 14, 16, 18, 16, 18, 16, 16, 14, 12, 18, 22, 24, 12];
       headers.forEach((h, i) => {
         worksheet.getColumn(i + 1).width = colWidths[i] || 12;
       });
@@ -200,7 +221,45 @@ const TajUtilitiesReports = () => {
       headerRow.font = { bold: true, size: 12 };
       headerRow.alignment = { vertical: 'middle' };
       rows.forEach((row) => worksheet.addRow(row));
-      const filename = `invoices-${monthKey}.xlsx`;
+
+      const totalInvoiceAmount = rows.reduce((s, row) => s + (Number(row[9]) || 0), 0);
+      const totalArrears = rows.reduce((s, row) => s + (Number(row[10]) || 0), 0);
+      const totalGrandTotal = rows.reduce((s, row) => s + (Number(row[11]) || 0), 0);
+      const totalPaid = rows.reduce((s, row) => s + (Number(row[12]) || 0), 0);
+      const totalBalance = rows.reduce((s, row) => s + (Number(row[13]) || 0), 0);
+      const totalsRow = [
+        '', '', '', '', '', '', '', '', '',
+        totalInvoiceAmount,
+        totalArrears,
+        totalGrandTotal,
+        totalPaid,
+        totalBalance,
+        '', '', '', '', ''
+      ];
+      const totalsRowNode = worksheet.addRow(totalsRow);
+      totalsRowNode.font = { bold: true, size: 11 };
+      totalsRowNode.getCell(1).value = 'Total';
+      totalsRowNode.getCell(10).numFmt = '#,##0.00';
+      totalsRowNode.getCell(11).numFmt = '#,##0.00';
+      totalsRowNode.getCell(12).numFmt = '#,##0.00';
+      totalsRowNode.getCell(13).numFmt = '#,##0.00';
+      totalsRowNode.getCell(14).numFmt = '#,##0.00';
+
+      const depositHeaders = ['Deposit Date', 'Resident ID', 'Resident Name', 'Amount'];
+      const depositRows = deposits.map((d) => [
+        d.depositDate ? dayjs(d.depositDate).format('DD MMM YYYY HH:mm') : '—',
+        d.residentId || '—',
+        d.residentName || '—',
+        Number(d.amount) || 0
+      ]);
+      const depositSheet = workbook.addWorksheet('Deposits', { views: [{ state: 'frozen', ySplit: 1 }] });
+      [14, 14, 22, 14].forEach((w, i) => depositSheet.getColumn(i + 1).width = w);
+      const depositHeaderRow = depositSheet.addRow(depositHeaders);
+      depositHeaderRow.font = { bold: true, size: 12 };
+      depositHeaderRow.alignment = { vertical: 'middle' };
+      depositRows.forEach((row) => depositSheet.addRow(row));
+
+      const filename = `report-${monthKey}.xlsx`;
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
@@ -214,7 +273,7 @@ const TajUtilitiesReports = () => {
     } finally {
       setExportingMonthKey(null);
     }
-  }, []);
+  }, [report.byMonth, chargeTypeFilter]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -291,7 +350,7 @@ const TajUtilitiesReports = () => {
           <Card>
             <CardContent>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Total Invoice Amount
+                {chargeTypeFilter === 'DEPOSITS' ? 'Total Suspense Amount' : 'Total Invoice Amount'}
               </Typography>
               <Typography variant="h6" fontWeight={700}>
                 {formatCurrency(report.totals.invoiceAmount)}
@@ -303,7 +362,7 @@ const TajUtilitiesReports = () => {
           <Card>
             <CardContent>
               <Typography variant="body2" color="text.secondary" gutterBottom>
-                Total Arrears
+                {chargeTypeFilter === 'DEPOSITS' ? 'Total Deposits' : 'Total Arrears'}
               </Typography>
               <Typography variant="h6" fontWeight={700} color="warning.main">
                 {formatCurrency(report.totals.arrears)}
@@ -344,7 +403,9 @@ const TajUtilitiesReports = () => {
             Month-wise Breakdown
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Invoice Amount and Arrears are grouped by billing period (invoice month). Payments Received are grouped by payment date.
+            {chargeTypeFilter === 'DEPOSITS'
+              ? 'Suspense Amount and Deposits by month; Payments Received = Suspense + Deposits.'
+              : 'Invoice Amount, Arrears, and Payments Received are all grouped by billing period (invoice month), matching the Invoices page.'}
           </Typography>
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
@@ -362,8 +423,8 @@ const TajUtilitiesReports = () => {
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'action.hover' }}>
                     <TableCell><strong>Month</strong></TableCell>
-                    <TableCell align="right"><strong>Invoice Amount</strong></TableCell>
-                    <TableCell align="right"><strong>Arrears</strong></TableCell>
+                    <TableCell align="right"><strong>{chargeTypeFilter === 'DEPOSITS' ? 'Suspense Amount' : 'Invoice Amount'}</strong></TableCell>
+                    <TableCell align="right"><strong>{chargeTypeFilter === 'DEPOSITS' ? 'Deposits' : 'Arrears'}</strong></TableCell>
                     <TableCell align="right"><strong>Payments Received</strong></TableCell>
                     <TableCell align="right"><strong>Invoices</strong></TableCell>
                   </TableRow>

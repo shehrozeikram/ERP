@@ -36,7 +36,7 @@ import {
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import jsPDF from 'jspdf';
-import { fetchAllInvoices, fetchInvoice } from '../../../services/propertyInvoiceService';
+import { fetchAllInvoices, fetchInvoice, fetchMonthSummary } from '../../../services/propertyInvoiceService';
 import { fetchProperties, fetchPropertyById } from '../../../services/tajPropertiesService';
 import { fetchResidents } from '../../../services/tajResidentsService';
 import { fetchSectors } from '../../../services/tajSectorsService';
@@ -90,7 +90,8 @@ const Invoices = () => {
   const [sectorFilter, setSectorFilter] = useState('');
   const [monthYearFilter, setMonthYearFilter] = useState('');
   const [expandedMonths, setExpandedMonths] = useState([]);
-  
+  const [monthSummary, setMonthSummary] = useState({});
+
   // Pagination
   const pagination = usePagination({
     defaultRowsPerPage: 50,
@@ -142,6 +143,23 @@ const Invoices = () => {
     }
   };
 
+  const loadMonthSummary = async () => {
+    try {
+      const params = {};
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (paymentStatusFilter !== 'all') params.paymentStatus = paymentStatusFilter;
+      if (propertyFilter) params.propertyId = propertyFilter;
+      if (chargeTypeFilter === 'OPEN_INVOICE') params.openInvoices = 'true';
+      else if (chargeTypeFilter !== 'all') params.chargeType = chargeTypeFilter;
+      if (residentFilter) params.residentId = residentFilter;
+      if (sectorFilter) params.sector = sectorFilter;
+      const response = await fetchMonthSummary(params);
+      setMonthSummary(response.data?.data || {});
+    } catch {
+      setMonthSummary({});
+    }
+  };
+
   const loadProperties = async () => {
     try {
       setPropertiesLoading(true);
@@ -189,6 +207,7 @@ const Invoices = () => {
     // Force refresh on initial load to ensure we get the latest invoices
     const isInitialLoad = pagination.page === 0 && pagination.rowsPerPage === 50;
     loadInvoices(isInitialLoad);
+    loadMonthSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagination.page, pagination.rowsPerPage, statusFilter, paymentStatusFilter, propertyFilter, residentFilter, chargeTypeFilter, sectorFilter, search, monthYearFilter]);
 
@@ -596,46 +615,63 @@ const Invoices = () => {
     }
   };
 
-  // Group invoices by month based on period dates
-  // Note: Search is now handled server-side, so we use invoices directly
+  // Month key for an invoice (periodTo → periodFrom → invoiceDate)
+  const getMonthKey = (invoice) => {
+    const periodDate = invoice.periodTo
+      ? dayjs(invoice.periodTo)
+      : invoice.periodFrom
+        ? dayjs(invoice.periodFrom)
+        : invoice.invoiceDate
+          ? dayjs(invoice.invoiceDate)
+          : dayjs();
+    return periodDate.format('YYYY-MM');
+  };
+
+  // Group by month: use whole-month totals from month-summary API when available; table rows = current page invoices in that month
   const invoicesByMonth = useMemo(() => {
+    const summaryMonths = Object.keys(monthSummary || {}).filter(Boolean);
+    if (summaryMonths.length > 0) {
+      const sorted = [...summaryMonths].sort((a, b) => b.localeCompare(a));
+      return sorted.map((monthKey) => {
+        const s = monthSummary[monthKey];
+        const monthInvoices = invoices.filter((inv) => getMonthKey(inv) === monthKey);
+        return {
+          key: monthKey,
+          label: dayjs(monthKey + '-01').format('MMMM YYYY'),
+          total: s?.total ?? 0,
+          paid: s?.paid ?? 0,
+          balance: s?.balance ?? 0,
+          invoiceCount: s?.invoiceCount ?? 0,
+          invoices: monthInvoices
+        };
+      });
+    }
     const grouped = {};
     invoices.forEach((invoice) => {
-      // Use periodTo if available, otherwise periodFrom, otherwise invoiceDate as fallback
-      const periodDate = invoice.periodTo 
-        ? dayjs(invoice.periodTo) 
-        : invoice.periodFrom 
-        ? dayjs(invoice.periodFrom) 
-        : invoice.invoiceDate 
-        ? dayjs(invoice.invoiceDate) 
-        : dayjs();
-      const monthKey = periodDate.format('YYYY-MM');
-      const monthLabel = periodDate.format('MMMM YYYY');
-      
+      const monthKey = getMonthKey(invoice);
+      const monthLabel = dayjs(monthKey + '-01').format('MMMM YYYY');
       if (!grouped[monthKey]) {
         grouped[monthKey] = {
           label: monthLabel,
           invoices: [],
           total: 0,
           paid: 0,
-          balance: 0
+          balance: 0,
+          invoiceCount: 0
         };
       }
-      
       grouped[monthKey].invoices.push(invoice);
       const adjustedGrandTotal = getAdjustedGrandTotal(invoice);
       grouped[monthKey].total += adjustedGrandTotal;
       grouped[monthKey].paid += invoice.totalPaid || 0;
-      // Calculate balance based on adjusted grandTotal (never negative)
       const adjustedBalance = getAdjustedBalance(invoice);
       grouped[monthKey].balance += adjustedBalance;
+      grouped[monthKey].invoiceCount = grouped[monthKey].invoices.length;
     });
-    
-    // Sort months in descending order (newest first)
     return Object.entries(grouped)
       .sort(([a], [b]) => b.localeCompare(a))
       .map(([key, value]) => ({ key, ...value }));
-  }, [invoices]);
+  }, [invoices, monthSummary]);
 
   const toggleMonth = (monthKey) => {
     setExpandedMonths(prev => {
@@ -894,7 +930,7 @@ const Invoices = () => {
                           {monthGroup.label}
                         </Typography>
                         <Chip
-                          label={`${monthGroup.invoices.length} invoice${monthGroup.invoices.length !== 1 ? 's' : ''}`}
+                          label={`${(monthGroup.invoiceCount ?? monthGroup.invoices.length)} invoice${(monthGroup.invoiceCount ?? monthGroup.invoices.length) !== 1 ? 's' : ''}`}
                           size="small"
                           color="primary"
                           variant="outlined"

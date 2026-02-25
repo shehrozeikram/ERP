@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
@@ -28,6 +28,8 @@ const formatNumber = (n) => (n == null || n === '') ? '' : Number(n).toLocaleStr
 const GoodsReceive = () => {
   const theme = useTheme();
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -202,6 +204,27 @@ const GoodsReceive = () => {
     })();
     return () => { cancelled = true; };
   }, [searchParams, prefillFormFromPO]);
+
+  // When navigated from Procurement PO view with openGrnId: fetch GRN and open view dialog
+  useEffect(() => {
+    const grnId = location.state?.openGrnId;
+    if (!grnId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setViewLoading(true);
+        const res = await api.get(`/procurement/goods-receive/${grnId}`);
+        if (cancelled || !res.data?.success || !res.data?.data) return;
+        setViewDialog({ open: true, data: res.data.data });
+        navigate(location.pathname, { replace: true, state: {} });
+      } catch (e) {
+        if (!cancelled) setError(e.response?.data?.message || 'Failed to load GRN');
+      } finally {
+        if (!cancelled) setViewLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [location.state?.openGrnId, location.pathname, navigate]);
 
   const handleCreate = () => {
     setFormData({

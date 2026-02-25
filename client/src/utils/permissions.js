@@ -602,6 +602,10 @@ export const MODULES = {
           {
             name: 'Reports',
             path: '/finance/taj-utilities-charges/reports'
+          },
+          {
+            name: 'Reconciliation',
+            path: '/finance/taj-utilities-charges/reconciliation'
           }
         ]
       },
@@ -926,7 +930,8 @@ export const getModuleMenuItems = (userRole) => {
       '/finance/taj-utilities-charges/open-invoices',
       '/finance/taj-utilities-charges/deposits',
       '/finance/taj-utilities-charges/suspense-account',
-      '/finance/taj-utilities-charges/reports'
+      '/finance/taj-utilities-charges/reports',
+      '/finance/taj-utilities-charges/reconciliation'
     ];
   
   return accessibleModules.map(moduleKey => {
@@ -1102,6 +1107,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/taj-utilities-charges/invoices': 'taj_invoices',
       '/finance/taj-utilities-charges/open-invoices': 'taj_open_invoices',
       '/finance/taj-utilities-charges/reports': 'taj_utilities_reports',
+      '/finance/taj-utilities-charges/reconciliation': 'taj_utilities_reports',
       '/finance/recovery': 'recovery',
       '/finance/recovery/recovery-assignments': 'recovery_assignments',
       '/finance/recovery/recovery-members': 'recovery_members',
