@@ -33,23 +33,27 @@ const quotationSchema = new mongoose.Schema({
   items: [{
     description: {
       type: String,
-      required: true,
-      trim: true
+      required: false,
+      trim: true,
+      default: ''
     },
     quantity: {
       type: Number,
       required: true,
-      min: 0
+      min: 0,
+      default: 0
     },
     unit: {
       type: String,
-      required: true,
-      trim: true
+      required: false,
+      trim: true,
+      default: ''
     },
     unitPrice: {
       type: Number,
       required: true,
-      min: 0
+      min: 0,
+      default: 0
     },
     taxRate: {
       type: Number,
@@ -64,7 +68,8 @@ const quotationSchema = new mongoose.Schema({
     },
     amount: {
       type: Number,
-      required: true
+      required: false,
+      default: 0
     }
   }],
   subtotal: {

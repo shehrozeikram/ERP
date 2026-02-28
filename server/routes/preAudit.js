@@ -259,13 +259,14 @@ router.get('/',
       }
     }
 
-    // Fetch Purchase Orders sent to audit (Pending Audit, Pending Finance, Returned from Audit)
+    // Fetch Purchase Orders sent to audit (Pending Audit, Pending Finance, Returned from Audit, Sent to Audit)
     try {
       const PurchaseOrder = require('../models/procurement/PurchaseOrder');
-      const poQuery = { status: { $in: ['Pending Audit', 'Pending Finance', 'Returned from Audit'] } };
+      const auditStatuses = ['Pending Audit', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
+      const poQuery = { status: { $in: auditStatuses } };
       if (search) {
         poQuery.$and = [
-          { status: { $in: ['Pending Audit', 'Pending Finance', 'Returned from Audit'] } },
+          { status: { $in: auditStatuses } },
           { $or: [
             { orderNumber: { $regex: search, $options: 'i' } },
             { notes: { $regex: search, $options: 'i' } },
@@ -284,6 +285,7 @@ router.get('/',
         let preAuditStatus = 'pending';
         if (doc.status === 'Pending Finance') preAuditStatus = 'approved';
         else if (doc.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (doc.status === 'Sent to Audit') preAuditStatus = 'pending'; // post-GRN audit queue
         workflowDocs.push({
           _id: doc._id,
           documentNumber: doc.orderNumber || doc._id.toString(),
@@ -300,6 +302,8 @@ router.get('/',
           priority: (doc.priority || 'Medium').toLowerCase(),
           isWorkflowDocument: true,
           isPurchaseOrder: true,
+          // distinguish post-GRN audit POs from pre-approval ones
+          isPostGrnAudit: doc.status === 'Sent to Audit',
           originalDocument: doc,
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
@@ -395,7 +399,8 @@ router.get('/:id',
         .populate('auditObservations.addedBy', 'firstName lastName email')
         .populate('auditObservations.answeredBy', 'firstName lastName email')
         .lean();
-      if (po && ['Pending Audit', 'Pending Finance', 'Returned from Audit'].includes(po.status)) {
+      const auditVisibleStatuses = ['Pending Audit', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
+      if (po && auditVisibleStatuses.includes(po.status)) {
         let preAuditStatus = 'pending';
         if (po.status === 'Pending Finance') preAuditStatus = 'approved';
         else if (po.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
@@ -415,6 +420,7 @@ router.get('/:id',
             status: preAuditStatus,
             isWorkflowDocument: true,
             isPurchaseOrder: true,
+            isPostGrnAudit: po.status === 'Sent to Audit',
             originalDocument: po,
             auditObservations: po.auditObservations || []
           }

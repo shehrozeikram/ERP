@@ -108,7 +108,7 @@ const PreAudit = () => {
   const [tabValue, setTabValue] = useState(0);
   
   // Dialog states
-  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 });
+  const [viewDialog, setViewDialog] = useState({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 });
   const [imageViewer, setImageViewer] = useState({ open: false, imageUrl: '', imageName: '', isBlob: false });
   const [approveDialog, setApproveDialog] = useState({ open: false, document: null });
   const [forwardDialog, setForwardDialog] = useState({ open: false, document: null });
@@ -221,6 +221,17 @@ const PreAudit = () => {
       fetchDocuments();
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to approve document');
+    }
+  };
+
+  const handleSendToFinanceFromAudit = async (doc) => {
+    try {
+      setError(null);
+      await api.post(`/procurement/store/po/${doc._id}/send-to-finance`);
+      setSuccess('Purchase order sent to Finance for billing');
+      fetchDocuments();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to send purchase order to Finance');
     }
   };
 
@@ -1133,16 +1144,24 @@ const PreAudit = () => {
                                           <TableRow key={doc._id} hover>
                                             <TableCell>{doc.documentNumber}</TableCell>
                                             <TableCell>
-                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                                 <Typography variant="body2" fontWeight="medium">
                                                   {doc.title}
                                                 </Typography>
-                                                {doc.isWorkflowDocument && (
+                                                {doc.isWorkflowDocument && !doc.isPostGrnAudit && (
                                                   <Chip
                                                     label="Workflow"
                                                     size="small"
                                                     color="primary"
                                                     variant="outlined"
+                                                  />
+                                                )}
+                                                {doc.isPostGrnAudit && (
+                                                  <Chip
+                                                    label="Post-GRN"
+                                                    size="small"
+                                                    color="warning"
+                                                    variant="filled"
                                                   />
                                                 )}
                                               </Box>
@@ -1186,25 +1205,37 @@ const PreAudit = () => {
                                                         try {
                                                           const response = await api.get(`/procurement/purchase-orders/${doc._id}`);
                                                           let quotations = [];
-                                                          if (response.data.success && response.data.data?.indent?._id) {
+                                                          let grns = [];
+                                                          const poData = response.data.success ? response.data.data : null;
+                                                          if (poData?.indent?._id) {
                                                             try {
-                                                              const qRes = await api.get(`/procurement/quotations/by-indent/${response.data.data.indent._id}`);
+                                                              const qRes = await api.get(`/procurement/quotations/by-indent/${poData.indent._id}`);
                                                               if (qRes.data?.success && Array.isArray(qRes.data.data)) {
                                                                 quotations = qRes.data.data;
                                                               }
                                                             } catch (_) { /* ignore */ }
                                                           }
+                                                          // Fetch GRNs linked to this PO
+                                                          try {
+                                                            const grnRes = await api.get('/procurement/goods-receive', { params: { purchaseOrder: doc._id, limit: 100 } });
+                                                            if (grnRes.data?.success && Array.isArray(grnRes.data.data?.receives)) {
+                                                              grns = grnRes.data.data.receives;
+                                                            } else if (grnRes.data?.success && Array.isArray(grnRes.data.data)) {
+                                                              grns = grnRes.data.data;
+                                                            }
+                                                          } catch (_) { /* ignore */ }
                                                           setViewDialog({ 
                                                             open: true, 
                                                             document: { ...doc, isPurchaseOrder: true }, 
-                                                            fullDocument: response.data.success ? response.data.data : null,
+                                                            fullDocument: poData,
                                                             loading: false,
                                                             quotations,
+                                                            grns,
                                                             poAuditTab: 0
                                                           });
                                                         } catch (error) {
                                                           console.error('Error fetching purchase order:', error);
-                                                          setViewDialog({ open: true, document: { ...doc, isPurchaseOrder: true }, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 });
+                                                          setViewDialog({ open: true, document: { ...doc, isPurchaseOrder: true }, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 });
                                                         }
                                                       }
                                                       // If it's a workflow document (payment settlement), check if it's related to a PO
@@ -1305,58 +1336,75 @@ const PreAudit = () => {
                                                 {/* Action buttons based on status and user role */}
                                                 {doc.status === 'pending' || doc.status === 'under_review' ? (
                                                   <>
-                                                    {/* Audit Manager: Can forward to Audit Director */}
-                                                    {(user?.role === 'audit_manager' || user?.role === 'super_admin') && (
-                                                      <Tooltip title="Forward to Audit Director">
-                                                        <IconButton
-                                                          size="small"
-                                                          color="primary"
-                                                          onClick={() => setForwardDialog({ open: true, document: doc })}
-                                                        >
-                                                          <SendIcon fontSize="small" />
-                                                        </IconButton>
-                                                      </Tooltip>
-                                                    )}
-                                                    {/* Approve button - available to audit_manager, super_admin, and auditor */}
-                                                    {(user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
-                                                      <Tooltip title="Approve">
-                                                        <IconButton
-                                                          size="small"
-                                                          color="success"
-                                                          onClick={() => setApproveDialog({ open: true, document: doc })}
-                                                        >
-                                                          <CheckCircleIcon fontSize="small" />
-                                                        </IconButton>
-                                                      </Tooltip>
-                                                    )}
-                                                    <Tooltip title="Add Observation">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="info"
-                                                        onClick={() => setObservationDialog({ open: true, document: doc })}
-                                                      >
-                                                        <CommentIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                    <Tooltip title="Reject with Observation">
-                                                      <IconButton
-                                                        size="small"
-                                                        color="error"
-                                                        onClick={() => setRejectDialog({ open: true, document: doc })}
-                                                      >
-                                                        <CancelIcon fontSize="small" />
-                                                      </IconButton>
-                                                    </Tooltip>
-                                                    {doc.observations && doc.observations.length > 0 && (
-                                                      <Tooltip title="Return to Department">
-                                                        <IconButton
-                                                          size="small"
-                                                          color="warning"
-                                                          onClick={() => setReturnDialog({ open: true, document: doc })}
-                                                        >
-                                                          <SendIcon fontSize="small" />
-                                                        </IconButton>
-                                                      </Tooltip>
+                                                    {/* Post-GRN audit POs: Show "Send to Finance" instead of standard audit actions */}
+                                                    {doc.isPostGrnAudit ? (
+                                                      (user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
+                                                        <Tooltip title="Send to Finance">
+                                                          <IconButton
+                                                            size="small"
+                                                            color="success"
+                                                            onClick={() => handleSendToFinanceFromAudit(doc)}
+                                                          >
+                                                            <SendIcon fontSize="small" />
+                                                          </IconButton>
+                                                        </Tooltip>
+                                                      )
+                                                    ) : (
+                                                      <>
+                                                        {/* Audit Manager: Can forward to Audit Director */}
+                                                        {(user?.role === 'audit_manager' || user?.role === 'super_admin') && (
+                                                          <Tooltip title="Forward to Audit Director">
+                                                            <IconButton
+                                                              size="small"
+                                                              color="primary"
+                                                              onClick={() => setForwardDialog({ open: true, document: doc })}
+                                                            >
+                                                              <SendIcon fontSize="small" />
+                                                            </IconButton>
+                                                          </Tooltip>
+                                                        )}
+                                                        {/* Approve button - available to audit_manager, super_admin, and auditor */}
+                                                        {(user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
+                                                          <Tooltip title="Approve">
+                                                            <IconButton
+                                                              size="small"
+                                                              color="success"
+                                                              onClick={() => setApproveDialog({ open: true, document: doc })}
+                                                            >
+                                                              <CheckCircleIcon fontSize="small" />
+                                                            </IconButton>
+                                                          </Tooltip>
+                                                        )}
+                                                        <Tooltip title="Add Observation">
+                                                          <IconButton
+                                                            size="small"
+                                                            color="info"
+                                                            onClick={() => setObservationDialog({ open: true, document: doc })}
+                                                          >
+                                                            <CommentIcon fontSize="small" />
+                                                          </IconButton>
+                                                        </Tooltip>
+                                                        <Tooltip title="Reject with Observation">
+                                                          <IconButton
+                                                            size="small"
+                                                            color="error"
+                                                            onClick={() => setRejectDialog({ open: true, document: doc })}
+                                                          >
+                                                            <CancelIcon fontSize="small" />
+                                                          </IconButton>
+                                                        </Tooltip>
+                                                        {doc.observations && doc.observations.length > 0 && (
+                                                          <Tooltip title="Return to Department">
+                                                            <IconButton
+                                                              size="small"
+                                                              color="warning"
+                                                              onClick={() => setReturnDialog({ open: true, document: doc })}
+                                                            >
+                                                              <SendIcon fontSize="small" />
+                                                            </IconButton>
+                                                          </Tooltip>
+                                                        )}
+                                                      </>
                                                     )}
                                                   </>
                                                 ) : (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') ? (
@@ -1423,7 +1471,7 @@ const PreAudit = () => {
       {/* View Document Dialog */}
       <Dialog
         open={viewDialog.open}
-        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 })}
+        onClose={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 })}
         maxWidth={(viewDialog.document?.isPurchaseOrder || (viewDialog.document?.isWorkflowDocument && viewDialog.fullDocument?.isPurchaseOrder)) ? false : "md"}
         fullWidth
         PaperProps={{
@@ -1476,7 +1524,7 @@ const PreAudit = () => {
               )}
               <IconButton 
                 size="small" 
-                onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], poAuditTab: 0 })}
+                onClick={() => setViewDialog({ open: false, document: null, fullDocument: null, loading: false, quotations: [], grns: [], poAuditTab: 0 })}
                 sx={{ color: '#666', '@media print': { display: 'none' } }}
               >
                 <CloseIcon />
@@ -1503,12 +1551,85 @@ const PreAudit = () => {
                     value={viewDialog.poAuditTab ?? 0}
                     onChange={(_, v) => setViewDialog(prev => ({ ...prev, poAuditTab: v }))}
                     sx={{ px: 2, pt: 1, borderBottom: 1, borderColor: 'divider', '@media print': { display: 'none' } }}
+                    variant="scrollable"
+                    scrollButtons="auto"
                   >
+                    <Tab label="Indent" />
                     <Tab label="Purchase Order" />
                     <Tab label="Comparative Statement" />
-                    <Tab label="Quotations" />
+                    <Tab label={`Quotations (${viewDialog.quotations?.length || 0})`} />
+                    <Tab label={viewDialog.grns?.length > 0 ? `GRN(s) (${viewDialog.grns.length})` : 'GRN(s)'} />
                   </Tabs>
+
+                  {/* Tab 0: Indent */}
                   {viewDialog.poAuditTab === 0 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {!viewDialog.fullDocument?.indent ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No indent linked to this Purchase Order.</Typography>
+                      ) : (
+                        <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="h5" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1 }}>
+                            Purchase Request Form
+                          </Typography>
+                          {viewDialog.fullDocument.indent.title && (
+                            <Typography variant="h6" fontWeight={600} align="center" sx={{ mb: 2 }}>{viewDialog.fullDocument.indent.title}</Typography>
+                          )}
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', textAlign: 'center' }}>
+                            <Typography component="span" fontWeight={600}>ERP Ref:</Typography>
+                            <Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.erpRef || 'PR #' + (viewDialog.fullDocument.indent.indentNumber?.split('-').pop() || '')}</Typography>
+                          </Box>
+                          <Box sx={{ mb: 1.5, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box><Typography component="span" fontWeight={600}>Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.fullDocument.indent.requestedDate)}</Typography></Box>
+                            <Box><Typography component="span" fontWeight={600}>Required Date:</Typography><Typography component="span" sx={{ ml: 1 }}>{formatDateForPrint(viewDialog.fullDocument.indent.requiredDate) || '—'}</Typography></Box>
+                            <Box><Typography component="span" fontWeight={600}>Indent No.:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.indentNumber || '—'}</Typography></Box>
+                          </Box>
+                          <Box sx={{ mb: 3, fontSize: '0.9rem', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            <Box><Typography component="span" fontWeight={600}>Department:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.department?.name || viewDialog.fullDocument.indent.department || '—'}</Typography></Box>
+                            <Box><Typography component="span" fontWeight={600}>Originator:</Typography><Typography component="span" sx={{ ml: 1 }}>{viewDialog.fullDocument.indent.requestedBy?.firstName && viewDialog.fullDocument.indent.requestedBy?.lastName ? `${viewDialog.fullDocument.indent.requestedBy.firstName} ${viewDialog.fullDocument.indent.requestedBy.lastName}` : viewDialog.fullDocument.indent.requestedBy?.name || '—'}</Typography></Box>
+                          </Box>
+                          <Box sx={{ mb: 3 }}>
+                            <Table size="small" sx={{ border: '1px solid', borderColor: 'divider' }}>
+                              <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S#</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Item Name</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="center">Qty</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Purpose</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Est. Cost</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(viewDialog.fullDocument.indent.items || []).map((item, idx) => (
+                                  <TableRow key={idx}>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{idx + 1}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.description || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity ?? '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.purpose || '—'}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{item.estimatedCost != null ? Number(item.estimatedCost).toFixed(2) : '—'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </Box>
+                          {viewDialog.fullDocument.indent.justification && (
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>Justification:</Typography>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>{viewDialog.fullDocument.indent.justification}</Typography>
+                            </Box>
+                          )}
+                        </Paper>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 1: Purchase Order */}
+                  {viewDialog.poAuditTab === 1 && (
                     <PurchaseOrderView 
                       poData={{
                         ...viewDialog.fullDocument,
@@ -1519,7 +1640,9 @@ const PreAudit = () => {
                       }} 
                     />
                   )}
-                  {viewDialog.poAuditTab === 1 && (
+
+                  {/* Tab 2: Comparative Statement */}
+                  {viewDialog.poAuditTab === 2 && (
                     <Box sx={{ p: 2, overflowX: 'auto' }}>
                       <ComparativeStatementView
                         requisition={viewDialog.fullDocument?.indent}
@@ -1533,7 +1656,9 @@ const PreAudit = () => {
                       />
                     </Box>
                   )}
-                  {viewDialog.poAuditTab === 2 && (
+
+                  {/* Tab 3: Quotations */}
+                  {viewDialog.poAuditTab === 3 && (
                     <Box sx={{ p: 2 }}>
                       {(!viewDialog.quotations || viewDialog.quotations.length === 0) ? (
                         <Typography color="text.secondary">No quotations for this requisition.</Typography>
@@ -1548,6 +1673,102 @@ const PreAudit = () => {
                             />
                           ))}
                         </Stack>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Tab 4: GRN(s) */}
+                  {viewDialog.poAuditTab === 4 && (
+                    <Box sx={{ p: 2, overflowX: 'auto' }}>
+                      {(!viewDialog.grns || viewDialog.grns.length === 0) ? (
+                        <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No GRN(s) attached to this Purchase Order.</Typography>
+                      ) : (
+                        viewDialog.grns.map((grn) => (
+                          <Paper key={grn._id} sx={{ p: 4, mb: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Goods Received Note</Typography>
+                            <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
+                              <Grid item xs={4}><Typography variant="h6" fontWeight="bold">SGC</Typography><Typography variant="body2" color="textSecondary">Head Office</Typography></Grid>
+                              <Grid item xs={4} sx={{ textAlign: 'center' }}><Typography variant="h5" fontWeight="bold">Goods Received Note</Typography></Grid>
+                              <Grid item xs={4} />
+                            </Grid>
+                            <Grid container spacing={3} sx={{ mb: 2 }}>
+                              <Grid item xs={12} md={6}>
+                                <Typography variant="caption" color="textSecondary">No.</Typography>
+                                <Typography variant="body1" fontWeight="bold">{grn.receiveNumber || grn._id}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Supplier</Typography>
+                                <Typography variant="body2">{[grn.supplier?.supplierId, grn.supplierName || grn.supplier?.name].filter(Boolean).join(' ') || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Address</Typography>
+                                <Typography variant="body2">{grn.supplierAddress || grn.supplier?.address || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Narration</Typography>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{grn.narration || '—'}</Typography>
+                              </Grid>
+                              <Grid item xs={12} md={6}>
+                                <Typography variant="caption" color="textSecondary">Date</Typography>
+                                <Typography variant="body2">{formatDateForPrint(grn.receiveDate)}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Currency</Typography>
+                                <Typography variant="body2">{grn.currency || 'Rupees'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.R No.</Typography>
+                                <Typography variant="body2">{grn.prNumber || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>P.O No.</Typography>
+                                <Typography variant="body2">{grn.poNumber || viewDialog.fullDocument?.orderNumber || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Store</Typography>
+                                <Typography variant="body2">{grn.storeSnapshot || '—'}</Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>Gate Pass No.</Typography>
+                                <Typography variant="body2">{grn.gatePassNo || '—'}</Typography>
+                              </Grid>
+                            </Grid>
+                            <TableContainer sx={{ mb: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                              <Table size="small">
+                                <TableHead>
+                                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>S. No</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Product Code</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Description</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Unit</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Quantity</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Rate</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Value Excl. ST</TableCell>
+                                  </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                  {(grn.items || []).map((item, idx) => (
+                                    <TableRow key={idx}>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{idx + 1}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemCode || '—'}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.itemName || '—'}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.unit || '—'}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatNumber(item.quantity)}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatNumber(item.unitPrice)}</TableCell>
+                                      <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatNumber(item.valueExcludingSalesTax ?? ((item.quantity || 0) * (item.unitPrice || 0)))}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                              <Grid container spacing={1} sx={{ maxWidth: 320 }}>
+                                <Grid item xs={6}><Typography variant="body2">Discount</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatNumber(grn.discount)}</Typography></Grid>
+                                <Grid item xs={6}><Typography variant="body2">Other Charges</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2">{formatNumber(grn.otherCharges)}</Typography></Grid>
+                                <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Net Amount</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatNumber(grn.netAmount)}</Typography></Grid>
+                                <Grid item xs={6}><Typography variant="body2" fontWeight="bold">Total</Typography></Grid>
+                                <Grid item xs={6} sx={{ textAlign: 'right' }}><Typography variant="body2" fontWeight="bold">{formatNumber(grn.total ?? grn.netAmount)}</Typography></Grid>
+                              </Grid>
+                            </Box>
+                            <Divider sx={{ my: 2 }} />
+                            <Typography variant="caption" color="textSecondary">Observation</Typography>
+                            <Typography variant="body2" sx={{ minHeight: 24 }}>{grn.observation || ' '}</Typography>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', mt: 3 }}>
+                              <Box>
+                                <Typography variant="caption" color="textSecondary">Prepared By</Typography>
+                                <Typography variant="body2" fontWeight="medium">{grn.preparedByName || (grn.receivedBy?.firstName && grn.receivedBy?.lastName ? `${grn.receivedBy.firstName} ${grn.receivedBy.lastName}` : '—')}</Typography>
+                              </Box>
+                              <Box sx={{ width: 120, height: 40, border: '1px dashed', borderColor: 'divider' }} />
+                            </Box>
+                          </Paper>
+                        ))
                       )}
                     </Box>
                   )}

@@ -3,16 +3,20 @@ import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, Alert, CircularProgress,
-  Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox
+  Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox, Stack
 } from '@mui/material';
 import {
   ExitToApp as IssueIcon, Add as AddIcon, Visibility as ViewIcon,
-  Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon
+  Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
+  QrCodeScanner as ScanIcon
 } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import api from '../../services/api';
+import storeService from '../../services/storeService';
 import { formatDate } from '../../utils/dateUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import BarcodeScanner from '../../components/Procurement/Store/BarcodeScanner';
+import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 
 const formatSINDate = (d) => {
   if (!d) return '';
@@ -42,13 +46,20 @@ const GoodsIssue = () => {
   const [viewLoading, setViewLoading] = useState(false);
   const [formDialog, setFormDialog] = useState({ open: false });
   const processedIndentRef = useRef(null);
+  const [mainStores, setMainStores] = useState([]);
+  const emptyItem = () => ({
+    inventoryItem: '', itemCode: '', itemName: '', unit: '',
+    qtyReturned: 0, qtyIssued: 1, balanceQty: 0,
+    issuedFromNewStock: true, issuedFromOldStock: false,
+    subStore: '', location: { rack: '', shelf: '', bin: '' }, notes: ''
+  });
   const [formData, setFormData] = useState({
     issueDate: new Date().toISOString().split('T')[0],
     department: 'general',
     departmentName: 'General',
     concernedDepartment: '',
     issuingLocation: 'Store',
-    store: 'Main Store',
+    store: '',
     project: '',
     costCenter: '',
     costCenterCode: '',
@@ -58,7 +69,7 @@ const GoodsIssue = () => {
     eprNo: '',
     requestedBy: '',
     requestedByName: '',
-    items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', qtyReturned: 0, qtyIssued: 1, balanceQty: 0, issuedFromNewStock: true, issuedFromOldStock: false, notes: '' }],
+    items: [emptyItem()],
     purpose: '',
     notes: ''
   });
@@ -79,7 +90,15 @@ const GoodsIssue = () => {
     loadInventory();
     loadCostCenters();
     loadProjects();
+    loadMainStores();
   }, [page, rowsPerPage, search, departmentFilter]);
+
+  const loadMainStores = async () => {
+    try {
+      const res = await storeService.getStores({ type: 'main', activeOnly: 'true' });
+      setMainStores(res.data || []);
+    } catch (_) { }
+  };
 
   // Pre-fill form when navigating from Store Dashboard with indent
   useEffect(() => {
@@ -204,13 +223,15 @@ const GoodsIssue = () => {
   };
 
   const handleCreate = () => {
-    processedIndentRef.current = null; // Reset so new indent can be processed
+    processedIndentRef.current = null;
     setFormData({
       issueDate: new Date().toISOString().split('T')[0],
       department: 'general',
       departmentName: 'General',
       concernedDepartment: '',
       issuingLocation: 'Store',
+      store: '',
+      project: '',
       costCenter: '',
       costCenterCode: '',
       costCenterName: '',
@@ -219,7 +240,7 @@ const GoodsIssue = () => {
       eprNo: '',
       requestedBy: '',
       requestedByName: '',
-      items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', qtyReturned: 0, qtyIssued: 1, balanceQty: 0, issuedFromNewStock: true, issuedFromOldStock: false, notes: '' }],
+      items: [emptyItem()],
       purpose: '',
       notes: ''
     });
@@ -235,24 +256,25 @@ const GoodsIssue = () => {
       setLoading(true);
       const payload = {
         ...formData,
-        store: formData.store || formData.issuingLocation || 'Main Store',
+        store: formData.store || undefined,
         items: formData.items.map((item) => ({
           ...item,
           quantity: Number(item.qtyIssued) || 0,
           qtyReturned: Number(item.qtyReturned) || 0,
-          balanceQty: Number(item.balanceQty) || 0
+          balanceQty: Number(item.balanceQty) || 0,
+          subStore: item.subStore || undefined,
+          location: item.location || {}
         }))
       };
       await api.post('/procurement/goods-issue', payload);
       setSuccess('Store Issue Note created and inventory updated');
-      // Reset form data and close dialog
       setFormData({
         issueDate: new Date().toISOString().split('T')[0],
         department: 'general',
         departmentName: 'General',
         concernedDepartment: '',
         issuingLocation: 'Store',
-        store: 'Main Store',
+        store: '',
         project: '',
         costCenter: '',
         costCenterCode: '',
@@ -262,7 +284,7 @@ const GoodsIssue = () => {
         eprNo: '',
         requestedBy: '',
         requestedByName: '',
-        items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', qtyReturned: 0, qtyIssued: 1, balanceQty: 0, issuedFromNewStock: true, issuedFromOldStock: false, notes: '' }],
+        items: [emptyItem()],
         purpose: '',
         notes: ''
       });
@@ -280,10 +302,7 @@ const GoodsIssue = () => {
   };
 
   const addItem = () => {
-    setFormData({
-      ...formData,
-      items: [...formData.items, { inventoryItem: '', itemCode: '', itemName: '', unit: '', qtyReturned: 0, qtyIssued: 1, balanceQty: 0, issuedFromNewStock: true, issuedFromOldStock: false, notes: '' }]
-    });
+    setFormData({ ...formData, items: [...formData.items, emptyItem()] });
   };
 
   const removeItem = (index) => {
@@ -321,7 +340,7 @@ const GoodsIssue = () => {
     (async () => {
       try {
         const response = await api.get('/procurement/stock-balance', {
-          params: { store: formData.store || 'Main Store', project: formData.project }
+          params: { storeId: formData.store || undefined, project: formData.project }
         });
         if (!cancelled && response.data?.success && response.data?.data?.balances) {
           const balances = {};
@@ -478,7 +497,14 @@ const GoodsIssue = () => {
                 ))}
               </TextField>
               <TextField fullWidth label="Issuing Location" value={formData.issuingLocation} onChange={(e) => setFormData({ ...formData, issuingLocation: e.target.value })} placeholder="e.g. Store" sx={{ mt: 1 }} />
-              <TextField fullWidth label="Store" value={formData.store} onChange={(e) => setFormData({ ...formData, store: e.target.value })} placeholder="Main Store" sx={{ mt: 1 }} />
+              <TextField
+                fullWidth select label="Main Store" value={formData.store || ''} sx={{ mt: 1 }}
+                onChange={(e) => setFormData({ ...formData, store: e.target.value })}
+                helperText="Select the issuing store"
+              >
+                <MenuItem value=""><em>— Select Store —</em></MenuItem>
+                {mainStores.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.code})</MenuItem>)}
+              </TextField>
               <TextField fullWidth select label="Cost Center" value={formData.costCenter} onChange={(e) => {
                 const cc = costCenters.find(c => c._id === e.target.value);
                 setFormData({ ...formData, costCenter: e.target.value, costCenterCode: cc?.code || '', costCenterName: cc?.name || '' });
@@ -501,7 +527,35 @@ const GoodsIssue = () => {
               </TextField>
               <TextField fullWidth label="Requested By" value={formData.requestedByName} onChange={(e) => setFormData({ ...formData, requestedByName: e.target.value })} placeholder="Name of requester" sx={{ mt: 1 }} />
             </Grid>
-            <Grid item xs={12}><Divider sx={{ my: 1 }} /><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}><Typography variant="subtitle1" fontWeight="bold">Items</Typography><Button size="small" startIcon={<AddIcon />} onClick={addItem}>Add Item</Button></Box></Grid>
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight="bold">Items</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addItem}>Add Item</Button>
+              </Box>
+              <BarcodeScanner
+                label="Scan Item Barcode"
+                onItemFound={(item) => {
+                  const newItems = [...formData.items];
+                  const emptyIdx = newItems.findIndex(i => !i.inventoryItem);
+                  const targetIdx = emptyIdx >= 0 ? emptyIdx : newItems.length;
+                  if (emptyIdx < 0) newItems.push(emptyItem());
+                  const available = getAvailableStock(item._id);
+                  newItems[targetIdx] = {
+                    ...newItems[targetIdx],
+                    inventoryItem: item._id,
+                    itemCode: item.itemCode,
+                    itemName: item.name,
+                    unit: item.unit,
+                    qtyIssued: 1,
+                    balanceQty: available
+                  };
+                  setFormData({ ...formData, items: newItems });
+                  setSuccess(`Item "${item.name}" added from barcode scan (available: ${available})`);
+                }}
+                onError={(msg) => setError(msg)}
+              />
+            </Grid>
             <Grid item xs={12}>
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
@@ -517,6 +571,7 @@ const GoodsIssue = () => {
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Balance Qty</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>New Stock</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Old Stock</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Issue From Location</TableCell>
                       <TableCell width={40} />
                     </TableRow>
                   </TableHead>
@@ -555,6 +610,19 @@ const GoodsIssue = () => {
                           </TableCell>
                           <TableCell><Checkbox checked={!!item.issuedFromNewStock} onChange={(e) => updateItem(index, 'issuedFromNewStock', e.target.checked)} size="small" /></TableCell>
                           <TableCell><Checkbox checked={!!item.issuedFromOldStock} onChange={(e) => updateItem(index, 'issuedFromOldStock', e.target.checked)} size="small" /></TableCell>
+                          <TableCell sx={{ minWidth: 200 }}>
+                            <LocationSelector
+                              mainStoreId={formData.store || undefined}
+                              value={{ subStore: item.subStore || '', rack: item.location?.rack || '', shelf: item.location?.shelf || '', bin: item.location?.bin || '' }}
+                              onChange={(loc) => {
+                                const newItems = [...formData.items];
+                                newItems[index] = { ...newItems[index], subStore: loc.subStore, location: { rack: loc.rack, shelf: loc.shelf, bin: loc.bin } };
+                                setFormData({ ...formData, items: newItems });
+                              }}
+                              disabled={!formData.store}
+                              size="small"
+                            />
+                          </TableCell>
                           <TableCell><IconButton size="small" onClick={() => removeItem(index)} color="error"><CloseIcon fontSize="small" /></IconButton></TableCell>
                         </TableRow>
                       );

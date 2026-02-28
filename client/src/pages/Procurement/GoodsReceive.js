@@ -4,16 +4,28 @@ import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, Alert, CircularProgress,
-  Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox, FormControlLabel, Radio, RadioGroup, Tooltip
+  Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox, FormControlLabel, Radio, RadioGroup, Tooltip,
+  Collapse, Stack
 } from '@mui/material';
 import {
   LocalShipping as ReceiveIcon, Add as AddIcon, Visibility as ViewIcon,
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
-  Inventory as InventoryIcon
+  Inventory as InventoryIcon, QrCode as QrCodeIcon, LocationOn as LocationIcon,
+  ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import storeService from '../../services/storeService';
 import { formatDate } from '../../utils/dateUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import BarcodeScanner from '../../components/Procurement/Store/BarcodeScanner';
+import BarcodePrintLabel from '../../components/Procurement/Store/BarcodePrintLabel';
+import LocationSelector from '../../components/Procurement/Store/LocationSelector';
+
+const makeEmptyItem = () => ({
+  inventoryItem: '', itemCode: '', itemName: '', unit: '',
+  quantity: 1, quantityOrdered: null, unitPrice: '', notes: '',
+  selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' }
+});
 
 const formatGRNDate = (d) => {
   if (!d) return '';
@@ -47,6 +59,10 @@ const GoodsReceive = () => {
   const [formDialog, setFormDialog] = useState({ open: false });
   const [qaPassedPOs, setQaPassedPOs] = useState([]);
   const [qaPassedPOsLoading, setQaPassedPOsLoading] = useState(false);
+  const [mainStores, setMainStores] = useState([]);
+  const [barcodePrintOpen, setBarcodePrintOpen] = useState(false);
+  const [barcodePrintItems, setBarcodePrintItems] = useState([]);
+  const [savedGrnId, setSavedGrnId] = useState(null);
   const [formData, setFormData] = useState({
     receiveDate: new Date().toISOString().split('T')[0],
     supplier: '',
@@ -56,7 +72,7 @@ const GoodsReceive = () => {
     poNumber: '',
     narration: '',
     prNumber: '',
-    store: 'Main Store',
+    store: '',
     project: '',
     gatePassNo: '',
     currency: 'Rupees',
@@ -67,7 +83,7 @@ const GoodsReceive = () => {
     serviceCharges: 0,
     packingCharges: 0,
     loadingCharges: 0,
-    items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true }],
+    items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' } }],
     notes: ''
   });
 
@@ -76,7 +92,15 @@ const GoodsReceive = () => {
     loadInventory();
     loadSuppliers();
     loadProjects();
+    loadMainStores();
   }, [page, rowsPerPage, search]);
+
+  const loadMainStores = async () => {
+    try {
+      const res = await storeService.getStores({ type: 'main', activeOnly: 'true' });
+      setMainStores(res.data || []);
+    } catch (_) { }
+  };
 
   const loadReceives = useCallback(async () => {
     try {
@@ -139,7 +163,7 @@ const GoodsReceive = () => {
       poNumber: po.orderNumber || '',
       narration: po.indent?.title || po.indent?.indentNumber || '',
       prNumber: '',
-      store: '',
+      store: '',        // will be selected by user as ObjectId
       gatePassNo: '',
       currency: 'Rupees',
       discount: 0,
@@ -159,9 +183,11 @@ const GoodsReceive = () => {
             quantityOrdered: it.quantity ?? 0,
             unitPrice: it.unitPrice ?? '',
             notes: '',
-            selected: true
+            selected: true,
+            subStore: '',
+            location: { rack: '', shelf: '', bin: '' }
           }))
-        : [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true }],
+        : [makeEmptyItem()],
       project: '',
       notes: ''
     });
@@ -236,7 +262,7 @@ const GoodsReceive = () => {
       poNumber: '',
       narration: '',
       prNumber: '',
-      store: 'Main Store',
+      store: '',
       project: '',
       gatePassNo: '',
       currency: 'Rupees',
@@ -247,9 +273,10 @@ const GoodsReceive = () => {
       serviceCharges: 0,
       packingCharges: 0,
       loadingCharges: 0,
-      items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true }],
+      items: [makeEmptyItem()],
       notes: ''
     });
+    setSavedGrnId(null);
     setFormDialog({ open: true });
   };
 
@@ -285,6 +312,8 @@ const GoodsReceive = () => {
           unit: (i.unit != null && String(i.unit).trim() !== '') ? i.unit : d.unit || '',
           quantity: Number(i.quantity) || 0,
           unitPrice: Number(i.unitPrice) || 0,
+          subStore: i.subStore || undefined,
+          location: i.location || {},
           notes: i.notes
         };
       }).filter((i) => (i.itemCode || i.itemName)),
@@ -292,11 +321,26 @@ const GoodsReceive = () => {
     };
     try {
       setLoading(true);
-      await api.post('/procurement/goods-receive', payload);
+      const res = await api.post('/procurement/goods-receive', payload);
+      const savedGrn = res.data?.data;
+      setSavedGrnId(savedGrn?._id);
       setSuccess('GRN created successfully and inventory updated');
       setFormDialog({ open: false });
       loadReceives();
       loadInventory();
+      // Prompt for barcode label printing
+      if (savedGrn?.items?.length) {
+        const labelItems = savedGrn.items.map(it => ({
+          itemCode: it.itemCode,
+          name: it.itemName,
+          unit: it.unit,
+          barcode: it.inventoryItem?.barcode || '',
+          barcodeType: 'CODE128',
+          location: it.location || {}
+        }));
+        setBarcodePrintItems(labelItems);
+        setBarcodePrintOpen(true);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create GRN');
     } finally {
@@ -305,10 +349,7 @@ const GoodsReceive = () => {
   };
 
   const addItem = () => {
-    setFormData({
-      ...formData,
-      items: [...formData.items, { inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true }]
-    });
+    setFormData({ ...formData, items: [...formData.items, makeEmptyItem()] });
   };
 
   const removeItem = (index) => {
@@ -543,11 +584,49 @@ const GoodsReceive = () => {
             <Grid item xs={12} md={6}>
               <TextField fullWidth label="P.R No." value={formData.prNumber} onChange={(e) => setFormData({ ...formData, prNumber: e.target.value })} />
               <TextField fullWidth label="P.O No." value={formData.poNumber} onChange={(e) => setFormData({ ...formData, poNumber: e.target.value })} sx={{ mt: 1 }} />
-              <TextField fullWidth label="Store" value={formData.store} onChange={(e) => setFormData({ ...formData, store: e.target.value })} placeholder="e.g. 0002 TAJ Store" sx={{ mt: 1 }} />
+              <TextField
+                fullWidth select label="Main Store" value={formData.store || ''} sx={{ mt: 1 }}
+                onChange={(e) => setFormData({ ...formData, store: e.target.value })}
+                helperText="Select the receiving store"
+              >
+                <MenuItem value=""><em>— Select Store —</em></MenuItem>
+                {mainStores.map(s => <MenuItem key={s._id} value={s._id}>{s.name} ({s.code})</MenuItem>)}
+              </TextField>
               <TextField fullWidth label="Gate Pass No." value={formData.gatePassNo} onChange={(e) => setFormData({ ...formData, gatePassNo: e.target.value })} sx={{ mt: 1 }} />
             </Grid>
+            {/* Barcode Scanner */}
+            <Grid item xs={12}>
+              <Divider sx={{ mb: 1 }} />
+              <Typography variant="subtitle2" color="text.secondary" mb={1}>Barcode Scanner</Typography>
+              <BarcodeScanner
+                onItemFound={(item) => {
+                  const newItems = [...formData.items];
+                  const emptyIdx = newItems.findIndex(i => !i.itemCode && !i.itemName);
+                  const targetIdx = emptyIdx >= 0 ? emptyIdx : newItems.length;
+                  if (emptyIdx < 0) newItems.push(makeEmptyItem());
+                  newItems[targetIdx] = {
+                    ...newItems[targetIdx],
+                    inventoryItem: item._id,
+                    itemCode: item.itemCode,
+                    itemName: item.name,
+                    unit: item.unit,
+                    unitPrice: item.unitPrice || 0,
+                    quantity: 1
+                  };
+                  setFormData({ ...formData, items: newItems });
+                  setSuccess(`Item "${item.name}" added from barcode scan`);
+                }}
+                onError={(msg) => setError(msg)}
+              />
+            </Grid>
             {/* Items table – match image: Sr.#, Product, Description, Spec Units, Qty Ordered, Qty Received, Rate, Value; select items */}
-            <Grid item xs={12}><Divider sx={{ my: 1 }} /><Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}><Typography variant="subtitle1" fontWeight="bold">Items</Typography><Button size="small" startIcon={<AddIcon />} onClick={addItem}>Add Item</Button></Box></Grid>
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight="bold">Items</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addItem}>Add Item</Button>
+              </Box>
+            </Grid>
             <Grid item xs={12}>
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
@@ -562,6 +641,7 @@ const GoodsReceive = () => {
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Qty Received</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Rate</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Value</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Location</TableCell>
                       <TableCell width={40} />
                     </TableRow>
                   </TableHead>
@@ -600,6 +680,19 @@ const GoodsReceive = () => {
                           </TableCell>
                           <TableCell align="right" sx={{ color: item.selected !== false && (d.itemCode || d.itemName) ? 'primary.main' : 'text.secondary', fontWeight: 500 }}>
                             {d.itemCode || d.itemName ? formatNumber(d.valueExcl) : '—'}
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 200 }}>
+                            <LocationSelector
+                              mainStoreId={formData.store || undefined}
+                              value={{ subStore: item.subStore || '', rack: item.location?.rack || '', shelf: item.location?.shelf || '', bin: item.location?.bin || '' }}
+                              onChange={(loc) => {
+                                const newItems = [...formData.items];
+                                newItems[index] = { ...newItems[index], subStore: loc.subStore, location: { rack: loc.rack, shelf: loc.shelf, bin: loc.bin } };
+                                setFormData({ ...formData, items: newItems });
+                              }}
+                              disabled={!formData.store}
+                              size="small"
+                            />
                           </TableCell>
                           <TableCell><IconButton size="small" onClick={() => removeItem(index)} color="error"><CloseIcon fontSize="small" /></IconButton></TableCell>
                         </TableRow>
@@ -778,9 +871,48 @@ const GoodsReceive = () => {
           )}
         </DialogContent>
         <DialogActions>
+          <Button
+            startIcon={<QrCodeIcon />}
+            onClick={async () => {
+              if (!viewDialog.data?.items) return;
+              try {
+                const labelItems = await Promise.all(
+                  viewDialog.data.items.map(async (it) => {
+                    const itemId = it.inventoryItem?._id || it.inventoryItem;
+                    let barcode = it.inventoryItem?.barcode || '';
+                    if (!barcode && itemId) {
+                      try {
+                        const res = await storeService.getItemBarcode(itemId);
+                        barcode = res.data?.barcode || '';
+                      } catch (_) {}
+                    }
+                    return {
+                      itemCode: it.itemCode,
+                      name: it.itemName,
+                      unit: it.unit,
+                      barcode,
+                      barcodeType: 'CODE128',
+                      location: it.location || {}
+                    };
+                  })
+                );
+                setBarcodePrintItems(labelItems);
+                setBarcodePrintOpen(true);
+              } catch (_) {}
+            }}
+          >
+            Print Barcodes
+          </Button>
           <Button onClick={() => setViewDialog({ open: false, data: null })}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Barcode Print Label Dialog */}
+      <BarcodePrintLabel
+        open={barcodePrintOpen}
+        onClose={() => setBarcodePrintOpen(false)}
+        items={barcodePrintItems}
+      />
     </Box>
   );
 };

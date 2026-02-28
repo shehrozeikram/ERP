@@ -41,6 +41,10 @@ const goodsReceiveSchema = new mongoose.Schema({
     trim: true
   },
   store: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store'
+  },
+  storeSnapshot: {
     type: String,
     trim: true,
     default: 'Main Store'
@@ -118,6 +122,15 @@ const goodsReceiveSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
+    subStore: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store'
+    },
+    location: {
+      rack: { type: String, trim: true },
+      shelf: { type: String, trim: true },
+      bin: { type: String, trim: true }
+    },
     notes: String
   }],
   totalItems: {
@@ -175,64 +188,94 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
     console.error('GoodsReceive syncItemsToInventory: project is required');
     return;
   }
-  
+
   const receiveNumber = grnDoc.receiveNumber || grnDoc._id?.toString() || 'GRN';
-  const store = grnDoc.store || 'Main Store';
+  const storeId = grnDoc.store?._id || grnDoc.store;
+  const storeSnapshot = grnDoc.storeSnapshot || 'Main Store';
   const projectId = grnDoc.project._id || grnDoc.project;
   const Inventory = mongoose.model('Inventory');
   const StockTransaction = mongoose.model('StockTransaction');
+  const Store = mongoose.model('Store');
   const items = Array.isArray(grnDoc.items) ? grnDoc.items : [];
-  
+
+  // Pre-fetch store names for snapshots to avoid repeated DB calls
+  const storeNameCache = {};
+  const resolveStoreName = async (id) => {
+    if (!id) return '';
+    const key = id.toString();
+    if (!storeNameCache[key]) {
+      const s = await Store.findById(id).select('name').lean();
+      storeNameCache[key] = s?.name || '';
+    }
+    return storeNameCache[key];
+  };
+
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx] && typeof items[idx].toObject === 'function' ? items[idx].toObject() : items[idx];
     if (!item || item.quantity == null) continue;
     try {
       const codeStr = item.itemCode != null ? String(item.itemCode).trim() : '';
       const nameStr = item.itemName != null ? String(item.itemName).trim() : '';
-      
-      // Always create a new inventory entry with unique itemCode
-      // Generate unique code by appending GRN number and item index, or timestamp if needed
+
       let baseCode = (codeStr && codeStr !== '—') ? codeStr : nameStr || `ITEM-${idx + 1}`;
       let uniqueCode = `${baseCode}-GRN${receiveNumber}-${idx + 1}`;
-      
-      // Ensure uniqueness by checking if code exists and appending timestamp if needed
+
       let existing = await Inventory.findOne({ itemCode: uniqueCode });
       if (existing) {
         const timestamp = Date.now().toString().slice(-6);
         uniqueCode = `${baseCode}-GRN${receiveNumber}-${idx + 1}-${timestamp}`;
       }
-      
+
       const name = (nameStr && nameStr !== '—') ? nameStr : uniqueCode;
-      
-      // Always create new inventory entry
+
+      // Generate unique barcode value
+      const barcodeValue = await Inventory.generateBarcodeValue(uniqueCode);
+
+      // Resolve sub-store: item-level subStore overrides GRN-level store
+      const subStoreId = item.subStore?._id || item.subStore || null;
+      const txStoreId = subStoreId || storeId;
+      const subStoreSnapshot = subStoreId ? await resolveStoreName(subStoreId) : '';
+
+      // Build the Inventory document with full WMS location data
       const inv = new Inventory({
         itemCode: uniqueCode,
         name,
         description: item.description || `Received via GRN ${receiveNumber}`,
         category: item.category || 'Other',
         unit: (item.unit && item.unit !== '—') ? item.unit : 'Nos',
-        quantity: 0, // Start with 0, then add stock
+        quantity: 0,
         unitPrice: Number(item.unitPrice) || 0,
+        barcode: barcodeValue,
+        barcodeType: 'CODE128',
+        // WMS location fields
+        store: storeId || undefined,
+        storeSnapshot: storeSnapshot,
+        subStore: subStoreId || undefined,
+        subStoreSnapshot: subStoreSnapshot,
+        location: {
+          rack: item.location?.rack || '',
+          shelf: item.location?.shelf || '',
+          bin: item.location?.bin || ''
+        },
         createdBy: grnDoc.receivedBy
       });
       await inv.save();
-      
-      // Add stock to the newly created inventory item (for backward compatibility)
+
       await inv.addStock(
         Number(item.quantity) || 0,
         receiveNumber,
         item.notes || `Received via GRN ${receiveNumber}`,
         grnDoc.receivedBy
       );
-      
-      // Create StockTransaction record for project-wise tracking
+
       const qty = Number(item.quantity) || 0;
-      if (qty > 0) {
-        const currentBalance = await StockTransaction.getBalance(store, projectId, inv._id);
+      if (qty > 0 && txStoreId) {
+        const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inv._id);
         const balanceAfter = currentBalance + qty;
-        
+
         await StockTransaction.create({
-          store: store,
+          store: txStoreId,
+          storeSnapshot: subStoreSnapshot || storeSnapshot,
           project: projectId,
           item: inv._id,
           itemCode: uniqueCode,
@@ -244,7 +287,12 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
           referenceType: 'GRN',
           referenceId: grnDoc._id,
           referenceNumber: receiveNumber,
-          balanceAfter: balanceAfter,
+          balanceAfter,
+          location: {
+            rack: item.location?.rack || '',
+            shelf: item.location?.shelf || '',
+            bin: item.location?.bin || ''
+          },
           description: `Received via GRN ${receiveNumber}`,
           notes: item.notes || '',
           createdBy: grnDoc.receivedBy

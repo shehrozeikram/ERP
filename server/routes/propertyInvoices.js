@@ -48,62 +48,69 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuf
 };
 
 /**
- * Calculate overdue arrears from previous unpaid invoices. When chargeTypesFilter is provided
- * (e.g. ['ELECTRICITY'], ['CAM'], ['RENT']), only the portion of each invoice's balance
- * attributable to those charge types is included — so electricity invoices get only electricity
- * arrears, CAM only CAM, etc.
+ * Calculate overdue arrears from previous unpaid invoices for a specific property.
+ * Each property's arrears are calculated independently — only invoices belonging to
+ * this property are included (never cross-property).
+ *
+ * When chargeTypesFilter is provided (e.g. ['ELECTRICITY'], ['CAM'], ['RENT']), only the
+ * portion of each invoice's balance attributable to those charge types is included —
+ * so electricity invoices get only electricity arrears, CAM only CAM, etc.
+ *
+ * Proportion is calculated from base charge amounts only (charge.amount, not charge.arrears)
+ * because invoice.balance already captures both the base charges AND any previously
+ * carried-forward arrears — using charge.arrears in the numerator would double-count them.
+ *
  * @param {ObjectId} propertyId - Property ID
  * @param {Date} currentDate - Current date (defaults to now)
  * @param {string[]} [chargeTypesFilter] - Optional. e.g. ['ELECTRICITY'], ['CAM'], ['RENT']
- * @returns {Number} Total overdue arrears (for the property or for the given charge types only)
+ * @returns {Number} Total overdue arrears for this property (filtered by charge type if given)
  */
 const calculateOverdueArrears = async (propertyId, currentDate = new Date(), chargeTypesFilter = null) => {
   if (!propertyId) return 0;
   try {
-    // Overdue only after due date + 4-day grace period ends: compare date-only
-    const GRACE_PERIOD_DAYS = 6;
-    const startOfToday = new Date(currentDate);
-    startOfToday.setHours(0, 0, 0, 0);
-    const graceEndDate = new Date(startOfToday);
-    graceEndDate.setDate(graceEndDate.getDate() - GRACE_PERIOD_DAYS);
-    const overdueInvoices = await PropertyInvoice.find({
+    const filterTypes = Array.isArray(chargeTypesFilter) && chargeTypesFilter.length > 0 ? chargeTypesFilter : null;
+
+    // Build query: unpaid/partial invoices for this property that match the charge type filter.
+    // No grace-period gate — we want the last invoice regardless of how recent it is.
+    const query = {
       property: propertyId,
-      dueDate: { $lt: graceEndDate },
       balance: { $gt: 0 },
       paymentStatus: { $in: ['unpaid', 'partial_paid'] },
       status: { $ne: 'Cancelled' }
-    })
-      .select('charges chargeTypes subtotal totalArrears grandTotal balance')
-      .sort({ dueDate: 1 })
+    };
+
+    // If filtering by charge type, restrict to invoices that contain those types.
+    if (filterTypes) {
+      query.chargeTypes = { $in: filterTypes };
+    }
+
+    // Fetch only the single most-recent unpaid invoice (by dueDate descending).
+    const lastInvoice = await PropertyInvoice.findOne(query)
+      .select('charges chargeTypes subtotal balance dueDate')
+      .sort({ dueDate: -1 })
       .lean();
 
-    if (!overdueInvoices || overdueInvoices.length === 0) return 0;
+    if (!lastInvoice) return 0;
 
-    let totalOverdueArrears = 0;
-    const filterTypes = Array.isArray(chargeTypesFilter) && chargeTypesFilter.length > 0 ? chargeTypesFilter : null;
+    // Base charges for the month (amounts only, excluding previously carried arrears).
+    const baseChargesTotal = (lastInvoice.charges || []).reduce((sum, c) => sum + (c.amount || 0), 0) || lastInvoice.subtotal || 0;
+    // 10% late surcharge on the base charges only (not on the full balance, to avoid compounding).
+    const lateSurcharge = Math.max(Math.round(baseChargesTotal * 0.1), 0);
+    const overdueAmount = (lastInvoice.balance || 0) + lateSurcharge;
 
-    overdueInvoices.forEach((invoice) => {
-      const chargesForMonth = invoice.charges?.reduce((sum, c) => sum + (c.amount || 0), 0) || invoice.subtotal || 0;
-      const lateSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-      const overdueAmount = (invoice.balance || 0) + lateSurcharge;
+    // Arrears = balance of the last invoice + late surcharge.
+    if (!filterTypes) {
+      return overdueAmount;
+    }
 
-      if (!filterTypes) {
-        totalOverdueArrears += overdueAmount;
-        return;
-      }
+    // When filtering by charge type, use the proportion of base charges for that type
+    // so that a mixed invoice (e.g. RENT + CAM) is split correctly.
+    const baseForTypes = (lastInvoice.charges || [])
+      .filter((c) => filterTypes.includes(c.type))
+      .reduce((sum, c) => sum + (c.amount || 0), 0);
+    const proportion = baseChargesTotal > 0 ? baseForTypes / baseChargesTotal : 0;
 
-      const invoiceChargeTypes = invoice.chargeTypes || [];
-      if (!filterTypes.some((t) => invoiceChargeTypes.includes(t))) return;
-
-      const grandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0)) || 1;
-      const amountForTypes = (invoice.charges || [])
-        .filter((c) => filterTypes.includes(c.type))
-        .reduce((sum, c) => sum + (c.amount || 0) + (c.arrears || 0), 0);
-      const proportion = grandTotal > 0 ? amountForTypes / grandTotal : 0;
-      totalOverdueArrears += overdueAmount * proportion;
-    });
-
-    return Math.round(totalOverdueArrears * 100) / 100;
+    return Math.round(overdueAmount * proportion * 100) / 100;
   } catch (error) {
     console.error('Error calculating overdue arrears:', error);
     return 0;
@@ -192,12 +199,13 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
     const baseSuffix = invoiceData.chargeTypes?.[0] === 'ELECTRICITY' && invoiceNumber.includes('-M') 
       ? invoiceNumber.split('-M')[1].split('-')[0] 
       : '';
+    // generateInvoiceNumber prepends its own '-' to meterSuffix, so pass without a leading dash
     invoiceData.invoiceNumber = generateInvoiceNumber(
       propertySrNo,
       periodYear,
       periodMonth,
       invoiceType,
-      baseSuffix ? `M${baseSuffix}-${timestamp}` : `-${timestamp}`
+      baseSuffix ? `M${baseSuffix}-${timestamp}` : timestamp
     );
   }
   
@@ -249,12 +257,13 @@ const createOrUpdateInvoice = async (invoiceData, invoiceNumber, propertyId, use
         const baseSuffix = invoiceData.chargeTypes?.[0] === 'ELECTRICITY' && invoiceData.invoiceNumber.includes('-M') 
           ? invoiceData.invoiceNumber.split('-M')[1].split('-')[0] 
           : '';
+        // generateInvoiceNumber prepends its own '-' to meterSuffix, so pass without a leading dash
         invoiceData.invoiceNumber = generateInvoiceNumber(
           propertySrNo,
           periodYear,
           periodMonth,
           invoiceType,
-          baseSuffix ? `M${baseSuffix}-${timestamp}` : `-${timestamp}`
+          baseSuffix ? `M${baseSuffix}-${timestamp}` : timestamp
         );
       } else {
         throw error;

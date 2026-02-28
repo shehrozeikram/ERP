@@ -28,7 +28,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Draft', 'Pending Audit', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'GRN Created', 'Sent to Procurement', 'Sent to Finance', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
+    enum: ['Draft', 'Pending Audit', 'Pending Finance', 'Send to CEO Office', 'Forwarded to CEO', 'Approved', 'Sent to Store', 'GRN Created', 'Sent to Procurement', 'Sent to Audit', 'Sent to Finance', 'Ordered', 'Partially Received', 'Received', 'Cancelled', 'Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'],
     default: 'Draft'
   },
   indent: {
@@ -89,6 +89,12 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: Date
   },
   financeRemarks: String,
+  // Post-GRN audit step: Procurement sends to Audit before Finance
+  sentToPostGrnAuditBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  sentToPostGrnAuditAt: { type: Date },
+  postGrnAuditForwardedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  postGrnAuditForwardedAt: { type: Date },
+  postGrnAuditComments: { type: String, trim: true },
   priority: {
     type: String,
     enum: ['Low', 'Medium', 'High', 'Urgent'],

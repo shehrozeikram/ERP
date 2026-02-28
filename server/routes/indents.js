@@ -7,6 +7,7 @@ const Indent = require('../models/general/Indent');
 const Department = require('../models/hr/Department');
 const User = require('../models/User');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
+const Quotation = require('../models/procurement/Quotation');
 
 const router = express.Router();
 
@@ -378,6 +379,47 @@ router.put('/:id/comparative-statement-approvals',
       success: true,
       message: 'Comparative statement approvals saved successfully',
       data: indent
+    });
+  })
+);
+
+// @route   PUT /api/indents/:id/split-po-assignments
+// @desc    Save per-item vendor assignments from Comparative Statement and set involved quotations to Shortlisted. Create actual POs from Quotations page.
+// @access  Private
+router.put('/:id/split-po-assignments',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.id);
+
+    if (!indent || !indent.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Indent not found'
+      });
+    }
+
+    const { vendorAssignments } = req.body;
+    if (!vendorAssignments || typeof vendorAssignments !== 'object' || Object.keys(vendorAssignments).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'vendorAssignments is required and must be a non-empty object (item index -> quotation id)'
+      });
+    }
+
+    indent.splitPOAssignments = vendorAssignments;
+    indent.updatedBy = req.user.id;
+    await indent.save();
+
+    const quotationIds = [...new Set(Object.values(vendorAssignments))];
+    await Quotation.updateMany(
+      { _id: { $in: quotationIds } },
+      { $set: { status: 'Shortlisted' } }
+    );
+
+    res.json({
+      success: true,
+      message: 'Vendor assignments saved and quotations shortlisted. Create Split POs from the Quotations page.',
+      data: { indent: indent.toObject ? indent.toObject() : indent }
     });
   })
 );

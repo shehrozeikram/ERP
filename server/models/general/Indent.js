@@ -175,6 +175,11 @@ const indentSchema = new mongoose.Schema({
     financeRep: { type: String, trim: true, default: '' },
     managerProcurement: { type: String, trim: true, default: '' }
   },
+  // Per-item vendor assignments from Comparative Statement (item index -> quotation id). When set, quotations are shortlisted; create split POs from Quotations page.
+  splitPOAssignments: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
 
   // Signatures
   signatures: {

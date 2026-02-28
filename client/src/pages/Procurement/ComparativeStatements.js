@@ -168,16 +168,17 @@ const ComparativeStatements = () => {
     try {
       setCreatingSplitPOs(true);
       setError('');
-      const response = await api.post(
-        `/procurement/quotations/by-indent/${selectedRequisition._id}/create-split-pos`,
-        { vendorAssignments }
-      );
-      const pos = response.data.data || [];
-      const poNumbers = pos.map(p => p.orderNumber).join(', ');
-      setSuccess(`${pos.length} Purchase Order(s) created: ${poNumbers}. You can track them in Purchase Orders.`);
+      await api.put(`/indents/${selectedRequisition._id}/split-po-assignments`, { vendorAssignments });
+      if (selectedRequisition?._id) {
+        const response = await api.get(`/procurement/quotations/by-indent/${selectedRequisition._id}`);
+        if (response.data.success) {
+          setQuotations(response.data.data || []);
+        }
+      }
+      setSuccess('Vendor assignments saved and quotations shortlisted. Create Split POs from the Quotations page.');
       setTimeout(() => setSuccess(''), 8000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create split purchase orders');
+      setError(err.response?.data?.message || 'Failed to shortlist vendors');
     } finally {
       setCreatingSplitPOs(false);
     }

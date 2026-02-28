@@ -553,6 +553,7 @@ const StoreDashboard = () => {
                       <TableCell><strong>Expected Delivery</strong></TableCell>
                       <TableCell><strong>Status</strong></TableCell>
                       <TableCell><strong>QA Status</strong></TableCell>
+                      <TableCell><strong>Store</strong></TableCell>
                       <TableCell><strong>Priority</strong></TableCell>
                       <TableCell align="right"><strong>Total Amount</strong></TableCell>
                       <TableCell align="center"><strong>Actions</strong></TableCell>
@@ -561,7 +562,7 @@ const StoreDashboard = () => {
                   <TableBody>
                     {monthGroup.purchaseOrders.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} align="center">
+                        <TableCell colSpan={10} align="center">
                           <Typography variant="body2" color="textSecondary">
                             No purchase orders found for this month
                           </Typography>
@@ -587,6 +588,12 @@ const StoreDashboard = () => {
                               color={getQaStatusColor(po.qaStatus)}
                               size="small"
                             />
+                          </TableCell>
+                          <TableCell>
+                            {po.storeSnapshot
+                              ? <Chip label={po.storeSnapshot} size="small" variant="outlined" icon={<span style={{ fontSize: 12 }}>🏪</span>} />
+                              : <Typography variant="caption" color="text.secondary">—</Typography>
+                            }
                           </TableCell>
                           <TableCell>
                             <Chip

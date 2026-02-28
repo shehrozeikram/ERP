@@ -461,14 +461,14 @@ const PurchaseOrders = () => {
     }
   };
 
-  const handleSendToFinance = async (id) => {
+  const handleSendToPostGrnAudit = async (id) => {
     try {
-      await api.post(`/procurement/store/po/${id}/send-to-finance`);
-      setSuccess('Purchase order sent to Finance for billing');
+      await api.post(`/procurement/store/po/${id}/send-to-audit`);
+      setSuccess('Purchase order sent to Audit for post-GRN review');
       loadPurchaseOrders();
       loadStatistics();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send purchase order to Finance');
+      setError(err.response?.data?.message || 'Failed to send purchase order to Audit');
     }
   };
 
@@ -518,6 +518,7 @@ const PurchaseOrders = () => {
       'Sent to Store': 'info',
       'GRN Created': 'info',
       'Sent to Procurement': 'info',
+      'Sent to Audit': 'secondary',
       'Sent to Finance': 'primary',
       'Ordered': 'info',
       'Partially Received': 'secondary',
@@ -681,6 +682,7 @@ const PurchaseOrders = () => {
               <MenuItem value="Sent to Store">Sent to Store</MenuItem>
               <MenuItem value="GRN Created">GRN Created</MenuItem>
               <MenuItem value="Sent to Procurement">Sent to Procurement</MenuItem>
+              <MenuItem value="Sent to Audit">Sent to Audit</MenuItem>
               <MenuItem value="Sent to Finance">Sent to Finance</MenuItem>
               <MenuItem value="Ordered">Ordered</MenuItem>
               <MenuItem value="Partially Received">Partially Received</MenuItem>
@@ -689,10 +691,6 @@ const PurchaseOrders = () => {
               <MenuItem value="Returned from CEO Office">Returned from CEO Office</MenuItem>
               <MenuItem value="Returned from CEO Secretariat">Returned from CEO Secretariat</MenuItem>
               <MenuItem value="Rejected">Rejected</MenuItem>
-              <MenuItem value="Cancelled">Cancelled</MenuItem>
-              <MenuItem value="Rejected">Rejected</MenuItem>
-              <MenuItem value="Returned from CEO Office">Returned from CEO Office</MenuItem>
-              <MenuItem value="Returned from CEO Secretariat">Returned from CEO Secretariat</MenuItem>
               <MenuItem value="Cancelled">Cancelled</MenuItem>
             </TextField>
           </Grid>
@@ -803,8 +801,8 @@ const PurchaseOrders = () => {
                         </Tooltip>
                       )}
                       {order.status === 'Sent to Procurement' && (
-                        <Tooltip title="Send to Finance">
-                          <IconButton size="small" color="primary" onClick={() => handleSendToFinance(order._id)}>
+                        <Tooltip title="Send to Audit">
+                          <IconButton size="small" color="secondary" onClick={() => handleSendToPostGrnAudit(order._id)}>
                             <SendIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -900,6 +898,8 @@ const PurchaseOrders = () => {
                   <MenuItem value="Sent to Store">Sent to Store</MenuItem>
                   <MenuItem value="GRN Created">GRN Created</MenuItem>
                   <MenuItem value="Sent to Procurement">Sent to Procurement</MenuItem>
+                  <MenuItem value="Sent to Audit">Sent to Audit</MenuItem>
+                  <MenuItem value="Sent to Finance">Sent to Finance</MenuItem>
                   <MenuItem value="Ordered">Ordered</MenuItem>
                   <MenuItem value="Partially Received">Partially Received</MenuItem>
                   <MenuItem value="Received">Received</MenuItem>

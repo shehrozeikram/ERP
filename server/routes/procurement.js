@@ -1560,11 +1560,11 @@ router.post('/store/po/:id/send-to-procurement',
   })
 );
 
-// @route   POST /api/procurement/store/po/:id/send-to-finance
-// @desc    Send PO (with GRN) from Procurement to Finance for billing
-// @access  Private (Procurement, Admin, Finance)
-router.post('/store/po/:id/send-to-finance',
-  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'),
+// @route   POST /api/procurement/store/po/:id/send-to-audit
+// @desc    Send PO (with GRN) from Procurement to Audit for review before Finance
+// @access  Private (Procurement, Admin)
+router.post('/store/po/:id/send-to-audit',
+  authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const po = await PurchaseOrder.findById(req.params.id);
     if (!po) {
@@ -1573,11 +1573,55 @@ router.post('/store/po/:id/send-to-finance',
     if (po.status !== 'Sent to Procurement') {
       return res.status(400).json({
         success: false,
-        message: 'Only purchase orders with status "Sent to Procurement" can be sent to Finance'
+        message: 'Only purchase orders with status "Sent to Procurement" can be sent to Audit'
+      });
+    }
+    const previousStatus = po.status;
+    po.status = 'Sent to Audit';
+    po.sentToPostGrnAuditBy = req.user.id;
+    po.sentToPostGrnAuditAt = new Date();
+    po.updatedBy = req.user.id;
+    po.workflowHistory = po.workflowHistory || [];
+    po.workflowHistory.push({
+      fromStatus: previousStatus,
+      toStatus: 'Sent to Audit',
+      changedBy: req.user.id,
+      changedAt: new Date(),
+      comments: req.body.comments || 'Sent to Audit for post-GRN review (Indent, Quotations, Comparative Statement, PO, GRN attached)',
+      module: 'Procurement'
+    });
+    await po.save();
+    await po.populate('vendor', 'name email phone contactPerson');
+    await po.populate('indent', 'indentNumber title');
+    res.json({
+      success: true,
+      message: 'Purchase order sent to Audit for review',
+      data: po
+    });
+  })
+);
+
+// @route   POST /api/procurement/store/po/:id/send-to-finance
+// @desc    Send PO (with GRN) from Audit to Finance for billing
+// @access  Private (Audit Manager, Admin)
+router.post('/store/po/:id/send-to-finance',
+  authorize('super_admin', 'admin', 'audit_manager', 'procurement_manager', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const po = await PurchaseOrder.findById(req.params.id);
+    if (!po) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+    if (po.status !== 'Sent to Audit') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only purchase orders with status "Sent to Audit" can be sent to Finance'
       });
     }
     const previousStatus = po.status;
     po.status = 'Sent to Finance';
+    po.postGrnAuditForwardedBy = req.user.id;
+    po.postGrnAuditForwardedAt = new Date();
+    po.postGrnAuditComments = req.body.comments || '';
     po.updatedBy = req.user.id;
     po.workflowHistory = po.workflowHistory || [];
     po.workflowHistory.push({
@@ -1585,8 +1629,8 @@ router.post('/store/po/:id/send-to-finance',
       toStatus: 'Sent to Finance',
       changedBy: req.user.id,
       changedAt: new Date(),
-      comments: 'Sent to Finance for billing (Indent, Quotations, Comparative Statement, PO, GRN attached)',
-      module: 'Procurement'
+      comments: req.body.comments || 'Sent to Finance for billing after Audit review (Indent, Quotations, Comparative Statement, PO, GRN attached)',
+      module: 'Audit'
     });
     await po.save();
     await po.populate('vendor', 'name email phone contactPerson address');
@@ -2276,7 +2320,7 @@ router.delete('/inventory/:id',
 // @desc    Get all goods receive records
 // @access  Private (Procurement and Admin)
 router.get('/goods-receive',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'audit_manager', 'auditor', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 10, search, status, supplier, purchaseOrder, startDate, endDate } = req.query;
     const query = {};
@@ -2328,7 +2372,7 @@ router.get('/goods-receive',
 // @desc    Get single goods receive record
 // @access  Private
 router.get('/goods-receive/:id',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'audit_manager', 'auditor', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const receive = await GoodsReceive.findById(req.params.id)
       .populate('supplier', 'name contactPerson email phone supplierId address')
@@ -2425,6 +2469,12 @@ router.post('/goods-receive',
           unit: unit || '—',
           unitPrice: rate,
           valueExcludingSalesTax: qty * rate,
+          subStore: item.subStore || undefined,
+          location: {
+            rack: item.location?.rack || '',
+            shelf: item.location?.shelf || '',
+            bin: item.location?.bin || ''
+          },
           notes: item.notes
         };
       })
@@ -2433,6 +2483,14 @@ router.post('/goods-receive',
     const preparedByName = req.user.firstName && req.user.lastName
       ? `${req.user.firstName} ${req.user.lastName}`.trim()
       : (req.user.email || 'Prepared By');
+
+    // Resolve store name snapshot for denormalization
+    let storeSnapshot = 'Main Store';
+    if (store) {
+      const Store = require('../models/procurement/Store');
+      const storeDoc = await Store.findById(store).select('name').lean();
+      if (storeDoc) storeSnapshot = storeDoc.name;
+    }
 
     const grnStatus = (bodyStatus === 'Complete' || bodyStatus === 'Partial') ? bodyStatus : 'Partial';
     const receive = new GoodsReceive({
@@ -2444,7 +2502,8 @@ router.post('/goods-receive',
       poNumber,
       narration: narration || undefined,
       prNumber: prNumber || undefined,
-      store: store || 'Main Store',
+      store: store || undefined,
+      storeSnapshot,
       project: project,
       gatePassNo: gatePassNo || undefined,
       currency: currency || 'Rupees',
@@ -2603,7 +2662,22 @@ router.post('/goods-issue',
     if (!projectDoc) {
       return res.status(400).json({ success: false, message: 'Invalid project ID' });
     }
-    const storeName = store || issuingLocation || 'Main Store';
+
+    // Resolve store: `store` is now an ObjectId string. Fallback for stock-balance check.
+    const Store = require('../models/procurement/Store');
+    let resolvedStoreId = store || undefined;
+    let storeSnapshot = issuingLocation || 'Main Store';
+    if (resolvedStoreId) {
+      const storeDoc = await Store.findById(resolvedStoreId).select('name').lean();
+      if (storeDoc) storeSnapshot = storeDoc.name;
+    } else {
+      // Default to first active store for balance checking
+      const defaultStore = await Store.findOne({ isActive: true }).sort({ type: 1, createdAt: 1 }).select('_id name').lean();
+      if (defaultStore) {
+        resolvedStoreId = defaultStore._id;
+        storeSnapshot = defaultStore.name;
+      }
+    }
 
     if (costCenter) {
       const costCenterDoc = await CostCenter.findById(costCenter);
@@ -2622,13 +2696,18 @@ router.post('/goods-issue',
         if (qtyIssued <= 0) {
           throw new Error(`Quantity issued must be greater than 0 for ${inventory.name}`);
         }
-        
+
+        // Use item-level subStore if provided, else fall back to document-level store
+        const itemStoreId = item.subStore || resolvedStoreId;
+
         // Check project-wise stock balance
-        const projectBalance = await StockTransaction.getBalance(storeName, project, inventory._id);
-        if (projectBalance < qtyIssued) {
-          throw new Error(`Insufficient stock for ${inventory.name} in this project. Available: ${projectBalance}, Requested: ${qtyIssued}`);
+        if (itemStoreId) {
+          const projectBalance = await StockTransaction.getBalance(itemStoreId, project, inventory._id);
+          if (projectBalance < qtyIssued) {
+            throw new Error(`Insufficient stock for ${inventory.name} in this project. Available: ${projectBalance}, Requested: ${qtyIssued}`);
+          }
         }
-        
+
         // Also check overall inventory quantity (for backward compatibility)
         if (inventory.quantity < qtyIssued) {
           throw new Error(`Insufficient stock for ${inventory.name}. Available: ${inventory.quantity}, Requested: ${qtyIssued}`);
@@ -2648,6 +2727,12 @@ router.post('/goods-issue',
           balanceQty,
           issuedFromNewStock: !!item.issuedFromNewStock,
           issuedFromOldStock: !!item.issuedFromOldStock,
+          subStore: item.subStore || undefined,
+          location: {
+            rack: item.location?.rack || '',
+            shelf: item.location?.shelf || '',
+            bin: item.location?.bin || ''
+          },
           unit,
           notes: item.notes
         };
@@ -2661,7 +2746,8 @@ router.post('/goods-issue',
     const issue = new GoodsIssue({
       issueDate: issueDate || new Date(),
       issuingLocation: issuingLocation || undefined,
-      store: storeName,
+      store: resolvedStoreId || undefined,
+      storeSnapshot,
       project: project,
       department,
       departmentName,
@@ -2705,46 +2791,95 @@ router.post('/goods-issue',
 // ==================== STOCK BALANCE ROUTES ====================
 
 // @route   GET /api/procurement/stock-balance
-// @desc    Get project-wise stock balances
+// @desc    Get project-wise stock balances. storeId (ObjectId) is preferred; falls back to first active store.
 // @access  Private
 router.get('/stock-balance',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
-    const { store = 'Main Store', project, item } = req.query;
-    
+    const { storeId, project, item } = req.query;
+
     if (!project) {
       return res.status(400).json({ success: false, message: 'Project ID is required' });
     }
-    
+
     const projectDoc = await Project.findById(project);
     if (!projectDoc) {
       return res.status(400).json({ success: false, message: 'Invalid project ID' });
     }
-    
+
+    // Resolve store ObjectId — if not provided, use the default (first active) store
+    const Store = require('../models/procurement/Store');
+    let resolvedStoreId = storeId;
+    let storeLabel = 'All Stores';
+    if (!resolvedStoreId) {
+      const defaultStore = await Store.findOne({ isActive: true }).sort({ type: 1, createdAt: 1 }).select('_id name').lean();
+      if (defaultStore) {
+        resolvedStoreId = defaultStore._id;
+        storeLabel = defaultStore.name;
+      }
+    } else {
+      const storeDoc = await Store.findById(resolvedStoreId).select('name').lean();
+      if (storeDoc) storeLabel = storeDoc.name;
+    }
+
     if (item) {
-      // Get balance for specific item
-      const balance = await StockTransaction.getBalance(store, project, item);
+      const balance = await StockTransaction.getBalance(resolvedStoreId, project, item);
       res.json({
         success: true,
         data: {
-          store,
+          store: { _id: resolvedStoreId, name: storeLabel },
           project: { _id: projectDoc._id, name: projectDoc.name, projectId: projectDoc.projectId },
           item,
           balance
         }
       });
     } else {
-      // Get all balances for the project
-      const balances = await StockTransaction.getProjectBalances(store, project);
+      const balances = await StockTransaction.getProjectBalances(resolvedStoreId, project);
       res.json({
         success: true,
         data: {
-          store,
+          store: { _id: resolvedStoreId, name: storeLabel },
           project: { _id: projectDoc._id, name: projectDoc.name, projectId: projectDoc.projectId },
           balances
         }
       });
     }
+  })
+);
+
+// @route   GET /api/procurement/inventory/:id/barcode
+// @desc    Get barcode data for an inventory item (for label printing)
+// @access  Private
+router.get('/inventory/:id/barcode',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const item = await Inventory.findById(req.params.id)
+      .select('_id itemCode name unit barcode barcodeType location')
+      .lean();
+
+    if (!item) {
+      return res.status(404).json({ success: false, message: 'Inventory item not found' });
+    }
+
+    if (!item.barcode) {
+      // Generate on-demand if missing
+      const barcodeValue = await Inventory.generateBarcodeValue(item.itemCode);
+      await Inventory.findByIdAndUpdate(item._id, { barcode: barcodeValue });
+      item.barcode = barcodeValue;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        _id: item._id,
+        itemCode: item.itemCode,
+        name: item.name,
+        unit: item.unit,
+        barcode: item.barcode,
+        barcodeType: item.barcodeType || 'CODE128',
+        location: item.location
+      }
+    });
   })
 );
 
@@ -3214,9 +3349,9 @@ router.get('/public-quotation/:token', asyncHandler(async (req, res) => {
 // @access  Public
 router.post('/public-quotation/:token', [
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
-  body('items.*.description').trim().notEmpty().withMessage('Item description is required'),
-  body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Item quantity must be greater than 0'),
-  body('items.*.unit').trim().notEmpty().withMessage('Item unit is required'),
+  body('items.*.description').optional({ values: 'null' }).trim(),
+  body('items.*.quantity').isFloat({ min: 0 }).withMessage('Item quantity must be non-negative'),
+  body('items.*.unit').optional({ values: 'null' }).trim(),
   body('items.*.unitPrice').isFloat({ min: 0 }).withMessage('Item unit price must be non-negative'),
   body('quotationDate').optional().isISO8601().withMessage('Valid quotation date is required'),
   body('validityDays').optional().isInt({ min: 1 }).withMessage('Validity days must be a positive integer')
@@ -3226,6 +3361,13 @@ router.post('/public-quotation/:token', [
     return res.status(400).json({
       success: false,
       errors: errors.array()
+    });
+  }
+  const hasAtLeastOneQuotedItem = (req.body.items || []).some((i) => (Number(i.quantity) || 0) > 0 && (Number(i.unitPrice) || 0) > 0);
+  if (!hasAtLeastOneQuotedItem) {
+    return res.status(400).json({
+      success: false,
+      message: 'At least one item must have quantity and unit price greater than 0'
     });
   }
 
@@ -3486,9 +3628,9 @@ router.post('/quotations', [
   body('vendor').isMongoId().withMessage('Valid vendor ID is required'),
   body('quotationDate').isISO8601().withMessage('Valid quotation date is required'),
   body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
-  body('items.*.description').trim().notEmpty().withMessage('Item description is required'),
-  body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Item quantity must be greater than 0'),
-  body('items.*.unit').trim().notEmpty().withMessage('Item unit is required'),
+  body('items.*.description').optional({ values: 'null' }).trim(),
+  body('items.*.quantity').isFloat({ min: 0 }).withMessage('Item quantity must be non-negative'),
+  body('items.*.unit').optional({ values: 'null' }).trim(),
   body('items.*.unitPrice').isFloat({ min: 0 }).withMessage('Item unit price must be non-negative')
 ], authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
@@ -3496,6 +3638,13 @@ router.post('/quotations', [
     return res.status(400).json({
       success: false,
       errors: errors.array()
+    });
+  }
+  const hasAtLeastOneQuotedItem = (req.body.items || []).some((i) => (Number(i.quantity) || 0) > 0 && (Number(i.unitPrice) || 0) > 0);
+  if (!hasAtLeastOneQuotedItem) {
+    return res.status(400).json({
+      success: false,
+      message: 'At least one item must have quantity and unit price greater than 0'
     });
   }
 
@@ -3594,6 +3743,13 @@ router.put('/quotations/:id', [
 
   // If items are being updated, recalculate amounts
   if (req.body.items) {
+    const hasAtLeastOneQuotedItem = req.body.items.some((i) => (Number(i.quantity) || 0) > 0 && (Number(i.unitPrice) || 0) > 0);
+    if (!hasAtLeastOneQuotedItem) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one item must have quantity and unit price greater than 0'
+      });
+    }
     req.body.items = req.body.items.map(item => {
       const subtotal = item.quantity * item.unitPrice;
       const discountAmount = item.discount || 0;
@@ -3788,6 +3944,32 @@ router.post('/quotations/:id/create-po',
   })
 );
 
+// @route   GET /api/procurement/indents-with-split-assignments
+// @desc    List requisitions (indents) that have split PO assignments saved (ready to create split POs from Quotations).
+// @access  Private (procurement_manager, admin, super_admin)
+router.get('/indents-with-split-assignments',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const indents = await Indent.find({
+      isActive: true,
+      splitPOAssignments: { $exists: true, $ne: null }
+    })
+      .select('indentNumber title department splitPOAssignments')
+      .populate('department', 'name')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const withKeys = (indents || []).filter(
+      (i) => i.splitPOAssignments && typeof i.splitPOAssignments === 'object' && Object.keys(i.splitPOAssignments).length > 0
+    );
+
+    res.json({
+      success: true,
+      data: withKeys
+    });
+  })
+);
+
 // @route   POST /api/procurement/quotations/by-indent/:indentId/create-split-pos
 // @desc    Create one PO per vendor based on per-item vendor assignments from the Comparative Statement.
 //          Body: { vendorAssignments: { "0": "quotationId", "1": "quotationId", ... } }
@@ -3888,6 +4070,116 @@ router.post('/quotations/by-indent/:indentId/create-split-pos',
     res.status(201).json({
       success: true,
       message: `${createdPOs.length} Purchase Order(s) created from Comparative Statement`,
+      data: createdPOs
+    });
+  })
+);
+
+// @route   POST /api/procurement/quotations/by-indent/:indentId/create-split-pos-from-saved
+// @desc    Create split POs using vendorAssignments saved on the indent (from Comparative Statement shortlist). Clears splitPOAssignments after creation.
+// @access  Private (procurement_manager, admin, super_admin)
+router.post('/quotations/by-indent/:indentId/create-split-pos-from-saved',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const indent = await Indent.findById(req.params.indentId).lean();
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Indent not found' });
+    }
+
+    const vendorAssignments = indent.splitPOAssignments;
+    if (!vendorAssignments || typeof vendorAssignments !== 'object' || Object.keys(vendorAssignments).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No saved vendor assignments for this requisition. Use Comparative Statement to assign vendors first.'
+      });
+    }
+
+    const quotationIds = [...new Set(Object.values(vendorAssignments))];
+    const quotations = await Quotation.find({ _id: { $in: quotationIds } })
+      .populate('vendor', 'name email phone')
+      .lean();
+
+    const quotationMap = {};
+    quotations.forEach(q => { quotationMap[q._id.toString()] = q; });
+
+    const groupsByQuotation = {};
+    for (const [itemIndexStr, quotationId] of Object.entries(vendorAssignments)) {
+      const itemIndex = parseInt(itemIndexStr, 10);
+      if (isNaN(itemIndex) || itemIndex < 0 || itemIndex >= (indent.items || []).length) continue;
+      if (!quotationMap[quotationId]) continue;
+      if (!groupsByQuotation[quotationId]) groupsByQuotation[quotationId] = [];
+      groupsByQuotation[quotationId].push(itemIndex);
+    }
+
+    if (Object.keys(groupsByQuotation).length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid vendor assignments found' });
+    }
+
+    const createdPOs = [];
+
+    for (const [quotationId, itemIndices] of Object.entries(groupsByQuotation)) {
+      const quotation = quotationMap[quotationId];
+
+      const poItems = itemIndices.map(idx => {
+        const indentItem = indent.items[idx];
+        const quoteItem = quotation.items[idx];
+        if (!indentItem) return null;
+        const unitPrice = quoteItem ? (quoteItem.unitPrice || 0) : 0;
+        const taxRate = quoteItem ? (quoteItem.taxRate || 0) : 0;
+        const discount = quoteItem ? (quoteItem.discount || 0) : 0;
+        const quantity = indentItem.quantity || 0;
+        const amount = (quantity * unitPrice) - discount + ((quantity * unitPrice - discount) * taxRate / 100);
+        return {
+          description: indentItem.itemName || indentItem.description || '',
+          specification: indentItem.description || '',
+          brand: indentItem.brand || '',
+          quantity,
+          unit: indentItem.unit || 'Piece',
+          unitPrice,
+          taxRate,
+          discount,
+          amount
+        };
+      }).filter(Boolean);
+
+      if (poItems.length === 0) continue;
+
+      const purchaseOrder = new PurchaseOrder({
+        vendor: quotation.vendor._id,
+        indent: indent._id,
+        quotation: quotation._id,
+        orderDate: new Date(),
+        expectedDeliveryDate: quotation.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        status: 'Draft',
+        priority: indent.priority || 'Medium',
+        items: poItems,
+        paymentTerms: quotation.paymentTerms || '',
+        notes: `Created from Quotations (split) for Indent ${indent.indentNumber}`,
+        internalNotes: `Source: Quotation ${quotation.quotationNumber}, Indent: ${indent.indentNumber}`,
+        createdBy: req.user.id
+      });
+
+      await purchaseOrder.save();
+      pushPOWorkflowHistory(purchaseOrder, '—', 'Draft', req.user.id, `Created from Quotations split for Indent ${indent.indentNumber}`, 'Procurement');
+      await purchaseOrder.save();
+
+      const populated = await PurchaseOrder.findById(purchaseOrder._id)
+        .populate('vendor', 'name email phone')
+        .populate('createdBy', 'firstName lastName email')
+        .lean();
+      createdPOs.push(populated);
+    }
+
+    const indentDoc = await Indent.findById(req.params.indentId);
+    if (indentDoc) {
+      indentDoc.splitPOAssignments = undefined;
+      indentDoc.markModified('splitPOAssignments');
+      await indentDoc.save();
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `${createdPOs.length} Purchase Order(s) created. You can track them in Purchase Orders.`,
       data: createdPOs
     });
   })

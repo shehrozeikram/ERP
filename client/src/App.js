@@ -76,6 +76,7 @@ import GoodsIssue from './pages/Procurement/GoodsIssue';
 import CostCenters from './pages/Procurement/CostCenters';
 import StoreDashboard from './pages/Procurement/Store/StoreDashboard';
 import QualityAssurance from './pages/Procurement/Store/QualityAssurance';
+import StoreManagement from './pages/Procurement/Store/StoreManagement';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import SalesOrders from './pages/Sales/SalesOrders';
 import SalesCustomers from './pages/Sales/SalesCustomers';
@@ -1142,6 +1143,10 @@ function App() {
             <Route 
               path="/procurement/store/cost-center" 
               element={<ProtectedRoute><CostCenters /></ProtectedRoute>} 
+            />
+            <Route 
+              path="/procurement/store/manage" 
+              element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} 
             />
             {/* Legacy routes - redirect to new paths */}
             <Route 

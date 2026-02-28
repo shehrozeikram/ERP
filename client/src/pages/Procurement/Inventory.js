@@ -90,7 +90,7 @@ const Inventory = () => {
     maxQuantity: 1000,
     unitPrice: 0,
     supplier: '',
-    location: { warehouse: '', shelf: '', bin: '' },
+    location: { rack: '', shelf: '', bin: '' },
     notes: ''
   });
 
@@ -166,7 +166,7 @@ const Inventory = () => {
       maxQuantity: 1000,
       unitPrice: 0,
       supplier: '',
-      location: { warehouse: '', shelf: '', bin: '' },
+      location: { rack: '', shelf: '', bin: '' },
       notes: ''
     });
     setFormDialog({ open: true, mode: 'create', data: null });
@@ -183,7 +183,7 @@ const Inventory = () => {
       maxQuantity: item.maxQuantity,
       unitPrice: item.unitPrice,
       supplier: item.supplier?._id || '',
-      location: item.location || { warehouse: '', shelf: '', bin: '' },
+      location: { rack: item.location?.rack || '', shelf: item.location?.shelf || '', bin: item.location?.bin || '' },
       notes: item.notes || ''
     });
     setFormDialog({ open: true, mode: 'edit', data: item });
@@ -437,6 +437,7 @@ const Inventory = () => {
                 <TableCell><strong>Item Code</strong></TableCell>
                 <TableCell><strong>Name</strong></TableCell>
                 <TableCell><strong>Category</strong></TableCell>
+                <TableCell><strong>Location</strong></TableCell>
                 <TableCell align="right"><strong>Quantity</strong></TableCell>
                 <TableCell align="right"><strong>Unit Price</strong></TableCell>
                 <TableCell align="right"><strong>Total Value</strong></TableCell>
@@ -447,13 +448,13 @@ const Inventory = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={9} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={9} align="center">
                     <Typography variant="body2" color="textSecondary">
                       No inventory items found
                     </Typography>
@@ -465,6 +466,18 @@ const Inventory = () => {
                     <TableCell>{item.itemCode}</TableCell>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.category}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
+                        {item.storeSnapshot || item.subStoreSnapshot
+                          ? [item.storeSnapshot, item.subStoreSnapshot].filter(Boolean).join(' › ')
+                          : '—'}
+                      </Typography>
+                      {(item.location?.rack || item.location?.shelf || item.location?.bin) && (
+                        <Typography variant="caption" color="text.secondary">
+                          {[item.location.rack, item.location.shelf, item.location.bin].filter(Boolean).join(' / ')}
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell align="right">{item.quantity} {item.unit}</TableCell>
                     <TableCell align="right">{formatPKR(item.unitPrice)}</TableCell>
                     <TableCell align="right">{formatPKR(item.totalValue)}</TableCell>
@@ -636,11 +649,11 @@ const Inventory = () => {
             <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                label="Warehouse"
-                value={formData.location.warehouse}
+                label="Rack"
+                value={formData.location.rack}
                 onChange={(e) => setFormData({ 
                   ...formData, 
-                  location: { ...formData.location, warehouse: e.target.value }
+                  location: { ...formData.location, rack: e.target.value }
                 })}
               />
             </Grid>
@@ -747,6 +760,45 @@ const Inventory = () => {
                       <Typography variant="body2" color="text.secondary">Supplier</Typography>
                       <Typography variant="body1">{viewDialog.data.supplier.name}</Typography>
                     </Grid>
+                  )}
+                  {(viewDialog.data.storeSnapshot || viewDialog.data.subStoreSnapshot) && (
+                    <>
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" color="primary" sx={{ mt: 1, fontWeight: 'bold' }}>
+                          Physical Location
+                        </Typography>
+                      </Grid>
+                      {viewDialog.data.storeSnapshot && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="text.secondary">Main Store</Typography>
+                          <Typography variant="body1">{viewDialog.data.storeSnapshot}</Typography>
+                        </Grid>
+                      )}
+                      {viewDialog.data.subStoreSnapshot && (
+                        <Grid item xs={12} md={6}>
+                          <Typography variant="body2" color="text.secondary">Sub-Store</Typography>
+                          <Typography variant="body1">{viewDialog.data.subStoreSnapshot}</Typography>
+                        </Grid>
+                      )}
+                      {viewDialog.data.location?.rack && (
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="body2" color="text.secondary">Rack</Typography>
+                          <Typography variant="body1">{viewDialog.data.location.rack}</Typography>
+                        </Grid>
+                      )}
+                      {viewDialog.data.location?.shelf && (
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="body2" color="text.secondary">Shelf</Typography>
+                          <Typography variant="body1">{viewDialog.data.location.shelf}</Typography>
+                        </Grid>
+                      )}
+                      {viewDialog.data.location?.bin && (
+                        <Grid item xs={12} md={4}>
+                          <Typography variant="body2" color="text.secondary">Bin</Typography>
+                          <Typography variant="body1">{viewDialog.data.location.bin}</Typography>
+                        </Grid>
+                      )}
+                    </>
                   )}
                 </Grid>
               )}

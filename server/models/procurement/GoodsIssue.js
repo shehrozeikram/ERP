@@ -22,6 +22,10 @@ const goodsIssueSchema = new mongoose.Schema({
     default: 'Main Store'
   },
   store: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store'
+  },
+  storeSnapshot: {
     type: String,
     trim: true,
     default: 'Main Store'
@@ -119,6 +123,15 @@ const goodsIssueSchema = new mongoose.Schema({
       type: Boolean,
       default: false
     },
+    subStore: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store'
+    },
+    location: {
+      rack: { type: String, trim: true },
+      shelf: { type: String, trim: true },
+      bin: { type: String, trim: true }
+    },
     unit: {
       type: String,
       required: true
@@ -206,43 +219,52 @@ goodsIssueSchema.post('save', async function(doc) {
     
     const Inventory = mongoose.model('Inventory');
     const StockTransaction = mongoose.model('StockTransaction');
-    const store = doc.store || doc.issuingLocation || 'Main Store';
+    // store is now an ObjectId; fall back gracefully if not yet set
+    const storeId = doc.store?._id || doc.store;
     const projectId = doc.project._id || doc.project;
     const issueNumber = doc.issueNumber || doc.sinNumber || 'SIN';
     const qtyToDeduct = (item) => item.qtyIssued ?? item.quantity ?? 0;
-    
+
     for (const item of doc.items) {
       const qty = qtyToDeduct(item);
       if (qty <= 0) continue;
       try {
         const inventory = await Inventory.findById(item.inventoryItem);
         if (inventory) {
-          // Update inventory (for backward compatibility)
           await inventory.removeStock(
             qty,
             issueNumber,
             item.notes || `Issued via ${issueNumber} (Store Issue Note)`,
             doc.issuedBy
           );
-          
-          // Create StockTransaction record for project-wise tracking
-          const currentBalance = await StockTransaction.getBalance(store, projectId, inventory._id);
-          const balanceAfter = currentBalance - qty; // Negative quantity for OUT
-          
+
+          // Resolve sub-store: item-level overrides document-level
+          const txStoreId = item.subStore?._id || item.subStore || storeId;
+          if (!txStoreId) continue;
+
+          const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inventory._id);
+          const balanceAfter = currentBalance - qty;
+
           await StockTransaction.create({
-            store: store,
+            store: txStoreId,
+            storeSnapshot: doc.storeSnapshot || doc.issuingLocation || 'Main Store',
             project: projectId,
             item: inventory._id,
             itemCode: item.itemCode || inventory.itemCode,
             itemName: item.itemName || inventory.name,
             transactionType: 'OUT',
-            quantity: -qty, // Negative for OUT
+            quantity: -qty,
             unit: item.unit || inventory.unit,
-            unitPrice: 0, // Issue doesn't have unit price
+            unitPrice: 0,
             referenceType: 'SIN',
             referenceId: doc._id,
             referenceNumber: issueNumber,
-            balanceAfter: balanceAfter,
+            balanceAfter,
+            location: {
+              rack: item.location?.rack || '',
+              shelf: item.location?.shelf || '',
+              bin: item.location?.bin || ''
+            },
             description: `Issued via ${issueNumber} (Store Issue Note)`,
             notes: item.notes || '',
             createdBy: doc.issuedBy

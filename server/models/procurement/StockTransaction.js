@@ -2,16 +2,26 @@ const mongoose = require('mongoose');
 
 /**
  * StockTransaction Model
- * Tracks all stock movements (in/out/adjustments) with project-wise separation
- * Balance is calculated as: SUM(quantity) GROUP BY store_id, project_id, item_id
+ * Tracks all stock movements (in/out/adjustments) with project-wise and store-wise separation.
+ * Store field now references the Store collection (supports main + sub-stores).
+ * Balance: SUM(quantity) GROUP BY store._id, project._id, item._id
+ * Location (rack/shelf/bin) is recorded per transaction for bin-level traceability.
  */
 const stockTransactionSchema = new mongoose.Schema({
   store: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store',
     required: true,
-    trim: true,
-    default: 'Main Store', // Single store for now
     index: true
+  },
+  storeSnapshot: {
+    type: String,
+    trim: true
+  },
+  location: {
+    rack: { type: String, trim: true },
+    shelf: { type: String, trim: true },
+    bin: { type: String, trim: true }
   },
   project: {
     type: mongoose.Schema.Types.ObjectId,
@@ -93,9 +103,10 @@ const stockTransactionSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound index for efficient balance queries: store + project + item
+// Compound indexes for efficient balance queries
 stockTransactionSchema.index({ store: 1, project: 1, item: 1 });
 stockTransactionSchema.index({ store: 1, project: 1, item: 1, createdAt: -1 });
+stockTransactionSchema.index({ store: 1, project: 1, item: 1, 'location.rack': 1 });
 stockTransactionSchema.index({ referenceType: 1, referenceId: 1 });
 stockTransactionSchema.index({ transactionType: 1, createdAt: -1 });
 

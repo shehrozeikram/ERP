@@ -53,10 +53,38 @@ const inventorySchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // WMS physical location — populated automatically from GRN
+  store: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store'
+  },
+  storeSnapshot: {
+    type: String,
+    trim: true
+  },
+  subStore: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store'
+  },
+  subStoreSnapshot: {
+    type: String,
+    trim: true
+  },
   location: {
-    warehouse: String,
-    shelf: String,
-    bin: String
+    rack: { type: String, trim: true },
+    shelf: { type: String, trim: true },
+    bin: { type: String, trim: true }
+  },
+  barcode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
+  barcodeType: {
+    type: String,
+    enum: ['CODE128', 'QR'],
+    default: 'CODE128'
   },
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
@@ -211,12 +239,34 @@ inventorySchema.statics.getStatistics = async function() {
   };
 };
 
+/**
+ * Generate a unique barcode string for an inventory item.
+ * Format: SGC-{sanitisedItemCode}-{6-char random alphanumeric}
+ * Retries until a unique value is found.
+ */
+inventorySchema.statics.generateBarcodeValue = async function (itemCode) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const sanitised = (itemCode || 'ITEM').replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 10);
+  let barcode;
+  let attempts = 0;
+  do {
+    const suffix = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    barcode = `SGC-${sanitised}-${suffix}`;
+    const exists = await this.findOne({ barcode });
+    if (!exists) break;
+    attempts++;
+  } while (attempts < 10);
+  return barcode;
+};
+
 // Indexes for better performance
 inventorySchema.index({ itemCode: 1 });
 inventorySchema.index({ name: 1 });
 inventorySchema.index({ category: 1 });
 inventorySchema.index({ status: 1 });
 inventorySchema.index({ supplier: 1 });
+inventorySchema.index({ barcode: 1 });
+inventorySchema.index({ store: 1, subStore: 1 });
 
 const Inventory = mongoose.model('Inventory', inventorySchema);
 

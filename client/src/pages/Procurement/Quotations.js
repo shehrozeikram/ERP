@@ -36,7 +36,8 @@ import {
   Refresh as RefreshIcon,
   CheckCircle as ApproveIcon,
   ShoppingCart as POIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  CallSplit as SplitIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -68,6 +69,9 @@ const Quotations = () => {
   const [editReasonDialog, setEditReasonDialog] = useState({ open: false, quotation: null });
   const [viewDialog, setViewDialog] = useState({ open: false, data: null });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
+  const [indentsWithSplitAssignments, setIndentsWithSplitAssignments] = useState([]);
+  const [loadingSplitIndents, setLoadingSplitIndents] = useState(false);
+  const [creatingSplitPOForIndent, setCreatingSplitPOForIndent] = useState(null);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -85,11 +89,26 @@ const Quotations = () => {
   });
   const [attachmentFiles, setAttachmentFiles] = useState([]);
 
+  const loadIndentsWithSplitAssignments = useCallback(async () => {
+    try {
+      setLoadingSplitIndents(true);
+      const response = await api.get('/procurement/indents-with-split-assignments');
+      if (response.data?.success) {
+        setIndentsWithSplitAssignments(response.data.data || []);
+      }
+    } catch {
+      setIndentsWithSplitAssignments([]);
+    } finally {
+      setLoadingSplitIndents(false);
+    }
+  }, []);
+
   // Load data on component mount
   useEffect(() => {
     loadQuotations();
     loadVendors();
     loadRequisitions();
+    loadIndentsWithSplitAssignments();
   }, [page, rowsPerPage, search, statusFilter]);
 
   const loadQuotations = useCallback(async () => {
@@ -371,6 +390,24 @@ const Quotations = () => {
     return colors[status] || 'default';
   };
 
+  const handleCreateSplitPOsFromSaved = async (indentId) => {
+    try {
+      setCreatingSplitPOForIndent(indentId);
+      setError('');
+      const response = await api.post(`/procurement/quotations/by-indent/${indentId}/create-split-pos-from-saved`);
+      const pos = response.data.data || [];
+      const poNumbers = pos.map(p => p.orderNumber).join(', ');
+      setSuccess(`${pos.length} Purchase Order(s) created: ${poNumbers}. You can track them in Purchase Orders.`);
+      setTimeout(() => setSuccess(''), 8000);
+      loadQuotations();
+      loadIndentsWithSplitAssignments();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to create split purchase orders');
+    } finally {
+      setCreatingSplitPOForIndent(null);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -401,6 +438,57 @@ const Quotations = () => {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+
+      {/* Requisitions ready for Split PO (shortlisted from Comparative Statement) */}
+      {(loadingSplitIndents || indentsWithSplitAssignments.length > 0) && (
+        <Paper sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
+            Requisitions ready for Split PO
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            These requisitions have vendor assignments saved from the Comparative Statement. Create one PO per assigned vendor here.
+          </Typography>
+          {loadingSplitIndents ? (
+            <Typography variant="body2" color="text.secondary">Loading…</Typography>
+          ) : indentsWithSplitAssignments.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">None. Use Comparative Statement to assign vendors and shortlist, then they will appear here.</Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Requisition</strong></TableCell>
+                    <TableCell><strong>Title</strong></TableCell>
+                    <TableCell><strong>Department</strong></TableCell>
+                    <TableCell align="right"><strong>Action</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {indentsWithSplitAssignments.map((indent) => (
+                    <TableRow key={indent._id}>
+                      <TableCell>{indent.indentNumber || '-'}</TableCell>
+                      <TableCell>{indent.title || '-'}</TableCell>
+                      <TableCell>{indent.department?.name || '-'}</TableCell>
+                      <TableCell align="right">
+                        <Button
+                          variant="contained"
+                          size="small"
+                          color="primary"
+                          startIcon={creatingSplitPOForIndent === indent._id ? <CircularProgress size={16} color="inherit" /> : <SplitIcon />}
+                          onClick={() => handleCreateSplitPOsFromSaved(indent._id)}
+                          disabled={creatingSplitPOForIndent != null}
+                        >
+                          {creatingSplitPOForIndent === indent._id ? 'Creating…' : 'Create Split POs'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Paper>
+      )}
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
@@ -616,20 +704,32 @@ const Quotations = () => {
             </TextField>
             
             <Divider />
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="h6">Items</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ flexBasis: '100%' }}>
+                Leave quantity &amp; unit price as 0 for items you are not quoting. At least one item must have quantity and price &gt; 0.
+              </Typography>
               <Button size="small" onClick={addItem}>Add Item</Button>
             </Box>
             
             {formData.items.map((item, idx) => (
               <Paper key={idx} variant="outlined" sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, pb: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <Chip size="small" label={`S.No. ${idx + 1}`} color="primary" variant="outlined" />
+                  {formData.indent && (
+                    <Typography variant="caption" color="text.secondary">
+                      Requisition Item #{idx + 1}
+                    </Typography>
+                  )}
+                </Box>
                 <Grid container spacing={2} alignItems="center">
                   <Grid item xs={12} md={5}>
                     <TextField
                       fullWidth
                       size="small"
-                      label="Description"
-                      value={item.description}
+                      label="Description (optional if not quoting)"
+                      placeholder="Leave empty if not quoting this item"
+                      value={item.description ?? ''}
                       onChange={(e) => updateItem(idx, 'description', e.target.value)}
                     />
                   </Grid>
@@ -663,9 +763,18 @@ const Quotations = () => {
                     />
                   </Grid>
                   <Grid item xs={6} md={1}>
-                    <IconButton size="small" color="error" onClick={() => removeItem(idx)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+                    <Tooltip title={formData.indent ? 'Cannot remove items when created from requisition (keeps order for Comparative Statement)' : 'Remove item'}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => removeItem(idx)}
+                          disabled={!!formData.indent}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                   </Grid>
                   <Grid item xs={6} md={3}>
                     <TextField

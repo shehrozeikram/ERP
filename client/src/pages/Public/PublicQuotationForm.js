@@ -117,13 +117,13 @@ const PublicQuotationForm = () => {
       setSubmitting(true);
       setError('');
 
-      // Validate items
-      const invalidItems = formData.items.filter(item => 
-        !item.description || item.quantity <= 0 || item.unitPrice <= 0
+      // At least one item must have quantity and unit price > 0 (partial quotations allowed - can skip items)
+      const quotedItems = formData.items.filter(item => 
+        (Number(item.quantity) || 0) > 0 && (Number(item.unitPrice) || 0) > 0
       );
 
-      if (invalidItems.length > 0) {
-        setError('Please fill all required fields for all items (description, quantity, and unit price)');
+      if (quotedItems.length === 0) {
+        setError('At least one item must have quantity and unit price greater than 0. Leave quantity and price as 0 for items you are not quoting.');
         return;
       }
 
@@ -291,6 +291,9 @@ const PublicQuotationForm = () => {
 
         {/* Items Table */}
         <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>Items & Pricing</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          You can quote for only some items. Leave quantity and unit price as 0 for items you are not quoting. At least one item must have quantity and price &gt; 0.
+        </Typography>
         <TableContainer component={Paper} variant="outlined">
           <Table>
             <TableHead>
@@ -311,9 +314,9 @@ const PublicQuotationForm = () => {
                     <TextField
                       fullWidth
                       size="small"
-                      value={item.description}
+                      placeholder="Leave empty if not quoting this item"
+                      value={item.description ?? ''}
                       onChange={(e) => updateItem(idx, 'description', e.target.value)}
-                      required
                     />
                   </TableCell>
                   <TableCell align="center">
@@ -324,16 +327,15 @@ const PublicQuotationForm = () => {
                       onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
                       inputProps={{ min: 0, step: 0.01 }}
                       sx={{ width: 100 }}
-                      required
                     />
                   </TableCell>
                   <TableCell align="center">
                     <TextField
                       size="small"
-                      value={item.unit}
+                      value={item.unit ?? ''}
                       onChange={(e) => updateItem(idx, 'unit', e.target.value)}
+                      placeholder="pcs"
                       sx={{ width: 80 }}
-                      required
                     />
                   </TableCell>
                   <TableCell align="right">
@@ -344,7 +346,6 @@ const PublicQuotationForm = () => {
                       onChange={(e) => updateItem(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
                       inputProps={{ min: 0, step: 0.01 }}
                       sx={{ width: 120 }}
-                      required
                     />
                   </TableCell>
                   <TableCell align="right">

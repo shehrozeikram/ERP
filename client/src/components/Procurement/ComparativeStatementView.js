@@ -28,8 +28,8 @@ import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon, C
  * @param {function} onNoteChange - (value) => void when note is edited (optional, for !readOnly)
  * @param {function} onApprovalChange - (key, value) => void when approval field is edited (optional, for !readOnly)
  * @param {boolean} showPrintButton - Show Print button (default true when !readOnly)
- * @param {function} onCreateSplitPOs - ({ vendorAssignments }) => void — called when user clicks "Create Split POs" (optional)
- * @param {boolean} creatingSplitPOs - Disables the Create Split POs button while in progress (optional)
+ * @param {function} onCreateSplitPOs - ({ vendorAssignments }) => void — called when user clicks "Shortlist Vendors" (saves assignments; create POs from Quotations page) (optional)
+ * @param {boolean} creatingSplitPOs - Disables the Shortlist button while in progress (optional)
  */
 const ComparativeStatementView = ({
   requisition,
@@ -178,10 +178,10 @@ const ComparativeStatementView = ({
           {!readOnly && onCreateSplitPOs && (
             <Box sx={{ mb: 2, p: 1.5, bgcolor: '#f0f4ff', borderRadius: 1, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', '@media print': { display: 'none' } }}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Split PO Mode:
+                Split PO selection:
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Click a vendor cell in any item row to assign that item to that vendor. Then click "Create Split POs".
+                Click a vendor cell in any item row to assign that item to that vendor. Then click &quot;Shortlist Vendors&quot;. Create the actual Split POs from the Quotations page.
               </Typography>
               <Chip
                 size="small"
@@ -197,7 +197,7 @@ const ComparativeStatementView = ({
                 disabled={creatingSplitPOs || assignedCount === 0}
                 sx={{ ml: 'auto' }}
               >
-                {creatingSplitPOs ? 'Creating…' : 'Create Split POs'}
+                {creatingSplitPOs ? 'Shortlisting…' : 'Shortlist Vendors'}
               </Button>
             </Box>
           )}
@@ -259,27 +259,39 @@ const ComparativeStatementView = ({
                       <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.unit || 'Nos'}</td>
                       <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.quantity ?? '___'}</td>
                       {quotations.map((quote, quoteIdx) => {
-                        const quoteItem = quote.items?.[itemIndex];
-                        const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
+                        let quoteItem = quote.items?.[itemIndex];
+                        if (!quoteItem && quote.items?.length) {
+                          const indentDesc = (item.itemName || item.description || '').trim().toLowerCase();
+                          const match = quote.items.find((qi) => {
+                            const qDesc = (qi?.description || '').trim().toLowerCase();
+                            return indentDesc && qDesc && qDesc === indentDesc;
+                          });
+                          quoteItem = match || null;
+                        }
+                        const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
+                        const itemTotal = !isNotQuoted
+                          ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                          : 0;
                         const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
                         const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
+                        const canAssign = !isNotQuoted && !readOnly && onCreateSplitPOs;
                         return (
                           <React.Fragment key={quoteIdx}>
                             <td
-                              style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: !readOnly && onCreateSplitPOs ? 'pointer' : undefined }}
-                              onClick={!readOnly && onCreateSplitPOs && quoteItem ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
+                              style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
+                              onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
                             >
-                              {quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}
+                              {!isNotQuoted ? formatNumber(quoteItem.unitPrice) : '___________'}
                             </td>
                             <Tooltip
-                              title={!readOnly && onCreateSplitPOs && quoteItem ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : ''}
+                              title={canAssign ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : isNotQuoted ? 'Vendor did not quote for this item' : ''}
                               placement="top"
                             >
                               <td
-                                style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: !readOnly && onCreateSplitPOs && quoteItem ? 'pointer' : undefined }}
-                                onClick={!readOnly && onCreateSplitPOs && quoteItem ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
+                                style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
+                                onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
                               >
-                                {quoteItem ? formatNumber(itemTotal) : '___________'}
+                                {!isNotQuoted ? formatNumber(itemTotal) : '___________'}
                                 {isAssignedToThis && !readOnly && (
                                   <CheckCircleIcon sx={{ fontSize: '0.8rem', ml: 0.5, color: '#2e7d32', verticalAlign: 'middle', '@media print': { display: 'none' } }} />
                                 )}
