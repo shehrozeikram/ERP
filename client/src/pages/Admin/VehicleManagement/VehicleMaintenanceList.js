@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -16,10 +16,10 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Paper,
   Chip,
   IconButton,
-  CircularProgress,
   Skeleton,
   Alert,
   TextField,
@@ -34,7 +34,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import vehicleMaintenanceService from '../../../services/vehicleMaintenanceService';
-import vehicleService from '../../../services/vehicleService';
 import { formatDate, formatCurrency } from '../../../utils/dateUtils';
 
 // Lightweight reusable components
@@ -250,7 +249,9 @@ const VehicleMaintenanceList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [records, setRecords] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [filters, setFilters] = useState({
     search: '',
     status: '',
@@ -258,37 +259,18 @@ const VehicleMaintenanceList = () => {
     priority: ''
   });
 
-  // Memoized filtered records for performance
-  const filteredRecords = useMemo(() => {
-    return records.filter(record => {
-      const matchesSearch = !filters.search || 
-        record.title.toLowerCase().includes(filters.search.toLowerCase()) ||
-        record.description.toLowerCase().includes(filters.search.toLowerCase()) ||
-        record.serviceProvider.toLowerCase().includes(filters.search.toLowerCase());
-      
-      const matchesStatus = !filters.status || record.status === filters.status;
-      const matchesType = !filters.type || record.maintenanceType === filters.type;
-      const matchesPriority = !filters.priority || record.priority === filters.priority;
-      const matchesVehicle = !vehicleId || record.vehicleId._id === vehicleId;
-
-      return matchesSearch && matchesStatus && matchesType && matchesPriority && matchesVehicle;
-    });
-  }, [records, filters, vehicleId]);
-
-  useEffect(() => {
-    fetchData();
-  }, [vehicleId]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [maintenanceRes, vehiclesRes] = await Promise.all([
-        vehicleMaintenanceService.getMaintenanceRecords(),
-        vehicleService.getVehicles()
-      ]);
+      const params = { page: page + 1, limit: rowsPerPage };
+      if (vehicleId) params.vehicleId = vehicleId;
+      if (filters.search) params.search = filters.search;
+      if (filters.status) params.status = filters.status;
+      if (filters.type) params.maintenanceType = filters.type;
 
-      setRecords(maintenanceRes.data || []);
-      setVehicles(vehiclesRes.data || []);
+      const res = await vehicleMaintenanceService.getMaintenanceRecords(params);
+      setRecords(res.data || []);
+      setTotalCount(res.pagination?.total || 0);
       setError(null);
     } catch (err) {
       setError('Failed to fetch maintenance records');
@@ -296,10 +278,25 @@ const VehicleMaintenanceList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [vehicleId, page, rowsPerPage, filters]);
+
+  // Reset to page 0 when filters change
+  useEffect(() => {
+    setPage(0);
+  }, [vehicleId, filters]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleChangePage = (_, newPage) => setPage(newPage);
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
   };
 
   const handleEdit = (id) => {
@@ -357,15 +354,24 @@ const VehicleMaintenanceList = () => {
           <Box display="flex" alignItems="center" mb={2}>
             <MaintenanceIcon sx={{ mr: 1 }} />
             <Typography variant="h6">
-              Maintenance Records ({filteredRecords.length})
+              Maintenance Records ({totalCount})
             </Typography>
           </Box>
-          
+
           <MaintenanceTable
-            records={filteredRecords}
+            records={records}
             onEdit={handleEdit}
             onDelete={handleDelete}
             loading={loading}
+          />
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50]}
           />
         </CardContent>
       </Card>

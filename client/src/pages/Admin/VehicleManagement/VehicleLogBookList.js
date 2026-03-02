@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -16,10 +16,10 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Paper,
   Chip,
   IconButton,
-  CircularProgress,
   Skeleton,
   Alert,
   TextField,
@@ -35,7 +35,6 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import vehicleLogBookService from '../../../services/vehicleLogBookService';
-import vehicleService from '../../../services/vehicleService';
 import { formatDate, formatCurrency } from '../../../utils/dateUtils';
 
 // Lightweight reusable components
@@ -251,7 +250,9 @@ const VehicleLogBookList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [entries, setEntries] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [filters, setFilters] = useState({
     search: '',
     purpose: '',
@@ -259,39 +260,19 @@ const VehicleLogBookList = () => {
     fromDate: ''
   });
 
-  // Memoized filtered entries for performance
-  const filteredEntries = useMemo(() => {
-    return entries.filter(entry => {
-      const matchesSearch = !filters.search || 
-        entry.driverId?.firstName.toLowerCase().includes(filters.search.toLowerCase()) ||
-        entry.driverId?.lastName.toLowerCase().includes(filters.search.toLowerCase()) ||
-        entry.startLocation.toLowerCase().includes(filters.search.toLowerCase()) ||
-        entry.endLocation.toLowerCase().includes(filters.search.toLowerCase());
-      
-      const matchesPurpose = !filters.purpose || entry.purpose === filters.purpose;
-      const matchesStatus = !filters.status || entry.status === filters.status;
-      const matchesVehicle = !vehicleId || entry.vehicleId._id === vehicleId;
-      
-      const matchesDate = !filters.fromDate || new Date(entry.date) >= new Date(filters.fromDate);
-
-      return matchesSearch && matchesPurpose && matchesStatus && matchesVehicle && matchesDate;
-    });
-  }, [entries, filters, vehicleId]);
-
-  useEffect(() => {
-    fetchData();
-  }, [vehicleId]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [logBookRes, vehiclesRes] = await Promise.all([
-        vehicleLogBookService.getLogBookEntries(),
-        vehicleService.getVehicles()
-      ]);
+      const params = { page: page + 1, limit: rowsPerPage };
+      if (vehicleId) params.vehicleId = vehicleId;
+      if (filters.search) params.search = filters.search;
+      if (filters.purpose) params.purpose = filters.purpose;
+      if (filters.status) params.status = filters.status;
+      if (filters.fromDate) params.startDate = filters.fromDate;
 
-      setEntries(logBookRes.data || []);
-      setVehicles(vehiclesRes.data || []);
+      const res = await vehicleLogBookService.getLogBookEntries(params);
+      setEntries(res.data || []);
+      setTotalCount(res.pagination?.total || 0);
       setError(null);
     } catch (err) {
       setError('Failed to fetch log book entries');
@@ -299,10 +280,25 @@ const VehicleLogBookList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [vehicleId, page, rowsPerPage, filters]);
+
+  // Reset to page 0 when filters change
+  useEffect(() => {
+    setPage(0);
+  }, [vehicleId, filters]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleFilterChange = (field, value) => {
     setFilters(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleChangePage = (_, newPage) => setPage(newPage);
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
   };
 
   const handleView = (id) => {
@@ -364,16 +360,25 @@ const VehicleLogBookList = () => {
           <Box display="flex" alignItems="center" mb={2}>
             <LogBookIcon sx={{ mr: 1 }} />
             <Typography variant="h6">
-              Log Book Entries ({filteredEntries.length})
+              Log Book Entries ({totalCount})
             </Typography>
           </Box>
-          
+
           <LogBookTable
-            entries={filteredEntries}
+            entries={entries}
             onView={handleView}
             onEdit={handleEdit}
             onDelete={handleDelete}
             loading={loading}
+          />
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50]}
           />
         </CardContent>
       </Card>

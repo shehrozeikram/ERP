@@ -16,8 +16,8 @@ router.get('/', async (req, res) => {
       status, 
       maintenanceType, 
       search, 
-      page = 1, 
-      limit = 10,
+      page = 1,
+      limit = 25,
       startDate,
       endDate
     } = req.query;

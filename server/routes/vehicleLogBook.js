@@ -18,8 +18,8 @@ router.get('/', async (req, res) => {
       purpose, 
       status,
       search, 
-      page = 1, 
-      limit = 10,
+      page = 1,
+      limit = 25,
       startDate,
       endDate
     } = req.query;
