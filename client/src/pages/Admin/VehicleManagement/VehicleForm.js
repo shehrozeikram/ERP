@@ -34,7 +34,6 @@ const VehicleForm = () => {
     status: 'Available',
     fuelType: 'Petrol',
     capacity: 4,
-    purchaseDate: '',
     currentMileage: 0,
     notes: '',
     trakkerPhone: '',
@@ -84,14 +83,13 @@ const VehicleForm = () => {
         status: vehicle.status || 'Available',
         fuelType: vehicle.fuelType || 'Petrol',
         capacity: vehicle.capacity || 4,
-        purchaseDate: vehicle.purchaseDate ? new Date(vehicle.purchaseDate).toISOString().split('T')[0] : '',
         currentMileage: vehicle.currentMileage || 0,
         notes: vehicle.notes || '',
         trakkerPhone: vehicle.trakkerPhone || '',
         trakkerDeviceId: vehicle.trakkerDeviceId || ''
       });
     } catch (err) {
-      setError('Failed to fetch vehicle details');
+      setError(err.response?.data?.message || err.message || 'Failed to fetch vehicle details');
       console.error('Error fetching vehicle:', err);
     } finally {
       setLoading(false);
@@ -132,7 +130,15 @@ const VehicleForm = () => {
         navigate('/admin/vehicles');
       }, 1500);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save vehicle');
+      const serverMessage = err.response?.data?.message;
+      const serverError = err.response?.data?.error;
+      const validationErrors = err.response?.data?.errors;
+      if (validationErrors && typeof validationErrors === 'object') {
+        const messages = Object.values(validationErrors).map(e => e.message || e).join(', ');
+        setError(messages);
+      } else {
+        setError(serverMessage || serverError || err.message || 'Failed to save vehicle');
+      }
       console.error('Error saving vehicle:', err);
     } finally {
       setLoading(false);
@@ -303,19 +309,7 @@ const VehicleForm = () => {
                   inputProps={{ min: 1, max: 50 }}
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  fullWidth
-                  label="Purchase Date"
-                  name="purchaseDate"
-                  type="date"
-                  value={formData.purchaseDate}
-                  onChange={handleChange}
-                  required
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Current Mileage"

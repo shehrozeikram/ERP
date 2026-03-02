@@ -183,15 +183,23 @@ router.post('/', permissions.checkSubRolePermission('admin', 'vehicle_management
     });
   } catch (error) {
     if (error.code === 11000) {
+      const field = Object.keys(error.keyValue || {})[0] || 'field';
+      const value = error.keyValue?.[field] || '';
       return res.status(400).json({
         success: false,
-        message: 'Vehicle ID or License Plate already exists'
+        message: `Duplicate value: ${field} "${value}" already exists`
+      });
+    }
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(e => e.message).join(', ');
+      return res.status(400).json({
+        success: false,
+        message: messages
       });
     }
     res.status(500).json({
       success: false,
-      message: 'Error creating vehicle',
-      error: error.message
+      message: error.message || 'Error creating vehicle'
     });
   }
 });
@@ -220,15 +228,23 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'vehicle_manageme
     });
   } catch (error) {
     if (error.code === 11000) {
+      const field = Object.keys(error.keyValue || {})[0] || 'field';
+      const value = error.keyValue?.[field] || '';
       return res.status(400).json({
         success: false,
-        message: 'Vehicle ID or License Plate already exists'
+        message: `Duplicate value: ${field} "${value}" already exists`
+      });
+    }
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(e => e.message).join(', ');
+      return res.status(400).json({
+        success: false,
+        message: messages
       });
     }
     res.status(500).json({
       success: false,
-      message: 'Error updating vehicle',
-      error: error.message
+      message: error.message || 'Error updating vehicle'
     });
   }
 });

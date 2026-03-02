@@ -11,6 +11,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Paper,
   Chip,
   IconButton,
@@ -46,16 +47,20 @@ const VehicleList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [deleteDialog, setDeleteDialog] = useState({ open: false, vehicle: null });
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
 
   const fetchVehicles = useCallback(async () => {
     try {
       setLoading(true);
-      const params = {};
+      const params = { page: page + 1, limit: rowsPerPage };
       if (searchTerm) params.search = searchTerm;
       if (statusFilter) params.status = statusFilter;
-      
+
       const response = await vehicleService.getVehicles(params);
       setVehicles(response.data);
+      setTotalCount(response.pagination?.total || 0);
       setError(null);
     } catch (err) {
       setError('Failed to fetch vehicles');
@@ -63,6 +68,20 @@ const VehicleList = () => {
     } finally {
       setLoading(false);
     }
+  }, [searchTerm, statusFilter, page, rowsPerPage]);
+
+  const handleChangePage = (_, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
+  };
+
+  // Reset to first page whenever search or filter changes
+  useEffect(() => {
+    setPage(0);
   }, [searchTerm, statusFilter]);
 
   useEffect(() => {
@@ -88,14 +107,6 @@ const VehicleList = () => {
       'Retired': 'default'
     };
     return colors[status] || 'default';
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR',
-      minimumFractionDigits: 0
-    }).format(amount);
   };
 
   if (loading) {
@@ -213,82 +224,97 @@ const VehicleList = () => {
                   <TableCell>License Plate</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Assigned Driver</TableCell>
-                  <TableCell>Purchase Price</TableCell>
                   <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {vehicles.map((vehicle) => (
-                  <TableRow key={vehicle._id}>
-                    <TableCell>
-                      <Typography variant="subtitle2" fontWeight="bold">
-                        {vehicle.vehicleId}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {vehicle.make} {vehicle.model}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{vehicle.year}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontFamily="monospace">
-                        {vehicle.licensePlate}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={vehicle.status}
-                        color={getStatusColor(vehicle.status)}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {vehicle.assignedDriver ? (
-                        <Box display="flex" alignItems="center">
-                          <PersonIcon sx={{ mr: 1, fontSize: 16 }} />
-                          <Typography variant="body2">
-                            {vehicle.assignedDriver.firstName} {vehicle.assignedDriver.lastName}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          Unassigned
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatCurrency(vehicle.purchasePrice)}</TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={() => navigate(`/admin/vehicles/${vehicle._id}/view`)}
-                        color="info"
-                        title="View Details"
-                      >
-                        <ViewIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onClick={() => navigate(`/admin/vehicles/${vehicle._id}/edit`)}
-                        color="primary"
-                        title="Edit Vehicle"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => setDeleteDialog({ open: true, vehicle })}
-                        title="Delete Vehicle"
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                {vehicles.length === 0 && !loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <Typography color="text.secondary">No vehicles found</Typography>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  vehicles.map((vehicle) => (
+                    <TableRow key={vehicle._id}>
+                      <TableCell>
+                        <Typography variant="subtitle2" fontWeight="bold">
+                          {vehicle.vehicleId}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">
+                          {vehicle.make} {vehicle.model}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{vehicle.year}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontFamily="monospace">
+                          {vehicle.licensePlate}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={vehicle.status}
+                          color={getStatusColor(vehicle.status)}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {vehicle.assignedDriver ? (
+                          <Box display="flex" alignItems="center">
+                            <PersonIcon sx={{ mr: 1, fontSize: 16 }} />
+                            <Typography variant="body2">
+                              {vehicle.assignedDriver.firstName} {vehicle.assignedDriver.lastName}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Unassigned
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <IconButton
+                          size="small"
+                          onClick={() => navigate(`/admin/vehicles/${vehicle._id}/view`)}
+                          color="info"
+                          title="View Details"
+                        >
+                          <ViewIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => navigate(`/admin/vehicles/${vehicle._id}/edit`)}
+                          color="primary"
+                          title="Edit Vehicle"
+                        >
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => setDeleteDialog({ open: true, vehicle })}
+                          title="Delete Vehicle"
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={totalCount}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50]}
+          />
         </CardContent>
       </Card>
 

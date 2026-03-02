@@ -57,8 +57,7 @@ const vehicleSchema = new mongoose.Schema({
     max: 50
   },
   purchaseDate: {
-    type: Date,
-    required: true
+    type: Date
   },
   purchasePrice: {
     type: Number,
