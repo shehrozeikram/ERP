@@ -11,7 +11,7 @@ echo "🚀 Starting SGC ERP deployment (Memory-Safe Mode)..."
 SERVER_USER="root"
 SERVER_IP="68.183.215.177"
 SERVER_PATH="/var/www/sgc-erp"
-ENV_FILE=".env"
+ENV_FILE=".env.production"
 
 # Colors
 GREEN='\033[0;32m'
@@ -27,12 +27,13 @@ cd client && npm run build && cd ..
 echo -e "${YELLOW}📤 Uploading client build artifacts...${NC}"
 rsync -avz --delete client/build/ $SERVER_USER@$SERVER_IP:$SERVER_PATH/client/build/
 
-# Sync environment file
+# Sync production env (development uses .env, production uses .env.production)
 if [ -f "$ENV_FILE" ]; then
-  echo -e "${YELLOW}🔐 Uploading environment configuration...${NC}"
+  echo -e "${YELLOW}🔐 Uploading production environment...${NC}"
   scp "$ENV_FILE" $SERVER_USER@$SERVER_IP:$SERVER_PATH/.env.deploy
 else
-  echo -e "${RED}⚠️ Environment file '$ENV_FILE' not found. Skipping env sync.${NC}"
+  echo -e "${RED}⚠️ $ENV_FILE not found. Create it from .env.production.example and fill values.${NC}"
+  exit 1
 fi
 
 # Commit and push changes
