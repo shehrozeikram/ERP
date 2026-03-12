@@ -170,6 +170,7 @@ const Sidebar = () => {
       '/finance/recovery': 'recovery',
       '/finance/recovery/recovery-assignments': 'recovery_assignments',
       '/finance/recovery/recovery-members': 'recovery_members',
+      '/finance/recovery/task-assignment': 'recovery_task_assignment',
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
       '/finance/reports': 'financial_reports',
       

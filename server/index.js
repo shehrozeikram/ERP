@@ -110,6 +110,9 @@ const tajResidentsRoutes = require('./routes/tajResidents');
 const tajSectorsRoutes = require('./routes/tajSectors');
 const recoveryMembersRoutes = require('./routes/recoveryMembers');
 const recoveryAssignmentsRoutes = require('./routes/recoveryAssignments');
+const recoveryTaskAssignmentRulesRoutes = require('./routes/recoveryTaskAssignmentRules');
+const recoveryTasksRoutes = require('./routes/recoveryTasks');
+const recoveryCampaignsRoutes = require('./routes/recoveryCampaigns');
 const chargeTypesRoutes = require('./routes/chargeTypes');
 const documentTrackingRoutes = require('./routes/documentTracking');
 const evaluationDocumentsRoutes = require('./routes/evaluationDocuments');
@@ -249,6 +252,7 @@ if (NODE_ENV === 'production') {
              req.path.includes('/upload-file') ||
              req.path.includes('/api/auth/login') ||
              req.path.includes('/api/auth/refresh-token') ||
+             req.path.includes('/api/webhooks/whatsapp') ||
              req.method === 'OPTIONS';
     }
   });
@@ -271,24 +275,29 @@ if (NODE_ENV === 'production') {
 }
 
 // CORS configuration
+const baseOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5001',
+  'https://tovus.net',
+  'http://tovus.net',
+  'https://www.tovus.net',
+  'http://www.tovus.net'
+];
+const extraOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...baseOrigins, ...extraOrigins])];
+
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5001',
-      'http://tovus.net',
-      'https://tovus.net',
-      'http://www.tovus.net',
-      'https://www.tovus.net'
-    ];
-    
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      console.log('CORS blocked origin:', origin);
+      if (NODE_ENV === 'production') {
+        console.log('CORS blocked origin:', origin);
+      }
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -371,6 +380,10 @@ app.get('/api/tracking/test', (req, res) => {
   });
 });
 
+// WhatsApp webhook (public - Meta calls this, no auth)
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes);
+
 // Public route for profile images (must be before authenticated routes)
 app.get('/api/hr/image/:filename(*)', (req, res) => {
   try {
@@ -447,6 +460,9 @@ app.use('/api/attendance', authMiddleware, activityLogger, attendanceRoutes);
 app.use('/api/biometric', authMiddleware, activityLogger, biometricRoutes);
 app.use('/api/finance/recovery-members', authMiddleware, activityLogger, recoveryMembersRoutes);
 app.use('/api/finance/recovery-assignments', authMiddleware, activityLogger, recoveryAssignmentsRoutes);
+app.use('/api/finance/recovery-task-rules', authMiddleware, activityLogger, recoveryTaskAssignmentRulesRoutes);
+app.use('/api/finance/recovery-tasks', authMiddleware, activityLogger, recoveryTasksRoutes);
+app.use('/api/finance/recovery-campaigns', authMiddleware, activityLogger, recoveryCampaignsRoutes);
 app.use('/api/finance', authMiddleware, activityLogger, financeAdvancedRoutes);
 app.use('/api/procurement', authMiddleware, activityLogger, procurementRoutes);
 app.use('/api/sales', authMiddleware, activityLogger, salesRoutes);
@@ -714,10 +730,6 @@ process.on('SIGTERM', async () => {
     console.log('✅ ZKBio Time WebSocket Proxy stopped');
   }
   
-  // Stop ZKBio Time background service
-  zkbioTimeBackgroundService.stop();
-  console.log('✅ ZKBio Time background service stopped');
-  
   // Stop IT Notification Service
   itNotificationService.stop();
   console.log('✅ IT Notification Service stopped');
@@ -742,10 +754,6 @@ process.on('SIGINT', async () => {
     zkbioTimeWebSocketProxy.disconnect();
     console.log('✅ ZKBio Time WebSocket Proxy stopped');
   }
-  
-  // Stop ZKBio Time background service
-  zkbioTimeBackgroundService.stop();
-  console.log('✅ ZKBio Time background service stopped');
   
   // Stop IT Notification Service
   itNotificationService.stop();

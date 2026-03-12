@@ -60,7 +60,10 @@ import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
 import TajUtilitiesReconciliation from './pages/Finance/TajUtilities/Reconciliation';
 import RecoveryAssignments from './pages/Finance/Recovery/RecoveryAssignments';
 import RecoveryMembers from './pages/Finance/Recovery/RecoveryMembers';
+import RecoveryTaskAssignment from './pages/Finance/Recovery/RecoveryTaskAssignment';
 import CompletedTasks from './pages/Finance/Recovery/CompletedTasks';
+import RecoveryCampaigns from './pages/Finance/Recovery/RecoveryCampaigns';
+import MyTasks from './pages/Finance/Recovery/MyTasks';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -1082,10 +1085,34 @@ function App() {
               }
             />
             <Route
+              path="/finance/recovery/task-assignment"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <RecoveryTaskAssignment />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/finance/recovery/completed-tasks"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
                   <CompletedTasks />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/recovery/campaigns"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <RecoveryCampaigns />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/recovery/my-tasks"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                  <MyTasks />
                 </ProtectedRoute>
               }
             />

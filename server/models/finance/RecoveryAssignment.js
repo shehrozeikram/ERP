@@ -10,12 +10,15 @@ const recoveryAssignmentSchema = new mongoose.Schema(
     cnic: { type: String, trim: true, index: true },
     mobileNumber: { type: String, trim: true },
     customerAddress: { type: String, trim: true },
-    nextOfKinCNIC: { type: String, trim: true },
+    length: { type: String, trim: true },
     plotNo: { type: String, trim: true, index: true },
     status: { type: String, trim: true, index: true },
     salePrice: { type: Number, default: 0 },
     received: { type: Number, default: 0 },
-    currentlyDue: { type: Number, default: 0 }
+    currentlyDue: { type: Number, default: 0 },
+    sortOrder: { type: Number, default: 0 },
+    whatsappFeedback: { type: String, trim: true, default: '' },
+    callFeedback: { type: String, trim: true, default: '' }
   },
   { timestamps: true }
 );
