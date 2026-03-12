@@ -13,14 +13,18 @@ const WhatsAppIncomingMessage = require('../models/finance/WhatsAppIncomingMessa
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'sgc_whatsapp_verify_2025';
 
 router.get('/', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
+  const mode = (req.query['hub.mode'] || '').trim();
+  const token = (req.query['hub.verify_token'] || '').trim();
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+  const expectedToken = (VERIFY_TOKEN || '').trim();
+  const tokenMatch = expectedToken && token === expectedToken;
+
+  if (mode === 'subscribe' && tokenMatch && challenge != null) {
     console.log('[WhatsApp Webhook] Verified successfully');
-    res.status(200).send(challenge);
+    res.type('text/plain').status(200).send(String(challenge));
   } else {
+    console.log('[WhatsApp Webhook] Verification failed', { mode, tokenPresent: !!token, tokenMatch, hasChallenge: challenge != null });
     res.status(403).send('Verification failed');
   }
 });

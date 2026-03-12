@@ -11,28 +11,13 @@ echo "🚀 Starting SGC ERP deployment (Memory-Safe Mode)..."
 SERVER_USER="root"
 SERVER_IP="68.183.215.177"
 SERVER_PATH="/var/www/sgc-erp"
-ENV_FILE=".env.production"
+ENV_FILE=".env"
 
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
-
-# Ensure production env file exists with production values
-if [ ! -f "$ENV_FILE" ]; then
-  echo -e "${RED}❌ $ENV_FILE not found.${NC}"
-  if [ -f ".env.production.example" ]; then
-    cp .env.production.example "$ENV_FILE"
-    echo -e "${YELLOW}📝 Created $ENV_FILE from template. Please fill in production values and run deploy again.${NC}"
-  fi
-  exit 1
-fi
-if ! grep -q "NODE_ENV=production" "$ENV_FILE" 2>/dev/null; then
-  echo -e "${RED}❌ $ENV_FILE must contain NODE_ENV=production. Fix it and run deploy again.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}✅ Using $ENV_FILE for production deployment${NC}"
 
 # Build React app locally
 echo -e "${YELLOW}📦 Building React app locally...${NC}"
@@ -42,9 +27,13 @@ cd client && npm run build && cd ..
 echo -e "${YELLOW}📤 Uploading client build artifacts...${NC}"
 rsync -avz --delete client/build/ $SERVER_USER@$SERVER_IP:$SERVER_PATH/client/build/
 
-# Sync production env
-echo -e "${YELLOW}🔐 Uploading production environment configuration ($ENV_FILE)...${NC}"
-scp "$ENV_FILE" $SERVER_USER@$SERVER_IP:$SERVER_PATH/.env.deploy
+# Sync environment file
+if [ -f "$ENV_FILE" ]; then
+  echo -e "${YELLOW}🔐 Uploading environment configuration...${NC}"
+  scp "$ENV_FILE" $SERVER_USER@$SERVER_IP:$SERVER_PATH/.env.deploy
+else
+  echo -e "${RED}⚠️ Environment file '$ENV_FILE' not found. Skipping env sync.${NC}"
+fi
 
 # Commit and push changes
 echo -e "${YELLOW}📤 Pushing to git...${NC}"
