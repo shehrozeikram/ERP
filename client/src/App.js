@@ -58,13 +58,6 @@ import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
 import TajUtilitiesReconciliation from './pages/Finance/TajUtilities/Reconciliation';
-// Recovery module - lazy loaded for faster initial load
-const RecoveryAssignments = lazy(() => import('./pages/Finance/Recovery/RecoveryAssignments'));
-const RecoveryMembers = lazy(() => import('./pages/Finance/Recovery/RecoveryMembers'));
-const RecoveryTaskAssignment = lazy(() => import('./pages/Finance/Recovery/RecoveryTaskAssignment'));
-const CompletedTasks = lazy(() => import('./pages/Finance/Recovery/CompletedTasks'));
-const RecoveryCampaigns = lazy(() => import('./pages/Finance/Recovery/RecoveryCampaigns'));
-const MyTasks = lazy(() => import('./pages/Finance/Recovery/MyTasks'));
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -263,6 +256,14 @@ import LeaveApproval from './pages/HR/Leaves/LeaveApproval';
 import LeaveCalendar from './pages/HR/Leaves/LeaveCalendar';
 import LeaveReports from './pages/HR/Leaves/LeaveReports';
 import EmployeeLeaveHistory from './pages/HR/Leaves/EmployeeLeaveHistory';
+
+// Recovery module - lazy loaded for faster initial load (must be after all imports for eslint import/first)
+const RecoveryAssignments = lazy(() => import('./pages/Finance/Recovery/RecoveryAssignments'));
+const RecoveryMembers = lazy(() => import('./pages/Finance/Recovery/RecoveryMembers'));
+const RecoveryTaskAssignment = lazy(() => import('./pages/Finance/Recovery/RecoveryTaskAssignment'));
+const CompletedTasks = lazy(() => import('./pages/Finance/Recovery/CompletedTasks'));
+const RecoveryCampaigns = lazy(() => import('./pages/Finance/Recovery/RecoveryCampaigns'));
+const MyTasks = lazy(() => import('./pages/Finance/Recovery/MyTasks'));
 
 // Component to handle role-based redirects
 const RoleBasedRedirect = () => {
