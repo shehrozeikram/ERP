@@ -105,6 +105,8 @@ const MyTasks = () => {
   const [repliesMessages, setRepliesMessages] = useState([]);
   const [repliesLoading, setRepliesLoading] = useState(false);
   const [numbersWithMessages, setNumbersWithMessages] = useState([]);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -254,7 +256,30 @@ const MyTasks = () => {
   const handleCloseReplies = () => {
     setRepliesDialogOpen(false);
     setRepliesRow(null);
+    setReplyText('');
     loadNumbersWithMessages();
+  };
+
+  const handleSendReply = async () => {
+    const text = (replyText || '').trim();
+    if (!text || !repliesRow?.mobileNumber) {
+      setSnackbar({ open: true, message: 'Enter a message to send', severity: 'warning' });
+      return;
+    }
+    try {
+      setReplySending(true);
+      await sendRecoveryWhatsApp({ to: repliesRow.mobileNumber, body: text });
+      setSnackbar({ open: true, message: 'Reply sent', severity: 'success' });
+      setReplyText('');
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to send reply',
+        severity: 'error'
+      });
+    } finally {
+      setReplySending(false);
+    }
   };
 
   const handleOpenFeedback = (row) => {
@@ -563,6 +588,34 @@ const MyTasks = () => {
                   <Typography variant="body2" sx={{ mt: 0.5 }}>{m.text || '(media/other)'}</Typography>
                 </Paper>
               ))}
+            </Box>
+          )}
+          {repliesRow?.mobileNumber && (
+            <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+              <TextField
+                fullWidth
+                multiline
+                maxRows={4}
+                size="small"
+                label="Reply"
+                placeholder="Type your reply..."
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendReply();
+                  }
+                }}
+              />
+              <Button
+                variant="contained"
+                onClick={handleSendReply}
+                disabled={replySending || !replyText.trim()}
+                sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' }, minWidth: 90 }}
+              >
+                {replySending ? <CircularProgress size={24} color="inherit" /> : 'Send'}
+              </Button>
             </Box>
           )}
         </DialogContent>
