@@ -98,6 +98,30 @@ const IndentForm = () => {
     if (isEdit) hasRunCreateLoad.current = false;
   }, [isEdit]);
 
+  // Populate originator when user becomes available (fixes issue where user loads after form mount, e.g. non-superusers)
+  useEffect(() => {
+    if (isEdit || !user) return;
+    const name = (user.firstName && user.lastName)
+      ? `${user.firstName} ${user.lastName}`.trim()
+      : (user.fullName || user.email || '').trim();
+    if (name) {
+      setFormData((prev) => {
+        if (prev.originator?.trim()) return prev;
+        return {
+          ...prev,
+          originator: name,
+          signatures: {
+            ...prev.signatures,
+            requester: {
+              ...prev.signatures?.requester,
+              name: prev.signatures?.requester?.name?.trim() || name
+            }
+          }
+        };
+      });
+    }
+  }, [user, isEdit]);
+
   // Load indent data if editing, or run next-number/next-erp-ref + departments once for create
   useEffect(() => {
     const loadData = async () => {
