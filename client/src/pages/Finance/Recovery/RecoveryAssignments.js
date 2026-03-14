@@ -184,12 +184,9 @@ const RecoveryAssignments = () => {
   }, [loadAssignments]);
 
   useEffect(() => {
-    loadStats();
-  }, [loadStats]);
-
-  useEffect(() => {
-    loadNumbersWithMessages();
-  }, [loadNumbersWithMessages]);
+    // Run stats and numbers-with-messages in parallel (assignments loads first for main content)
+    Promise.all([loadStats(), loadNumbersWithMessages()]).catch(() => {});
+  }, [loadStats, loadNumbersWithMessages]);
 
   const handleSearchChange = (e) => setSearch(e.target.value);
   const handleSectorChange = (e) => setSectorFilter(e.target.value || '');

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Button } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
@@ -58,12 +58,13 @@ import SuspenseAccount from './pages/Finance/TajUtilities/SuspenseAccount';
 import TajResidentDetail from './pages/Finance/TajUtilities/TajResidentDetail';
 import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
 import TajUtilitiesReconciliation from './pages/Finance/TajUtilities/Reconciliation';
-import RecoveryAssignments from './pages/Finance/Recovery/RecoveryAssignments';
-import RecoveryMembers from './pages/Finance/Recovery/RecoveryMembers';
-import RecoveryTaskAssignment from './pages/Finance/Recovery/RecoveryTaskAssignment';
-import CompletedTasks from './pages/Finance/Recovery/CompletedTasks';
-import RecoveryCampaigns from './pages/Finance/Recovery/RecoveryCampaigns';
-import MyTasks from './pages/Finance/Recovery/MyTasks';
+// Recovery module - lazy loaded for faster initial load
+const RecoveryAssignments = lazy(() => import('./pages/Finance/Recovery/RecoveryAssignments'));
+const RecoveryMembers = lazy(() => import('./pages/Finance/Recovery/RecoveryMembers'));
+const RecoveryTaskAssignment = lazy(() => import('./pages/Finance/Recovery/RecoveryTaskAssignment'));
+const CompletedTasks = lazy(() => import('./pages/Finance/Recovery/CompletedTasks'));
+const RecoveryCampaigns = lazy(() => import('./pages/Finance/Recovery/RecoveryCampaigns'));
+const MyTasks = lazy(() => import('./pages/Finance/Recovery/MyTasks'));
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
@@ -1072,7 +1073,9 @@ function App() {
               path="/finance/recovery/recovery-assignments"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
-                  <RecoveryAssignments />
+                  <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
+                    <RecoveryAssignments />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -1080,7 +1083,9 @@ function App() {
               path="/finance/recovery/recovery-members"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
-                  <RecoveryMembers />
+                  <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
+                    <RecoveryMembers />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -1088,7 +1093,9 @@ function App() {
               path="/finance/recovery/task-assignment"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
-                  <RecoveryTaskAssignment />
+                  <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
+                    <RecoveryTaskAssignment />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -1096,7 +1103,9 @@ function App() {
               path="/finance/recovery/completed-tasks"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
-                  <CompletedTasks />
+                  <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
+                    <CompletedTasks />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -1104,7 +1113,9 @@ function App() {
               path="/finance/recovery/campaigns"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
-                  <RecoveryCampaigns />
+                  <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
+                    <RecoveryCampaigns />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -1112,7 +1123,9 @@ function App() {
               path="/finance/recovery/my-tasks"
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
-                  <MyTasks />
+                  <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
+                    <MyTasks />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />

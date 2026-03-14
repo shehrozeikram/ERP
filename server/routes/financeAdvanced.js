@@ -18,6 +18,7 @@ const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 
 const router = express.Router();
+const { ACCOUNT_TYPES_GROUPED, ACCOUNT_TYPE_TO_SECTION, DETAIL_TYPES_BY_ACCOUNT_TYPE } = require('../config/accountDetailTypes');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -44,6 +45,22 @@ const upload = multer({
 // ================================
 // CHART OF ACCOUNTS ROUTES
 // ================================
+
+// @route   GET /api/finance/accounts/detail-types
+// @desc    Get account types and detail types (QuickBooks-style)
+// @access  Private
+router.get('/accounts/detail-types',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        accountTypesGrouped: ACCOUNT_TYPES_GROUPED,
+        detailTypesByAccountType: DETAIL_TYPES_BY_ACCOUNT_TYPE
+      }
+    });
+  })
+);
 
 // @route   GET /api/finance/accounts
 // @desc    Get all accounts with filtering and pagination
@@ -138,8 +155,8 @@ router.post('/accounts',
   [
     body('accountNumber').trim().notEmpty().withMessage('Account number is required'),
     body('name').trim().notEmpty().withMessage('Account name is required'),
-    body('type').isIn(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense']).withMessage('Valid account type is required'),
-    body('category').notEmpty().withMessage('Account category is required')
+    body('accountType').notEmpty().withMessage('Account type is required'),
+    body('detailType').notEmpty().withMessage('Detail type is required')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -151,8 +168,14 @@ router.post('/accounts',
       });
     }
 
+    const accountType = req.body.accountType || req.body.category; // e.g. "Cash and cash equivalents"
+    const section = require('../config/accountDetailTypes').getSectionForAccountType(accountType) || 'Asset';
+    const type = section === 'Income' ? 'Revenue' : section;
+    const { accountType: _, ...rest } = req.body;
     const accountData = {
-      ...req.body,
+      ...rest,
+      type,
+      category: accountType,
       metadata: {
         createdBy: req.user._id
       }

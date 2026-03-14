@@ -394,9 +394,13 @@ class ZKBioTimeWebSocketProxy {
         this.chartConnected = true;
         this.chartReconnectAttempts = 0;
         
-        // Send trigger message to get initial chart data
-        console.log('📤 Sending trigger message for chart data...');
-        this.chartWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        // Defer send - open event can fire before socket is fully ready
+        setImmediate(() => {
+          if (this.chartWs && this.chartWs.readyState === 1) {
+            console.log('📤 Sending trigger message for chart data...');
+            this.chartWs.send(JSON.stringify({ action: 'get_chart_data' }));
+          }
+        });
         
         // Set up periodic refresh every 30 seconds to ensure chart stays updated
         this.chartRefreshInterval = setInterval(() => {
@@ -526,9 +530,13 @@ class ZKBioTimeWebSocketProxy {
         this.deviceConnected = true;
         this.deviceReconnectAttempts = 0;
         
-        // Send trigger message to get initial device data
-        console.log('📤 Sending trigger message for device data...');
-        this.deviceWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        // Defer send - open event can fire before socket is fully ready
+        setImmediate(() => {
+          if (this.deviceWs && this.deviceWs.readyState === 1) {
+            console.log('📤 Sending trigger message for device data...');
+            this.deviceWs.send(JSON.stringify({ action: 'get_chart_data' }));
+          }
+        });
         
         // No periodic refresh - let ZKBio Time server push updates automatically
         console.log('📱 Device Status WebSocket ready - waiting for automatic updates from ZKBio Time');
@@ -645,9 +653,13 @@ class ZKBioTimeWebSocketProxy {
         this.deptConnected = true;
         this.deptReconnectAttempts = 0;
         
-        // Send trigger message to get initial department data
-        console.log('📤 Sending trigger message for department data...');
-        this.deptWs.send(JSON.stringify({ action: 'get_chart_data' }));
+        // Defer send - open event can fire before socket is fully ready
+        setImmediate(() => {
+          if (this.deptWs && this.deptWs.readyState === 1) {
+            console.log('📤 Sending trigger message for department data...');
+            this.deptWs.send(JSON.stringify({ action: 'get_chart_data' }));
+          }
+        });
         
         // No periodic refresh - let ZKBio Time server push updates automatically
         console.log('🏢 Department Attendance WebSocket ready - waiting for automatic updates from ZKBio Time');

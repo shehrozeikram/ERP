@@ -20,19 +20,12 @@ const accountSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    enum: [
-      // Assets
-      'Current Assets', 'Fixed Assets', 'Intangible Assets',
-      // Liabilities
-      'Current Liabilities', 'Long-term Liabilities',
-      // Equity
-      'Owner Equity', 'Retained Earnings',
-      // Revenue
-      'Operating Revenue', 'Non-operating Revenue',
-      // Expenses
-      'Operating Expenses', 'Non-operating Expenses', 'Cost of Goods Sold'
-    ],
+    trim: true,
     required: [true, 'Account category is required']
+  },
+  detailType: {
+    type: String,
+    trim: true
   },
   subcategory: {
     type: String,

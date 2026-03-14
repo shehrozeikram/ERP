@@ -26,19 +26,22 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  FormControlLabel,
+  Checkbox,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Collapse,
-  Stack
+  Stack,
+  Divider
 } from '@mui/material';
 import {
   Add as AddIcon,
   Edit as EditIcon,
   Visibility as ViewIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
+  Close as CloseIcon,
+  Check as CheckIcon,
   AccountBalance as AccountBalanceIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
@@ -71,10 +74,263 @@ const ChartOfAccounts = () => {
     totalPages: 1,
     totalCount: 0
   });
+  const [newAccountDialog, setNewAccountDialog] = useState(false);
+  const [accountTypesGrouped, setAccountTypesGrouped] = useState({
+    Asset: ['Cash and cash equivalents', 'Accounts receivable (A/R)', 'Current assets', 'Fixed assets', 'Non-current assets'],
+    Liability: ['Credit card', 'Accounts payable (A/P)', 'Current liabilities', 'Non-current liabilities'],
+    Equity: ["Owner's equity"],
+    Income: ['Income', 'Other income'],
+    Expense: ['Cost of sales', 'Expenses', 'Other expense']
+  });
+  const [detailTypesByAccountType, setDetailTypesByAccountType] = useState({
+    'Cash and cash equivalents': ['Bank', 'Cash and cash equivalents', 'Cash on hand', 'Client trust account', 'Money Market', 'Rents Held in Trust', 'Savings'],
+    'Accounts receivable (A/R)': ['Accounts receivable'],
+    'Current assets': [
+      'Allowance for bad debts',
+      'Assets available for sale',
+      'Development Costs',
+      'Employee Cash Advances',
+      'Inventory',
+      'Investments - Other',
+      'Loans To Officers',
+      'Loans to Others',
+      'Loans to Shareholders',
+      'Other current assets',
+      'Prepaid Expenses',
+      'Retainage',
+      'Undeposited Funds'
+    ],
+    'Fixed assets': [
+      'Accumulated depletion',
+      'Accumulated depreciation on property, plant and equipment',
+      'Buildings',
+      'Depletable Assets',
+      'Furniture and Fixtures',
+      'Land',
+      'Leasehold Improvements',
+      'Machinery and equipments',
+      'Other fixed assets',
+      'Vehicles'
+    ],
+    'Non-current assets': [
+      'Accumulated amortisation of non-current assets',
+      'Assets held for sale',
+      'Deferred tax',
+      'Goodwill',
+      'Intangible Assets',
+      'Lease Buyout',
+      'Licences',
+      'Long-term investments',
+      'Organisational Costs',
+      'Other non-current assets',
+      'Security Deposits'
+    ],
+    'Credit card': ['Credit card'],
+    'Accounts payable (A/P)': ['Accounts payable'],
+    'Current liabilities': [
+      'Accrued liabilities',
+      'Client Trust Accounts - Liabilities',
+      'Current Tax Liability',
+      'Current portion of obligations under finance leases',
+      'Dividends payable',
+      'Income tax payable',
+      'Insurance payable',
+      'Line of Credit',
+      'Loan Payable',
+      'Other current liabilities',
+      'Payroll Clearing',
+      'Payroll liabilities',
+      'Prepaid Expenses Payable',
+      'Rents in trust - Liability',
+      'Sales and service tax payable'
+    ],
+    'Non-current liabilities': [
+      'Accrued holiday payable',
+      'Accrued non-current liabilities',
+      'Liabilities related to assets held for sale',
+      'Long-term debt',
+      'Notes Payable',
+      'Other non-current liabilities',
+      'Shareholder Notes Payable'
+    ],
+    "Owner's equity": [
+      'Accumulated adjustment',
+      'Dividend disbursed',
+      'Equity in earnings of subsidiaries',
+      'Opening Balance Equity',
+      'Ordinary shares',
+      'Other comprehensive income',
+      "Owner's equity",
+      'Paid-in capital or surplus',
+      'Partner Contributions',
+      'Partner Distributions',
+      "Partner's Equity",
+      'Preferred shares',
+      'Retained Earnings',
+      'Share capital',
+      'Treasury Shares'
+    ],
+    Income: [
+      'Discounts/Refunds Given',
+      'Non-Profit Income',
+      'Other Primary Income',
+      'Revenue - General',
+      'Sales - retail',
+      'Sales - wholesale',
+      'Sales of Product Income',
+      'Service/Fee Income',
+      'Unapplied Cash Payment Income'
+    ],
+    'Other income': [
+      'Dividend income',
+      'Interest earned',
+      'Loss on disposal of assets',
+      'Other Investment Income',
+      'Other Miscellaneous Income',
+      'Other operating income',
+      'Tax-Exempt Interest',
+      'Unrealised loss on securities, net of tax'
+    ],
+    'Cost of sales': [
+      'Cost of labour - COS',
+      'Equipment rental - COS',
+      'Freight and delivery - COS',
+      'Other costs of sales - COS',
+      'Supplies and materials - COS'
+    ],
+    Expenses: [
+      'Advertising/Promotional',
+      'Amortisation expense',
+      'Auto',
+      'Bad debts',
+      'Bank charges',
+      'Charitable Contributions',
+      'Commissions and fees',
+      'Cost of Labour',
+      'Dues and Subscriptions',
+      'Equipment rental',
+      'Finance costs',
+      'Income tax expense',
+      'Insurance',
+      'Interest paid',
+      'Legal and professional fees',
+      'Loss on discontinued operations, net of tax',
+      'Management compensation',
+      'Meals and entertainment',
+      'Office/General Administrative Expenses',
+      'Other Miscellaneous Service Cost',
+      'Other selling expenses',
+      'Payroll Expenses',
+      'Rent or Lease of Buildings',
+      'Repair and maintenance',
+      'Shipping and delivery expense',
+      'Supplies and materials',
+      'Taxes Paid',
+      'Travel expenses - general and admin expense',
+      'Travel expenses - selling expense',
+      'Unapplied Cash Bill Payment Expense',
+      'Utilities'
+    ],
+    'Other expense': [
+      'Amortisation',
+      'Depreciation',
+      'Exchange Gain or Loss',
+      'Interest expense',
+      'Other Expense',
+      'Penalties and settlements'
+    ]
+  });
+  const [newAccountForm, setNewAccountForm] = useState({
+    name: '',
+    section: '',
+    accountType: '',
+    detailType: '',
+    parentAccount: '',
+    description: '',
+    isSubaccount: false
+  });
+  const [parentAccounts, setParentAccounts] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetchAccounts();
   }, [filters]);
+
+  const fetchDetailTypes = async () => {
+    try {
+      const res = await api.get('/finance/accounts/detail-types');
+      if (res.data.success) {
+        setAccountTypesGrouped(res.data.data.accountTypesGrouped || {});
+        setDetailTypesByAccountType(res.data.data.detailTypesByAccountType || {});
+      }
+    } catch (e) {
+      console.warn('Could not fetch detail types, using defaults');
+    }
+  };
+
+  const openNewAccountDialog = () => {
+    setNewAccountForm({ name: '', section: '', accountType: '', detailType: '', parentAccount: '', description: '', isSubaccount: false });
+    fetchDetailTypes();
+    setParentAccounts(accounts.filter(a => a.type && a.isActive));
+    setNewAccountDialog(true);
+  };
+
+  const closeNewAccountDialog = () => {
+    setNewAccountDialog(false);
+  };
+
+  const getSectionForAccountType = (accountType) => {
+    for (const [section, opts] of Object.entries(accountTypesGrouped)) {
+      if ((opts || []).includes(accountType)) return section;
+    }
+    return 'Asset';
+  };
+
+  const getNextAccountNumber = (section) => {
+    const ranges = { Asset: [1000, 1999], Liability: [2000, 2999], Equity: [3000, 3999], Revenue: [4000, 4999], Income: [4000, 4999], Expense: [5000, 5999] };
+    const type = section === 'Income' ? 'Revenue' : section;
+    const [min, max] = ranges[section] || [1000, 1999];
+    const sameType = accounts.filter(a => a.type === type).map(a => parseInt(a.accountNumber)).filter(n => !isNaN(n) && n >= min && n <= max);
+    const next = sameType.length ? Math.max(...sameType) + 1 : min;
+    return String(next);
+  };
+
+  const handleCreateAccount = async () => {
+    if (!newAccountForm.name?.trim()) {
+      setError('Account name is required');
+      return;
+    }
+    if (!newAccountForm.accountType) {
+      setError('Account type is required');
+      return;
+    }
+    const detailOptions = detailTypesByAccountType[newAccountForm.accountType] || [];
+    if (detailOptions.length && !newAccountForm.detailType) {
+      setError('Detail type is required');
+      return;
+    }
+    const section = newAccountForm.section || getSectionForAccountType(newAccountForm.accountType);
+    const accountNumber = getNextAccountNumber(section);
+    setSubmitting(true);
+    setError('');
+    try {
+      const payload = {
+        accountNumber,
+        name: newAccountForm.name.trim(),
+        accountType: newAccountForm.accountType,
+        detailType: newAccountForm.detailType,
+        description: newAccountForm.description?.trim() || undefined,
+        parentAccount: newAccountForm.isSubaccount && newAccountForm.parentAccount ? newAccountForm.parentAccount : undefined
+      };
+      await api.post('/finance/accounts', payload);
+      await fetchAccounts();
+      closeNewAccountDialog();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to create account');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const fetchAccounts = async () => {
     try {
@@ -211,7 +467,7 @@ const ChartOfAccounts = () => {
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => navigate('/finance/accounts/new')}
+              onClick={openNewAccountDialog}
             >
               Add Account
             </Button>
@@ -370,6 +626,11 @@ const ChartOfAccounts = () => {
                         <TableCell>
                           <Typography variant="body2" color="textSecondary">
                             {account.category}
+                            {account.detailType && (
+                              <Typography component="span" variant="caption" sx={{ display: 'block', color: 'text.disabled' }}>
+                                → {account.detailType}
+                              </Typography>
+                            )}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -434,7 +695,7 @@ const ChartOfAccounts = () => {
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
-                onClick={() => navigate('/finance/accounts/new')}
+                onClick={openNewAccountDialog}
               >
                 Create First Account
               </Button>
@@ -442,6 +703,231 @@ const ChartOfAccounts = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* New Account Dialog (QuickBooks-style) */}
+      <Dialog
+        open={newAccountDialog}
+        onClose={closeNewAccountDialog}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            minHeight: 520,
+            boxShadow: 24
+          }
+        }}
+      >
+        <DialogTitle
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            pt: 2.5,
+            px: 3,
+            pb: 4,
+            background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+            borderBottom: '1px solid',
+            borderColor: 'divider'
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: theme.palette.primary.main, width: 40, height: 40 }}>
+              <AddIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" component="span" fontWeight={600}>
+                New account
+              </Typography>
+              <Typography variant="body2" color="text.secondary" display="block">
+                Add a new account to your chart of accounts
+              </Typography>
+            </Box>
+          </Box>
+          <IconButton onClick={closeNewAccountDialog} size="small" sx={{ color: 'text.secondary' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, pt: 5, overflow: 'visible' }}>
+          {error && (
+            <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          <Box sx={{ pt: 6, overflow: 'visible' }}>
+            <Stack spacing={3}>
+              <TextField
+                fullWidth
+                required
+                label="Account name"
+                value={newAccountForm.name}
+                onChange={(e) => setNewAccountForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Petty Cash"
+                size="medium"
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+              />
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Account classification
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={4}>
+                  <FormControl fullWidth required size="medium">
+                    <InputLabel>Section</InputLabel>
+                    <Select
+                      value={newAccountForm.section}
+                      label="Section"
+                      onChange={(e) => setNewAccountForm(f => ({ ...f, section: e.target.value, accountType: '', detailType: '' }))}
+                      sx={{ borderRadius: 1.5 }}
+                    >
+                      <MenuItem value="">Select section</MenuItem>
+                      {['Asset', 'Liability', 'Equity', 'Income', 'Expense'].map((s) => (
+                        <MenuItem key={s} value={s}>{s}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <FormControl fullWidth required size="medium">
+                    <InputLabel>Account type</InputLabel>
+                    <Select
+                      value={newAccountForm.accountType}
+                      label="Account type"
+                      onChange={(e) => setNewAccountForm(f => ({ ...f, accountType: e.target.value, detailType: '' }))}
+                      disabled={!newAccountForm.section}
+                      sx={{ borderRadius: 1.5 }}
+                    >
+                      <MenuItem value="">Select account type</MenuItem>
+                      {(accountTypesGrouped[newAccountForm.section] || []).map((opt) => (
+                        <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <FormControl fullWidth required size="medium">
+                    <InputLabel>Detail type</InputLabel>
+                    <Select
+                      value={newAccountForm.detailType}
+                      label="Detail type"
+                      MenuProps={{ disableScrollLock: true }}
+                      onChange={(e) => setNewAccountForm(f => ({ ...f, detailType: e.target.value }))}
+                      disabled={!newAccountForm.accountType}
+                      sx={{ borderRadius: 1.5 }}
+                    >
+                      <MenuItem value="">
+                        <em>Select detail type</em>
+                      </MenuItem>
+                      {(detailTypesByAccountType[newAccountForm.accountType] || []).map((d) => (
+                        <MenuItem key={d} value={d}>
+                          <Box component="span" sx={{ width: 28, display: 'inline-flex', alignItems: 'center', mr: 0.5 }}>
+                            {newAccountForm.detailType === d && (
+                              <CheckIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                            )}
+                          </Box>
+                          {d}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
+            </Box>
+            <Divider sx={{ my: 0.5 }} />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={newAccountForm.isSubaccount}
+                  onChange={(e) => setNewAccountForm(f => ({ ...f, isSubaccount: e.target.checked }))}
+                  color="primary"
+                />
+              }
+              label="Make this a subaccount (nested under a parent account)"
+            />
+            {newAccountForm.isSubaccount && (
+              <FormControl fullWidth size="medium" sx={{ maxWidth: 400 }}>
+                <InputLabel>Parent account</InputLabel>
+                <Select
+                  value={newAccountForm.parentAccount}
+                  label="Parent account"
+                  onChange={(e) => setNewAccountForm(f => ({ ...f, parentAccount: e.target.value }))}
+                  sx={{ borderRadius: 1.5 }}
+                >
+                  {parentAccounts.map((a) => (
+                    <MenuItem key={a._id} value={a._id}>{a.accountNumber} - {a.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              label="Description (optional)"
+              value={newAccountForm.description}
+              onChange={(e) => setNewAccountForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Add any notes or description for this account"
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+            />
+            {(newAccountForm.section || newAccountForm.accountType || newAccountForm.detailType) && (
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2.5,
+                  bgcolor: alpha(theme.palette.primary.main, 0.04),
+                  borderRadius: 2,
+                  border: '1px solid',
+                  borderColor: alpha(theme.palette.primary.main, 0.2)
+                }}
+              >
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  {newAccountForm.section === 'Income' || newAccountForm.section === 'Expense' ? 'Profit & Loss' : 'Balance Sheet'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Active accounts as of {new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  {newAccountForm.section && (
+                    <Chip label={newAccountForm.section} size="small" color="default" variant="outlined" />
+                  )}
+                  {newAccountForm.accountType && (
+                    <Chip label={newAccountForm.accountType} size="small" color="primary" variant="outlined" />
+                  )}
+                  {newAccountForm.detailType && (
+                    <Chip label={newAccountForm.detailType} size="small" color="success" variant="outlined" />
+                  )}
+                </Box>
+                <Typography variant="caption" display="block" sx={{ mt: 1 }} color="text.secondary">
+                  {newAccountForm.accountType && newAccountForm.detailType
+                    ? `New account will appear under ${newAccountForm.accountType} → ${newAccountForm.detailType}`
+                    : newAccountForm.accountType
+                    ? 'Select a detail type to complete'
+                    : newAccountForm.section
+                    ? 'Select an account type to continue'
+                    : ''}
+                </Typography>
+              </Paper>
+            )}
+            </Stack>
+          </Box>
+        </DialogContent>
+        <Divider />
+        <DialogActions sx={{ px: 3, py: 2.5, gap: 1.5, bgcolor: 'grey.50' }}>
+          <Button onClick={closeNewAccountDialog} size="medium">
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateAccount}
+            disabled={submitting}
+            size="medium"
+            startIcon={submitting ? null : <CheckIcon />}
+            sx={{ minWidth: 120 }}
+          >
+            {submitting ? 'Saving...' : 'Create account'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
