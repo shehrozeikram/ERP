@@ -20,6 +20,9 @@ export const fetchWhatsAppIncomingMessages = (from) =>
 export const fetchWhatsAppNumbersWithMessages = () =>
   api.get(`${base}/whatsapp-incoming/numbers-with-messages`);
 
+export const markRecoveryWhatsAppRead = (phone) =>
+  api.post(`${base}/whatsapp-incoming/mark-read`, { phone });
+
 export const fetchRecoveryAssignmentStats = () =>
   api.get(`${base}/stats`);
 

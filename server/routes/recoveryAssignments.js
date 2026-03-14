@@ -9,6 +9,8 @@ const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssign
 const RecoveryMember = require('../models/finance/RecoveryMember');
 const Employee = require('../models/hr/Employee');
 const WhatsAppIncomingMessage = require('../models/finance/WhatsAppIncomingMessage');
+const WhatsAppOutgoingMessage = require('../models/finance/WhatsAppOutgoingMessage');
+const ConversationRead = require('../models/finance/ConversationRead');
 
 const router = express.Router();
 
@@ -407,20 +409,70 @@ router.post(
   })
 );
 
+function normalizePhoneForLookup(phone) {
+  if (!phone) return '';
+  let p = String(phone).replace(/\D/g, '').trim();
+  if (p.startsWith('0')) p = p.slice(1);
+  if (p.length === 10 && p.startsWith('3')) p = '92' + p;
+  else if (p.length === 10) p = '92' + p;
+  return p || '';
+}
+
 // @route   GET /api/finance/recovery-assignments/whatsapp-incoming/numbers-with-messages
-// @desc    Return phone numbers that have at least one incoming message (for badge/indicator)
+// @desc    Return phone numbers that have messages and their unread counts per user
 // @access  Private
 router.get(
   '/whatsapp-incoming/numbers-with-messages',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const docs = await WhatsAppIncomingMessage.distinct('from');
-    res.json({ success: true, data: docs || [] });
+    const userId = req.user?._id;
+    const rawNumbers = await WhatsAppIncomingMessage.distinct('from');
+    const numbers = [...new Set(rawNumbers.map(normalizePhoneForLookup).filter(Boolean))];
+    const unreadCounts = {};
+    if (numbers.length === 0) {
+      return res.json({ success: true, data: { numbers: [], unreadCounts: {} } });
+    }
+    const readDocs = await ConversationRead.find({ userId, phone: { $in: numbers } }).lean();
+    const readMap = Object.fromEntries(readDocs.map((r) => [r.phone, r.readAt]));
+    for (const phone of numbers) {
+      const readAt = readMap[phone] ? new Date(readMap[phone]) : null;
+      const count = await WhatsAppIncomingMessage.countDocuments({
+        from: { $in: [phone, '0' + phone.slice(2), phone.replace(/^92/, '')] },
+        receivedAt: readAt ? { $gt: readAt } : { $exists: true }
+      });
+      if (count > 0) unreadCounts[phone] = count;
+    }
+    res.json({ success: true, data: { numbers, unreadCounts } });
+  })
+);
+
+// @route   POST /api/finance/recovery-assignments/whatsapp-incoming/mark-read
+// @desc    Mark all incoming messages from a phone as read for the current user
+// @access  Private
+router.post(
+  '/whatsapp-incoming/mark-read',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    let phone = (req.body.phone && String(req.body.phone).replace(/\D/g, '').trim()) || '';
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Phone number is required' });
+    }
+    if (phone.startsWith('0')) phone = phone.slice(1);
+    if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
+    else if (phone.length === 10) phone = '92' + phone;
+
+    const userId = req.user._id;
+    await ConversationRead.findOneAndUpdate(
+      { userId, phone },
+      { readAt: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true });
   })
 );
 
 // @route   GET /api/finance/recovery-assignments/whatsapp-incoming?from=923214554035
-// @desc    Fetch incoming WhatsApp messages for a phone number
+// @desc    Fetch merged chat thread (incoming + outgoing) for a phone number
 // @access  Private
 router.get(
   '/whatsapp-incoming',
@@ -433,11 +485,18 @@ router.get(
     if (phone.startsWith('0')) phone = phone.slice(1);
     if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
     else if (phone.length === 10) phone = '92' + phone;
-    const messages = await WhatsAppIncomingMessage.find({ from: phone })
-      .sort({ receivedAt: -1 })
-      .limit(50)
-      .lean();
-    res.json({ success: true, data: messages });
+
+    const [incoming, outgoing] = await Promise.all([
+      WhatsAppIncomingMessage.find({ from: phone }).sort({ receivedAt: 1 }).limit(100).lean(),
+      WhatsAppOutgoingMessage.find({ to: phone }).sort({ sentAt: 1 }).limit(100).lean()
+    ]);
+
+    const thread = [
+      ...incoming.map((m) => ({ ...m, direction: 'in', time: m.receivedAt, text: m.text })),
+      ...outgoing.map((m) => ({ ...m, direction: 'out', time: m.sentAt, text: m.text }))
+    ].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+    res.json({ success: true, data: thread });
   })
 );
 
@@ -449,8 +508,12 @@ router.post(
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { to, body, template } = req.body;
-    const phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
-    const toNumber = phone.startsWith('0') ? phone.slice(1) : phone;
+    let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
+    if (phone.startsWith('0')) phone = phone.slice(1);
+    // Add Pakistan country code for 10-digit mobile numbers (e.g. 3xxxxxxxxx)
+    if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
+    else if (phone.length === 10) phone = '92' + phone;
+    const toNumber = phone;
     const token = WHATSAPP_ACCESS_TOKEN;
     if (!token) {
       return res.status(500).json({ success: false, message: 'WhatsApp access token not configured (WHATSAPP_ACCESS_TOKEN)' });
@@ -521,6 +584,16 @@ router.post(
       const data = apiRes.data;
       const messageId = data?.messages?.[0]?.id || null;
       console.log('[WhatsApp] Sent to', toNumber, 'messageId:', messageId, 'sentAs:', sentAs);
+
+      if (messageBody && sentAs === 'text') {
+        await WhatsAppOutgoingMessage.create({
+          to: toNumber,
+          text: messageBody,
+          messageId,
+          sentAt: new Date(),
+          sentBy: req.user?._id
+        });
+      }
 
       res.json({ success: true, data, sentAs, messageId });
     } catch (err) {

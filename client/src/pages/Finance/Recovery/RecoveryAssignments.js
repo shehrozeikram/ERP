@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
   Paper,
   Typography,
   Table,
@@ -29,7 +28,7 @@ import {
   Snackbar,
   Badge
 } from '@mui/material';
-import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon } from '@mui/icons-material';
+import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon } from '@mui/icons-material';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -38,6 +37,7 @@ import {
   importRecoveryAssignmentsFromLatestFile,
   fetchWhatsAppIncomingMessages,
   fetchWhatsAppNumbersWithMessages,
+  markRecoveryWhatsAppRead,
   sendRecoveryWhatsApp
 } from '../../../services/recoveryAssignmentService';
 
@@ -103,6 +103,7 @@ const RecoveryAssignments = () => {
   const [repliesMessages, setRepliesMessages] = useState([]);
   const [repliesLoading, setRepliesLoading] = useState(false);
   const [numbersWithMessages, setNumbersWithMessages] = useState([]);
+  const [unreadCounts, setUnreadCounts] = useState({});
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
 
@@ -150,9 +151,12 @@ const RecoveryAssignments = () => {
   const loadNumbersWithMessages = useCallback(async () => {
     try {
       const res = await fetchWhatsAppNumbersWithMessages();
-      setNumbersWithMessages(res?.data?.data || []);
+      const d = res?.data?.data || {};
+      setNumbersWithMessages(Array.isArray(d.numbers) ? d.numbers : d.numbers || []);
+      setUnreadCounts(typeof d.unreadCounts === 'object' ? d.unreadCounts : {});
     } catch {
       setNumbersWithMessages([]);
+      setUnreadCounts({});
     }
   }, []);
 
@@ -168,6 +172,15 @@ const RecoveryAssignments = () => {
     try {
       const res = await fetchWhatsAppIncomingMessages(row.mobileNumber);
       setRepliesMessages(res?.data?.data || []);
+      const norm = normalizeWhatsAppNumber(row.mobileNumber);
+      if (norm) {
+        try {
+          await markRecoveryWhatsAppRead(norm);
+          setUnreadCounts((prev) => ({ ...prev, [norm]: 0 }));
+        } catch {
+          // ignore
+        }
+      }
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to load messages', severity: 'error' });
       setRepliesMessages([]);
@@ -185,15 +198,18 @@ const RecoveryAssignments = () => {
 
   const handleSendReply = async () => {
     const text = (replyText || '').trim();
-    if (!text || !repliesRow?.mobileNumber) {
+    const toNumber = repliesRow?.mobileNumber ? normalizeWhatsAppNumber(repliesRow.mobileNumber) : '';
+    if (!text || !toNumber) {
       setSnackbar({ open: true, message: 'Enter a message to send', severity: 'warning' });
       return;
     }
     try {
       setReplySending(true);
-      await sendRecoveryWhatsApp({ to: repliesRow.mobileNumber, body: text });
-      setSnackbar({ open: true, message: 'Reply sent', severity: 'success' });
+      await sendRecoveryWhatsApp({ to: toNumber, body: text });
       setReplyText('');
+      const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
+      setRepliesMessages(res?.data?.data || []);
+      setSnackbar({ open: true, message: 'Reply sent', severity: 'success' });
     } catch (err) {
       setSnackbar({
         open: true,
@@ -332,7 +348,11 @@ const RecoveryAssignments = () => {
                           </TableCell>
                         ))}
                         <TableCell align="right">
-                          <Badge color="success" variant="dot" invisible={!numbersWithMessages.includes(normalizeWhatsAppNumber(row.mobileNumber))}>
+                          <Badge
+                            badgeContent={unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] || 0}
+                            color="error"
+                            invisible={!(unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] > 0)}
+                          >
                             <IconButton size="small" onClick={() => handleOpenReplies(row)} title="View replies" disabled={!row?.mobileNumber}>
                               <ChatIcon />
                             </IconButton>
@@ -356,41 +376,62 @@ const RecoveryAssignments = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={repliesDialogOpen} onClose={handleCloseReplies} maxWidth="sm" fullWidth>
-        <DialogTitle>WhatsApp replies — {repliesRow?.customerName || '—'}</DialogTitle>
-        <DialogContent>
-          {repliesRow && (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              From: {repliesRow.mobileNumber}
-            </Typography>
-          )}
+      <Dialog open={repliesDialogOpen} onClose={handleCloseReplies} maxWidth="sm" fullWidth PaperProps={{ sx: { minHeight: 480 } }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#075E54', color: 'white', py: 1.5, pr: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ChatIcon />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600}>{repliesRow?.customerName || '—'}</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9 }}>{repliesRow?.mobileNumber || '—'}</Typography>
+            </Box>
+          </Box>
+          <IconButton onClick={handleCloseReplies} size="small" sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, bgcolor: '#E5DDD5', display: 'flex', flexDirection: 'column', minHeight: 340 }}>
           {repliesLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
               <CircularProgress />
             </Box>
           ) : repliesMessages.length === 0 ? (
-            <Alert severity="info">No incoming messages yet from this number.</Alert>
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Typography variant="body2" color="text.secondary">No messages yet. Start the conversation below.</Typography>
+            </Box>
           ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 360, overflow: 'auto' }}>
-              {repliesMessages.map((m) => (
-                <Paper key={m._id} variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {m.receivedAt ? new Date(m.receivedAt).toLocaleString() : '—'}
+            <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              {repliesMessages.map((m, idx) => (
+                <Box
+                  key={m._id || m.messageId || idx}
+                  sx={{
+                    alignSelf: m.direction === 'out' ? 'flex-end' : 'flex-start',
+                    maxWidth: '80%',
+                    px: 1.5,
+                    py: 1,
+                    borderRadius: 2,
+                    borderTopRightRadius: m.direction === 'out' ? 0.5 : 2,
+                    borderTopLeftRadius: m.direction === 'in' ? 0.5 : 2,
+                    bgcolor: m.direction === 'out' ? '#DCF8C6' : 'white',
+                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
+                  <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', opacity: 0.7, mt: 0.25 }}>
+                    {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5 }}>{m.text || '(media/other)'}</Typography>
-                </Paper>
+                </Box>
               ))}
             </Box>
           )}
           {repliesRow?.mobileNumber && (
-            <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+            <Box sx={{ p: 2, bgcolor: '#F0F2F5', borderTop: '1px solid', borderColor: 'divider', display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
               <TextField
                 fullWidth
                 multiline
                 maxRows={4}
-                size="small"
-                label="Reply"
-                placeholder="Type your reply..."
+                placeholder="Type a message..."
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
                 onKeyDown={(e) => {
@@ -399,21 +440,29 @@ const RecoveryAssignments = () => {
                     handleSendReply();
                   }
                 }}
+                variant="outlined"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'white',
+                    borderRadius: 3,
+                    fontSize: '0.95rem',
+                    '& fieldset': { borderRadius: 3 },
+                    '&:hover fieldset': { borderColor: 'rgba(0,0,0,0.3)' },
+                    '&.Mui-focused fieldset': { borderWidth: 1 }
+                  }
+                }}
               />
               <Button
                 variant="contained"
                 onClick={handleSendReply}
                 disabled={replySending || !replyText.trim()}
-                sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' }, minWidth: 90 }}
+                sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' }, minWidth: 56, height: 48, borderRadius: 2 }}
               >
                 {replySending ? <CircularProgress size={24} color="inherit" /> : 'Send'}
               </Button>
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseReplies}>Close</Button>
-        </DialogActions>
       </Dialog>
 
       <Snackbar
