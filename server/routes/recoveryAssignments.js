@@ -1048,13 +1048,18 @@ router.post(
 
       if (sentAs === 'text' || ['image', 'document', 'audio', 'video'].includes(sentAs)) {
         const displayText = messageBody || (sentAs === 'text' ? '' : `(${sentAs})`);
-        await WhatsAppOutgoingMessage.create({
+        const createPayload = {
           to: toNumber,
           text: displayText,
           messageId,
           sentAt: new Date(),
           sentBy: req.user?._id
-        });
+        };
+        if (mediaUrl && sentAs !== 'text') {
+          createPayload.mediaUrl = String(mediaUrl).trim();
+          createPayload.mediaType = String(sentAs);
+        }
+        await WhatsAppOutgoingMessage.create(createPayload);
       }
 
       // Best-effort: update assignment with campaign meta if provided

@@ -560,7 +560,7 @@ const RecoveryAssignments = () => {
                           <TableCell align="center">
                             {isCompleted && <CheckIcon fontSize="small" color="success" />}
                           </TableCell>
-                          <TableCell align="right">
+                          <TableCell align="right" sx={{ overflow: 'visible', py: 1.25 }}>
                             <IconButton size="small" onClick={() => handleOpenEdit(row)} title="Edit">
                               <EditIcon fontSize="small" />
                             </IconButton>
@@ -634,7 +634,14 @@ const RecoveryAssignments = () => {
                     boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
                   }}
                 >
-                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
+                  {m.mediaType === 'image' && m.mediaUrl ? (
+                    <Box>
+                      <Box component="img" src={m.mediaUrl} alt="Sent" sx={{ maxWidth: 240, maxHeight: 200, borderRadius: 1, display: 'block' }} />
+                      {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
+                  )}
                   <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', opacity: 0.7, mt: 0.25 }}>
                     {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </Typography>

@@ -4,6 +4,8 @@ const whatsAppOutgoingMessageSchema = new mongoose.Schema(
   {
     to: { type: String, trim: true, index: true },
     text: { type: String, trim: true },
+    mediaUrl: { type: String, trim: true },
+    mediaType: { type: String, trim: true },
     messageId: { type: String, trim: true },
     sentAt: { type: Date, default: Date.now },
     sentBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
