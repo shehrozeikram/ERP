@@ -873,8 +873,13 @@ router.get(
   })
 );
 
-function getBaseUrl() {
-  return process.env.API_BASE_URL || process.env.APP_URL || `http://localhost:${process.env.PORT || 5001}`;
+function getBaseUrl(req) {
+  if (req) {
+    const proto = req.get('x-forwarded-proto') || req.protocol || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+    const host = req.get('x-forwarded-host') || req.get('host');
+    if (host) return `${proto}://${host}`.replace(/\/$/, '');
+  }
+  return (process.env.API_BASE_URL || process.env.APP_URL || `http://localhost:${process.env.PORT || 5001}`).replace(/\/$/, '');
 }
 
 function getMediaTypeFromMime(mime) {
@@ -900,7 +905,7 @@ router.post(
   },
   asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
-    const baseUrl = getBaseUrl().replace(/\/$/, '');
+    const baseUrl = getBaseUrl(req).replace(/\/$/, '');
     const url = `${baseUrl}/uploads/whatsapp-media/${req.file.filename}`;
     const mediaType = getMediaTypeFromMime(req.file.mimetype);
     res.json({ success: true, data: { url, mediaType, filename: req.file.filename } });
