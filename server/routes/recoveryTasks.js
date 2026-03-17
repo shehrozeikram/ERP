@@ -3,6 +3,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const RecoveryTask = require('../models/finance/RecoveryTask');
 const RecoveryMember = require('../models/finance/RecoveryMember');
+const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssignmentRule');
 
 const router = express.Router();
 
@@ -80,6 +81,35 @@ router.post(
 
     await task.save();
     await task.populate([{ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } }]);
+
+    // Ensure there is a matching assignment rule so the assignee actually gets tasks in My Tasks
+    try {
+      const ruleType = scopeType === 'sector' ? 'sector' : 'slab';
+      const ruleQuery = {
+        type: ruleType,
+        assignedTo
+      };
+      if (ruleType === 'sector') {
+        ruleQuery.sector = task.sector || '';
+      } else {
+        ruleQuery.sector = task.sector || '';
+        ruleQuery.minAmount = task.minAmount || 0;
+        ruleQuery.maxAmount = task.maxAmount != null ? task.maxAmount : null;
+      }
+
+      const existingRule = await RecoveryTaskAssignmentRule.findOne(ruleQuery).lean();
+      if (!existingRule) {
+        await RecoveryTaskAssignmentRule.create({
+          ...ruleQuery,
+          isActive: true,
+          action: task.action || 'both',
+          createdBy: req.user._id
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to ensure matching RecoveryTaskAssignmentRule for task', e.message);
+    }
+
     const out = task.toObject();
     res.status(201).json({ success: true, data: { ...out, progress: getProgress(out) } });
   })

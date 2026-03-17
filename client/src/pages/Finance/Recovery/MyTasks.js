@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -29,7 +29,7 @@ import {
   DialogActions,
   SvgIcon
 } from '@mui/material';
-import { TaskAlt as TaskIcon, Search as SearchIcon, Edit as EditIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon } from '@mui/icons-material';
+import { TaskAlt as TaskIcon, Search as SearchIcon, Edit as EditIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon } from '@mui/icons-material';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -37,11 +37,15 @@ import {
   fetchRecoveryAssignmentStats,
   updateRecoveryAssignmentFeedback,
   sendRecoveryWhatsApp,
+  uploadWhatsAppMedia,
   fetchWhatsAppIncomingMessages,
   fetchWhatsAppNumbersWithMessages,
-  markRecoveryWhatsAppRead
+  markRecoveryWhatsAppRead,
+  completeRecoveryTask
 } from '../../../services/recoveryAssignmentService';
 import { fetchRecoveryCampaigns } from '../../../services/recoveryCampaignService';
+import { fetchRecoveryTasks } from '../../../services/recoveryTaskService';
+import { useAuth } from '../../../contexts/AuthContext';
 
 function WhatsAppIcon(props) {
   return (
@@ -74,14 +78,8 @@ function normalizeWhatsAppNumber(mobile) {
   return n || '';
 }
 
-function substituteMessage(template, customerName, mobileNumber) {
-  if (!template) return '';
-  return template
-    .replace(/\{\{customerName\}\}/gi, customerName ?? '')
-    .replace(/\{\{mobileNumber\}\}/gi, mobileNumber ?? '');
-}
-
 const MyTasks = () => {
+  const { user } = useAuth();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ sectors: [], statuses: [] });
@@ -108,7 +106,13 @@ const MyTasks = () => {
   const [numbersWithMessages, setNumbersWithMessages] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const [replyText, setReplyText] = useState('');
+  const [replyAttachment, setReplyAttachment] = useState(null);
+  const replyFileInputRef = React.useRef(null);
   const [replySending, setReplySending] = useState(false);
+  const [unreadFilter, setUnreadFilter] = useState('all');
+  const [completingId, setCompletingId] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [selectedTaskId, setSelectedTaskId] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -117,24 +121,58 @@ const MyTasks = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter]
   });
 
   const loadMyTasks = useCallback(async () => {
     try {
       setLoading(true);
       setNotRecoveryMember(false);
+      const apiParams = pagination.getApiParams();
       const params = {
-        ...pagination.getApiParams(),
-        ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
+        ...apiParams,
+        ...(searchDebounced.trim() && { search: searchDebounced.trim(), page: 1, limit: 10000 }),
         ...(sectorFilter && { sector: sectorFilter }),
-        ...(statusFilter && { status: statusFilter })
+        ...(statusFilter && { status: statusFilter }),
+        ...(unreadFilter === 'unread' && { unread: 'true' })
       };
       const res = await fetchMyRecoveryTasks(params);
       const data = res.data?.data || [];
       const pag = res.data?.pagination || {};
-      setRecords(Array.isArray(data) ? data : []);
-      pagination.setTotal(pag.total || 0);
+      let rows = Array.isArray(data) ? data : [];
+
+      // Apply time-bound task filter client-side
+      if (selectedTask) {
+        const t = selectedTask;
+        const start = t.startDate ? new Date(t.startDate) : null;
+        const end = t.endDate ? new Date(t.endDate) : null;
+
+        rows = rows.filter((row) => {
+          // Scope filter
+          if (t.scopeType === 'sector') {
+            if (t.sector && row.sector !== t.sector) return false;
+          } else if (t.scopeType === 'slab') {
+            const due = Number(row.currentlyDue) || 0;
+            const min = Number(t.minAmount) || 0;
+            const max = t.maxAmount != null ? Number(t.maxAmount) : null;
+            if (!(due >= min && (max == null || due < max))) return false;
+            if (t.sector && row.sector !== t.sector) return false;
+          }
+
+          // Date filter (by assignment createdAt)
+          if (start || end) {
+            const created = row.createdAt ? new Date(row.createdAt) : null;
+            if (!created || isNaN(created.getTime())) return false;
+            if (start && created < start) return false;
+            if (end && created > end) return false;
+          }
+
+          return true;
+        });
+      }
+
+      setRecords(rows);
+      pagination.setTotal(rows.length || pag.total || 0);
       if (res.data?.notRecoveryMember) setNotRecoveryMember(true);
     } catch (err) {
       setSnackbar({
@@ -192,6 +230,37 @@ const MyTasks = () => {
     loadNumbersWithMessages();
   }, [loadNumbersWithMessages]);
 
+  // Load time-bound tasks for the current recovery member (used as a filter)
+  const loadTasks = useCallback(async () => {
+    try {
+      // Fetch all tasks; filter client-side to current user's member
+      const res = await fetchRecoveryTasks();
+      const all = res.data?.data || [];
+      if (!user?.employeeId) {
+        setTasks(all);
+        return;
+      }
+      const filtered = all.filter(
+        (t) => t.assignedTo?.employee?.employeeId === user.employeeId
+      );
+      setTasks(filtered);
+    } catch {
+      setTasks([]);
+    }
+  }, [user?.employeeId]);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
+
+  // Periodically refresh unread counters so new incoming messages update the badges
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadNumbersWithMessages();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadNumbersWithMessages]);
+
   const handleOpenWhatsApp = (row) => {
     setWhatsappRow(row);
     setSelectedCampaignId('');
@@ -211,9 +280,7 @@ const MyTasks = () => {
       return;
     }
     const campaign = campaigns.find((c) => c._id === selectedCampaignId);
-    const message = campaign
-      ? substituteMessage(campaign.message, whatsappRow.customerName, whatsappRow.mobileNumber)
-      : '';
+    const message = ''; // Meta templates are sent via API; no pre-filled text for wa.me
     const url = `https://wa.me/${num}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
     window.open(url, '_blank');
     handleCloseWhatsApp();
@@ -224,11 +291,23 @@ const MyTasks = () => {
     if (sendingViaApi) return;
     setSendingViaApi(true);
     try {
+      if (!whatsappRow) {
+        throw new Error('No task selected');
+      }
+      const num = normalizeWhatsAppNumber(whatsappRow.mobileNumber);
+      if (!num) {
+        throw new Error('No valid mobile number');
+      }
+      const campaign = campaigns.find((c) => c._id === selectedCampaignId);
       await sendRecoveryWhatsApp({
-        to: '923214554035',
-        template: 'taj_discount_on_installments'
+        to: num,
+        assignmentId: whatsappRow._id,
+        campaignName: campaign?.whatsappTemplateName
+          ? `${campaign.whatsappTemplateName}${campaign.whatsappLanguageCode ? ` (${campaign.whatsappLanguageCode})` : ''}`
+          : 'WhatsApp campaign',
+        campaignId: campaign?._id
       });
-      setSnackbar({ open: true, message: 'Taj discount template sent.', severity: 'success' });
+      setSnackbar({ open: true, message: 'Campaign sent via WhatsApp API.', severity: 'success' });
       handleCloseWhatsApp();
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to send via WhatsApp API';
@@ -272,22 +351,53 @@ const MyTasks = () => {
     setRepliesDialogOpen(false);
     setRepliesRow(null);
     setReplyText('');
+    setReplyAttachment(null);
     loadNumbersWithMessages();
+  };
+
+  const handleReplyFileSelect = (e) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    const mime = (file.type || '').toLowerCase();
+    const ok = mime.startsWith('image/') || mime === 'application/pdf' || mime.startsWith('audio/') || mime.startsWith('video/');
+    if (!ok) {
+      setSnackbar({ open: true, message: 'Only images, PDF, audio, and video are allowed', severity: 'warning' });
+      return;
+    }
+    const mediaType = mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : mime.startsWith('video/') ? 'video' : 'document';
+    setReplyAttachment({ file, preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null, mediaType });
+    e.target.value = '';
+  };
+
+  const handleRemoveReplyAttachment = () => {
+    if (replyAttachment?.preview) URL.revokeObjectURL(replyAttachment.preview);
+    setReplyAttachment(null);
   };
 
   const handleSendReply = async () => {
     const text = (replyText || '').trim();
     const toNumber = repliesRow?.mobileNumber ? normalizeWhatsAppNumber(repliesRow.mobileNumber) : '';
-    if (!text || !toNumber) {
-      setSnackbar({ open: true, message: 'Enter a message to send', severity: 'warning' });
+    if ((!text && !replyAttachment) || !toNumber) {
+      setSnackbar({ open: true, message: 'Enter a message or add an attachment', severity: 'warning' });
       return;
     }
     try {
       setReplySending(true);
-      await sendRecoveryWhatsApp({ to: toNumber, body: text });
+      let mediaUrl = null;
+      let mediaType = null;
+      if (replyAttachment?.file) {
+        const uploadRes = await uploadWhatsAppMedia(replyAttachment.file);
+        mediaUrl = uploadRes.data?.data?.url;
+        mediaType = uploadRes.data?.data?.mediaType || replyAttachment.mediaType;
+      }
+      await sendRecoveryWhatsApp({
+        to: toNumber,
+        body: text || '',
+        ...(mediaUrl && mediaType && { mediaUrl, mediaType })
+      });
       setSnackbar({ open: true, message: 'Reply sent', severity: 'success' });
       setReplyText('');
-      // Refetch thread to show the new message
+      handleRemoveReplyAttachment();
       const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
       setRepliesMessages(res?.data?.data || []);
     } catch (err) {
@@ -298,6 +408,24 @@ const MyTasks = () => {
       });
     } finally {
       setReplySending(false);
+    }
+  };
+
+  const handleUnreadFilterChange = (e) => setUnreadFilter(e.target.value || 'all');
+
+  const handleConfirmComplete = async () => {
+    if (!completingId) return;
+    try {
+      await completeRecoveryTask(completingId);
+      setSnackbar({ open: true, message: 'Task marked as completed', severity: 'success' });
+      setCompletingId(null);
+      loadMyTasks();
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to complete task',
+        severity: 'error'
+      });
     }
   };
 
@@ -352,9 +480,12 @@ const MyTasks = () => {
   }, [whatsappDialogOpen, loadCampaigns]);
 
   const selectedCampaign = campaigns.find((c) => c._id === selectedCampaignId);
-  const previewMessage = whatsappRow && selectedCampaign
-    ? substituteMessage(selectedCampaign.message, whatsappRow.customerName, whatsappRow.mobileNumber)
-    : '';
+  const previewMessage = ''; // Meta templates; no message preview
+
+  const selectedTask = useMemo(
+    () => tasks.find((t) => t._id === selectedTaskId) || null,
+    [tasks, selectedTaskId]
+  );
 
   return (
     <Box sx={{ p: 3 }}>
@@ -406,6 +537,35 @@ const MyTasks = () => {
                     ))}
                   </Select>
                 </FormControl>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  <InputLabel>Task</InputLabel>
+                  <Select
+                    value={selectedTaskId}
+                    onChange={(e) => setSelectedTaskId(e.target.value || '')}
+                    label="Task"
+                  >
+                    <MenuItem value="">All tasks</MenuItem>
+                    {tasks.map((t) => (
+                      <MenuItem key={t._id} value={t._id}>
+                        {t.title || 'Task'} — {t.scopeType === 'sector'
+                          ? (t.sector || 'All sectors')
+                          : `${t.minAmount ?? 0}–${t.maxAmount ?? 'above'}`
+                        }
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 160 }}>
+                  <InputLabel>Unread messages</InputLabel>
+                  <Select
+                    value={unreadFilter}
+                    onChange={handleUnreadFilterChange}
+                    label="Unread messages"
+                  >
+                    <MenuItem value="all">All</MenuItem>
+                    <MenuItem value="unread">Unread only</MenuItem>
+                  </Select>
+                </FormControl>
                 <Typography variant="body2" color="text.secondary">
                   {pagination.total} task{pagination.total !== 1 ? 's' : ''} assigned
                 </Typography>
@@ -433,7 +593,8 @@ const MyTasks = () => {
                           <TableCell sx={{ minWidth: 120, fontWeight: 600, bgcolor: 'grey.50' }}>Action</TableCell>
                           <TableCell sx={{ minWidth: 160, fontWeight: 600, bgcolor: 'grey.50' }}>WhatsApp feedback</TableCell>
                           <TableCell sx={{ minWidth: 160, fontWeight: 600, bgcolor: 'grey.50' }}>Call feedback</TableCell>
-                          <TableCell sx={{ minWidth: 120, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Actions</TableCell>
+                          <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Campaign</TableCell>
+                          <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Actions</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -457,6 +618,62 @@ const MyTasks = () => {
                             <TableCell sx={{ maxWidth: 200 }}>
                               {showCallFeedback(row) ? (row.callFeedback || '—') : '—'}
                             </TableCell>
+                            <TableCell sx={{ maxWidth: 160 }}>
+                              {row.lastCampaignSentAt ? (
+                                <Box
+                                  sx={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    px: 0.9,
+                                    py: 0.35,
+                                    borderRadius: 999,
+                                    bgcolor: '#25D366',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
+                                    gap: 0.75,
+                                    maxWidth: '100%'
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      width: 6,
+                                      height: 6,
+                                      borderRadius: '50%',
+                                      bgcolor: 'white',
+                                      opacity: 0.9
+                                    }}
+                                  />
+                                  <Box sx={{ overflow: 'hidden' }}>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: 'white', fontWeight: 600, lineHeight: 1 }}
+                                    >
+                                      Campaign sent
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        color: 'rgba(255,255,255,0.9)',
+                                        lineHeight: 1.1,
+                                        display: 'block',
+                                        whiteSpace: 'nowrap',
+                                        textOverflow: 'ellipsis',
+                                        overflow: 'hidden'
+                                      }}
+                                    >
+                                      {row.lastCampaignName || 'WhatsApp campaign'} ·{' '}
+                                      {new Date(row.lastCampaignSentAt).toLocaleDateString('en-PK', {
+                                        day: '2-digit',
+                                        month: 'short'
+                                      })}
+                                    </Typography>
+                                  </Box>
+                                </Box>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">
+                                  Not sent
+                                </Typography>
+                              )}
+                            </TableCell>
                             <TableCell align="right">
                               {showWhatsApp(row) && (
                                 <IconButton size="small" onClick={() => handleOpenWhatsApp(row)} title="Send WhatsApp">
@@ -472,6 +689,13 @@ const MyTasks = () => {
                                   <ChatIcon />
                                 </IconButton>
                               </Badge>
+                              <IconButton
+                                size="small"
+                                onClick={() => setCompletingId(row._id)}
+                                title="Mark task as completed"
+                              >
+                                <TaskIcon fontSize="small" color="success" />
+                              </IconButton>
                               <IconButton size="small" onClick={() => handleOpenFeedback(row)} title="Edit feedback">
                                 <EditIcon />
                               </IconButton>
@@ -513,7 +737,7 @@ const MyTasks = () => {
                 >
                   <MenuItem value="">Select campaign</MenuItem>
                   {campaigns.map((c) => (
-                    <MenuItem key={c._id} value={c._id}>{c.name}</MenuItem>
+                    <MenuItem key={c._id} value={c._id}>{c.whatsappTemplateName || '—'}{c.whatsappLanguageCode ? ` (${c.whatsappLanguageCode})` : ''}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -637,43 +861,97 @@ const MyTasks = () => {
             </Box>
           )}
           {repliesRow?.mobileNumber && (
-            <Box sx={{ p: 2, bgcolor: '#F0F2F5', borderTop: '1px solid', borderColor: 'divider', display: 'flex', gap: 1.5, alignItems: 'flex-end' }}>
-              <TextField
-                fullWidth
-                multiline
-                maxRows={4}
-                placeholder="Type a message..."
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendReply();
-                  }
-                }}
-                variant="outlined"
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    bgcolor: 'white',
-                    borderRadius: 3,
-                    fontSize: '0.95rem',
-                    '& fieldset': { borderRadius: 3 },
-                    '&:hover fieldset': { borderColor: 'rgba(0,0,0,0.3)' },
-                    '&.Mui-focused fieldset': { borderWidth: 1 }
-                  }
-                }}
+            <Box sx={{ p: 1.5, bgcolor: '#F0F2F5', borderTop: '1px solid', borderColor: 'divider' }}>
+              <input
+                type="file"
+                ref={replyFileInputRef}
+                accept="image/*,application/pdf,audio/*,video/*"
+                style={{ display: 'none' }}
+                onChange={handleReplyFileSelect}
               />
-              <Button
-                variant="contained"
-                onClick={handleSendReply}
-                disabled={replySending || !replyText.trim()}
-                sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' }, minWidth: 56, height: 48, borderRadius: 2 }}
-              >
-                {replySending ? <CircularProgress size={24} color="inherit" /> : 'Send'}
-              </Button>
+              {replyAttachment && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: 'white', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                  {replyAttachment.preview ? (
+                    <Box component="img" src={replyAttachment.preview} alt="Preview" sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1 }} />
+                  ) : (
+                    <AttachFileIcon sx={{ color: 'text.secondary', fontSize: 28 }} />
+                  )}
+                  <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>{replyAttachment.file?.name}</Typography>
+                  <IconButton size="small" onClick={handleRemoveReplyAttachment} title="Remove attachment"><CloseIcon fontSize="small" /></IconButton>
+                </Box>
+              )}
+              <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                <IconButton
+                  onClick={() => replyFileInputRef.current?.click()}
+                  sx={{ color: '#54656F', alignSelf: 'center', flexShrink: 0 }}
+                  title="Attach file"
+                >
+                  <AttachFileIcon />
+                </IconButton>
+                <TextField
+                  fullWidth
+                  multiline
+                  maxRows={4}
+                  placeholder="Type a message..."
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendReply();
+                    }
+                  }}
+                  variant="outlined"
+                  size="small"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: 'white',
+                      borderRadius: 8,
+                      fontSize: '0.95rem',
+                      '& fieldset': { borderRadius: 8, borderColor: 'rgba(0,0,0,0.12)' },
+                      '&:hover fieldset': { borderColor: 'rgba(0,0,0,0.2)' },
+                      '&.Mui-focused fieldset': { borderWidth: 1, borderColor: '#25D366' }
+                    }
+                  }}
+                />
+                <IconButton
+                  onClick={handleSendReply}
+                  disabled={replySending || (!replyText.trim() && !replyAttachment)}
+                  sx={{
+                    bgcolor: '#25D366',
+                    color: 'white',
+                    '&:hover': { bgcolor: '#1da851' },
+                    '&.Mui-disabled': { bgcolor: 'grey.300', color: 'grey.500' },
+                    alignSelf: 'flex-end',
+                    flexShrink: 0
+                  }}
+                >
+                  {replySending ? <CircularProgress size={24} color="inherit" /> : <SendIcon />}
+                </IconButton>
+              </Box>
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!completingId}
+        onClose={() => setCompletingId(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Mark task as completed?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            This will move the task out of <strong>My Tasks</strong> into <strong>Completed Tasks</strong>.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCompletingId(null)}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={handleConfirmComplete}>
+            Mark completed
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>

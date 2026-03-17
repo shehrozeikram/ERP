@@ -3,6 +3,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssignmentRule');
 const RecoveryMember = require('../models/finance/RecoveryMember');
+const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
 
 const router = express.Router();
 
@@ -133,6 +134,46 @@ router.delete(
       return res.status(404).json({ success: false, message: 'Rule not found' });
     }
     res.json({ success: true, message: 'Rule deleted' });
+  })
+);
+
+// GET /api/finance/recovery-task-rules/slab-target-count
+// Compute target count for a slab scope using RecoveryAssignment data
+router.get(
+  '/slab-target-count',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { sector, minAmount, maxAmount } = req.query;
+
+    const min = Number(minAmount);
+    const max = maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null;
+    if (isNaN(min) || min < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid minAmount is required'
+      });
+    }
+    if (max !== null && (isNaN(max) || max < min)) {
+      return res.status(400).json({
+        success: false,
+        message: 'maxAmount must be null or >= minAmount'
+      });
+    }
+
+    const amountCond = max != null ? { $gte: min, $lt: max } : { $gte: min };
+    const query = {
+      currentlyDue: amountCond
+    };
+    if (sector && String(sector).trim()) {
+      query.sector = String(sector).trim();
+    }
+
+    const count = await RecoveryAssignment.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: { count }
+    });
   })
 );
 

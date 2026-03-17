@@ -28,16 +28,16 @@ router.post(
   '/',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { name, message } = req.body;
+    const { whatsappTemplateName, whatsappLanguageCode } = req.body;
 
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ success: false, message: 'Campaign name is required' });
+    if (!whatsappTemplateName || !String(whatsappTemplateName).trim()) {
+      return res.status(400).json({ success: false, message: 'WhatsApp template name (Meta) is required' });
     }
 
     const campaign = new RecoveryCampaign({
-      name: String(name).trim(),
-      message: message != null ? String(message).trim() : '',
       isActive: true,
+      whatsappTemplateName: String(whatsappTemplateName).trim(),
+      whatsappLanguageCode: whatsappLanguageCode != null ? String(whatsappLanguageCode).trim() : '',
       createdBy: req.user._id
     });
 
@@ -56,11 +56,15 @@ router.put(
     const campaign = await RecoveryCampaign.findById(req.params.id);
     if (!campaign) return res.status(404).json({ success: false, message: 'Campaign not found' });
 
-    const { name, message, isActive } = req.body;
+    const { isActive, whatsappTemplateName, whatsappLanguageCode } = req.body;
 
-    if (name !== undefined) campaign.name = String(name).trim();
-    if (message !== undefined) campaign.message = String(message).trim();
     if (isActive !== undefined) campaign.isActive = !!isActive;
+    if (whatsappTemplateName !== undefined) {
+      const v = String(whatsappTemplateName || '').trim();
+      if (!v) return res.status(400).json({ success: false, message: 'WhatsApp template name (Meta) is required' });
+      campaign.whatsappTemplateName = v;
+    }
+    if (whatsappLanguageCode !== undefined) campaign.whatsappLanguageCode = String(whatsappLanguageCode || '').trim();
     campaign.updatedBy = req.user._id;
 
     await campaign.save();

@@ -18,7 +18,12 @@ const recoveryAssignmentSchema = new mongoose.Schema(
     currentlyDue: { type: Number, default: 0 },
     sortOrder: { type: Number, default: 0 },
     whatsappFeedback: { type: String, trim: true, default: '' },
-    callFeedback: { type: String, trim: true, default: '' }
+    callFeedback: { type: String, trim: true, default: '' },
+    lastCampaignSentAt: { type: Date },
+    lastCampaignName: { type: String, trim: true, default: '' },
+    taskStatus: { type: String, trim: true, default: 'pending' },
+    taskCompletedAt: { type: Date },
+    taskCompletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }
 );

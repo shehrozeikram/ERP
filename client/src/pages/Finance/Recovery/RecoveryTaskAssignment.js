@@ -36,7 +36,8 @@ import { AssignmentInd as AssignmentIcon, Add as AddIcon, Delete as DeleteIcon, 
 import {
   fetchRecoveryTaskRules,
   createRecoveryTaskRule,
-  deleteRecoveryTaskRule
+  deleteRecoveryTaskRule,
+  fetchSlabTargetCount
 } from '../../../services/recoveryTaskAssignmentRuleService';
 import {
   fetchRecoveryTasks,
@@ -148,6 +149,7 @@ const RecoveryTaskAssignment = () => {
   const [progressSaving, setProgressSaving] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
   const [progressForm, setProgressForm] = useState({ completedCount: '', progressPercent: '', status: '' });
+  const [autoCountLoading, setAutoCountLoading] = useState(false);
 
   const loadRules = useCallback(async () => {
     try {
@@ -347,19 +349,64 @@ const RecoveryTaskAssignment = () => {
 
   const sectorRules = rules.filter((r) => r.type === 'sector');
   const slabRules = rules.filter((r) => r.type === 'slab');
+
+  // Build a set of scope keys for tasks so we can hide
+  // auto-created rules that exactly match a time-bound task's scope.
+  const taskScopeKeys = new Set(
+    tasks.map((t) => {
+      const scopeType = t.scopeType || 'sector';
+      const assignedToId = t.assignedTo?._id || t.assignedTo || '';
+      const sectorVal = t.sector || '';
+      const min = scopeType === 'slab' ? (t.minAmount ?? 0) : '';
+      const max = scopeType === 'slab' ? (t.maxAmount ?? null) : '';
+      return `${scopeType}|${assignedToId}|${sectorVal}|${min}|${max}`;
+    })
+  );
   const combinedRows = [
-    ...sectorRules.map((r) => ({
-      kind: 'rule', id: r._id, typeLabel: 'Rule (sector)', scope: r.sector || '—', member: getMemberName(r), action: r.action || 'both', period: '—', progress: '—', status: null, rule: r,
-      monthYear: getMonthYearKey(r.createdAt) || '—',
-      assignedBy: getCreatedByName(r),
-      assignedDate: formatAssignedDate(r.createdAt)
-    })),
-    ...slabRules.map((r) => ({
-      kind: 'rule', id: r._id, typeLabel: 'Rule (slab)', scope: `${formatAmount(r.minAmount)} – ${r.maxAmount != null ? formatAmount(r.maxAmount) : 'above'}${r.sector ? ` · ${r.sector}` : ''}`, member: getMemberName(r), action: r.action || 'both', period: '—', progress: '—', status: null, rule: r,
-      monthYear: getMonthYearKey(r.createdAt) || '—',
-      assignedBy: getCreatedByName(r),
-      assignedDate: formatAssignedDate(r.createdAt)
-    })),
+    ...sectorRules
+      .filter((r) => {
+        const assignedToId = r.assignedTo?._id || r.assignedTo || '';
+        const key = `sector|${assignedToId}|${r.sector || ''}|||`;
+        return !taskScopeKeys.has(key);
+      })
+      .map((r) => ({
+        kind: 'rule',
+        id: r._id,
+        typeLabel: 'Rule (sector)',
+        scope: r.sector || '—',
+        member: getMemberName(r),
+        action: r.action || 'both',
+        period: '—',
+        progress: '—',
+        status: null,
+        rule: r,
+        monthYear: getMonthYearKey(r.createdAt) || '—',
+        assignedBy: getCreatedByName(r),
+        assignedDate: formatAssignedDate(r.createdAt)
+      })),
+    ...slabRules
+      .filter((r) => {
+        const assignedToId = r.assignedTo?._id || r.assignedTo || '';
+        const min = r.minAmount ?? 0;
+        const max = r.maxAmount ?? null;
+        const key = `slab|${assignedToId}|${r.sector || ''}|${min}|${max}`;
+        return !taskScopeKeys.has(key);
+      })
+      .map((r) => ({
+        kind: 'rule',
+        id: r._id,
+        typeLabel: 'Rule (slab)',
+        scope: `${formatAmount(r.minAmount)} – ${r.maxAmount != null ? formatAmount(r.maxAmount) : 'above'}${r.sector ? ` · ${r.sector}` : ''}`,
+        member: getMemberName(r),
+        action: r.action || 'both',
+        period: '—',
+        progress: '—',
+        status: null,
+        rule: r,
+        monthYear: getMonthYearKey(r.createdAt) || '—',
+        assignedBy: getCreatedByName(r),
+        assignedDate: formatAssignedDate(r.createdAt)
+      })),
     ...tasks.map((t) => ({
       kind: 'task',
       id: t._id,
@@ -368,7 +415,10 @@ const RecoveryTaskAssignment = () => {
       member: getTaskMemberName(t),
       action: t.action || 'both',
       period: formatTaskPeriod(t),
-      progress: t.targetCount != null && t.targetCount > 0 ? `${t.completedCount ?? 0}/${t.targetCount} (${t.progress ?? 0}%)` : `${t.progress ?? 0}%`,
+      progress:
+        t.targetCount != null && t.targetCount > 0
+          ? `${t.completedCount ?? 0}/${t.targetCount} (${t.progress ?? 0}%)`
+          : `${t.progress ?? 0}%`,
       status: t.status,
       task: t,
       monthYear: getMonthYearKey(t.startDate) || '—',
@@ -445,6 +495,7 @@ const RecoveryTaskAssignment = () => {
                                 <TableCell><strong>Assigned date</strong></TableCell>
                                 <TableCell><strong>Action</strong></TableCell>
                                 <TableCell><strong>Period</strong></TableCell>
+                                <TableCell><strong>Target count</strong></TableCell>
                                 <TableCell><strong>Progress</strong></TableCell>
                                 <TableCell><strong>Status</strong></TableCell>
                                 <TableCell align="right"><strong>Actions</strong></TableCell>
@@ -460,6 +511,11 @@ const RecoveryTaskAssignment = () => {
                                   <TableCell>{row.assignedDate || '—'}</TableCell>
                                   <TableCell>{ACTION_LABELS[row.action] || row.action || '—'}</TableCell>
                                   <TableCell>{row.period}</TableCell>
+                                  <TableCell>
+                                    {row.kind === 'task' && row.task?.targetCount != null
+                                      ? row.task.targetCount
+                                      : '—'}
+                                  </TableCell>
                                   <TableCell>{row.progress}</TableCell>
                                   <TableCell>
                                     {row.kind === 'task' && row.status ? (
@@ -603,7 +659,56 @@ const RecoveryTaskAssignment = () => {
               )}
               <TextField fullWidth size="small" label="Start date" type="date" value={taskForm.startDate} onChange={(e) => setTaskForm((f) => ({ ...f, startDate: e.target.value }))} InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />
               <TextField fullWidth size="small" label="End date" type="date" value={taskForm.endDate} onChange={(e) => setTaskForm((f) => ({ ...f, endDate: e.target.value }))} InputLabelProps={{ shrink: true }} sx={{ mb: 2 }} />
-              <TextField fullWidth size="small" label="Target count (optional)" type="number" value={taskForm.targetCount} onChange={(e) => setTaskForm((f) => ({ ...f, targetCount: e.target.value }))} inputProps={{ min: 0 }} sx={{ mb: 2 }} placeholder="e.g. 50 contacts" />
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Target count (optional)"
+                  type="number"
+                  value={taskForm.targetCount}
+                  onChange={(e) => setTaskForm((f) => ({ ...f, targetCount: e.target.value }))}
+                  inputProps={{ min: 0 }}
+                  placeholder="e.g. 50 contacts"
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={async () => {
+                    if (taskForm.scopeType !== 'slab') return;
+                    const min = Number(taskForm.minAmount);
+                    if (isNaN(min) || min < 0) {
+                      setSnackbar({ open: true, message: 'Enter a valid minimum amount first', severity: 'warning' });
+                      return;
+                    }
+                    setAutoCountLoading(true);
+                    try {
+                      const res = await fetchSlabTargetCount({
+                        sector: taskForm.sector || undefined,
+                        minAmount: taskForm.minAmount,
+                        maxAmount: taskForm.maxAmount
+                      });
+                      const count = res.data?.data?.count ?? 0;
+                      setTaskForm((f) => ({ ...f, targetCount: String(count) }));
+                      setSnackbar({
+                        open: true,
+                        message: `Target count set from Recovery Assignments: ${count}`,
+                        severity: 'info'
+                      });
+                    } catch (err) {
+                      setSnackbar({
+                        open: true,
+                        message: err.response?.data?.message || 'Failed to fetch target count',
+                        severity: 'error'
+                      });
+                    } finally {
+                      setAutoCountLoading(false);
+                    }
+                  }}
+                  disabled={autoCountLoading || taskForm.scopeType !== 'slab'}
+                >
+                  {autoCountLoading ? <CircularProgress size={18} /> : 'Auto count'}
+                </Button>
+              </Box>
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Action</InputLabel>
                 <Select value={taskForm.action} label="Action" onChange={(e) => setTaskForm((f) => ({ ...f, action: e.target.value }))}>

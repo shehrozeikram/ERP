@@ -2,19 +2,19 @@ const mongoose = require('mongoose');
 
 const recoveryCampaignSchema = new mongoose.Schema(
   {
-    name: {
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    whatsappTemplateName: {
       type: String,
       trim: true,
       required: true
     },
-    message: {
+    whatsappLanguageCode: {
       type: String,
       trim: true,
       default: ''
-    },
-    isActive: {
-      type: Boolean,
-      default: true
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -29,6 +29,6 @@ const recoveryCampaignSchema = new mongoose.Schema(
 );
 
 recoveryCampaignSchema.index({ isActive: 1 });
-recoveryCampaignSchema.index({ name: 1 });
+recoveryCampaignSchema.index({ whatsappTemplateName: 1 });
 
 module.exports = mongoose.model('RecoveryCampaign', recoveryCampaignSchema);

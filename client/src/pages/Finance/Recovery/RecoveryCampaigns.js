@@ -18,12 +18,16 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   Alert,
   Snackbar,
   CircularProgress,
   Chip
 } from '@mui/material';
-import { Campaign as CampaignIcon, Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, ContentCopy as CopyIcon } from '@mui/icons-material';
+import { Campaign as CampaignIcon, Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import {
   fetchRecoveryCampaigns,
   createRecoveryCampaign,
@@ -36,6 +40,26 @@ const getCreatedByName = (doc) => {
   if (!u) return '—';
   return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.employeeId || '—';
 };
+
+const WHATSAPP_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'en_US', label: 'English (US)' },
+  { code: 'en_GB', label: 'English (UK)' },
+  { code: 'en_AE', label: 'English (UAE)' },
+  { code: 'en_AU', label: 'English (AUS)' },
+  { code: 'en_CA', label: 'English (CAN)' },
+  { code: 'en_GH', label: 'English (GHA)' },
+  { code: 'en_IE', label: 'English (IRL)' },
+  { code: 'en_IN', label: 'English (IND)' },
+  { code: 'en_MY', label: 'English (MYS)' },
+  { code: 'en_NZ', label: 'English (NZL)' },
+  { code: 'en_SG', label: 'English (SGP)' },
+  { code: 'ur', label: 'Urdu' },
+  { code: 'ar', label: 'Arabic' },
+  { code: 'bn', label: 'Bengali' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'pa', label: 'Punjabi' }
+];
 
 const formatDate = (date) => {
   if (!date) return '—';
@@ -50,7 +74,7 @@ const RecoveryCampaigns = () => {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-  const [form, setForm] = useState({ name: '', message: '' });
+  const [form, setForm] = useState({ whatsappTemplateName: '', whatsappLanguageCode: '' });
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -69,13 +93,16 @@ const RecoveryCampaigns = () => {
 
   const handleOpenAdd = () => {
     setEditingId(null);
-    setForm({ name: '', message: '' });
+    setForm({ whatsappTemplateName: '', whatsappLanguageCode: '' });
     setDialogOpen(true);
   };
 
   const handleOpenEdit = (c) => {
     setEditingId(c._id);
-    setForm({ name: c.name || '', message: c.message || '' });
+    setForm({
+      whatsappTemplateName: c.whatsappTemplateName || '',
+      whatsappLanguageCode: c.whatsappLanguageCode || ''
+    });
     setDialogOpen(true);
   };
 
@@ -85,17 +112,23 @@ const RecoveryCampaigns = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name?.trim()) {
-      setSnackbar({ open: true, message: 'Campaign name is required', severity: 'warning' });
+    if (!form.whatsappTemplateName?.trim()) {
+      setSnackbar({ open: true, message: 'WhatsApp template name (Meta) is required', severity: 'warning' });
       return;
     }
     try {
       setSaving(true);
       if (editingId) {
-        await updateRecoveryCampaign(editingId, { name: form.name.trim(), message: form.message?.trim() || '' });
+        await updateRecoveryCampaign(editingId, {
+          whatsappTemplateName: form.whatsappTemplateName.trim(),
+          whatsappLanguageCode: form.whatsappLanguageCode?.trim() || ''
+        });
         setSnackbar({ open: true, message: 'Campaign updated', severity: 'success' });
       } else {
-        await createRecoveryCampaign({ name: form.name.trim(), message: form.message?.trim() || '' });
+        await createRecoveryCampaign({
+          whatsappTemplateName: form.whatsappTemplateName.trim(),
+          whatsappLanguageCode: form.whatsappLanguageCode?.trim() || ''
+        });
         setSnackbar({ open: true, message: 'Campaign created', severity: 'success' });
       }
       handleCloseDialog();
@@ -118,23 +151,6 @@ const RecoveryCampaigns = () => {
     }
   };
 
-  const handleCopyMessage = (message) => {
-    if (!message?.trim()) {
-      setSnackbar({ open: true, message: 'No message to copy', severity: 'warning' });
-      return;
-    }
-    navigator.clipboard.writeText(message).then(
-      () => setSnackbar({ open: true, message: 'Message copied to clipboard. Paste in WhatsApp to send.', severity: 'success' }),
-      () => setSnackbar({ open: true, message: 'Failed to copy', severity: 'error' })
-    );
-  };
-
-  const preview = (msg, max = 80) => {
-    if (!msg) return '—';
-    const t = String(msg).trim();
-    return t.length <= max ? t : t.slice(0, max) + '…';
-  };
-
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 2 }}>
@@ -150,7 +166,7 @@ const RecoveryCampaigns = () => {
       </Box>
 
       <Alert severity="info" sx={{ mb: 3 }}>
-        Create WhatsApp message templates here. Recovery members can select a campaign and copy the message to send via WhatsApp. Use <strong>{'{{customerName}}'}</strong> and <strong>{'{{mobileNumber}}'}</strong> in the message for personalization when sending from Recovery Assignments.
+        Create Meta WhatsApp templates here. Use the exact template name and language code from your Meta Business account. Recovery members can select a campaign to send via WhatsApp API from My Tasks.
       </Alert>
 
       <Card>
@@ -160,14 +176,14 @@ const RecoveryCampaigns = () => {
               <CircularProgress />
             </Box>
           ) : campaigns.length === 0 ? (
-            <Typography color="text.secondary">No campaigns yet. Click <strong>Add campaign</strong> to create a WhatsApp message template.</Typography>
+            <Typography color="text.secondary">No campaigns yet. Click <strong>Add campaign</strong> to create a Meta WhatsApp template.</Typography>
           ) : (
             <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Message preview</strong></TableCell>
+                    <TableCell><strong>Template name (Meta)</strong></TableCell>
+                    <TableCell><strong>Language</strong></TableCell>
                     <TableCell><strong>Created by</strong></TableCell>
                     <TableCell><strong>Created</strong></TableCell>
                     <TableCell><strong>Status</strong></TableCell>
@@ -177,15 +193,12 @@ const RecoveryCampaigns = () => {
                 <TableBody>
                   {campaigns.map((c) => (
                     <TableRow key={c._id}>
-                      <TableCell><Typography fontWeight={500}>{c.name}</Typography></TableCell>
-                      <TableCell sx={{ maxWidth: 320 }}><Typography variant="body2" color="text.secondary" noWrap title={c.message}>{preview(c.message, 60)}</Typography></TableCell>
+                      <TableCell><Typography fontWeight={500}>{c.whatsappTemplateName || '—'}</Typography></TableCell>
+                      <TableCell>{c.whatsappLanguageCode || '—'}</TableCell>
                       <TableCell>{getCreatedByName(c)}</TableCell>
                       <TableCell>{formatDate(c.createdAt)}</TableCell>
                       <TableCell><Chip size="small" label={c.isActive !== false ? 'Active' : 'Inactive'} color={c.isActive !== false ? 'success' : 'default'} variant="outlined" /></TableCell>
                       <TableCell align="right">
-                        <IconButton size="small" onClick={() => handleCopyMessage(c.message)} title="Copy message to clipboard">
-                          <CopyIcon />
-                        </IconButton>
                         <IconButton size="small" onClick={() => handleOpenEdit(c)} title="Edit">
                           <EditIcon />
                         </IconButton>
@@ -207,23 +220,26 @@ const RecoveryCampaigns = () => {
         <DialogContent>
           <TextField
             fullWidth
-            label="Campaign name"
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            margin="normal"
+            label="WhatsApp template name (Meta)"
             required
-            placeholder="e.g. Payment reminder"
-          />
-          <TextField
-            fullWidth
-            label="WhatsApp message template"
-            value={form.message}
-            onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+            value={form.whatsappTemplateName}
+            onChange={(e) => setForm((f) => ({ ...f, whatsappTemplateName: e.target.value }))}
             margin="normal"
-            multiline
-            rows={6}
-            placeholder="Type your message here. Use {{customerName}} and {{mobileNumber}} for personalization when sending from Recovery Assignments."
+            placeholder="Exact Meta template name, e.g. taj_marketing_offer"
           />
+          <FormControl fullWidth margin="normal" size="small">
+            <InputLabel>Language</InputLabel>
+            <Select
+              label="Language"
+              value={form.whatsappLanguageCode}
+              onChange={(e) => setForm((f) => ({ ...f, whatsappLanguageCode: e.target.value || '' }))}
+            >
+              <MenuItem value="">— Select language —</MenuItem>
+              {WHATSAPP_LANGUAGES.map(({ code, label }) => (
+                <MenuItem key={code} value={code}>{label} ({code})</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
