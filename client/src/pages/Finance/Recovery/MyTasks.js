@@ -30,6 +30,7 @@ import {
   SvgIcon
 } from '@mui/material';
 import { TaskAlt as TaskIcon, Search as SearchIcon, Edit as EditIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -109,7 +110,8 @@ const MyTasks = () => {
   const [replyAttachment, setReplyAttachment] = useState(null);
   const replyFileInputRef = React.useRef(null);
   const [replySending, setReplySending] = useState(false);
-  const [unreadFilter, setUnreadFilter] = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const unreadFilter = (searchParams.get('unread') === 'true' || searchParams.get('unread') === '1') ? 'unread' : 'all';
   const [completingId, setCompletingId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -185,7 +187,7 @@ const MyTasks = () => {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- pagination object is new each render; use page/rowsPerPage only to avoid infinite loop
-  }, [searchDebounced, sectorFilter, statusFilter, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, pagination.page, pagination.rowsPerPage]);
 
   const loadNumbersWithMessages = useCallback(async () => {
     try {
@@ -411,7 +413,15 @@ const MyTasks = () => {
     }
   };
 
-  const handleUnreadFilterChange = (e) => setUnreadFilter(e.target.value || 'all');
+  const handleUnreadFilterChange = (e) => {
+    const v = e.target.value || 'all';
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (v === 'unread') next.set('unread', 'true');
+      else next.delete('unread');
+      return next;
+    }, { replace: true });
+  };
 
   const handleConfirmComplete = async () => {
     if (!completingId) return;

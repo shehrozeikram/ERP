@@ -29,6 +29,7 @@ import {
   Badge
 } from '@mui/material';
 import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon } from '@mui/icons-material';
+import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import {
@@ -110,7 +111,8 @@ const RecoveryAssignments = () => {
   const [repliesLoading, setRepliesLoading] = useState(false);
   const [numbersWithMessages, setNumbersWithMessages] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
-  const [unreadFilter, setUnreadFilter] = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const unreadFilter = (searchParams.get('unread') === 'true' || searchParams.get('unread') === '1') ? 'unread' : 'all';
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const [replyAttachment, setReplyAttachment] = useState(null);
@@ -159,7 +161,7 @@ const RecoveryAssignments = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchDebounced, sectorFilter, statusFilter, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, pagination.page, pagination.rowsPerPage]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -296,7 +298,15 @@ const RecoveryAssignments = () => {
   const handleSearchChange = (e) => setSearch(e.target.value);
   const handleSectorChange = (e) => setSectorFilter(e.target.value || '');
   const handleStatusChange = (e) => setStatusFilter(e.target.value || '');
-  const handleUnreadFilterChange = (e) => setUnreadFilter(e.target.value || 'all');
+  const handleUnreadFilterChange = (e) => {
+    const v = e.target.value || 'all';
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (v === 'unread') next.set('unread', 'true');
+      else next.delete('unread');
+      return next;
+    }, { replace: true });
+  };
 
   const handleOpenAdd = () => {
     setFormEditingId(null);
