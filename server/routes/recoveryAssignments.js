@@ -426,23 +426,63 @@ router.get(
   '/',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, sector, status, unread } = req.query;
+    const { page = 1, limit = 50, search, sector, status, unread, memberId } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
     const query = {};
 
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
-      query.$or = [
-        { orderCode: searchRegex },
-        { customerName: searchRegex },
-        { cnic: searchRegex },
-        { plotNo: searchRegex },
-        { customerAddress: searchRegex },
-        { mobileNumber: searchRegex }
-      ];
+      query.$and = (query.$and || []).concat([
+        {
+          $or: [
+            { orderCode: searchRegex },
+            { customerName: searchRegex },
+            { cnic: searchRegex },
+            { plotNo: searchRegex },
+            { customerAddress: searchRegex },
+            { mobileNumber: searchRegex }
+          ]
+        }
+      ]);
     }
     if (sector && sector.trim()) query.sector = new RegExp(sector.trim(), 'i');
     if (status && status.trim()) query.status = new RegExp(status.trim(), 'i');
+
+    // Optional: filter assignments by a specific recovery member's current assignment rules
+    if (memberId && String(memberId).trim()) {
+      const rules = await RecoveryTaskAssignmentRule.find({
+        isActive: true,
+        assignedTo: String(memberId).trim()
+      }).lean();
+      const sectorRules = rules.filter((r) => r.type === 'sector');
+      const slabRules = rules.filter((r) => r.type === 'slab');
+
+      const memberOrConditions = [];
+      const sectors = [...new Set(sectorRules.map((r) => (r.sector || '').trim()).filter(Boolean))];
+      if (sectors.length) memberOrConditions.push({ sector: { $in: sectors } });
+      slabRules.forEach((s) => {
+        const min = Number(s.minAmount) || 0;
+        const max = s.maxAmount != null && s.maxAmount !== '' ? Number(s.maxAmount) : null;
+        const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
+        const sectorVal = (s.sector || '').trim();
+        if (sectorVal) {
+          memberOrConditions.push({ sector: sectorVal, currentlyDue: dueCondition });
+        } else {
+          memberOrConditions.push({ currentlyDue: dueCondition });
+        }
+      });
+
+      // If selected member has no active rules, return empty quickly
+      if (memberOrConditions.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          pagination: { page: Math.max(1, parseInt(page, 10) || 1), limit: Math.min(100, Math.max(1, parseInt(limit, 10) || 50)), total: 0 }
+        });
+      }
+
+      query.$and = (query.$and || []).concat([{ $or: memberOrConditions }]);
+    }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const hasSearch = search && String(search).trim();

@@ -46,6 +46,7 @@ import {
   sendRecoveryWhatsApp,
   uploadWhatsAppMedia
 } from '../../../services/recoveryAssignmentService';
+import { fetchRecoveryMembers } from '../../../services/recoveryMemberService';
 
 const formatCurrency = (val) => {
   const n = Number(val);
@@ -98,6 +99,8 @@ const RecoveryAssignments = () => {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [sectorFilter, setSectorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [memberFilter, setMemberFilter] = useState('');
+  const [members, setMembers] = useState([]);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -132,7 +135,7 @@ const RecoveryAssignments = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, memberFilter]
   });
 
   const loadAssignments = useCallback(async () => {
@@ -144,6 +147,7 @@ const RecoveryAssignments = () => {
         ...(searchDebounced.trim() && { search: searchDebounced.trim(), page: 1, limit: 10000 }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
+        ...(memberFilter && { memberId: memberFilter }),
         ...(unreadFilter === 'unread' && { unread: 'true' })
       };
       const res = await fetchRecoveryAssignments(params);
@@ -161,7 +165,7 @@ const RecoveryAssignments = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, memberFilter, pagination.page, pagination.rowsPerPage]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -170,6 +174,15 @@ const RecoveryAssignments = () => {
       setStats({ total: d.total || 0, sectors: d.sectors || [], statuses: d.statuses || [] });
     } catch {
       setStats({ total: 0, sectors: [], statuses: [] });
+    }
+  }, []);
+
+  const loadMembers = useCallback(async () => {
+    try {
+      const res = await fetchRecoveryMembers({ isActive: 'true' });
+      setMembers(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch {
+      setMembers([]);
     }
   }, []);
 
@@ -284,8 +297,8 @@ const RecoveryAssignments = () => {
 
   useEffect(() => {
     // Run stats and numbers-with-messages in parallel (assignments loads first for main content)
-    Promise.all([loadStats(), loadNumbersWithMessages()]).catch(() => {});
-  }, [loadStats, loadNumbersWithMessages]);
+    Promise.all([loadStats(), loadNumbersWithMessages(), loadMembers()]).catch(() => {});
+  }, [loadStats, loadNumbersWithMessages, loadMembers]);
 
   // Periodically refresh unread counters so new incoming messages update the badges
   useEffect(() => {
@@ -298,6 +311,7 @@ const RecoveryAssignments = () => {
   const handleSearchChange = (e) => setSearch(e.target.value);
   const handleSectorChange = (e) => setSectorFilter(e.target.value || '');
   const handleStatusChange = (e) => setStatusFilter(e.target.value || '');
+  const handleMemberChange = (e) => setMemberFilter(e.target.value || '');
   const handleUnreadFilterChange = (e) => {
     const v = e.target.value || 'all';
     setSearchParams((prev) => {
@@ -487,6 +501,21 @@ const RecoveryAssignments = () => {
                 {stats.statuses.map((s) => (
                   <MenuItem key={s} value={s}>{s}</MenuItem>
                 ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 220 }}>
+              <InputLabel>Member</InputLabel>
+              <Select value={memberFilter} onChange={handleMemberChange} label="Member">
+                <MenuItem value="">All members</MenuItem>
+                {members.map((m) => {
+                  const fullName = [m?.employee?.firstName, m?.employee?.lastName].filter(Boolean).join(' ').trim();
+                  const label = fullName || m?.employee?.employeeId || '—';
+                  return (
+                    <MenuItem key={m._id} value={m._id}>
+                      {label}{m?.employee?.employeeId ? ` (${m.employee.employeeId})` : ''}
+                    </MenuItem>
+                  );
+                })}
               </Select>
             </FormControl>
             <FormControl size="small" sx={{ minWidth: 160 }}>

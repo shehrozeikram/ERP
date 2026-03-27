@@ -115,6 +115,7 @@ const MyTasks = () => {
   const [completingId, setCompletingId] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [selectedAssignmentIds, setSelectedAssignmentIds] = useState([]);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -266,12 +267,25 @@ const MyTasks = () => {
   const handleOpenWhatsApp = (row) => {
     setWhatsappRow(row);
     setSelectedCampaignId('');
+    setSelectedAssignmentIds(row?._id ? [row._id] : []);
+    setWhatsappDialogOpen(true);
+  };
+
+  const handleOpenBulkWhatsApp = () => {
+    const selectedRows = records.filter((r) => selectedAssignmentIds.includes(r._id));
+    if (selectedRows.length === 0) {
+      setSnackbar({ open: true, message: 'Select at least one person', severity: 'warning' });
+      return;
+    }
+    setWhatsappRow(selectedRows[0] || null);
+    setSelectedCampaignId('');
     setWhatsappDialogOpen(true);
   };
 
   const handleCloseWhatsApp = () => {
     setWhatsappDialogOpen(false);
     setWhatsappRow(null);
+    setSelectedAssignmentIds([]);
   };
 
   const handleOpenInWhatsApp = () => {
@@ -293,23 +307,54 @@ const MyTasks = () => {
     if (sendingViaApi) return;
     setSendingViaApi(true);
     try {
-      if (!whatsappRow) {
+      const selectedRows = selectedAssignmentIds.length > 0
+        ? records.filter((r) => selectedAssignmentIds.includes(r._id))
+        : (whatsappRow ? [whatsappRow] : []);
+      if (selectedRows.length === 0) {
         throw new Error('No task selected');
       }
-      const num = normalizeWhatsAppNumber(whatsappRow.mobileNumber);
-      if (!num) {
-        throw new Error('No valid mobile number');
-      }
       const campaign = campaigns.find((c) => c._id === selectedCampaignId);
-      await sendRecoveryWhatsApp({
-        to: num,
-        assignmentId: whatsappRow._id,
-        campaignName: campaign?.whatsappTemplateName
-          ? `${campaign.whatsappTemplateName}${campaign.whatsappLanguageCode ? ` (${campaign.whatsappLanguageCode})` : ''}`
-          : 'WhatsApp campaign',
-        campaignId: campaign?._id
-      });
-      setSnackbar({ open: true, message: 'Campaign sent via WhatsApp API.', severity: 'success' });
+      if (!campaign?._id) {
+        throw new Error('Please select a campaign');
+      }
+      let successCount = 0;
+      let failedCount = 0;
+      for (const row of selectedRows) {
+        const num = normalizeWhatsAppNumber(row.mobileNumber);
+        if (!num) {
+          failedCount += 1;
+          continue;
+        }
+        try {
+          await sendRecoveryWhatsApp({
+            to: num,
+            assignmentId: row._id,
+            campaignName: campaign.whatsappTemplateName
+              ? `${campaign.whatsappTemplateName}${campaign.whatsappLanguageCode ? ` (${campaign.whatsappLanguageCode})` : ''}`
+              : 'WhatsApp campaign',
+            campaignId: campaign._id
+          });
+          successCount += 1;
+        } catch {
+          failedCount += 1;
+        }
+      }
+      await loadMyTasks();
+      if (successCount > 0 && failedCount === 0) {
+        setSnackbar({
+          open: true,
+          message: `Campaign sent to ${successCount} ${successCount === 1 ? 'person' : 'people'}.`,
+          severity: 'success'
+        });
+      } else if (successCount > 0 && failedCount > 0) {
+        setSnackbar({
+          open: true,
+          message: `Sent to ${successCount}, failed for ${failedCount}.`,
+          severity: 'warning'
+        });
+      } else {
+        throw new Error('Failed to send campaign to selected people');
+      }
       handleCloseWhatsApp();
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Failed to send via WhatsApp API';
@@ -489,8 +534,16 @@ const MyTasks = () => {
     if (whatsappDialogOpen) loadCampaigns();
   }, [whatsappDialogOpen, loadCampaigns]);
 
+  useEffect(() => {
+    const visibleIds = new Set(records.map((r) => r._id));
+    setSelectedAssignmentIds((prev) => prev.filter((id) => visibleIds.has(id)));
+  }, [records]);
+
   const selectedCampaign = campaigns.find((c) => c._id === selectedCampaignId);
   const previewMessage = ''; // Meta templates; no message preview
+  const selectedRowsCount = selectedAssignmentIds.length;
+  const allSelectableRows = records.filter((row) => showWhatsApp(row));
+  const allSelected = allSelectableRows.length > 0 && selectedRowsCount === allSelectableRows.length;
 
   const selectedTask = useMemo(
     () => tasks.find((t) => t._id === selectedTaskId) || null,
@@ -579,6 +632,16 @@ const MyTasks = () => {
                 <Typography variant="body2" color="text.secondary">
                   {pagination.total} task{pagination.total !== 1 ? 's' : ''} assigned
                 </Typography>
+                <Button
+                  variant="contained"
+                  size="small"
+                  sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}
+                  disabled={selectedRowsCount === 0}
+                  onClick={handleOpenBulkWhatsApp}
+                  startIcon={<WhatsAppIcon />}
+                >
+                  Send campaign ({selectedRowsCount})
+                </Button>
               </Box>
 
               {loading ? (
@@ -593,6 +656,19 @@ const MyTasks = () => {
                     <Table size="small" stickyHeader>
                       <TableHead>
                         <TableRow>
+                          <TableCell padding="checkbox" sx={{ bgcolor: 'grey.50' }}>
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedAssignmentIds(allSelectableRows.map((r) => r._id));
+                                } else {
+                                  setSelectedAssignmentIds([]);
+                                }
+                              }}
+                            />
+                          </TableCell>
                           <TableCell sx={{ minWidth: 90, fontWeight: 600, bgcolor: 'grey.50' }}>Order Code</TableCell>
                           <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Customer Name</TableCell>
                           <TableCell sx={{ minWidth: 110, fontWeight: 600, bgcolor: 'grey.50' }}>Booking Date</TableCell>
@@ -610,6 +686,19 @@ const MyTasks = () => {
                       <TableBody>
                         {records.map((row) => (
                           <TableRow key={row._id} hover>
+                            <TableCell padding="checkbox">
+                              <input
+                                type="checkbox"
+                                disabled={!showWhatsApp(row)}
+                                checked={selectedAssignmentIds.includes(row._id)}
+                                onChange={(e) => {
+                                  setSelectedAssignmentIds((prev) => {
+                                    if (e.target.checked) return [...new Set([...prev, row._id])];
+                                    return prev.filter((id) => id !== row._id);
+                                  });
+                                }}
+                              />
+                            </TableCell>
                             <TableCell>{row.orderCode ?? '—'}</TableCell>
                             <TableCell>{row.customerName ?? '—'}</TableCell>
                             <TableCell>{formatDate(row.bookingDate)}</TableCell>
@@ -736,7 +825,9 @@ const MyTasks = () => {
           {whatsappRow && (
             <>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }}>
-                To: {whatsappRow.customerName} — {whatsappRow.mobileNumber}
+                To: {selectedRowsCount > 1
+                  ? `${selectedRowsCount} selected people`
+                  : `${whatsappRow.customerName} — ${whatsappRow.mobileNumber}`}
               </Typography>
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Campaign (message template)</InputLabel>
@@ -769,9 +860,9 @@ const MyTasks = () => {
         <DialogActions>
           <Button onClick={handleCloseWhatsApp}>Cancel</Button>
           <Button variant="contained" onClick={handleSendViaApi} disabled={sendingViaApi} sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1da851' } }}>
-            {sendingViaApi ? <CircularProgress size={24} color="inherit" /> : 'Send message'}
+            {sendingViaApi ? <CircularProgress size={24} color="inherit" /> : `Send ${selectedRowsCount > 1 ? `to ${selectedRowsCount}` : 'message'}`}
           </Button>
-          <Button variant="outlined" onClick={handleOpenInWhatsApp} disabled={!normalizeWhatsAppNumber(whatsappRow?.mobileNumber)}>
+          <Button variant="outlined" onClick={handleOpenInWhatsApp} disabled={selectedRowsCount > 1 || !normalizeWhatsAppNumber(whatsappRow?.mobileNumber)}>
             Open in WhatsApp
           </Button>
         </DialogActions>
