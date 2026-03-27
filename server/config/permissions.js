@@ -77,6 +77,7 @@ const SUBMODULES = {
     'reports'
   ],
   [MODULES.FINANCE]: [
+    'finance_dashboard',
     'chart_of_accounts',
     'journal_entries',
     'general_ledger',

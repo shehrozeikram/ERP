@@ -231,6 +231,7 @@ export const SUBMODULES = {
     'reports'
   ],
   [MODULE_KEYS.FINANCE]: [
+    'finance_dashboard',
     'chart_of_accounts',
     'journal_entries',
     'general_ledger',
@@ -1104,6 +1105,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
       
       // Finance Module
+      '/finance': 'finance_dashboard',
       '/finance/accounts': 'chart_of_accounts',
       '/finance/journal-entries': 'journal_entries',
       '/finance/general-ledger': 'general_ledger',

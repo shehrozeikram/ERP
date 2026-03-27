@@ -147,6 +147,7 @@ const Sidebar = () => {
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
       
       // Finance Module
+      '/finance': 'finance_dashboard',
       '/finance/accounts': 'chart_of_accounts',
       '/finance/journal-entries': 'journal_entries',
       '/finance/general-ledger': 'general_ledger',
