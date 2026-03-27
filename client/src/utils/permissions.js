@@ -255,7 +255,9 @@ export const SUBMODULES = {
     'recovery_assignments',
     'recovery_members',
     'recovery_task_assignment',
-    'recovery_completed_tasks'
+    'recovery_completed_tasks',
+    'recovery_campaigns',
+    'recovery_my_tasks'
   ],
   [MODULE_KEYS.PROCUREMENT]: [
     'procurement_requisitions',
@@ -1130,6 +1132,8 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/recovery/recovery-members': 'recovery_members',
       '/finance/recovery/task-assignment': 'recovery_task_assignment',
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
+      '/finance/recovery/campaigns': 'recovery_campaigns',
+      '/finance/recovery/my-tasks': 'recovery_my_tasks',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module

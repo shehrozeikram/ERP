@@ -173,6 +173,8 @@ const Sidebar = () => {
       '/finance/recovery/recovery-members': 'recovery_members',
       '/finance/recovery/task-assignment': 'recovery_task_assignment',
       '/finance/recovery/completed-tasks': 'recovery_completed_tasks',
+      '/finance/recovery/campaigns': 'recovery_campaigns',
+      '/finance/recovery/my-tasks': 'recovery_my_tasks',
       '/finance/reports': 'financial_reports',
       
       // Procurement Module (must match permissions.js / Role Permission Matrix submodule keys)

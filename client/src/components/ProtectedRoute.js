@@ -2,7 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Alert } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
-import { isRouteAccessible, hasModuleAccess, hasModuleAccessViaRoleRef } from '../utils/permissions';
+import { isRouteAccessible } from '../utils/permissions';
 
 const ProtectedRoute = ({ children, requiredRole = null }) => {
   const { user, loading } = useAuth();
@@ -71,64 +71,10 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
     );
   }
 
-  // Check specific role requirement if provided
-  if (requiredRole) {
-    const allowedRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    const userRole = user.role;
-
-    // Check exact role match (legacy)
-    if (allowedRoles.includes(userRole)) {
-      // User has exact role match, allow access
-    } else {
-      // Map module-manager roles to module keys for permission check
-      const roleToModule = {
-        finance_manager: 'finance',
-        tcm_manager: 'finance',
-        hr_manager: 'hr',
-        audit_manager: 'audit',
-        procurement_manager: 'procurement',
-        sales_manager: 'sales',
-        crm_manager: 'crm',
-        it_manager: 'it',
-        taj_residencia_manager: 'taj_residencia',
-        appraisal_manager: 'appraisal_manager'
-      };
-
-      let hasModuleAccessForRole = false;
-      for (const role of allowedRoles) {
-        const moduleKey = roleToModule[role];
-        if (moduleKey) {
-          if (hasModuleAccess(userRole, moduleKey) || hasModuleAccessViaRoleRef(user, moduleKey)) {
-            hasModuleAccessForRole = true;
-            break;
-          }
-        }
-      }
-
-      if (!hasModuleAccessForRole) {
-        const displayRole = user.roleRef?.name || user.roleRef?.displayName || user.role;
-        return (
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            minHeight="100vh"
-            sx={{ p: 3 }}
-          >
-            <Alert severity="error" sx={{ maxWidth: 600 }}>
-              <Typography variant="h6" gutterBottom>
-                Insufficient Permissions
-              </Typography>
-              <Typography variant="body1">
-                This page requires one of the following roles: <strong>{allowedRoles.join(', ')}</strong>.
-                Your current role is <strong>{displayRole}</strong>.
-              </Typography>
-            </Alert>
-          </Box>
-        );
-      }
-    }
-  }
+  // NOTE:
+  // Access is controlled dynamically by route/submodule permissions in isRouteAccessible.
+  // We intentionally do not enforce requiredRole here to avoid hardcoded role gates.
+  // (requiredRole prop is retained for backward compatibility and messaging only.)
 
   return children;
 };

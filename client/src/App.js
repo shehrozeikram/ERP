@@ -1073,7 +1073,7 @@ function App() {
             <Route
               path="/finance/recovery/recovery-assignments"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute>
                   <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
                     <RecoveryAssignments />
                   </Suspense>
@@ -1083,7 +1083,7 @@ function App() {
             <Route
               path="/finance/recovery/recovery-members"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute>
                   <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
                     <RecoveryMembers />
                   </Suspense>
@@ -1093,7 +1093,7 @@ function App() {
             <Route
               path="/finance/recovery/task-assignment"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute>
                   <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
                     <RecoveryTaskAssignment />
                   </Suspense>
@@ -1103,7 +1103,7 @@ function App() {
             <Route
               path="/finance/recovery/completed-tasks"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute>
                   <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
                     <CompletedTasks />
                   </Suspense>
@@ -1113,7 +1113,7 @@ function App() {
             <Route
               path="/finance/recovery/campaigns"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute>
                   <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
                     <RecoveryCampaigns />
                   </Suspense>
@@ -1123,7 +1123,7 @@ function App() {
             <Route
               path="/finance/recovery/my-tasks"
               element={
-                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}>
+                <ProtectedRoute>
                   <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}><CircularProgress /></Box>}>
                     <MyTasks />
                   </Suspense>
