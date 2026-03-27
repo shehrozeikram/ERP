@@ -2008,6 +2008,10 @@ router.get('/inventory',
     const items = await Inventory.find(query)
       .populate('supplier', 'name contactPerson')
       .populate('createdBy', 'firstName lastName')
+      .populate('inventoryAccount', 'accountNumber name type')
+      .populate('cogsAccount', 'accountNumber name type')
+      .populate('salesAccount', 'accountNumber name type')
+      .populate('purchaseAccount', 'accountNumber name type')
       .sort({ name: 1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -2063,7 +2067,11 @@ router.get('/inventory/:id',
     const item = await Inventory.findById(req.params.id)
       .populate('supplier', 'name contactPerson email phone')
       .populate('createdBy', 'firstName lastName email')
-      .populate('transactions.performedBy', 'firstName lastName');
+      .populate('transactions.performedBy', 'firstName lastName')
+      .populate('inventoryAccount', 'accountNumber name type')
+      .populate('cogsAccount', 'accountNumber name type')
+      .populate('salesAccount', 'accountNumber name type')
+      .populate('purchaseAccount', 'accountNumber name type');
 
     if (!item) {
       return res.status(404).json({
@@ -2523,8 +2531,29 @@ router.post('/goods-receive',
       { path: 'supplier', select: 'name contactPerson supplierId address' },
       { path: 'purchaseOrder', select: 'orderNumber' },
       { path: 'receivedBy', select: 'firstName lastName' },
-      { path: 'items.inventoryItem' }
+      { path: 'items.inventoryItem', populate: { path: 'inventoryAccount cogsAccount purchaseAccount salesAccount', select: 'accountNumber name type' } }
     ]);
+
+    // Auto-post GRN journal entries for items linked to finance accounts
+    const FinanceHelper = require('../utils/financeHelper');
+    for (const grnItem of receive.items) {
+      const inv = grnItem.inventoryItem;
+      if (inv && inv.inventoryAccount && inv.purchaseAccount) {
+        // Use _id if populated, otherwise use the value directly
+        const normalizedInv = {
+          ...inv.toObject ? inv.toObject() : inv,
+          inventoryAccount: inv.inventoryAccount?._id || inv.inventoryAccount,
+          purchaseAccount: inv.purchaseAccount?._id || inv.purchaseAccount
+        };
+        await FinanceHelper.postGRNJournal({
+          inventoryItem: normalizedInv,
+          grnDoc: receive,
+          qty: grnItem.quantity,
+          unitPrice: grnItem.unitPrice,
+          createdBy: req.user.id
+        });
+      }
+    }
 
     // Update PO status to GRN Created when GRN is created
     if (purchaseOrder) {

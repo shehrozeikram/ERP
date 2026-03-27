@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const FinanceHelper = require('../../utils/financeHelper');
 
 const goodsIssueSchema = new mongoose.Schema({
   issueNumber: {
@@ -237,6 +238,16 @@ goodsIssueSchema.post('save', async function(doc) {
             item.notes || `Issued via ${issueNumber} (Store Issue Note)`,
             doc.issuedBy
           );
+
+          // Auto-post COGS journal if the item has finance accounts configured
+          if (inventory.cogsAccount && inventory.inventoryAccount) {
+            await FinanceHelper.postSINJournal({
+              inventoryItem: inventory,
+              sinDoc: doc,
+              qty,
+              createdBy: doc.issuedBy
+            });
+          }
 
           // Resolve sub-store: item-level overrides document-level
           const txStoreId = item.subStore?._id || item.subStore || storeId;

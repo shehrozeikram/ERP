@@ -29,7 +29,8 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
-  Stack
+  Stack,
+  Tooltip
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -729,17 +730,24 @@ const IndentsList = () => {
                             </IconButton>
                           </>
                         )}
-                        {['super_admin', 'admin'].includes(user?.role) && (
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => {
-                              setSelectedIndent(item);
-                              setDeleteDialogOpen(true);
-                            }}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
+                        {(['super_admin', 'admin'].includes(user?.role) ||
+                          (item.status === 'Draft' && item.requestedBy?._id === user?.id)) && (
+                          <Tooltip title={
+                            ['super_admin', 'admin'].includes(user?.role)
+                              ? 'Delete indent'
+                              : 'Delete your draft indent'
+                          }>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => {
+                                setSelectedIndent(item);
+                                setDeleteDialogOpen(true);
+                              }}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
                         )}
                       </Stack>
                     </TableCell>

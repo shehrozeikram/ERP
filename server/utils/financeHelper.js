@@ -399,6 +399,76 @@ const FinanceHelper = {
   },
 
   /**
+   * Post journal entry for a Goods Received Note (GRN).
+   * DR Inventory Account, CR Purchase/AP Account.
+   * Called per-item when inventory has accounts configured.
+   * Safe to call – silently skips if accounts are missing or amount is zero.
+   */
+  postGRNJournal: async ({ inventoryItem, grnDoc, qty, unitPrice, createdBy }) => {
+    try {
+      const inventoryAccountId = inventoryItem.inventoryAccount;
+      const purchaseAccountId = inventoryItem.purchaseAccount;
+      if (!inventoryAccountId || !purchaseAccountId) return;
+
+      const amount = Math.round((Number(qty) || 0) * (Number(unitPrice) || 0) * 100) / 100;
+      if (amount <= 0) return;
+
+      const referenceNumber = grnDoc.receiveNumber || grnDoc._id?.toString() || 'GRN';
+      await FinanceHelper.createAndPostJournalEntry({
+        date: grnDoc.receiveDate || new Date(),
+        reference: referenceNumber,
+        description: `GRN ${referenceNumber}: Stock received – ${inventoryItem.name}`,
+        department: 'procurement',
+        module: 'procurement',
+        referenceId: grnDoc._id,
+        referenceType: 'grn',
+        createdBy,
+        lines: [
+          { account: inventoryAccountId, description: `Inventory in – ${inventoryItem.name}`, debit: amount, department: 'procurement' },
+          { account: purchaseAccountId, description: `Purchase payable – ${inventoryItem.name}`, credit: amount, department: 'procurement' }
+        ]
+      });
+    } catch (err) {
+      console.error('❌ FinanceHelper.postGRNJournal error:', err.message);
+    }
+  },
+
+  /**
+   * Post journal entry for a Store Issue Note (SIN).
+   * DR COGS Account, CR Inventory Account.
+   * Called per-item when inventory has accounts configured.
+   * Safe to call – silently skips if accounts are missing or amount is zero.
+   */
+  postSINJournal: async ({ inventoryItem, sinDoc, qty, createdBy }) => {
+    try {
+      const cogsAccountId = inventoryItem.cogsAccount;
+      const inventoryAccountId = inventoryItem.inventoryAccount;
+      if (!cogsAccountId || !inventoryAccountId) return;
+
+      const amount = Math.round((Number(qty) || 0) * (Number(inventoryItem.unitPrice) || 0) * 100) / 100;
+      if (amount <= 0) return;
+
+      const referenceNumber = sinDoc.issueNumber || sinDoc.sinNumber || sinDoc._id?.toString() || 'SIN';
+      await FinanceHelper.createAndPostJournalEntry({
+        date: sinDoc.issueDate || new Date(),
+        reference: referenceNumber,
+        description: `SIN ${referenceNumber}: Stock issued – ${inventoryItem.name}`,
+        department: 'procurement',
+        module: 'procurement',
+        referenceId: sinDoc._id,
+        referenceType: 'sin',
+        createdBy,
+        lines: [
+          { account: cogsAccountId, description: `COGS – ${inventoryItem.name}`, debit: amount, department: 'procurement' },
+          { account: inventoryAccountId, description: `Inventory out – ${inventoryItem.name}`, credit: amount, department: 'procurement' }
+        ]
+      });
+    } catch (err) {
+      console.error('❌ FinanceHelper.postSINJournal error:', err.message);
+    }
+  },
+
+  /**
    * Record Payroll Accrual (Expense)
    */
   recordPayrollAccrual: async (payroll, createdBy) => {

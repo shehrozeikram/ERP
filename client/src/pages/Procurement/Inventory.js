@@ -34,7 +34,8 @@ import {
   ListItem,
   ListItemText,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  Divider
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -64,6 +65,9 @@ const Inventory = () => {
   const [items, setItems] = useState([]);
   const [statistics, setStatistics] = useState(null);
   const [vendors, setVendors] = useState([]);
+  const [coaAccounts, setCoaAccounts] = useState([]);
+  const [coaLoading, setCoaLoading] = useState(false);
+  const [formTab, setFormTab] = useState(0);
   
   // Pagination and filters
   const [page, setPage] = useState(0);
@@ -91,7 +95,11 @@ const Inventory = () => {
     unitPrice: 0,
     supplier: '',
     location: { rack: '', shelf: '', bin: '' },
-    notes: ''
+    notes: '',
+    inventoryAccount: '',
+    cogsAccount: '',
+    salesAccount: '',
+    purchaseAccount: ''
   });
 
   // Stock form data
@@ -100,6 +108,20 @@ const Inventory = () => {
     reference: '',
     notes: ''
   });
+
+  const loadCoaAccounts = useCallback(async () => {
+    if (coaAccounts.length > 0) return;
+    try {
+      setCoaLoading(true);
+      const res = await api.get('/finance/accounts', { params: { limit: 5000, isActive: true } });
+      const list = res.data?.data?.accounts || res.data?.data || [];
+      setCoaAccounts(Array.isArray(list) ? list : []);
+    } catch {
+      // silently ignore – finance module may not be accessible for this role
+    } finally {
+      setCoaLoading(false);
+    }
+  }, [coaAccounts.length]);
 
   // Load data on component mount
   useEffect(() => {
@@ -167,9 +189,15 @@ const Inventory = () => {
       unitPrice: 0,
       supplier: '',
       location: { rack: '', shelf: '', bin: '' },
-      notes: ''
+      notes: '',
+      inventoryAccount: '',
+      cogsAccount: '',
+      salesAccount: '',
+      purchaseAccount: ''
     });
+    setFormTab(0);
     setFormDialog({ open: true, mode: 'create', data: null });
+    loadCoaAccounts();
   };
 
   const handleEdit = (item) => {
@@ -184,9 +212,15 @@ const Inventory = () => {
       unitPrice: item.unitPrice,
       supplier: item.supplier?._id || '',
       location: { rack: item.location?.rack || '', shelf: item.location?.shelf || '', bin: item.location?.bin || '' },
-      notes: item.notes || ''
+      notes: item.notes || '',
+      inventoryAccount: item.inventoryAccount?._id || item.inventoryAccount || '',
+      cogsAccount: item.cogsAccount?._id || item.cogsAccount || '',
+      salesAccount: item.salesAccount?._id || item.salesAccount || '',
+      purchaseAccount: item.purchaseAccount?._id || item.purchaseAccount || ''
     });
+    setFormTab(0);
     setFormDialog({ open: true, mode: 'edit', data: item });
+    loadCoaAccounts();
   };
 
   const handleView = (item) => {
@@ -545,7 +579,14 @@ const Inventory = () => {
         <DialogTitle>
           {formDialog.mode === 'create' ? 'Add New Item' : 'Edit Item'}
         </DialogTitle>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
+          <Tabs value={formTab} onChange={(_, v) => setFormTab(v)}>
+            <Tab label="Item Details" />
+            <Tab label="Finance / Accounts" />
+          </Tabs>
+        </Box>
         <DialogContent>
+          {formTab === 0 && (
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} md={6}>
               <TextField
@@ -690,6 +731,136 @@ const Inventory = () => {
               />
             </Grid>
           </Grid>
+          )}
+
+          {formTab === 1 && (
+            <Box sx={{ mt: 2 }}>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Link this item to Chart of Accounts. When stock is issued (SIN), the system will automatically post a journal entry: <strong>DR COGS Account / CR Inventory Account</strong>. When stock is received (GRN), it will post: <strong>DR Inventory Account / CR Purchase Account</strong>.
+              </Alert>
+
+              {coaLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : (
+                <Grid container spacing={3}>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 1 }}>
+                      Asset Accounts
+                    </Typography>
+                    <Divider sx={{ mb: 2 }} />
+                  </Grid>
+
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      select
+                      label="Inventory Account (Asset)"
+                      value={formData.inventoryAccount}
+                      onChange={(e) => setFormData({ ...formData, inventoryAccount: e.target.value })}
+                      helperText="Used to record stock value on GRN / SIN"
+                      size="small"
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      {coaAccounts
+                        .filter(a => a.type === 'Asset' || a.type === 'asset')
+                        .map(a => (
+                          <MenuItem key={a._id} value={a._id}>
+                            {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 1, mt: 1 }}>
+                      Expense Accounts
+                    </Typography>
+                    <Divider sx={{ mb: 2 }} />
+                  </Grid>
+
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      select
+                      label="COGS Account (Expense)"
+                      value={formData.cogsAccount}
+                      onChange={(e) => setFormData({ ...formData, cogsAccount: e.target.value })}
+                      helperText="Debited when stock is issued via SIN"
+                      size="small"
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      {coaAccounts
+                        .filter(a => a.type === 'Expense' || a.type === 'expense')
+                        .map(a => (
+                          <MenuItem key={a._id} value={a._id}>
+                            {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                  </Grid>
+
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      select
+                      label="Purchase Account (Expense)"
+                      value={formData.purchaseAccount}
+                      onChange={(e) => setFormData({ ...formData, purchaseAccount: e.target.value })}
+                      helperText="Credited when stock is received via GRN"
+                      size="small"
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      {coaAccounts
+                        .filter(a => a.type === 'Expense' || a.type === 'expense' || a.type === 'Liability' || a.type === 'liability')
+                        .map(a => (
+                          <MenuItem key={a._id} value={a._id}>
+                            {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 1, mt: 1 }}>
+                      Revenue Accounts
+                    </Typography>
+                    <Divider sx={{ mb: 2 }} />
+                  </Grid>
+
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      select
+                      label="Sales Account (Revenue)"
+                      value={formData.salesAccount}
+                      onChange={(e) => setFormData({ ...formData, salesAccount: e.target.value })}
+                      helperText="Used when items are sold (future sales flow)"
+                      size="small"
+                    >
+                      <MenuItem value=""><em>None</em></MenuItem>
+                      {coaAccounts
+                        .filter(a => a.type === 'Revenue' || a.type === 'revenue' || a.type === 'Income' || a.type === 'income')
+                        .map(a => (
+                          <MenuItem key={a._id} value={a._id}>
+                            {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                  </Grid>
+
+                  {coaAccounts.length === 0 && !coaLoading && (
+                    <Grid item xs={12}>
+                      <Alert severity="warning">
+                        No Chart of Accounts found. Please set up accounts in the Finance module first.
+                      </Alert>
+                    </Grid>
+                  )}
+                </Grid>
+              )}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setFormDialog({ open: false, mode: 'create', data: null })}>
@@ -719,6 +890,7 @@ const Inventory = () => {
               <Tabs value={viewDialog.tab} onChange={(e, v) => setViewDialog({ ...viewDialog, tab: v })}>
                 <Tab label="Details" />
                 <Tab label="Transactions" />
+                <Tab label="Finance" />
               </Tabs>
               
               {viewDialog.tab === 0 && (
@@ -820,6 +992,39 @@ const Inventory = () => {
                     </Typography>
                   )}
                 </List>
+              )}
+
+              {viewDialog.tab === 2 && (
+                <Grid container spacing={2} sx={{ mt: 1 }}>
+                  {[
+                    { label: 'Inventory Account (Asset)', field: 'inventoryAccount', color: 'primary' },
+                    { label: 'COGS Account (Expense)', field: 'cogsAccount', color: 'error' },
+                    { label: 'Purchase Account', field: 'purchaseAccount', color: 'warning' },
+                    { label: 'Sales Account (Revenue)', field: 'salesAccount', color: 'success' }
+                  ].map(({ label, field, color }) => (
+                    <Grid item xs={12} md={6} key={field}>
+                      <Typography variant="body2" color="text.secondary">{label}</Typography>
+                      {viewDialog.data[field] ? (
+                        <Chip
+                          size="small"
+                          color={color}
+                          variant="outlined"
+                          label={`${viewDialog.data[field].accountNumber ? viewDialog.data[field].accountNumber + ' – ' : ''}${viewDialog.data[field].name}`}
+                          sx={{ mt: 0.5 }}
+                        />
+                      ) : (
+                        <Typography variant="body2" color="text.disabled" sx={{ mt: 0.5 }}>Not linked</Typography>
+                      )}
+                    </Grid>
+                  ))}
+                  {!viewDialog.data.inventoryAccount && !viewDialog.data.cogsAccount && (
+                    <Grid item xs={12}>
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        No finance accounts linked. Edit this item and go to the Finance tab to link Chart of Accounts.
+                      </Alert>
+                    </Grid>
+                  )}
+                </Grid>
               )}
             </Box>
           )}

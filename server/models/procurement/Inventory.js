@@ -105,6 +105,23 @@ const inventorySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  // Finance / Chart of Accounts linkage
+  inventoryAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account'
+  },
+  cogsAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account'
+  },
+  salesAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account'
+  },
+  purchaseAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account'
+  },
   transactions: [{
     type: {
       type: String,

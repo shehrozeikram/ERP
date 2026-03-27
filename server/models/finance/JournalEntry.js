@@ -39,7 +39,7 @@ const journalEntrySchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual'],
+    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual', 'grn', 'sin'],
     default: 'manual'
   },
   // Journal entry lines
