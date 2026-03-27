@@ -72,6 +72,12 @@ const IndentForm = () => {
   const [itemOptionsLoading, setItemOptionsLoading] = useState(false);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const [departmentOptions, setDepartmentOptions] = useState([]);
+  const [erpRefError, setErpRefError] = useState('');
+  const [erpRefChecking, setErpRefChecking] = useState(false);
+  const erpRefDebounceRef = useRef(null);
+  const [indentNoError, setIndentNoError] = useState('');
+  const [indentNoChecking, setIndentNoChecking] = useState(false);
+  const indentNoDebounceRef = useRef(null);
   const itemOptionsReqSeq = useRef(0);
   const lastLoadedCategoryRef = useRef('');
 
@@ -227,6 +233,54 @@ const IndentForm = () => {
       ...prev,
       [field]: value
     }));
+
+    if (field === 'erpRef') {
+      setErpRefError('');
+      if (erpRefDebounceRef.current) clearTimeout(erpRefDebounceRef.current);
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return;
+      setErpRefChecking(true);
+      erpRefDebounceRef.current = setTimeout(async () => {
+        try {
+          const params = { value: trimmed };
+          if (isEdit && id) params.excludeId = id;
+          const res = await api.get('/indents/check-erpref', { params });
+          if (res.data?.exists) {
+            setErpRefError(`Already used by indent ${res.data.usedBy || '(another indent)'}. Choose a different ERP Ref.`);
+          } else {
+            setErpRefError('');
+          }
+        } catch {
+          // silently ignore network errors for this check
+        } finally {
+          setErpRefChecking(false);
+        }
+      }, 500);
+    }
+
+    if (field === 'indentNumber') {
+      setIndentNoError('');
+      if (indentNoDebounceRef.current) clearTimeout(indentNoDebounceRef.current);
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return;
+      setIndentNoChecking(true);
+      indentNoDebounceRef.current = setTimeout(async () => {
+        try {
+          const params = { value: trimmed };
+          if (isEdit && id) params.excludeId = id;
+          const res = await api.get('/indents/check-indent-number', { params });
+          if (res.data?.exists) {
+            setIndentNoError(`Already taken. Choose a different Indent No.`);
+          } else {
+            setIndentNoError('');
+          }
+        } catch {
+          // silently ignore network errors for this check
+        } finally {
+          setIndentNoChecking(false);
+        }
+      }, 500);
+    }
   };
 
   const fetchCategories = async () => {
@@ -440,11 +494,9 @@ const IndentForm = () => {
         status: submitForApproval ? 'Submitted' : 'Draft'
       };
       
-      // Only include indentNumber if editing (backend auto-generates for new indents)
-      if (isEdit) {
-        if (formData.indentNumber) {
-          indentData.indentNumber = formData.indentNumber;
-        }
+      // Include indentNumber if the user has provided one; backend auto-generates if omitted
+      if (formData.indentNumber?.trim()) {
+        indentData.indentNumber = formData.indentNumber.trim();
       }
       // For new indents, if ERP Ref is empty backend auto-generates it
 
@@ -550,7 +602,17 @@ const IndentForm = () => {
               value={formData.erpRef}
               onChange={(e) => handleChange('erpRef', e.target.value)}
               size="small"
-              helperText="Editable"
+              error={!!erpRefError}
+              helperText={
+                erpRefChecking
+                  ? 'Checking availability…'
+                  : erpRefError || 'Editable – must be unique'
+              }
+              InputProps={{
+                endAdornment: erpRefChecking ? (
+                  <CircularProgress size={14} sx={{ mr: 0.5 }} />
+                ) : undefined
+              }}
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -581,9 +643,19 @@ const IndentForm = () => {
               fullWidth
               label="Indent No."
               value={formData.indentNumber}
-              InputProps={{ readOnly: true }}
+              onChange={(e) => handleChange('indentNumber', e.target.value)}
               size="small"
-              helperText="Auto-generated"
+              error={!!indentNoError}
+              helperText={
+                indentNoChecking
+                  ? 'Checking availability…'
+                  : indentNoError || 'Editable – must be unique'
+              }
+              InputProps={{
+                endAdornment: indentNoChecking ? (
+                  <CircularProgress size={14} sx={{ mr: 0.5 }} />
+                ) : undefined
+              }}
             />
           </Grid>
         </Grid>
@@ -954,7 +1026,8 @@ const IndentForm = () => {
             variant="contained"
             startIcon={<SaveIcon />}
             onClick={() => handleSubmit(false)}
-            disabled={loading}
+            disabled={loading || !!erpRefError || erpRefChecking || !!indentNoError || indentNoChecking}
+            title={indentNoError || erpRefError || ''}
           >
             {loading ? 'Saving...' : isEdit ? 'Update' : 'Save Draft'}
           </Button>
@@ -964,7 +1037,8 @@ const IndentForm = () => {
               color="success"
               startIcon={<SendIcon />}
               onClick={() => handleSubmit(true)}
-              disabled={loading}
+              disabled={loading || !!erpRefError || erpRefChecking || !!indentNoError || indentNoChecking}
+              title={indentNoError || erpRefError || ''}
             >
               {loading ? 'Submitting...' : 'Submit for Approval'}
             </Button>
