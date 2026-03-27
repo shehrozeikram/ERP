@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -50,7 +50,8 @@ import {
   ShoppingCart as ShoppingCartIcon,
   AdminPanelSettings as AdminIcon,
   Security as SecurityIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -246,10 +247,13 @@ const ChartOfAccounts = () => {
     accountType: '',
     detailType: '',
     parentAccount: '',
+    openingBalance: '',
+    openingBalanceAsOf: new Date().toISOString().slice(0, 10),
     description: '',
     isSubaccount: false
   });
   const [parentAccounts, setParentAccounts] = useState([]);
+  const [parentAccountsLoading, setParentAccountsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -269,10 +273,40 @@ const ChartOfAccounts = () => {
   };
 
   const openNewAccountDialog = () => {
-    setNewAccountForm({ name: '', section: '', accountType: '', detailType: '', parentAccount: '', description: '', isSubaccount: false });
+    setNewAccountForm({
+      name: '',
+      section: '',
+      accountType: '',
+      detailType: '',
+      parentAccount: '',
+      openingBalance: '',
+      openingBalanceAsOf: new Date().toISOString().slice(0, 10),
+      description: '',
+      isSubaccount: false
+    });
     fetchDetailTypes();
-    setParentAccounts(accounts.filter(a => a.type && a.isActive));
+    // Seed from currently loaded chart rows so dropdown is immediately usable
+    setParentAccounts((accounts || []).filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber)));
+    fetchParentAccounts();
     setNewAccountDialog(true);
+  };
+
+  const fetchParentAccounts = async () => {
+    setParentAccountsLoading(true);
+    try {
+      const response = await api.get('/finance/accounts?page=1&limit=10000&_t=' + new Date().getTime());
+      if (response.data?.success) {
+        const allAccounts = response.data?.data?.accounts || [];
+        // Keep broad list and filter at render-time; some legacy records may have missing flags
+        setParentAccounts(allAccounts.filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber)));
+        return;
+      }
+    } catch {
+      // fallback to current in-memory list
+    } finally {
+      setParentAccountsLoading(false);
+    }
+    setParentAccounts((accounts || []).filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber)));
   };
 
   const closeNewAccountDialog = () => {
@@ -294,6 +328,40 @@ const ChartOfAccounts = () => {
     const next = sameType.length ? Math.max(...sameType) + 1 : min;
     return String(next);
   };
+
+  const filteredParentAccounts = useMemo(() => {
+    const base = (parentAccounts && parentAccounts.length > 0 ? parentAccounts : accounts || []);
+    const active = base.filter((a) => a && (a._id || a.id) && (a.name || a.accountNumber));
+    if (!newAccountForm.accountType) return active;
+
+    const normalize = (v) => String(v || '').trim().toLowerCase();
+    const selectedType = normalize(newAccountForm.accountType);
+    const selectedSection = normalize(newAccountForm.section);
+
+    const exactTypeMatches = active.filter((a) =>
+      [a.category, a.accountType, a.name].some((v) => normalize(v) === selectedType)
+    );
+    if (exactTypeMatches.length > 0) return exactTypeMatches;
+
+    const sectionMatches = active.filter((a) => normalize(a.type) === selectedSection);
+    if (sectionMatches.length > 0) return sectionMatches;
+
+    return active;
+  }, [parentAccounts, accounts, newAccountForm.accountType, newAccountForm.section]);
+
+  useEffect(() => {
+    if (newAccountDialog && newAccountForm.isSubaccount) {
+      fetchParentAccounts();
+    }
+  }, [newAccountDialog, newAccountForm.isSubaccount]);
+
+  useEffect(() => {
+    if (!newAccountForm.parentAccount) return;
+    const parentStillValid = filteredParentAccounts.some((a) => a._id === newAccountForm.parentAccount);
+    if (!parentStillValid) {
+      setNewAccountForm((f) => ({ ...f, parentAccount: '' }));
+    }
+  }, [filteredParentAccounts, newAccountForm.parentAccount]);
 
   const handleCreateAccount = async () => {
     if (!newAccountForm.name?.trim()) {
@@ -319,6 +387,7 @@ const ChartOfAccounts = () => {
         name: newAccountForm.name.trim(),
         accountType: newAccountForm.accountType,
         detailType: newAccountForm.detailType,
+        balance: Number(newAccountForm.openingBalance) || 0,
         description: newAccountForm.description?.trim() || undefined,
         parentAccount: newAccountForm.isSubaccount && newAccountForm.parentAccount ? newAccountForm.parentAccount : undefined
       };
@@ -572,113 +641,59 @@ const ChartOfAccounts = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Account</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Category</TableCell>
-                  <TableCell>Department</TableCell>
-                  <TableCell align="right">Balance</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Actions</TableCell>
+                  <TableCell padding="checkbox">
+                    <Checkbox size="small" disabled />
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Account Type</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Detail Type</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>Balance</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>Bank Balance</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {Object.keys(groupedAccounts).map((type) => (
-                  <React.Fragment key={type}>
-                    {/* Type Header Row */}
-                    <TableRow sx={{ bgcolor: alpha(theme.palette[getAccountTypeColor(type)]?.main || theme.palette.primary.main, 0.1) }}>
-                      <TableCell colSpan={7}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                            {type}s ({groupedAccounts[type].length} accounts)
-                          </Typography>
-                          <Typography variant="body2" color="textSecondary" sx={{ ml: 'auto' }}>
-                            Total: {formatPKR(accountTypeTotals[type])}
-                          </Typography>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                    
-                    {/* Accounts in this type */}
-                    {groupedAccounts[type].map((account) => (
-                      <TableRow key={account._id} hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                              {account.accountNumber}
-                            </Typography>
-                            <Typography variant="body2">
-                              {account.name}
-                            </Typography>
-                          </Box>
-                          {account.description && (
-                            <Typography variant="caption" color="textSecondary">
-                              {account.description}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Chip 
-                            label={account.type} 
-                            size="small" 
-                            color={getAccountTypeColor(account.type)}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" color="textSecondary">
-                            {account.category}
-                            {account.detailType && (
-                              <Typography component="span" variant="caption" sx={{ display: 'block', color: 'text.disabled' }}>
-                                → {account.detailType}
-                              </Typography>
-                            )}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Chip 
-                            label={account.department?.toUpperCase() || 'GENERAL'} 
-                            size="small" 
-                            color={getDepartmentColor(account.department)}
-                            icon={getDepartmentIcon(account.department)}
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
-                            {getBalanceIcon(account.balance)}
-                            <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                fontWeight: 'bold',
-                                color: account.balance > 0 ? 'success.main' : account.balance < 0 ? 'error.main' : 'textSecondary'
-                              }}
-                            >
-                              {formatPKR(account.balance)}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell>
-                          <Chip 
-                            label={account.isActive ? 'Active' : 'Inactive'} 
-                            size="small" 
-                            color={account.isActive ? 'success' : 'default'}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Tooltip title="View Details">
-                              <IconButton size="small">
-                                <ViewIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Edit Account">
-                              <IconButton size="small">
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </React.Fragment>
+                {accounts.map((account) => (
+                  <TableRow key={account._id} hover>
+                    <TableCell padding="checkbox">
+                      <Checkbox size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {account.name || '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {account.category || account.type || '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {account.detailType || '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2">
+                        {formatPKR(account.balance || 0)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" color="text.secondary">
+                        {formatPKR(account.bankBalance || 0)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="text"
+                        size="small"
+                        endIcon={<KeyboardArrowDownIcon />}
+                        sx={{ textTransform: 'none', fontWeight: 600 }}
+                      >
+                        Account history
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 ))}
               </TableBody>
             </Table>
@@ -838,26 +853,64 @@ const ChartOfAccounts = () => {
               control={
                 <Checkbox
                   checked={newAccountForm.isSubaccount}
-                  onChange={(e) => setNewAccountForm(f => ({ ...f, isSubaccount: e.target.checked }))}
+                  onChange={(e) => setNewAccountForm(f => ({
+                    ...f,
+                    isSubaccount: e.target.checked,
+                    ...(e.target.checked ? {} : { parentAccount: '', openingBalance: '', openingBalanceAsOf: new Date().toISOString().slice(0, 10) })
+                  }))}
                   color="primary"
                 />
               }
               label="Make this a subaccount (nested under a parent account)"
             />
             {newAccountForm.isSubaccount && (
-              <FormControl fullWidth size="medium" sx={{ maxWidth: 400 }}>
-                <InputLabel>Parent account</InputLabel>
-                <Select
-                  value={newAccountForm.parentAccount}
-                  label="Parent account"
-                  onChange={(e) => setNewAccountForm(f => ({ ...f, parentAccount: e.target.value }))}
-                  sx={{ borderRadius: 1.5 }}
-                >
-                  {parentAccounts.map((a) => (
-                    <MenuItem key={a._id} value={a._id}>{a.accountNumber} - {a.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <Grid container spacing={2}>
+                <Grid item xs={12}>
+                  <FormControl fullWidth size="medium" sx={{ maxWidth: 520 }}>
+                    <InputLabel>Parent account</InputLabel>
+                    <Select
+                      value={newAccountForm.parentAccount}
+                      label="Parent account"
+                      onChange={(e) => setNewAccountForm(f => ({ ...f, parentAccount: e.target.value }))}
+                      sx={{ borderRadius: 1.5 }}
+                    >
+                      <MenuItem value="">
+                        <em>{parentAccountsLoading ? 'Loading parent accounts...' : 'Select...'}</em>
+                      </MenuItem>
+                      {filteredParentAccounts.map((a) => (
+                        <MenuItem key={a._id} value={a._id}>{a.accountNumber} - {a.name}</MenuItem>
+                      ))}
+                      {!parentAccountsLoading && filteredParentAccounts.length === 0 && (
+                        <MenuItem value="" disabled>
+                          No parent accounts found
+                        </MenuItem>
+                      )}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Opening balance"
+                    type="number"
+                    value={newAccountForm.openingBalance}
+                    onChange={(e) => setNewAccountForm((f) => ({ ...f, openingBalance: e.target.value }))}
+                    inputProps={{ step: '0.01' }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="As of"
+                    type="date"
+                    value={newAccountForm.openingBalanceAsOf}
+                    onChange={(e) => setNewAccountForm((f) => ({ ...f, openingBalanceAsOf: e.target.value }))}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5 } }}
+                  />
+                </Grid>
+              </Grid>
             )}
             <TextField
               fullWidth

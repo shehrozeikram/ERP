@@ -70,6 +70,8 @@ const IndentForm = () => {
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [itemOptions, setItemOptions] = useState([]);
   const [itemOptionsLoading, setItemOptionsLoading] = useState(false);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const [departmentOptions, setDepartmentOptions] = useState([]);
   const itemOptionsReqSeq = useRef(0);
   const lastLoadedCategoryRef = useRef('');
 
@@ -125,6 +127,26 @@ const IndentForm = () => {
   // Load indent data if editing, or run next-number/next-erp-ref + departments once for create
   useEffect(() => {
     const loadData = async () => {
+      const loadDepartmentsForIndent = async () => {
+        setDepartmentsLoading(true);
+        try {
+          const res = await api.get('/indents/departments');
+          const list = Array.isArray(res.data?.data) ? res.data.data : [];
+          if (list.length > 0) {
+            setDepartmentOptions(list);
+            return list;
+          }
+        } catch {
+          // fallback below
+        } finally {
+          setDepartmentsLoading(false);
+        }
+        const fallback = await fetchDepartments(true);
+        const out = Array.isArray(fallback) ? fallback : [];
+        setDepartmentOptions(out);
+        return out;
+      };
+
       if (isEdit) {
         try {
           setLoadingData(true);
@@ -161,6 +183,9 @@ const IndentForm = () => {
         } finally {
           setLoadingData(false);
         }
+        if (departments.length === 0) {
+          await loadDepartmentsForIndent();
+        }
         return;
       }
 
@@ -184,12 +209,18 @@ const IndentForm = () => {
       }
 
       if (departments.length === 0) {
-        await fetchDepartments();
+        await loadDepartmentsForIndent();
       }
     };
 
     loadData();
   }, [id, isEdit]);
+
+  useEffect(() => {
+    if (Array.isArray(departments) && departments.length > 0) {
+      setDepartmentOptions((prev) => (prev.length > 0 ? prev : departments));
+    }
+  }, [departments]);
 
   const handleChange = (field, value) => {
     setFormData(prev => ({
@@ -389,6 +420,7 @@ const IndentForm = () => {
 
       const indentData = {
         title: formData.title.trim(),
+        erpRef: formData.erpRef?.trim() || undefined,
         requestedDate: formData.date,
         requiredDate: formData.requiredDate,
         department: formData.department,
@@ -408,16 +440,13 @@ const IndentForm = () => {
         status: submitForApproval ? 'Submitted' : 'Draft'
       };
       
-      // Only include indentNumber and erpRef if editing (backend auto-generates them for new indents)
+      // Only include indentNumber if editing (backend auto-generates for new indents)
       if (isEdit) {
         if (formData.indentNumber) {
           indentData.indentNumber = formData.indentNumber;
         }
-        if (formData.erpRef) {
-          indentData.erpRef = formData.erpRef;
-        }
       }
-      // For new indents, don't send indentNumber or erpRef - backend will auto-generate them
+      // For new indents, if ERP Ref is empty backend auto-generates it
 
       let response;
       if (isEdit) {
@@ -519,9 +548,9 @@ const IndentForm = () => {
               fullWidth
               label="ERP Ref"
               value={formData.erpRef}
-              InputProps={{ readOnly: true }}
+              onChange={(e) => handleChange('erpRef', e.target.value)}
               size="small"
-              helperText="Auto-generated"
+              helperText="Editable"
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -569,11 +598,21 @@ const IndentForm = () => {
                 label="Department"
                 onChange={(e) => handleChange('department', e.target.value)}
               >
-                {departments.map((dept) => (
+                {departmentsLoading && (
+                  <MenuItem value="" disabled>
+                    Loading departments...
+                  </MenuItem>
+                )}
+                {departmentOptions.map((dept) => (
                   <MenuItem key={dept._id} value={dept._id}>
                     {dept.name}
                   </MenuItem>
                 ))}
+                {!departmentsLoading && departmentOptions.length === 0 && (
+                  <MenuItem value="" disabled>
+                    No departments available
+                  </MenuItem>
+                )}
               </Select>
             </FormControl>
           </Grid>
