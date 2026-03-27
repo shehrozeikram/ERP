@@ -29,7 +29,7 @@ import {
   DialogActions,
   SvgIcon
 } from '@mui/material';
-import { TaskAlt as TaskIcon, Search as SearchIcon, Edit as EditIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon } from '@mui/icons-material';
+import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -97,7 +97,7 @@ const MyTasks = () => {
   const [selectedCampaignId, setSelectedCampaignId] = useState('');
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [feedbackRow, setFeedbackRow] = useState(null);
-  const [feedbackForm, setFeedbackForm] = useState({ whatsappFeedback: '', callFeedback: '' });
+  const [feedbackForm, setFeedbackForm] = useState({ callFeedback: '' });
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [sendingViaApi, setSendingViaApi] = useState(false);
   const [repliesDialogOpen, setRepliesDialogOpen] = useState(false);
@@ -470,6 +470,18 @@ const MyTasks = () => {
 
   const handleConfirmComplete = async () => {
     if (!completingId) return;
+    const row = records.find((r) => r._id === completingId);
+    const needsCallFeedback = row ? showCallFeedback(row) : false;
+    const hasCallFeedback = row ? String(row.callFeedback || '').trim().length > 0 : false;
+    if (needsCallFeedback && !hasCallFeedback) {
+      setSnackbar({
+        open: true,
+        message: 'Call feedback is required before completing this task',
+        severity: 'warning'
+      });
+      if (row) handleOpenFeedback(row);
+      return;
+    }
     try {
       await completeRecoveryTask(completingId);
       setSnackbar({ open: true, message: 'Task marked as completed', severity: 'success' });
@@ -487,7 +499,6 @@ const MyTasks = () => {
   const handleOpenFeedback = (row) => {
     setFeedbackRow(row);
     setFeedbackForm({
-      whatsappFeedback: row.whatsappFeedback ?? '',
       callFeedback: row.callFeedback ?? ''
     });
     setFeedbackDialogOpen(true);
@@ -503,7 +514,6 @@ const MyTasks = () => {
     try {
       setFeedbackSaving(true);
       await updateRecoveryAssignmentFeedback(feedbackRow._id, {
-        whatsappFeedback: feedbackForm.whatsappFeedback,
         callFeedback: feedbackForm.callFeedback
       });
       setSnackbar({ open: true, message: 'Feedback saved', severity: 'success' });
@@ -677,8 +687,6 @@ const MyTasks = () => {
                           <TableCell sx={{ minWidth: 90, fontWeight: 600, bgcolor: 'grey.50' }}>Status</TableCell>
                           <TableCell sx={{ minWidth: 120, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Currently Due</TableCell>
                           <TableCell sx={{ minWidth: 120, fontWeight: 600, bgcolor: 'grey.50' }}>Action</TableCell>
-                          <TableCell sx={{ minWidth: 160, fontWeight: 600, bgcolor: 'grey.50' }}>WhatsApp feedback</TableCell>
-                          <TableCell sx={{ minWidth: 160, fontWeight: 600, bgcolor: 'grey.50' }}>Call feedback</TableCell>
                           <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Campaign</TableCell>
                           <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Actions</TableCell>
                         </TableRow>
@@ -710,12 +718,6 @@ const MyTasks = () => {
                               {row.assignedToMember
                                 ? (ASSIGNED_ACTION_LABELS[row.assignedToMember.action] || row.assignedToMember.action || '—')
                                 : '—'}
-                            </TableCell>
-                            <TableCell sx={{ maxWidth: 200 }}>
-                              {showWhatsApp(row) ? (row.whatsappFeedback || '—') : '—'}
-                            </TableCell>
-                            <TableCell sx={{ maxWidth: 200 }}>
-                              {showCallFeedback(row) ? (row.callFeedback || '—') : '—'}
                             </TableCell>
                             <TableCell sx={{ maxWidth: 160 }}>
                               {row.lastCampaignSentAt ? (
@@ -795,9 +797,11 @@ const MyTasks = () => {
                               >
                                 <TaskIcon fontSize="small" color="success" />
                               </IconButton>
-                              <IconButton size="small" onClick={() => handleOpenFeedback(row)} title="Edit feedback">
-                                <EditIcon />
-                              </IconButton>
+                              {showCallFeedback(row) && (
+                                <IconButton size="small" onClick={() => handleOpenFeedback(row)} title="Call feedback">
+                                  <CallIcon fontSize="small" />
+                                </IconButton>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -876,19 +880,6 @@ const MyTasks = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {feedbackRow.customerName} — {feedbackRow.orderCode}
               </Typography>
-              {(showWhatsApp(feedbackRow)) && (
-                <TextField
-                  fullWidth
-                  label="WhatsApp feedback"
-                  value={feedbackForm.whatsappFeedback}
-                  onChange={(e) => setFeedbackForm((f) => ({ ...f, whatsappFeedback: e.target.value }))}
-                  multiline
-                  rows={3}
-                  size="small"
-                  sx={{ mb: 2 }}
-                  placeholder="Your feedback after sending WhatsApp..."
-                />
-              )}
               {(showCallFeedback(feedbackRow)) && (
                 <TextField
                   fullWidth

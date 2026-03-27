@@ -201,8 +201,6 @@ const CompletedTasks = () => {
                       <TableCell sx={{ minWidth: 110, fontWeight: 600, bgcolor: 'grey.50' }}>Mobile</TableCell>
                       <TableCell sx={{ minWidth: 90, fontWeight: 600, bgcolor: 'grey.50' }}>Status</TableCell>
                       <TableCell sx={{ minWidth: 120, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Currently Due</TableCell>
-                      <TableCell sx={{ minWidth: 160, fontWeight: 600, bgcolor: 'grey.50' }}>WhatsApp feedback</TableCell>
-                      <TableCell sx={{ minWidth: 160, fontWeight: 600, bgcolor: 'grey.50' }}>Call feedback</TableCell>
                       <TableCell sx={{ minWidth: 120, fontWeight: 600, bgcolor: 'grey.50' }}>Assign Date</TableCell>
                       <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Completed Date</TableCell>
                       <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Assigned By</TableCell>
@@ -219,12 +217,6 @@ const CompletedTasks = () => {
                         <TableCell>{row.mobileNumber ?? '—'}</TableCell>
                         <TableCell>{row.status ?? '—'}</TableCell>
                         <TableCell align="right">{formatCurrency(row.currentlyDue)}</TableCell>
-                        <TableCell sx={{ maxWidth: 200 }}>
-                          {row.whatsappFeedback || '—'}
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 200 }}>
-                          {row.callFeedback || '—'}
-                        </TableCell>
                         <TableCell>{row.createdAt ? formatDate(row.createdAt) : '—'}</TableCell>
                         <TableCell>{row.taskCompletedAt ? formatDate(row.taskCompletedAt) : '—'}</TableCell>
                         <TableCell>{row.assignedToMember?.assignedBy?.name || '—'}</TableCell>
