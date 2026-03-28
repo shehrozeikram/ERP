@@ -1,6 +1,9 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
+const util = require('util');
+const execFileAsync = util.promisify(execFile);
 const XLSX = require('xlsx');
 const multer = require('multer');
 const axios = require('axios');
@@ -1019,12 +1022,46 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
-    const mediaType = getMediaTypeFromMime(req.file.mimetype);
+    // Meta rejects audio/webm (Chrome's MediaRecorder format).
+    // Convert webm → ogg using ffmpeg (lossless container swap, Opus codec stays the same).
+    let uploadPath = req.file.path;
+    let uploadMime = req.file.mimetype;
+    let uploadFilename = req.file.originalname || req.file.filename;
+    let convertedPath = null;
+
+    if (uploadMime.startsWith('audio/webm')) {
+      const oggPath = req.file.path + '.ogg';
+      try {
+        // -c:a copy = recontainerise without re-encoding (instant, lossless)
+        await execFileAsync('ffmpeg', ['-y', '-i', req.file.path, '-c:a', 'copy', oggPath]);
+        convertedPath = oggPath;
+        uploadPath = oggPath;
+        uploadMime = 'audio/ogg';
+        uploadFilename = uploadFilename.replace(/\.(webm|bin)$/i, '') + '.ogg';
+        console.log('[WhatsApp Media] Converted audio/webm → audio/ogg');
+      } catch (convErr) {
+        // ffmpeg not installed or failed — try libopus re-encode as fallback
+        console.warn('[WhatsApp Media] ffmpeg -c:a copy failed, trying re-encode:', convErr.message);
+        try {
+          await execFileAsync('ffmpeg', ['-y', '-i', req.file.path, '-c:a', 'libopus', oggPath]);
+          convertedPath = oggPath;
+          uploadPath = oggPath;
+          uploadMime = 'audio/ogg';
+          uploadFilename = uploadFilename.replace(/\.(webm|bin)$/i, '') + '.ogg';
+        } catch (e2) {
+          console.error('[WhatsApp Media] ffmpeg unavailable:', e2.message);
+          // Fall through with original webm — Meta will likely reject, error returned to user
+        }
+      }
+    }
+
+    const mediaType = getMediaTypeFromMime(uploadMime);
 
     // Build local URL for chat history display — routed through /api/whatsapp-media/
     // (public, no auth) to avoid the nginx nested-location bug that catches *.jpg
     // and tries to serve from client/build instead of proxying to Node.js.
     const baseUrl = getBaseUrl(req).replace(/\/$/, '');
+    // Local URL uses the original saved filename (not the converted temp file)
     const localUrl = `${baseUrl}/api/whatsapp-media/${req.file.filename}`;
 
     // Re-upload the saved file to Meta's Media API to get a media_id.
@@ -1033,12 +1070,12 @@ router.post(
     let mediaId = null;
     let metaUploadError = null;
     try {
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+      const fileBuffer = fs.readFileSync(uploadPath);
+      const blob = new Blob([fileBuffer], { type: uploadMime });
       const form = new FormData();
       form.append('messaging_product', 'whatsapp');
-      form.append('type', req.file.mimetype);
-      form.append('file', blob, req.file.originalname || req.file.filename);
+      form.append('type', uploadMime);
+      form.append('file', blob, uploadFilename);
 
       const metaRes = await axios.post(
         `https://graph.facebook.com/v24.0/${WHATSAPP_PHONE_NUMBER_ID}/media`,
@@ -1052,6 +1089,11 @@ router.post(
     } catch (err) {
       metaUploadError = err.response?.data?.error?.message || err.message;
       console.error('[WhatsApp Media] Meta upload failed:', metaUploadError);
+    } finally {
+      // Clean up the temporary converted file
+      if (convertedPath && fs.existsSync(convertedPath)) {
+        try { fs.unlinkSync(convertedPath); } catch (_) {}
+      }
     }
 
     if (!mediaId) {
