@@ -940,7 +940,15 @@ router.get(
     ]);
 
     const thread = [
-      ...incoming.map((m) => ({ ...m, direction: 'in', time: m.receivedAt, text: m.text })),
+      ...incoming.map((m) => ({
+        ...m,
+        direction: 'in',
+        time: m.receivedAt,
+        text: m.text,
+        mediaUrl: m.mediaUrl || null,
+        mediaType: m.mediaType || null,
+        mediaFilename: m.mediaFilename || null
+      })),
       ...outgoing.map((m) => ({ ...m, direction: 'out', time: m.sentAt, text: m.text }))
     ].sort((a, b) => new Date(a.time) - new Date(b.time));
 

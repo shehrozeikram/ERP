@@ -6,6 +6,9 @@ const whatsAppIncomingMessageSchema = new mongoose.Schema(
     messageId: { type: String, trim: true },
     type: { type: String, trim: true },
     text: { type: String, trim: true },
+    mediaUrl: { type: String, trim: true },
+    mediaType: { type: String, trim: true },
+    mediaFilename: { type: String, trim: true },
     rawPayload: { type: mongoose.Schema.Types.Mixed },
     receivedAt: { type: Date, default: Date.now }
   },

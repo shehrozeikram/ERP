@@ -950,10 +950,37 @@ const MyTasks = () => {
                     boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
                   }}
                 >
-                  {m.mediaType === 'image' && m.mediaUrl ? (
+                  {m.mediaUrl && m.mediaType === 'image' ? (
                     <Box>
-                      <Box component="img" src={m.mediaUrl} alt="Sent" sx={{ maxWidth: 240, maxHeight: 200, borderRadius: 1, display: 'block' }} />
+                      <Box component="img" src={m.mediaUrl} alt="media" sx={{ maxWidth: 240, maxHeight: 200, borderRadius: 1, display: 'block', cursor: 'pointer' }} onClick={() => window.open(m.mediaUrl, '_blank')} />
                       {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
+                    </Box>
+                  ) : m.mediaUrl && m.mediaType === 'video' ? (
+                    <Box>
+                      <Box component="video" src={m.mediaUrl} controls sx={{ maxWidth: 260, maxHeight: 200, borderRadius: 1, display: 'block' }} />
+                      {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
+                    </Box>
+                  ) : m.mediaUrl && m.mediaType === 'audio' ? (
+                    <Box>
+                      <Box component="audio" src={m.mediaUrl} controls sx={{ maxWidth: 260, display: 'block' }} />
+                      {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
+                    </Box>
+                  ) : m.mediaUrl && m.mediaType === 'document' ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AttachFileIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
+                      <Box>
+                        <Typography
+                          component="a"
+                          href={m.mediaUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          variant="body2"
+                          sx={{ color: 'primary.main', textDecoration: 'underline', wordBreak: 'break-all', display: 'block' }}
+                        >
+                          {m.mediaFilename || 'Download attachment'}
+                        </Typography>
+                        {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.25 }}>{m.text}</Typography>}
+                      </Box>
                     </Box>
                   ) : (
                     <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
