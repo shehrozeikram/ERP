@@ -263,17 +263,19 @@ const RecoveryAssignments = () => {
     }
     try {
       setReplySending(true);
+      let mediaId = null;
       let mediaUrl = null;
       let mediaType = null;
       if (replyAttachment?.file) {
         const uploadRes = await uploadWhatsAppMedia(replyAttachment.file);
-        mediaUrl = uploadRes.data?.data?.url;
+        mediaId = uploadRes.data?.data?.mediaId || null;
+        mediaUrl = uploadRes.data?.data?.url || null;
         mediaType = uploadRes.data?.data?.mediaType || replyAttachment.mediaType;
       }
       await sendRecoveryWhatsApp({
         to: toNumber,
         body: text || '',
-        ...(mediaUrl && mediaType && { mediaUrl, mediaType })
+        ...(mediaType && (mediaId || mediaUrl) && { mediaType, ...(mediaId ? { mediaId } : { mediaUrl }) })
       });
       setReplyText('');
       handleRemoveReplyAttachment();

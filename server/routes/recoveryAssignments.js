@@ -967,11 +967,11 @@ function getMediaTypeFromMime(mime) {
 }
 
 // @route   POST /api/finance/recovery-assignments/upload-media
-// @desc    Upload media for WhatsApp (image, document, audio, video). Returns public URL.
-// @access  Private
+// @desc    Upload media for WhatsApp. Saves locally then uploads to Meta Media API.
+//          Returns media_id (Meta) + local url for chat history display.
+// @access  Private (all authenticated users — recovery members need this too)
 router.post(
   '/upload-media',
-  authorize('super_admin', 'admin', 'finance_manager'),
   (req, res, next) => {
     whatsappMediaUpload(req, res, (err) => {
       if (err) return res.status(400).json({ success: false, message: err.message || 'Upload failed' });
@@ -980,10 +980,53 @@ router.post(
   },
   asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
-    const baseUrl = getBaseUrl(req).replace(/\/$/, '');
-    const url = `${baseUrl}/uploads/whatsapp-media/${req.file.filename}`;
+
     const mediaType = getMediaTypeFromMime(req.file.mimetype);
-    res.json({ success: true, data: { url, mediaType, filename: req.file.filename } });
+
+    // Build local URL for chat history display
+    const baseUrl = getBaseUrl(req).replace(/\/$/, '');
+    const localUrl = `${baseUrl}/uploads/whatsapp-media/${req.file.filename}`;
+
+    // Re-upload the saved file to Meta's Media API to get a media_id
+    // Meta will then serve the file itself — no need for your server to be reachable by Meta
+    let mediaId = null;
+    let metaUploadError = null;
+    try {
+      const FormData = require('form-data');
+      const fileStream = fs.createReadStream(req.file.path);
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('type', req.file.mimetype);
+      form.append('file', fileStream, {
+        filename: req.file.originalname || req.file.filename,
+        contentType: req.file.mimetype
+      });
+
+      const metaRes = await axios.post(
+        `https://graph.facebook.com/v24.0/${WHATSAPP_PHONE_NUMBER_ID}/media`,
+        form,
+        {
+          headers: {
+            Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+            ...form.getHeaders()
+          },
+          maxBodyLength: Infinity
+        }
+      );
+      mediaId = metaRes.data?.id || null;
+    } catch (err) {
+      metaUploadError = err.response?.data?.error?.message || err.message;
+      console.error('[WhatsApp Media] Meta upload failed:', metaUploadError);
+    }
+
+    if (!mediaId) {
+      return res.status(502).json({
+        success: false,
+        message: `Failed to upload media to WhatsApp: ${metaUploadError || 'Unknown error'}`
+      });
+    }
+
+    res.json({ success: true, data: { mediaId, mediaType, url: localUrl, filename: req.file.filename } });
   })
 );
 
@@ -997,7 +1040,7 @@ router.post(
   '/send-whatsapp',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { to, body, template, assignmentId, campaignName, campaignId, mediaType, mediaUrl } = req.body;
+    const { to, body, template, assignmentId, campaignName, campaignId, mediaType, mediaUrl, mediaId } = req.body;
     let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
     if (phone.startsWith('0')) phone = phone.slice(1);
     // Add Pakistan country code for 10-digit mobile numbers (e.g. 3xxxxxxxxx)
@@ -1090,14 +1133,16 @@ router.post(
       }
 
       // 2) Media message (image, document, audio, video)
-      if (!payload && mediaType && mediaUrl) {
+      // Prefer mediaId (uploaded to Meta) over mediaUrl (public link fallback)
+      if (!payload && mediaType && (mediaId || mediaUrl)) {
         const mediaTypeLower = String(mediaType).toLowerCase();
-        const link = String(mediaUrl).trim();
+        // Use { id } when we have a Meta media_id, otherwise fall back to { link }
+        const mediaRef = mediaId ? { id: String(mediaId) } : { link: String(mediaUrl).trim() };
         const payloads = {
-          image: { messaging_product: 'whatsapp', to: toNumber, type: 'image', image: { link }, ...(messageBody && { caption: messageBody }) },
-          document: { messaging_product: 'whatsapp', to: toNumber, type: 'document', document: { link, ...(messageBody && { caption: messageBody }) } },
-          audio: { messaging_product: 'whatsapp', to: toNumber, type: 'audio', audio: { link } },
-          video: { messaging_product: 'whatsapp', to: toNumber, type: 'video', video: { link }, ...(messageBody && { caption: messageBody }) }
+          image: { messaging_product: 'whatsapp', to: toNumber, type: 'image', image: { ...mediaRef, ...(messageBody && { caption: messageBody }) } },
+          document: { messaging_product: 'whatsapp', to: toNumber, type: 'document', document: { ...mediaRef, ...(messageBody && { caption: messageBody }) } },
+          audio: { messaging_product: 'whatsapp', to: toNumber, type: 'audio', audio: { ...mediaRef } },
+          video: { messaging_product: 'whatsapp', to: toNumber, type: 'video', video: { ...mediaRef, ...(messageBody && { caption: messageBody }) } }
         };
         payload = payloads[mediaTypeLower] || payloads.document;
         sentAs = mediaTypeLower;
@@ -1130,8 +1175,9 @@ router.post(
           sentAt: new Date(),
           sentBy: req.user?._id
         };
-        if (mediaUrl && sentAs !== 'text') {
-          createPayload.mediaUrl = String(mediaUrl).trim();
+        if (sentAs !== 'text') {
+          // Store the local url for display in the chat history (mediaId is not a URL)
+          if (mediaUrl) createPayload.mediaUrl = String(mediaUrl).trim();
           createPayload.mediaType = String(sentAs);
         }
         await WhatsAppOutgoingMessage.create(createPayload);
