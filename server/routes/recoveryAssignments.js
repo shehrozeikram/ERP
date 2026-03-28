@@ -974,6 +974,36 @@ function getMediaTypeFromMime(mime) {
   return 'document';
 }
 
+// @route   GET /api/finance/recovery-assignments/whatsapp-media/:filename
+// @desc    Serve WhatsApp media files (sent + received). Routed through /api/ so nginx
+//          proxy_pass for /api/ always hits Node.js — avoids the nginx nested-location
+//          bug that intercepts /uploads/*.jpg and tries to serve from the React build dir.
+// @access  Public (no auth — Meta and other clients need to fetch received media too)
+router.get('/whatsapp-media/:filename', asyncHandler(async (req, res) => {
+  const filename = path.basename(req.params.filename || '');
+  if (!filename || filename.includes('..')) {
+    return res.status(400).json({ success: false, message: 'Invalid filename' });
+  }
+  const filePath = path.join(whatsappMediaDir, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: 'File not found' });
+  }
+  const ext = path.extname(filename).toLowerCase();
+  const mimeMap = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4',
+    '.3gp': 'video/3gpp', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg',
+    '.m4a': 'audio/mp4', '.amr': 'audio/amr', '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+  const contentType = mimeMap[ext] || 'application/octet-stream';
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  return res.sendFile(filePath);
+}));
+
 // @route   POST /api/finance/recovery-assignments/upload-media
 // @desc    Upload media for WhatsApp. Saves locally then uploads to Meta Media API.
 //          Returns media_id (Meta) + local url for chat history display.
@@ -991,9 +1021,10 @@ router.post(
 
     const mediaType = getMediaTypeFromMime(req.file.mimetype);
 
-    // Build local URL for chat history display
+    // Build local URL for chat history display — routed through /api/ to avoid nginx
+    // serving /uploads/*.jpg from the React build dir instead of Node.js
     const baseUrl = getBaseUrl(req).replace(/\/$/, '');
-    const localUrl = `${baseUrl}/uploads/whatsapp-media/${req.file.filename}`;
+    const localUrl = `${baseUrl}/api/finance/recovery-assignments/whatsapp-media/${req.file.filename}`;
 
     // Re-upload the saved file to Meta's Media API to get a media_id.
     // Meta serves the file itself — no need for your server to be reachable by Meta.
