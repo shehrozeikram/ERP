@@ -446,7 +446,12 @@ const MyTasks = () => {
       await sendRecoveryWhatsApp({
         to: toNumber,
         body: text || '',
-        ...(mediaType && (mediaId || mediaUrl) && { mediaType, ...(mediaId ? { mediaId } : { mediaUrl }) })
+        // Always pass mediaUrl (local URL for chat display) + mediaId (for Meta delivery)
+        ...(mediaType && (mediaId || mediaUrl) && {
+          mediaType,
+          ...(mediaId ? { mediaId } : {}),
+          ...(mediaUrl ? { mediaUrl } : {})
+        })
       });
       setSnackbar({ open: true, message: 'Reply sent', severity: 'success' });
       setReplyText('');
@@ -952,7 +957,23 @@ const MyTasks = () => {
                 >
                   {m.mediaUrl && m.mediaType === 'image' ? (
                     <Box>
-                      <Box component="img" src={m.mediaUrl} alt="media" sx={{ maxWidth: 240, maxHeight: 200, borderRadius: 1, display: 'block', cursor: 'pointer' }} onClick={() => window.open(m.mediaUrl, '_blank')} />
+                      <Box
+                        component="img"
+                        src={m.mediaUrl}
+                        alt="media"
+                        sx={{ maxWidth: 240, maxHeight: 200, borderRadius: 1, display: 'block', cursor: 'pointer' }}
+                        onClick={() => window.open(m.mediaUrl, '_blank')}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.nextSibling && (e.target.nextSibling.style.display = 'flex');
+                        }}
+                      />
+                      <Box sx={{ display: 'none', alignItems: 'center', gap: 0.5 }}>
+                        <AttachFileIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                        <Typography component="a" href={m.mediaUrl} target="_blank" rel="noopener noreferrer" variant="body2" sx={{ color: 'primary.main', textDecoration: 'underline' }}>
+                          View image
+                        </Typography>
+                      </Box>
                       {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
                     </Box>
                   ) : m.mediaUrl && m.mediaType === 'video' ? (
@@ -965,7 +986,7 @@ const MyTasks = () => {
                       <Box component="audio" src={m.mediaUrl} controls sx={{ maxWidth: 260, display: 'block' }} />
                       {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
                     </Box>
-                  ) : m.mediaUrl && m.mediaType === 'document' ? (
+                  ) : m.mediaUrl ? (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <AttachFileIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
                       <Box>
