@@ -995,29 +995,24 @@ router.post(
     const baseUrl = getBaseUrl(req).replace(/\/$/, '');
     const localUrl = `${baseUrl}/uploads/whatsapp-media/${req.file.filename}`;
 
-    // Re-upload the saved file to Meta's Media API to get a media_id
-    // Meta will then serve the file itself — no need for your server to be reachable by Meta
+    // Re-upload the saved file to Meta's Media API to get a media_id.
+    // Meta serves the file itself — no need for your server to be reachable by Meta.
+    // Uses Node 18+ global FormData/Blob (no extra npm package required).
     let mediaId = null;
     let metaUploadError = null;
     try {
-      const FormData = require('form-data');
-      const fileStream = fs.createReadStream(req.file.path);
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const blob = new Blob([fileBuffer], { type: req.file.mimetype });
       const form = new FormData();
       form.append('messaging_product', 'whatsapp');
       form.append('type', req.file.mimetype);
-      form.append('file', fileStream, {
-        filename: req.file.originalname || req.file.filename,
-        contentType: req.file.mimetype
-      });
+      form.append('file', blob, req.file.originalname || req.file.filename);
 
       const metaRes = await axios.post(
         `https://graph.facebook.com/v24.0/${WHATSAPP_PHONE_NUMBER_ID}/media`,
         form,
         {
-          headers: {
-            Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
-            ...form.getHeaders()
-          },
+          headers: { Authorization: `Bearer ${WHATSAPP_ACCESS_TOKEN}` },
           maxBodyLength: Infinity
         }
       );
