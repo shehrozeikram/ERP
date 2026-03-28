@@ -60,6 +60,10 @@ import TajUtilitiesReports from './pages/Finance/TajUtilities/Reports';
 import TajUtilitiesReconciliation from './pages/Finance/TajUtilities/Reconciliation';
 import JournalEntryForm from './pages/Finance/JournalEntryForm';
 import JournalEntriesList from './pages/Finance/JournalEntriesList';
+import FinanceJournals from './pages/Finance/FinanceJournals';
+import FiscalPeriods from './pages/Finance/FiscalPeriods';
+import InventoryCategories from './pages/Finance/InventoryCategories';
+import InventoryValuation from './pages/Finance/InventoryValuation';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import Requisitions from './pages/Procurement/Requisitions';
 import RequisitionPrintView from './pages/Procurement/RequisitionPrintView';
@@ -917,6 +921,22 @@ function App() {
             <Route 
               path="/finance/reports" 
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinancialReports /></ProtectedRoute>} 
+            />
+            <Route
+              path="/finance/journals"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinanceJournals /></ProtectedRoute>}
+            />
+            <Route
+              path="/finance/fiscal-periods"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FiscalPeriods /></ProtectedRoute>}
+            />
+            <Route
+              path="/finance/inventory-categories"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><InventoryCategories /></ProtectedRoute>}
+            />
+            <Route
+              path="/finance/inventory-valuation"
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><InventoryValuation /></ProtectedRoute>}
             />
             <Route
               path="/finance/taj-utilities-charges"
