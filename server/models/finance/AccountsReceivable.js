@@ -190,7 +190,7 @@ const accountsReceivableSchema = new mongoose.Schema({
     },
     paymentMethod: {
       type: String,
-      enum: ['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other'],
+      enum: ['cash', 'check', 'cheque', 'credit_card', 'bank_transfer', 'bank', 'ach', 'other'],
       required: [true, 'Payment method is required']
     },
     reference: {

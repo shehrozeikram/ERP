@@ -121,6 +121,14 @@ const indentsRoutes = require('./routes/indents');
 const storesRoutes = require('./routes/stores');
 const userTrackingRoutes = require('./routes/userTracking');
 const activityLogger = require('./middleware/activityLogger');
+// Finance integration — new modules
+const financeJournalsRoutes = require('./routes/financeJournals');
+const fiscalPeriodsRoutes = require('./routes/fiscalPeriods');
+const inventoryCategoriesRoutes = require('./routes/inventoryCategories');
+// Pre-load new models so Mongoose registers them before any route uses them
+require('./models/finance/FinanceJournal');
+require('./models/finance/FiscalPeriod');
+require('./models/procurement/InventoryCategory');
 
 
 // Import services
@@ -495,6 +503,9 @@ app.use('/api/finance/recovery-task-rules', authMiddleware, activityLogger, reco
 app.use('/api/finance/recovery-tasks', authMiddleware, activityLogger, recoveryTasksRoutes);
 app.use('/api/finance/recovery-campaigns', authMiddleware, activityLogger, recoveryCampaignsRoutes);
 app.use('/api/finance', authMiddleware, activityLogger, financeAdvancedRoutes);
+app.use('/api/finance/journals', authMiddleware, activityLogger, financeJournalsRoutes);
+app.use('/api/finance/fiscal-periods', authMiddleware, activityLogger, fiscalPeriodsRoutes);
+app.use('/api/inventory-categories', authMiddleware, activityLogger, inventoryCategoriesRoutes);
 app.use('/api/procurement', authMiddleware, activityLogger, procurementRoutes);
 app.use('/api/sales', authMiddleware, activityLogger, salesRoutes);
 app.use('/api/crm', authMiddleware, activityLogger, crmRoutes);

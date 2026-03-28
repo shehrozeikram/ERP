@@ -6,6 +6,11 @@ const journalEntrySchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+  // Which journal (folder) this entry belongs to: Purchase, Inventory, Bank, etc.
+  journal: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FinanceJournal'
+  },
   date: {
     type: Date,
     required: [true, 'Entry date is required'],
@@ -153,6 +158,7 @@ const journalEntrySchema = new mongoose.Schema({
 
 // Indexes
 journalEntrySchema.index({ entryNumber: 1 });
+journalEntrySchema.index({ journal: 1 });
 journalEntrySchema.index({ date: 1 });
 journalEntrySchema.index({ department: 1 });
 journalEntrySchema.index({ module: 1 });

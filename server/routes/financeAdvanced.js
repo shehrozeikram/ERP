@@ -1713,4 +1713,177 @@ router.get('/reports/cash-flow',
   })
 );
 
+// ================================
+// INVENTORY VALUATION REPORT
+// ================================
+
+// @route   GET /api/finance/reports/inventory-valuation
+// @desc    Inventory valuation using Weighted Average Cost
+//          Shows each item: qty × WAC = total value, grouped by category
+// @access  Private (Finance and Admin)
+router.get('/reports/inventory-valuation',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const Inventory = require('../models/procurement/Inventory');
+    const InventoryCategory = require('../models/procurement/InventoryCategory');
+
+    const { categoryId, search } = req.query;
+    const query = { quantity: { $gt: 0 } };
+    if (categoryId) query.inventoryCategory = categoryId;
+    if (search) query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { itemCode: { $regex: search, $options: 'i' } }
+    ];
+
+    const items = await Inventory.find(query)
+      .populate('inventoryCategory', 'name')
+      .populate('inventoryAccount', 'accountNumber name')
+      .select('itemCode name category inventoryCategory quantity unitPrice averageCost totalValue inventoryAccount store storeSnapshot')
+      .lean();
+
+    // Build report with WAC-based values
+    const reportItems = items.map(item => {
+      const wac = item.averageCost || item.unitPrice || 0;
+      const qty = item.quantity || 0;
+      return {
+        itemCode: item.itemCode,
+        name: item.name,
+        category: item.inventoryCategory?.name || item.category || '—',
+        store: item.storeSnapshot || '—',
+        quantity: qty,
+        unitPrice: item.unitPrice || 0,
+        weightedAverageCost: wac,
+        totalValue: Math.round(qty * wac * 100) / 100,
+        inventoryAccount: item.inventoryAccount
+          ? `${item.inventoryAccount.accountNumber} – ${item.inventoryAccount.name}`
+          : '—'
+      };
+    });
+
+    // Group by category
+    const byCategory = {};
+    for (const item of reportItems) {
+      const cat = item.category;
+      if (!byCategory[cat]) byCategory[cat] = { name: cat, items: [], totalValue: 0, totalQty: 0 };
+      byCategory[cat].items.push(item);
+      byCategory[cat].totalValue = Math.round((byCategory[cat].totalValue + item.totalValue) * 100) / 100;
+      byCategory[cat].totalQty += item.quantity;
+    }
+
+    const grandTotal = reportItems.reduce((s, i) => s + i.totalValue, 0);
+
+    // Compare with GL balance on inventory accounts
+    const inventoryGLBalance = await GeneralLedger.aggregate([
+      {
+        $lookup: {
+          from: 'accounts',
+          localField: 'account',
+          foreignField: '_id',
+          as: 'accountDoc'
+        }
+      },
+      { $unwind: '$accountDoc' },
+      {
+        $match: {
+          'accountDoc.type': 'Asset',
+          'accountDoc.accountNumber': { $regex: /^11/ }, // 1100-1199 inventory range
+          status: 'posted'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalDebit: { $sum: '$debit' },
+          totalCredit: { $sum: '$credit' }
+        }
+      }
+    ]);
+
+    const glBalance = inventoryGLBalance[0]
+      ? Math.round((inventoryGLBalance[0].totalDebit - inventoryGLBalance[0].totalCredit) * 100) / 100
+      : null;
+
+    res.json({
+      success: true,
+      data: {
+        generatedAt: new Date(),
+        items: reportItems,
+        byCategory: Object.values(byCategory),
+        summary: {
+          totalItems: reportItems.length,
+          grandTotalValue: Math.round(grandTotal * 100) / 100,
+          glInventoryBalance: glBalance,
+          variance: glBalance !== null ? Math.round((grandTotal - glBalance) * 100) / 100 : null
+        }
+      }
+    });
+  })
+);
+
+// ================================
+// TRIAL BALANCE — SINGLE SOURCE OF TRUTH
+// ================================
+
+// @route   GET /api/finance/reports/trial-balance-v2
+// @desc    Trial balance computed ONLY from posted journal entry lines (single source of truth)
+//          Fixes the two-implementation inconsistency — do NOT use Account.balance field for reporting
+// @access  Private
+router.get('/reports/trial-balance-v2',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { asOfDate } = req.query;
+    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+
+    // Aggregate all posted JE lines up to asOfDate, summing debit/credit per account
+    const rows = await JournalEntry.aggregate([
+      { $match: { status: 'posted', date: { $lte: asOf } } },
+      { $unwind: '$lines' },
+      {
+        $group: {
+          _id: '$lines.account',
+          totalDebit:  { $sum: '$lines.debit' },
+          totalCredit: { $sum: '$lines.credit' }
+        }
+      },
+      {
+        $lookup: {
+          from: 'accounts',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'accountDoc'
+        }
+      },
+      { $unwind: '$accountDoc' },
+      {
+        $project: {
+          accountNumber: '$accountDoc.accountNumber',
+          accountName:   '$accountDoc.name',
+          accountType:   '$accountDoc.type',
+          totalDebit:  1,
+          totalCredit: 1,
+          netBalance: { $subtract: ['$totalDebit', '$totalCredit'] }
+        }
+      },
+      { $sort: { accountNumber: 1 } }
+    ]);
+
+    const totalDebits  = rows.reduce((s, r) => s + r.totalDebit, 0);
+    const totalCredits = rows.reduce((s, r) => s + r.totalCredit, 0);
+
+    res.json({
+      success: true,
+      data: {
+        asOfDate: asOf,
+        rows,
+        totals: {
+          totalDebits:  Math.round(totalDebits * 100) / 100,
+          totalCredits: Math.round(totalCredits * 100) / 100,
+          isBalanced: Math.abs(totalDebits - totalCredits) < 0.01
+        }
+      }
+    });
+  })
+);
+
 module.exports = router;
+

@@ -143,7 +143,7 @@ const accountsPayableSchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['purchase_order', 'receipt', 'service', 'product', 'manual'],
+    enum: ['purchase_order', 'grn', 'sin', 'receipt', 'service', 'product', 'bill', 'manual'],
     default: 'manual'
   },
   // Line items
@@ -212,7 +212,7 @@ const accountsPayableSchema = new mongoose.Schema({
     },
     paymentMethod: {
       type: String,
-      enum: ['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other'],
+      enum: ['cash', 'check', 'cheque', 'credit_card', 'bank_transfer', 'bank', 'ach', 'other'],
       required: [true, 'Payment method is required']
     },
     reference: {

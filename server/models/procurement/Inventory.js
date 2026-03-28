@@ -105,8 +105,25 @@ const inventorySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  // Finance / Chart of Accounts linkage
+  // InventoryCategory link — inherits finance accounts from category automatically
+  inventoryCategory: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'InventoryCategory'
+  },
+  // Weighted Average Cost per unit — updated automatically on each GRN receipt
+  // Formula: (existingQty × existingWAC + receivedQty × receiptPrice) / (existingQty + receivedQty)
+  averageCost: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  // Finance / Chart of Accounts linkage (item-level overrides; falls back to category if not set)
   inventoryAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account'
+  },
+  // GRNI (Goods Received Not Invoiced) clearing account — item-level override
+  grniAccount: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Account'
   },

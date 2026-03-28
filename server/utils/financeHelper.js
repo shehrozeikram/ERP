@@ -14,14 +14,71 @@ const FinanceHelper = {
   ACCOUNTS: {
     CASH: '1001',
     BANK: '1002',
+    INVENTORY: '1100',       // Stock Valuation Asset — DR on GRN
     RECEIVABLE: '1200',
     PAYABLE: '2001',
+    GRNI: '2100',            // Goods Received Not Invoiced — CR on GRN, DR on AP Bill (THE KEY CLEARING ACCOUNT)
     SALARIES_PAYABLE: '2200',
     REVENUE_CAM: '4010',
     REVENUE_ELECTRICITY: '4020',
     REVENUE_RENT: '4030',
-    EXPENSE_GENERAL: '5001', // Using Salaries and Wages as general expense
+    COGS: '5000',            // Cost of Goods Sold — DR on SIN
+    EXPENSE_GENERAL: '5001',
     EXPENSE_SALARIES: '5001'
+  },
+
+  /**
+   * Resolve finance accounts for a given inventory item.
+   * Priority: item-level field → category defaults → global account number defaults.
+   * Returns { inventoryAccountId, grniAccountId, cogsAccountId }
+   */
+  resolveInventoryAccounts: async (inventoryItem) => {
+    const InventoryCategory = mongoose.model('InventoryCategory');
+
+    let inventoryAccountId = inventoryItem.inventoryAccount;
+    let grniAccountId = inventoryItem.grniAccount;
+    let cogsAccountId = inventoryItem.cogsAccount;
+
+    // Try category-level defaults for any missing account
+    if ((!inventoryAccountId || !grniAccountId || !cogsAccountId) && inventoryItem.inventoryCategory) {
+      const cat = await InventoryCategory.findById(inventoryItem.inventoryCategory).lean();
+      if (cat) {
+        if (!inventoryAccountId) inventoryAccountId = cat.stockValuationAccount;
+        if (!grniAccountId) inventoryAccountId = inventoryAccountId || cat.stockValuationAccount;
+        if (!grniAccountId) grniAccountId = cat.stockInputAccount;
+        if (!cogsAccountId) cogsAccountId = cat.stockOutputAccount;
+      }
+    }
+
+    // Final fallback: find by well-known account numbers
+    if (!inventoryAccountId) {
+      const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.INVENTORY });
+      inventoryAccountId = acc?._id;
+    }
+    if (!grniAccountId) {
+      const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.GRNI });
+      grniAccountId = acc?._id;
+    }
+    if (!cogsAccountId) {
+      const acc = await Account.findOne({ accountNumber: FinanceHelper.ACCOUNTS.COGS });
+      cogsAccountId = acc?._id;
+    }
+
+    return { inventoryAccountId, grniAccountId, cogsAccountId };
+  },
+
+  /**
+   * Resolve the Journal document ID for a given journal code.
+   * Returns the journal _id or null if not found.
+   */
+  resolveJournal: async (code) => {
+    try {
+      const FinanceJournal = mongoose.model('FinanceJournal');
+      const j = await FinanceJournal.findOne({ code: code.toUpperCase(), isActive: true }).lean();
+      return j?._id || null;
+    } catch {
+      return null;
+    }
   },
 
   /**
@@ -74,13 +131,31 @@ const FinanceHelper = {
   },
 
   /**
-   * Create a balanced Journal Entry and post it
+   * Create a balanced Journal Entry and post it.
+   * Validates that the posting date falls within an open fiscal period (if periods are defined).
+   * Attaches journal (folder) if provided or resolved from journalCode.
    */
   createAndPostJournalEntry: async (data) => {
     try {
+      // Validate fiscal period (lenient: skips if no periods configured)
+      const postingDate = data.date || new Date();
+      try {
+        const FiscalPeriod = mongoose.model('FiscalPeriod');
+        await FiscalPeriod.validatePostingDate(postingDate);
+      } catch (periodErr) {
+        throw periodErr; // Re-throw period validation errors
+      }
+
+      // Resolve journal (folder) from code if not supplied as ID
+      let journalId = data.journal || null;
+      if (!journalId && data.journalCode) {
+        journalId = await FinanceHelper.resolveJournal(data.journalCode);
+      }
+
       const journalEntry = new JournalEntry({
         ...data,
-        date: data.date || new Date(),
+        journal: journalId,
+        date: postingDate,
         status: 'posted',
         postedBy: data.createdBy,
         postedDate: new Date(),
@@ -284,23 +359,48 @@ const FinanceHelper = {
       await apEntry.save();
 
       const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
-      const expAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
 
-      if (apAccount && expAccount) {
-        await FinanceHelper.createAndPostJournalEntry({
-          date: billDateNorm,
-          reference: billNumber,
-          description: `AP Bill: ${billNumber} from ${vendorName}`,
-          department,
-          module,
-          referenceId: apEntry._id,
-          referenceType: 'bill',
-          createdBy,
-          lines: [
-            { account: expAccount._id, description: `Expense for ${billNumber}`, debit: amount, department },
-            { account: apAccount._id, description: `Payable to ${vendorName}`, credit: amount, department }
-          ]
-        });
+      if (apAccount) {
+        // ─── CORRECT ODOO-STYLE AP JOURNAL ────────────────────────────────────────
+        // When AP bill is backed by a GRN/PO:
+        //   DR GRNI (clears the accrual created at GRN time)
+        //   CR Accounts Payable (records what we owe the specific vendor)
+        //
+        // When AP bill is a direct expense (no GRN):
+        //   DR Expense Account
+        //   CR Accounts Payable
+        // ─────────────────────────────────────────────────────────────────────────
+        const isGrnBacked = ['purchase_order', 'grn'].includes(referenceType);
+        let debitAccount = null;
+
+        if (isGrnBacked) {
+          debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.GRNI);
+        }
+        if (!debitAccount) {
+          debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
+        }
+
+        if (debitAccount) {
+          const debitDescription = isGrnBacked
+            ? `GRNI cleared – ${billNumber} (matched to GRN/PO)`
+            : `Expense for ${billNumber}`;
+
+          await FinanceHelper.createAndPostJournalEntry({
+            date: billDateNorm,
+            reference: billNumber,
+            description: `AP Bill: ${billNumber} from ${vendorName}`,
+            department,
+            module,
+            referenceId: apEntry._id,
+            referenceType: 'bill',
+            journalCode: 'PURCH',
+            createdBy,
+            lines: [
+              { account: debitAccount._id, description: debitDescription, debit: amount, department },
+              { account: apAccount._id, description: `Payable to ${vendorName}`, credit: amount, department }
+            ]
+          });
+        }
       }
 
       return apEntry;
@@ -400,18 +500,49 @@ const FinanceHelper = {
 
   /**
    * Post journal entry for a Goods Received Note (GRN).
-   * DR Inventory Account, CR Purchase/AP Account.
-   * Called per-item when inventory has accounts configured.
-   * Safe to call – silently skips if accounts are missing or amount is zero.
+   *
+   * CORRECT ODOO-STYLE ENTRY:
+   *   DR  Stock Valuation / Inventory Account   (Asset ↑)
+   *   CR  Stock Input / GRNI Account            (Liability ↑)  ← cleared later by AP bill
+   *
+   * Also updates the Weighted Average Cost (WAC) on the inventory item.
+   * WAC = (existingQty × existingWAC + receivedQty × receiptPrice) / (existingQty + receivedQty)
+   *
+   * Safe to call – silently skips if accounts cannot be resolved or amount is zero.
    */
   postGRNJournal: async ({ inventoryItem, grnDoc, qty, unitPrice, createdBy }) => {
     try {
-      const inventoryAccountId = inventoryItem.inventoryAccount;
-      const purchaseAccountId = inventoryItem.purchaseAccount;
-      if (!inventoryAccountId || !purchaseAccountId) return;
+      const qty_ = Number(qty) || 0;
+      const unitPrice_ = Number(unitPrice) || 0;
+      if (qty_ <= 0 || unitPrice_ <= 0) return;
 
-      const amount = Math.round((Number(qty) || 0) * (Number(unitPrice) || 0) * 100) / 100;
-      if (amount <= 0) return;
+      // Resolve accounts: item-level → category → global defaults
+      const { inventoryAccountId, grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inventoryItem);
+      if (!inventoryAccountId || !grniAccountId) {
+        console.warn(`[GRN Journal] Skipped – no inventory/GRNI accounts for item: ${inventoryItem.name || inventoryItem._id}`);
+        return;
+      }
+
+      const amount = Math.round(qty_ * unitPrice_ * 100) / 100;
+
+      // ─── Update Weighted Average Cost ─────────────────────────────────────
+      try {
+        const Inventory = mongoose.model('Inventory');
+        const inv = await Inventory.findById(inventoryItem._id || inventoryItem);
+        if (inv) {
+          const existingQty = inv.quantity || 0;
+          const existingWAC = inv.averageCost || inv.unitPrice || 0;
+          const newTotalQty = existingQty + qty_;
+          const newWAC = newTotalQty > 0
+            ? ((existingQty * existingWAC) + (qty_ * unitPrice_)) / newTotalQty
+            : unitPrice_;
+          inv.averageCost = Math.round(newWAC * 100) / 100;
+          await inv.save();
+        }
+      } catch (wacErr) {
+        console.warn('[GRN Journal] WAC update failed:', wacErr.message);
+      }
+      // ──────────────────────────────────────────────────────────────────────
 
       const referenceNumber = grnDoc.receiveNumber || grnDoc._id?.toString() || 'GRN';
       await FinanceHelper.createAndPostJournalEntry({
@@ -422,12 +553,25 @@ const FinanceHelper = {
         module: 'procurement',
         referenceId: grnDoc._id,
         referenceType: 'grn',
+        journalCode: 'INV',
         createdBy,
         lines: [
-          { account: inventoryAccountId, description: `Inventory in – ${inventoryItem.name}`, debit: amount, department: 'procurement' },
-          { account: purchaseAccountId, description: `Purchase payable – ${inventoryItem.name}`, credit: amount, department: 'procurement' }
+          {
+            account: inventoryAccountId,
+            description: `Inventory in – ${inventoryItem.name} (${qty_} × ${unitPrice_})`,
+            debit: amount,
+            department: 'procurement'
+          },
+          {
+            account: grniAccountId,
+            description: `GRNI – ${inventoryItem.name} via GRN ${referenceNumber}`,
+            credit: amount,
+            department: 'procurement'
+          }
         ]
       });
+
+      console.log(`[GRN Journal] Posted: DR Inventory ${amount} / CR GRNI ${amount} for ${inventoryItem.name}`);
     } catch (err) {
       console.error('❌ FinanceHelper.postGRNJournal error:', err.message);
     }
@@ -435,17 +579,29 @@ const FinanceHelper = {
 
   /**
    * Post journal entry for a Store Issue Note (SIN).
-   * DR COGS Account, CR Inventory Account.
-   * Called per-item when inventory has accounts configured.
-   * Safe to call – silently skips if accounts are missing or amount is zero.
+   *
+   * CORRECT ODOO-STYLE ENTRY:
+   *   DR  COGS / Project Expense Account    (Expense ↑)
+   *   CR  Stock Valuation / Inventory       (Asset ↓)
+   *
+   * Uses Weighted Average Cost for the issued qty.
+   * Safe to call – silently skips if accounts cannot be resolved or amount is zero.
    */
   postSINJournal: async ({ inventoryItem, sinDoc, qty, createdBy }) => {
     try {
-      const cogsAccountId = inventoryItem.cogsAccount;
-      const inventoryAccountId = inventoryItem.inventoryAccount;
-      if (!cogsAccountId || !inventoryAccountId) return;
+      const qty_ = Number(qty) || 0;
+      if (qty_ <= 0) return;
 
-      const amount = Math.round((Number(qty) || 0) * (Number(inventoryItem.unitPrice) || 0) * 100) / 100;
+      // Resolve accounts: item-level → category → global defaults
+      const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(inventoryItem);
+      if (!cogsAccountId || !inventoryAccountId) {
+        console.warn(`[SIN Journal] Skipped – no COGS/inventory accounts for item: ${inventoryItem.name || inventoryItem._id}`);
+        return;
+      }
+
+      // Use Weighted Average Cost; fallback to unitPrice if WAC not set
+      const unitCost = inventoryItem.averageCost || inventoryItem.unitPrice || 0;
+      const amount = Math.round(qty_ * unitCost * 100) / 100;
       if (amount <= 0) return;
 
       const referenceNumber = sinDoc.issueNumber || sinDoc.sinNumber || sinDoc._id?.toString() || 'SIN';
@@ -457,12 +613,25 @@ const FinanceHelper = {
         module: 'procurement',
         referenceId: sinDoc._id,
         referenceType: 'sin',
+        journalCode: 'INV',
         createdBy,
         lines: [
-          { account: cogsAccountId, description: `COGS – ${inventoryItem.name}`, debit: amount, department: 'procurement' },
-          { account: inventoryAccountId, description: `Inventory out – ${inventoryItem.name}`, credit: amount, department: 'procurement' }
+          {
+            account: cogsAccountId,
+            description: `COGS – ${inventoryItem.name} (${qty_} × WAC ${unitCost})`,
+            debit: amount,
+            department: 'procurement'
+          },
+          {
+            account: inventoryAccountId,
+            description: `Inventory out – ${inventoryItem.name} via SIN ${referenceNumber}`,
+            credit: amount,
+            department: 'procurement'
+          }
         ]
       });
+
+      console.log(`[SIN Journal] Posted: DR COGS ${amount} / CR Inventory ${amount} for ${inventoryItem.name}`);
     } catch (err) {
       console.error('❌ FinanceHelper.postSINJournal error:', err.message);
     }

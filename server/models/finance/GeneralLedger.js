@@ -80,7 +80,7 @@ const generalLedgerSchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual'],
+    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual', 'grn', 'sin', 'purchase_order'],
     default: 'manual'
   },
   // Status
