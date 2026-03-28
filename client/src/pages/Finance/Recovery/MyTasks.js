@@ -29,7 +29,7 @@ import {
   DialogActions,
   SvgIcon
 } from '@mui/material';
-import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon } from '@mui/icons-material';
+import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -1006,9 +1006,20 @@ const MyTasks = () => {
                   ) : (
                     <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
                   )}
-                  <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', opacity: 0.7, mt: 0.25 }}>
-                    {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.3, mt: 0.25 }}>
+                    <Typography variant="caption" sx={{ opacity: 0.7, lineHeight: 1 }}>
+                      {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </Typography>
+                    {m.direction === 'out' && (
+                      m.status === 'read'
+                        ? <DoneAllIcon sx={{ fontSize: 14, color: '#53bdeb' }} />
+                        : m.status === 'delivered'
+                          ? <DoneAllIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.45)' }} />
+                          : m.status === 'sending'
+                            ? <DoneIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.3)' }} />
+                            : <DoneIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.45)' }} />
+                    )}
+                  </Box>
                 </Box>
               ))}
             </Box>

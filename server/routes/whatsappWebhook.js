@@ -12,6 +12,7 @@ const fs = require('fs');
 const axios = require('axios');
 const router = express.Router();
 const WhatsAppIncomingMessage = require('../models/finance/WhatsAppIncomingMessage');
+const WhatsAppOutgoingMessage = require('../models/finance/WhatsAppOutgoingMessage');
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'sgc_whatsapp_verify_2025';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
@@ -111,17 +112,40 @@ router.post('/', async (req, res) => {
   console.log('[WhatsApp Webhook] POST received, object:', body?.object, 'keys:', body ? Object.keys(body) : []);
 
   let messages = [];
+  let statuses = [];
+
   if (body?.object === 'whatsapp_business_account' && body?.entry?.length) {
     for (const entry of body.entry) {
       for (const change of entry?.changes || []) {
-        if (change?.field === 'messages' && change?.value?.messages?.length) {
-          messages = messages.concat(change.value.messages);
+        if (change?.field === 'messages') {
+          if (change?.value?.messages?.length) messages = messages.concat(change.value.messages);
+          if (change?.value?.statuses?.length) statuses = statuses.concat(change.value.statuses);
         }
       }
     }
   }
-  if (!messages.length && Array.isArray(body?.messages)) {
-    messages = body.messages;
+  if (!messages.length && Array.isArray(body?.messages)) messages = body.messages;
+
+  // Process delivery/read status updates for outgoing messages
+  // Meta sends: sent → delivered → read in order, each as a separate webhook call
+  const STATUS_ORDER = { sending: 0, sent: 1, delivered: 2, read: 3 };
+  for (const s of statuses) {
+    const wamid = s?.id;
+    const newStatus = s?.status; // 'sent' | 'delivered' | 'read' | 'failed'
+    if (!wamid || !newStatus) continue;
+    try {
+      const existing = await WhatsAppOutgoingMessage.findOne({ messageId: wamid }).select('status').lean();
+      // Only advance status forward — never go backwards (e.g. ignore 'sent' after 'read')
+      if (existing && (STATUS_ORDER[newStatus] ?? -1) > (STATUS_ORDER[existing.status] ?? -1)) {
+        await WhatsAppOutgoingMessage.updateOne(
+          { messageId: wamid },
+          { $set: { status: newStatus, statusUpdatedAt: new Date(Number(s.timestamp) * 1000 || Date.now()) } }
+        );
+        console.log('[WhatsApp Status]', wamid, '→', newStatus);
+      }
+    } catch (err) {
+      console.error('[WhatsApp Webhook] Status update failed:', err.message);
+    }
   }
 
   for (const msg of messages) {

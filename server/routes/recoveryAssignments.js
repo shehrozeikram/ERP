@@ -949,7 +949,7 @@ router.get(
         mediaType: m.mediaType || null,
         mediaFilename: m.mediaFilename || null
       })),
-      ...outgoing.map((m) => ({ ...m, direction: 'out', time: m.sentAt, text: m.text }))
+      ...outgoing.map((m) => ({ ...m, direction: 'out', time: m.sentAt, text: m.text, status: m.status || 'sent' }))
     ].sort((a, b) => new Date(a.time) - new Date(b.time));
 
     res.json({ success: true, data: thread });
@@ -1208,10 +1208,13 @@ router.post(
           text: displayText,
           messageId,
           sentAt: new Date(),
-          sentBy: req.user?._id
+          sentBy: req.user?._id,
+          // messageId present means Meta accepted it → mark as 'sent' (single tick)
+          // Webhook will advance to 'delivered' then 'read' as Meta sends status events
+          status: messageId ? 'sent' : 'sending',
+          statusUpdatedAt: new Date()
         };
         if (sentAs !== 'text') {
-          // Store the local url for display in the chat history (mediaId is not a URL)
           if (mediaUrl) createPayload.mediaUrl = String(mediaUrl).trim();
           createPayload.mediaType = String(sentAs);
         }
