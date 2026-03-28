@@ -124,17 +124,21 @@ const MyTasks = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId]
   });
 
   const loadMyTasks = useCallback(async () => {
     try {
       setLoading(true);
       setNotRecoveryMember(false);
-      const apiParams = pagination.getApiParams();
+      const taskFilter = tasks.find((t) => t._id === selectedTaskId) || null;
+      // Time-bound task filter runs client-side; fetch one wide page when a task is selected.
+      const apiParams = taskFilter
+        ? { page: 1, limit: 200 }
+        : pagination.getApiParams();
       const params = {
         ...apiParams,
-        ...(searchDebounced.trim() && { search: searchDebounced.trim(), page: 1, limit: 10000 }),
+        ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
         ...(unreadFilter === 'unread' && { unread: 'true' })
@@ -145,8 +149,8 @@ const MyTasks = () => {
       let rows = Array.isArray(data) ? data : [];
 
       // Apply time-bound task filter client-side
-      if (selectedTask) {
-        const t = selectedTask;
+      if (taskFilter) {
+        const t = taskFilter;
         const start = t.startDate ? new Date(t.startDate) : null;
         const end = t.endDate ? new Date(t.endDate) : null;
 
@@ -175,7 +179,7 @@ const MyTasks = () => {
       }
 
       setRecords(rows);
-      pagination.setTotal(rows.length || pag.total || 0);
+      pagination.setTotal(taskFilter ? rows.length : pag.total || 0);
       if (res.data?.notRecoveryMember) setNotRecoveryMember(true);
     } catch (err) {
       setSnackbar({
@@ -188,7 +192,7 @@ const MyTasks = () => {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- pagination object is new each render; use page/rowsPerPage only to avoid infinite loop
-  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, tasks, pagination.page, pagination.rowsPerPage]);
 
   const loadNumbersWithMessages = useCallback(async () => {
     try {

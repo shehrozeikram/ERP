@@ -55,6 +55,7 @@ const CompletedTasks = () => {
   const [repliesRow, setRepliesRow] = useState(null);
   const [repliesMessages, setRepliesMessages] = useState([]);
   const [repliesLoading, setRepliesLoading] = useState(false);
+  const [scopedToMyCompletions, setScopedToMyCompletions] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -72,7 +73,7 @@ const CompletedTasks = () => {
       const apiParams = pagination.getApiParams();
       const params = {
         ...apiParams,
-        ...(searchDebounced.trim() && { search: searchDebounced.trim(), page: 1, limit: 10000 }),
+        ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter })
       };
@@ -95,11 +96,13 @@ const CompletedTasks = () => {
 
   const loadStats = useCallback(async () => {
     try {
-      const res = await fetchRecoveryAssignmentStats();
+      const res = await fetchRecoveryAssignmentStats({ completedTaskFilters: 1 });
       const d = res.data?.data || {};
       setStats({ sectors: d.sectors || [], statuses: d.statuses || [] });
+      setScopedToMyCompletions(!!d.scopedToMyCompletions);
     } catch {
       setStats({ sectors: [], statuses: [] });
+      setScopedToMyCompletions(false);
     }
   }, []);
 
@@ -144,6 +147,12 @@ const CompletedTasks = () => {
               Completed Tasks
             </Typography>
           </Box>
+
+          {scopedToMyCompletions && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              You are viewing only tasks that you marked as completed.
+            </Alert>
+          )}
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
             <TextField
@@ -192,7 +201,7 @@ const CompletedTasks = () => {
           ) : (
             <>
               <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 'calc(100vh - 320px)', minHeight: 500, overflowX: 'auto' }}>
-                <Table size="small" stickyHeader>
+                <Table size="small" stickyHeader sx={{ minWidth: 1320 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ minWidth: 90, fontWeight: 600, bgcolor: 'grey.50' }}>Order Code</TableCell>

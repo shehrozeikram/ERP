@@ -60,6 +60,43 @@ function resolveAssignedMember(record, sectorRules, slabRules) {
   return null;
 }
 
+/** True when the logged-in user is linked to an active RecoveryMember (field agent). */
+async function userIsActiveRecoveryMember(req) {
+  if (!req.user?.employeeId) return false;
+  const employee = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
+  if (!employee) return false;
+  const rm = await RecoveryMember.findOne({ employee: employee._id, isActive: true }).lean();
+  return !!rm;
+}
+
+const normRole = (val) =>
+  val != null ? String(val).toLowerCase().replace(/\s+/g, '_').trim() : '';
+
+/** Same full Completed Tasks list as super_admin: platform admins + Recovery Manager role. */
+function userHasCompletedTasksFullAccess(req) {
+  const fullAccessRoles = new Set(['super_admin', 'admin', 'recovery_manager']);
+  const candidates = [
+    req.user?.role,
+    req.user?.roleRef?.name,
+    req.user?.roleRef?.displayName
+  ];
+  for (const c of candidates) {
+    if (fullAccessRoles.has(normRole(c))) return true;
+  }
+  const multi = req.user?.roles;
+  if (Array.isArray(multi)) {
+    for (const r of multi) {
+      if (fullAccessRoles.has(normRole(r?.name)) || fullAccessRoles.has(normRole(r?.displayName))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Upper bound for page size on recovery list APIs (matches client rows-per-page max, usually 200). */
+const RECOVERY_LIST_MAX_LIMIT = 200;
+
 const EXCEL_TO_DB_FIELD_MAP = {
   'Order Code': 'orderCode',
   'Customer Name': 'customerName',
@@ -157,9 +194,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 50, search, sector, status, unread } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
-    const hasSearch = search && String(search).trim();
-    const maxLimit = hasSearch ? 10000 : 100;
-    const limitNum = Math.min(maxLimit, Math.max(1, parseInt(limit, 10) || 50));
+    const requestedLimit = Math.max(1, parseInt(limit, 10) || 50);
+    const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimit);
     const skip = (Math.max(1, parseInt(page, 10) || 1) - 1) * limitNum;
 
     // Super admin and admin: only assignments that are assigned to some recovery member (any rule)
@@ -282,7 +318,7 @@ router.get(
       return res.json({
         success: true,
         data: [],
-        pagination: { page: 1, limit: Math.min(100, Math.max(1, parseInt(limit, 10) || 50)), total: 0 },
+        pagination: { page: 1, limit: Math.min(RECOVERY_LIST_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 50)), total: 0 },
         notRecoveryMember: true
       });
     }
@@ -292,7 +328,7 @@ router.get(
       return res.json({
         success: true,
         data: [],
-        pagination: { page: 1, limit: Math.min(100, Math.max(1, parseInt(limit, 10) || 50)), total: 0 },
+        pagination: { page: 1, limit: Math.min(RECOVERY_LIST_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 50)), total: 0 },
         notRecoveryMember: true
       });
     }
@@ -328,7 +364,7 @@ router.get(
       return res.json({
         success: true,
         data: [],
-        pagination: { page: parseInt(page, 10) || 1, limit: Math.min(100, Math.max(1, parseInt(limit, 10) || 50)), total: 0 }
+        pagination: { page: parseInt(page, 10) || 1, limit: Math.min(RECOVERY_LIST_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 50)), total: 0 }
       });
     }
 
@@ -477,7 +513,7 @@ router.get(
         return res.json({
           success: true,
           data: [],
-          pagination: { page: Math.max(1, parseInt(page, 10) || 1), limit: Math.min(100, Math.max(1, parseInt(limit, 10) || 50)), total: 0 }
+          pagination: { page: Math.max(1, parseInt(page, 10) || 1), limit: Math.min(RECOVERY_LIST_MAX_LIMIT, Math.max(1, parseInt(limit, 10) || 50)), total: 0 }
         });
       }
 
@@ -485,9 +521,8 @@ router.get(
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const hasSearch = search && String(search).trim();
-    const maxLimit = hasSearch ? 10000 : 100;
-    const limitNum = Math.min(maxLimit, Math.max(1, parseInt(limit, 10) || 50));
+    const requestedLimitMain = Math.max(1, parseInt(limit, 10) || 50);
+    const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimitMain);
     const skip = (pageNum - 1) * limitNum;
 
     let records;
@@ -1174,6 +1209,27 @@ router.get(
   '/stats',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
+    const completedTaskFilters =
+      req.query.completedTaskFilters === 'true' || req.query.completedTaskFilters === '1';
+
+    if (completedTaskFilters) {
+      const seesAllCompleted = userHasCompletedTasksFullAccess(req);
+      const isMember = await userIsActiveRecoveryMember(req);
+      const completedBase = { taskStatus: 'completed' };
+      if (!seesAllCompleted && isMember) {
+        completedBase.taskCompletedBy = req.user._id;
+      }
+      const [total, sectors, statuses] = await Promise.all([
+        RecoveryAssignment.countDocuments(completedBase),
+        RecoveryAssignment.distinct('sector', completedBase).then((arr) => arr.filter(Boolean).sort()),
+        RecoveryAssignment.distinct('status', completedBase).then((arr) => arr.filter(Boolean).sort())
+      ]);
+      return res.json({
+        success: true,
+        data: { total, sectors, statuses, scopedToMyCompletions: !seesAllCompleted && isMember }
+      });
+    }
+
     const [total, sectors, statuses] = await Promise.all([
       RecoveryAssignment.countDocuments(),
       RecoveryAssignment.distinct('sector').then((arr) => arr.filter(Boolean).sort()),
@@ -1188,7 +1244,7 @@ router.get(
 );
 
 // @route   GET /api/finance/recovery-assignments/completed-tasks
-// @desc    List completed recovery assignments for the current user (admin sees all)
+// @desc    List completed assignments: super_admin/admin/recovery_manager see all; active RecoveryMember (field) users see only their completions; other finance roles see all completed (oversight).
 // @access  Private (Finance and Admin)
 router.get(
   '/completed-tasks',
@@ -1196,9 +1252,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 50, search, sector, status } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const hasSearch = search && String(search).trim();
-    const maxLimit = hasSearch ? 10000 : 100;
-    const limitNum = Math.min(maxLimit, Math.max(1, parseInt(limit, 10) || 50));
+    const requestedLimitCompleted = Math.max(1, parseInt(limit, 10) || 50);
+    const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimitCompleted);
     const skip = (pageNum - 1) * limitNum;
 
     const query = { taskStatus: 'completed' };
@@ -1217,8 +1272,9 @@ router.get(
     if (sector && sector.trim()) query.sector = new RegExp(sector.trim(), 'i');
     if (status && status.trim()) query.status = new RegExp(status.trim(), 'i');
 
-    const isAdmin = req.user.role === 'super_admin' || req.user.role === 'admin';
-    if (!isAdmin) {
+    const seesAllCompleted = userHasCompletedTasksFullAccess(req);
+    const isRecoveryMember = await userIsActiveRecoveryMember(req);
+    if (!seesAllCompleted && isRecoveryMember) {
       query.taskCompletedBy = req.user._id;
     }
 

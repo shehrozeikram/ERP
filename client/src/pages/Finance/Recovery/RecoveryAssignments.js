@@ -144,7 +144,7 @@ const RecoveryAssignments = () => {
       const apiParams = pagination.getApiParams();
       const params = {
         ...apiParams,
-        ...(searchDebounced.trim() && { search: searchDebounced.trim(), page: 1, limit: 10000 }),
+        ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
         ...(memberFilter && { memberId: memberFilter }),

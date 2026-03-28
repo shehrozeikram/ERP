@@ -37,8 +37,8 @@ export const fetchWhatsAppNumbersWithMessages = () =>
 export const markRecoveryWhatsAppRead = (phone) =>
   api.post(`${base}/whatsapp-incoming/mark-read`, { phone });
 
-export const fetchRecoveryAssignmentStats = () =>
-  api.get(`${base}/stats`);
+export const fetchRecoveryAssignmentStats = (params = {}) =>
+  api.get(`${base}/stats`, { params });
 
 export const importRecoveryAssignments = (records) =>
   api.post(`${base}/import`, { records });
