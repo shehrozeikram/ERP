@@ -384,6 +384,37 @@ app.get('/api/tracking/test', (req, res) => {
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 app.use('/api/webhooks/whatsapp', whatsappWebhookRoutes);
 
+// Public WhatsApp media serving — must be BEFORE auth middleware.
+// Images/audio/video sent or received via WhatsApp are stored in
+// server/uploads/whatsapp-media/. We serve them through /api/ (not /uploads/)
+// to bypass the nginx nested-location bug that catches *.jpg and serves from
+// the React build dir instead of proxying to Node.js.
+app.get('/api/whatsapp-media/:filename', (req, res) => {
+  const pathMod = require('path');
+  const fsMod = require('fs');
+  const filename = pathMod.basename(req.params.filename || '');
+  if (!filename || filename.includes('..')) {
+    return res.status(400).json({ success: false, message: 'Invalid filename' });
+  }
+  const filePath = pathMod.join(__dirname, 'uploads', 'whatsapp-media', filename);
+  if (!fsMod.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: 'File not found' });
+  }
+  const ext = pathMod.extname(filename).toLowerCase();
+  const mimeMap = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4',
+    '.3gp': 'video/3gpp', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg',
+    '.m4a': 'audio/mp4', '.amr': 'audio/amr', '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  return res.sendFile(filePath);
+});
+
 // Public route for profile images (must be before authenticated routes)
 app.get('/api/hr/image/:filename(*)', (req, res) => {
   try {

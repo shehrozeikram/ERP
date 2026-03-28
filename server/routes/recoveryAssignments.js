@@ -1021,10 +1021,11 @@ router.post(
 
     const mediaType = getMediaTypeFromMime(req.file.mimetype);
 
-    // Build local URL for chat history display — routed through /api/ to avoid nginx
-    // serving /uploads/*.jpg from the React build dir instead of Node.js
+    // Build local URL for chat history display — routed through /api/whatsapp-media/
+    // (public, no auth) to avoid the nginx nested-location bug that catches *.jpg
+    // and tries to serve from client/build instead of proxying to Node.js.
     const baseUrl = getBaseUrl(req).replace(/\/$/, '');
-    const localUrl = `${baseUrl}/api/finance/recovery-assignments/whatsapp-media/${req.file.filename}`;
+    const localUrl = `${baseUrl}/api/whatsapp-media/${req.file.filename}`;
 
     // Re-upload the saved file to Meta's Media API to get a media_id.
     // Meta serves the file itself — no need for your server to be reachable by Meta.

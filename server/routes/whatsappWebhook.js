@@ -151,8 +151,8 @@ router.post('/', async (req, res) => {
         const downloaded = await downloadMetaMedia(metaMediaId, mimeType);
         if (downloaded) {
           const base = getPublicBaseUrl();
-          // Use /api/ path — nginx always proxy_passes /api/ to Node.js reliably
-          mediaUrl = `${base}/api/finance/recovery-assignments/whatsapp-media/${downloaded.filename}`;
+          // Public /api/whatsapp-media/ path — no auth, nginx always proxies /api/ reliably
+          mediaUrl = `${base}/api/whatsapp-media/${downloaded.filename}`;
           mediaType = getMediaTypeLabel(type);
           if (!mediaFilename) mediaFilename = downloaded.filename;
         }
