@@ -28,7 +28,7 @@ import {
   Snackbar,
   Badge
 } from '@mui/material';
-import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon } from '@mui/icons-material';
+import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -120,6 +120,11 @@ const RecoveryAssignments = () => {
   const [replySending, setReplySending] = useState(false);
   const [replyAttachment, setReplyAttachment] = useState(null);
   const replyFileInputRef = React.useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSecs, setRecordingSecs] = useState(0);
+  const mediaRecorderRef = React.useRef(null);
+  const audioChunksRef = React.useRef([]);
+  const recordingTimerRef = React.useRef(null);
 
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [formEditingId, setFormEditingId] = useState(null);
@@ -252,6 +257,43 @@ const RecoveryAssignments = () => {
   const handleRemoveReplyAttachment = () => {
     if (replyAttachment?.preview) URL.revokeObjectURL(replyAttachment.preview);
     setReplyAttachment(null);
+  };
+
+  const handleStartRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus'
+          : 'audio/webm';
+      const mr = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        clearInterval(recordingTimerRef.current);
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const ext = mimeType.includes('ogg') ? '.ogg' : '.webm';
+        const file = new File([blob], `voice_note${ext}`, { type: mimeType });
+        setReplyAttachment({ file, preview: null, mediaType: 'audio' });
+        setIsRecording(false);
+        setRecordingSecs(0);
+      };
+      mr.start(200);
+      mediaRecorderRef.current = mr;
+      setIsRecording(true);
+      setRecordingSecs(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSecs((s) => s + 1), 1000);
+    } catch {
+      setSnackbar({ open: true, message: 'Microphone access denied', severity: 'error' });
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
   };
 
   const handleSendReply = async () => {
@@ -758,25 +800,33 @@ const RecoveryAssignments = () => {
                 style={{ display: 'none' }}
                 onChange={handleReplyFileSelect}
               />
-              {replyAttachment && (
+              {replyAttachment && !isRecording && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: 'white', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-                  {replyAttachment.preview ? (
-                    <Box component="img" src={replyAttachment.preview} alt="Preview" sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1 }} />
-                  ) : (
-                    <AttachFileIcon sx={{ color: 'text.secondary', fontSize: 28 }} />
-                  )}
+                  {replyAttachment.mediaType === 'audio'
+                    ? <MicIcon sx={{ color: '#25D366', fontSize: 28 }} />
+                    : replyAttachment.preview
+                      ? <Box component="img" src={replyAttachment.preview} alt="Preview" sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 1 }} />
+                      : <AttachFileIcon sx={{ color: 'text.secondary', fontSize: 28 }} />}
                   <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>{replyAttachment.file?.name}</Typography>
-                  <IconButton size="small" onClick={handleRemoveReplyAttachment} title="Remove attachment"><CloseIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" onClick={handleRemoveReplyAttachment} title="Remove"><CloseIcon fontSize="small" /></IconButton>
+                </Box>
+              )}
+              {isRecording && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, px: 1.5, py: 1, bgcolor: '#fff0f0', borderRadius: 2, border: '1px solid #ffcccc' }}>
+                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: 'error.main', animation: 'pulse 1s infinite', '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } } }} />
+                  <Typography variant="body2" color="error" sx={{ fontWeight: 600 }}>
+                    Recording… {`${Math.floor(recordingSecs / 60)}:${String(recordingSecs % 60).padStart(2, '0')}`}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>Tap stop to send</Typography>
                 </Box>
               )}
               <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-                <IconButton
-                  onClick={() => replyFileInputRef.current?.click()}
-                  sx={{ color: '#54656F', alignSelf: 'center', flexShrink: 0 }}
-                  title="Attach file"
-                >
-                  <AttachFileIcon />
-                </IconButton>
+                {!isRecording && (
+                  <IconButton onClick={() => replyFileInputRef.current?.click()} sx={{ color: '#54656F', alignSelf: 'center', flexShrink: 0 }} title="Attach file">
+                    <AttachFileIcon />
+                  </IconButton>
+                )}
+                {!isRecording && (
                 <TextField
                   fullWidth
                   multiline
@@ -803,20 +853,24 @@ const RecoveryAssignments = () => {
                     }
                   }}
                 />
-                <IconButton
-                  onClick={handleSendReply}
-                  disabled={replySending || (!replyText.trim() && !replyAttachment)}
-                  sx={{
-                    bgcolor: '#25D366',
-                    color: 'white',
-                    '&:hover': { bgcolor: '#1da851' },
-                    '&.Mui-disabled': { bgcolor: 'grey.300', color: 'grey.500' },
-                    alignSelf: 'flex-end',
-                    flexShrink: 0
-                  }}
-                >
-                  {replySending ? <CircularProgress size={24} color="inherit" /> : <SendIcon />}
-                </IconButton>
+                )}
+                {isRecording ? (
+                  <IconButton onClick={handleStopRecording} sx={{ bgcolor: 'error.main', color: 'white', '&:hover': { bgcolor: 'error.dark' }, flexShrink: 0 }}>
+                    <StopIcon />
+                  </IconButton>
+                ) : (replyText.trim() || replyAttachment) ? (
+                  <IconButton
+                    onClick={handleSendReply}
+                    disabled={replySending}
+                    sx={{ bgcolor: '#25D366', color: 'white', '&:hover': { bgcolor: '#1da851' }, '&.Mui-disabled': { bgcolor: 'grey.300', color: 'grey.500' }, alignSelf: 'flex-end', flexShrink: 0 }}
+                  >
+                    {replySending ? <CircularProgress size={24} color="inherit" /> : <SendIcon />}
+                  </IconButton>
+                ) : (
+                  <IconButton onClick={handleStartRecording} sx={{ bgcolor: '#25D366', color: 'white', '&:hover': { bgcolor: '#1da851' }, flexShrink: 0 }} title="Record voice note">
+                    <MicIcon />
+                  </IconButton>
+                )}
               </Box>
             </Box>
           )}
