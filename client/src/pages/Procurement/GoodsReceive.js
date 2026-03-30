@@ -11,7 +11,7 @@ import {
   LocalShipping as ReceiveIcon, Add as AddIcon, Visibility as ViewIcon,
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
   Inventory as InventoryIcon, QrCode as QrCodeIcon, LocationOn as LocationIcon,
-  ExpandMore as ExpandMoreIcon
+  ExpandMore as ExpandMoreIcon, Receipt as BillIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
@@ -411,7 +411,16 @@ const GoodsReceive = () => {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              onClick={() => navigate('/finance/bill-to-receive')}
+              sx={{ fontSize: 12 }}
+            >
+              Finance: Bill to Receive
+            </Button>
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadReceives}>
               Refresh
             </Button>
@@ -464,7 +473,12 @@ const GoodsReceive = () => {
                     <TableCell>{receive.poNumber || receive.purchaseOrder?.orderNumber || '-'}</TableCell>
                     <TableCell>{receive.totalItems || 0}</TableCell>
                     <TableCell>{receive.totalQuantity || 0}</TableCell>
-                    <TableCell><Chip label={receive.status} size="small" color={receive.status === 'Complete' || receive.status === 'Received' ? 'success' : receive.status === 'Partial' ? 'warning' : 'default'} /></TableCell>
+                    <TableCell>
+                      <Stack direction="row" gap={0.5} flexWrap="wrap">
+                        <Chip label={receive.status} size="small" color={receive.status === 'Complete' || receive.status === 'Received' ? 'success' : receive.status === 'Partial' ? 'warning' : 'default'} />
+                        {receive.billingStatus === 'fully_billed' && <Chip label="Billed" size="small" color="info" />}
+                      </Stack>
+                    </TableCell>
                     <TableCell>
                       <Tooltip title="View">
                         <IconButton size="small" onClick={async () => {
@@ -491,6 +505,28 @@ const GoodsReceive = () => {
                         }}>
                           <InventoryIcon fontSize="small" />
                         </IconButton>
+                      </Tooltip>
+                      <Tooltip title={receive.billingStatus === 'fully_billed' ? 'Already billed' : 'Create Vendor Bill'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="success"
+                            disabled={receive.billingStatus === 'fully_billed'}
+                            onClick={async () => {
+                              const invoiceNo = window.prompt(`Vendor Invoice # (optional) for GRN ${receive.receiveNumber}:`);
+                              if (invoiceNo === null) return;
+                              try {
+                                const res = await api.post(`/finance/grn/${receive._id}/create-bill`, { vendorInvoiceNumber: invoiceNo });
+                                setSuccess(`✓ ${res.data.message}`);
+                                loadReceives();
+                              } catch (err) {
+                                setError(err.response?.data?.message || 'Bill creation failed');
+                              }
+                            }}
+                          >
+                            <BillIcon fontSize="small" />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     </TableCell>
                   </TableRow>

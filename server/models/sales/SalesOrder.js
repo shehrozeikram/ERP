@@ -106,7 +106,18 @@ const salesOrderSchema = new mongoose.Schema({
   attachments: [{
     filename: String,
     url: String
-  }]
+  }],
+  // Finance integration
+  billingStatus: {
+    type: String,
+    enum: ['nothing_to_invoice', 'to_invoice', 'fully_invoiced'],
+    default: 'nothing_to_invoice'
+  },
+  arInvoice: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'AccountsReceivable'
+  },
+  arInvoiceNumber: { type: String, trim: true }
 }, {
   timestamps: true
 });

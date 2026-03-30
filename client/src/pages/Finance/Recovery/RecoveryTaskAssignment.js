@@ -36,6 +36,7 @@ import { AssignmentInd as AssignmentIcon, Add as AddIcon, Delete as DeleteIcon, 
 import {
   fetchRecoveryTaskRules,
   createRecoveryTaskRule,
+  updateRecoveryTaskRule,
   deleteRecoveryTaskRule,
   fetchSlabTargetCount
 } from '../../../services/recoveryTaskAssignmentRuleService';
@@ -128,6 +129,7 @@ const RecoveryTaskAssignment = () => {
     sector: '',
     minAmount: '',
     maxAmount: '',
+    targetCount: '',
     action: 'both'
   });
 
@@ -148,8 +150,11 @@ const RecoveryTaskAssignment = () => {
   const [progressDialogOpen, setProgressDialogOpen] = useState(false);
   const [progressSaving, setProgressSaving] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [selectedRule, setSelectedRule] = useState(null);
   const [progressForm, setProgressForm] = useState({ completedCount: '', progressPercent: '', status: '' });
   const [autoCountLoading, setAutoCountLoading] = useState(false);
+  const [ruleAutoCountLoading, setRuleAutoCountLoading] = useState(false);
+  const [ruleMatchedCount, setRuleMatchedCount] = useState(null);
 
   const loadRules = useCallback(async () => {
     try {
@@ -195,11 +200,12 @@ const RecoveryTaskAssignment = () => {
   const handleOpenAddDialog = () => {
     const today = new Date().toISOString().slice(0, 10);
     setAddMode('rule');
-    setForm({ type: 'sector', assignedTo: '', sector: '', minAmount: '', maxAmount: '', action: 'both' });
+    setForm({ type: 'sector', assignedTo: '', sector: '', minAmount: '', maxAmount: '', targetCount: '', action: 'both' });
     setTaskForm({
       title: '', assignedTo: '', scopeType: 'sector', sector: '', minAmount: '', maxAmount: '',
       startDate: today, endDate: today, targetCount: '', notes: '', action: 'both'
     });
+    setRuleMatchedCount(null);
     setAddDialogOpen(true);
   };
 
@@ -230,6 +236,7 @@ const RecoveryTaskAssignment = () => {
         sector: form.type === 'sector' ? form.sector : (form.sector || ''),
         minAmount: form.type === 'slab' ? Number(form.minAmount) : 0,
         maxAmount: form.type === 'slab' && form.maxAmount !== '' ? Number(form.maxAmount) : null,
+        targetCount: form.targetCount !== '' ? Number(form.targetCount) : null,
         action: form.action || 'both'
       });
       setSnackbar({ open: true, message: 'Assignment rule added', severity: 'success' });
@@ -298,12 +305,16 @@ const RecoveryTaskAssignment = () => {
     }
   };
 
-  const handleOpenProgressDialog = (task) => {
+  const handleOpenProgressDialog = (row) => {
+    const task = row?.kind === 'task' ? row.task : null;
+    const rule = row?.kind === 'rule' ? row.rule : null;
     setSelectedTask(task);
+    setSelectedRule(rule);
+    const source = task || rule;
     setProgressForm({
-      completedCount: task.targetCount != null ? String(task.completedCount ?? 0) : '',
-      progressPercent: task.targetCount == null ? String(task.progressPercent ?? 0) : '',
-      status: task.status || 'pending'
+      completedCount: source?.targetCount != null ? String(source.completedCount ?? 0) : '',
+      progressPercent: source?.targetCount == null ? String(source.progressPercent ?? 0) : '',
+      status: source?.status || 'pending'
     });
     setProgressDialogOpen(true);
   };
@@ -311,12 +322,14 @@ const RecoveryTaskAssignment = () => {
   const handleCloseProgressDialog = () => {
     setProgressDialogOpen(false);
     setSelectedTask(null);
+    setSelectedRule(null);
   };
 
   const handleSubmitProgress = async () => {
-    if (!selectedTask) return;
+    const selectedItem = selectedTask || selectedRule;
+    if (!selectedItem) return;
     const payload = { status: progressForm.status };
-    if (selectedTask.targetCount != null && selectedTask.targetCount > 0) {
+    if (selectedItem.targetCount != null && selectedItem.targetCount > 0) {
       const n = parseInt(progressForm.completedCount, 10);
       if (!isNaN(n) && n >= 0) payload.completedCount = n;
     } else {
@@ -325,10 +338,14 @@ const RecoveryTaskAssignment = () => {
     }
     try {
       setProgressSaving(true);
-      await updateRecoveryTask(selectedTask._id, payload);
+      if (selectedTask) {
+        await updateRecoveryTask(selectedTask._id, payload);
+      } else {
+        await updateRecoveryTaskRule(selectedRule._id, payload);
+      }
       setSnackbar({ open: true, message: 'Progress updated', severity: 'success' });
       handleCloseProgressDialog();
-      loadTasks();
+      await Promise.all([loadTasks(), loadRules()]);
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to update progress', severity: 'error' });
     } finally {
@@ -344,6 +361,47 @@ const RecoveryTaskAssignment = () => {
       loadTasks();
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.message || 'Failed to delete task', severity: 'error' });
+    }
+  };
+
+  const handleRuleAutoCount = async () => {
+    if (form.type === 'sector' && !form.sector) {
+      setSnackbar({ open: true, message: 'Select a sector first', severity: 'warning' });
+      return;
+    }
+    const minAmountForRequest = form.type === 'sector' ? '0' : form.minAmount;
+    const maxAmountForRequest = form.type === 'sector' ? '' : form.maxAmount;
+    const min = Number(minAmountForRequest);
+    if (isNaN(min) || min < 0) {
+      setSnackbar({ open: true, message: 'Enter a valid minimum amount first', severity: 'warning' });
+      return;
+    }
+
+    setRuleAutoCountLoading(true);
+    try {
+      const res = await fetchSlabTargetCount({
+        sector: form.sector || undefined,
+        minAmount: minAmountForRequest,
+        maxAmount: maxAmountForRequest
+      });
+      const count = res.data?.data?.count ?? 0;
+      setRuleMatchedCount(count);
+      setForm((f) => ({ ...f, targetCount: String(count) }));
+      setSnackbar({
+        open: true,
+        message: form.type === 'sector'
+          ? `Matched records in sector "${form.sector}": ${count}`
+          : `Matched records in slab scope: ${count}`,
+        severity: 'info'
+      });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to fetch matched count',
+        severity: 'error'
+      });
+    } finally {
+      setRuleAutoCountLoading(false);
     }
   };
 
@@ -366,7 +424,8 @@ const RecoveryTaskAssignment = () => {
     ...sectorRules
       .filter((r) => {
         const assignedToId = r.assignedTo?._id || r.assignedTo || '';
-        const key = `sector|${assignedToId}|${r.sector || ''}|||`;
+        // Must match taskScopeKeys format for sector tasks: sector|assignedTo|sector||
+        const key = `sector|${assignedToId}|${r.sector || ''}||`;
         return !taskScopeKeys.has(key);
       })
       .map((r) => ({
@@ -377,8 +436,12 @@ const RecoveryTaskAssignment = () => {
         member: getMemberName(r),
         action: r.action || 'both',
         period: '—',
-        progress: '—',
-        status: null,
+        targetCount: r.targetCount,
+        progress:
+          r.targetCount != null && r.targetCount > 0
+            ? `${r.completedCount ?? 0}/${r.targetCount} (${r.progress ?? 0}%)`
+            : `${r.progress ?? 0}%`,
+        status: r.status || 'pending',
         rule: r,
         monthYear: getMonthYearKey(r.createdAt) || '—',
         assignedBy: getCreatedByName(r),
@@ -400,8 +463,12 @@ const RecoveryTaskAssignment = () => {
         member: getMemberName(r),
         action: r.action || 'both',
         period: '—',
-        progress: '—',
-        status: null,
+        targetCount: r.targetCount,
+        progress:
+          r.targetCount != null && r.targetCount > 0
+            ? `${r.completedCount ?? 0}/${r.targetCount} (${r.progress ?? 0}%)`
+            : `${r.progress ?? 0}%`,
+        status: r.status || 'pending',
         rule: r,
         monthYear: getMonthYearKey(r.createdAt) || '—',
         assignedBy: getCreatedByName(r),
@@ -420,6 +487,7 @@ const RecoveryTaskAssignment = () => {
           ? `${t.completedCount ?? 0}/${t.targetCount} (${t.progress ?? 0}%)`
           : `${t.progress ?? 0}%`,
       status: t.status,
+      targetCount: t.targetCount,
       task: t,
       monthYear: getMonthYearKey(t.startDate) || '—',
       assignedBy: getCreatedByName(t),
@@ -504,7 +572,15 @@ const RecoveryTaskAssignment = () => {
                             <TableBody>
                               {rows.map((row) => (
                                 <TableRow key={row.kind + row.id}>
-                                  <TableCell><Chip size="small" label={row.typeLabel} variant="outlined" color={row.kind === 'task' ? 'primary' : 'default'} /></TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      size="small"
+                                      label={row.kind === 'task' ? 'Task' : 'Rule'}
+                                      color={row.kind === 'task' ? 'primary' : 'warning'}
+                                      variant={row.kind === 'task' ? 'filled' : 'outlined'}
+                                      sx={{ fontWeight: 600, minWidth: 62, justifyContent: 'center' }}
+                                    />
+                                  </TableCell>
                                   <TableCell>{row.scope}</TableCell>
                                   <TableCell>{row.member}</TableCell>
                                   <TableCell>{row.assignedBy || '—'}</TableCell>
@@ -512,19 +588,17 @@ const RecoveryTaskAssignment = () => {
                                   <TableCell>{ACTION_LABELS[row.action] || row.action || '—'}</TableCell>
                                   <TableCell>{row.period}</TableCell>
                                   <TableCell>
-                                    {row.kind === 'task' && row.task?.targetCount != null
-                                      ? row.task.targetCount
-                                      : '—'}
+                                    {row.targetCount != null ? row.targetCount : '—'}
                                   </TableCell>
                                   <TableCell>{row.progress}</TableCell>
                                   <TableCell>
-                                    {row.kind === 'task' && row.status ? (
+                                    {row.status ? (
                                       <Chip size="small" label={STATUS_LABELS[row.status] || row.status} variant={row.status === 'completed' ? 'filled' : 'outlined'} color={row.status === 'completed' ? 'success' : 'default'} />
                                     ) : '—'}
                                   </TableCell>
                                   <TableCell align="right">
-                                    {row.kind === 'task' && (
-                                      <IconButton size="small" onClick={() => handleOpenProgressDialog(row.task)} title="Update progress">
+                                    {(row.kind === 'task' || row.kind === 'rule') && (
+                                      <IconButton size="small" onClick={() => handleOpenProgressDialog(row)} title="Update progress">
                                         <EditIcon />
                                       </IconButton>
                                     )}
@@ -571,7 +645,19 @@ const RecoveryTaskAssignment = () => {
             <>
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Type</InputLabel>
-                <Select value={form.type} label="Type" onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
+                <Select
+                  value={form.type}
+                  label="Type"
+                  onChange={(e) => {
+                    const nextType = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      type: nextType,
+                      ...(nextType === 'sector' ? { minAmount: '', maxAmount: '' } : {})
+                    }));
+                    setRuleMatchedCount(null);
+                  }}
+                >
                   <MenuItem value="sector">Sector-wide (full sector)</MenuItem>
                   <MenuItem value="slab">Balance slab (by due amount)</MenuItem>
                 </Select>
@@ -579,7 +665,14 @@ const RecoveryTaskAssignment = () => {
               {form.type === 'sector' && (
                 <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                   <InputLabel>Sector</InputLabel>
-                  <Select value={form.sector} label="Sector" onChange={(e) => setForm((f) => ({ ...f, sector: e.target.value }))}>
+                  <Select
+                    value={form.sector}
+                    label="Sector"
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, sector: e.target.value }));
+                      setRuleMatchedCount(null);
+                    }}
+                  >
                     <MenuItem value="">Select sector</MenuItem>
                     {sectors.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
                   </Select>
@@ -587,17 +680,77 @@ const RecoveryTaskAssignment = () => {
               )}
               {form.type === 'slab' && (
                 <>
-                  <TextField fullWidth size="small" label="Min amount (PKR)" type="number" value={form.minAmount} onChange={(e) => setForm((f) => ({ ...f, minAmount: e.target.value }))} inputProps={{ min: 0 }} sx={{ mb: 2 }} placeholder="e.g. 0" />
-                  <TextField fullWidth size="small" label="Max amount (PKR) — optional" type="number" value={form.maxAmount} onChange={(e) => setForm((f) => ({ ...f, maxAmount: e.target.value }))} inputProps={{ min: 0 }} sx={{ mb: 2 }} placeholder="e.g. 1000000" />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Min amount (PKR)"
+                    type="number"
+                    value={form.minAmount}
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, minAmount: e.target.value }));
+                      setRuleMatchedCount(null);
+                    }}
+                    inputProps={{ min: 0 }}
+                    sx={{ mb: 2 }}
+                    placeholder="e.g. 0"
+                  />
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Max amount (PKR) — optional"
+                    type="number"
+                    value={form.maxAmount}
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, maxAmount: e.target.value }));
+                      setRuleMatchedCount(null);
+                    }}
+                    inputProps={{ min: 0 }}
+                    sx={{ mb: 2 }}
+                    placeholder="e.g. 1000000"
+                  />
                   <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                     <InputLabel>Sector (optional)</InputLabel>
-                    <Select value={form.sector} label="Sector (optional)" onChange={(e) => setForm((f) => ({ ...f, sector: e.target.value }))}>
+                    <Select
+                      value={form.sector}
+                      label="Sector (optional)"
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, sector: e.target.value }));
+                        setRuleMatchedCount(null);
+                      }}
+                    >
                       <MenuItem value="">All sectors</MenuItem>
                       {sectors.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
                     </Select>
                   </FormControl>
                 </>
               )}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleRuleAutoCount}
+                  disabled={ruleAutoCountLoading}
+                >
+                  {ruleAutoCountLoading ? <CircularProgress size={18} /> : 'Auto count'}
+                </Button>
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  label={`Matched records: ${ruleMatchedCount == null ? '—' : ruleMatchedCount}`}
+                />
+              </Box>
+              <TextField
+                fullWidth
+                size="small"
+                label="Target count (optional)"
+                type="number"
+                value={form.targetCount}
+                onChange={(e) => setForm((f) => ({ ...f, targetCount: e.target.value }))}
+                inputProps={{ min: 0 }}
+                placeholder="e.g. 50 contacts"
+                sx={{ mb: 2 }}
+              />
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Assigned to</InputLabel>
                 <Select value={form.assignedTo} label="Assigned to" onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value }))}>
@@ -674,8 +827,18 @@ const RecoveryTaskAssignment = () => {
                   variant="outlined"
                   size="small"
                   onClick={async () => {
-                    if (taskForm.scopeType !== 'slab') return;
-                    const min = Number(taskForm.minAmount);
+                    const isSectorScope = taskForm.scopeType === 'sector';
+                    const isSlabScope = taskForm.scopeType === 'slab';
+                    if (!isSectorScope && !isSlabScope) return;
+
+                    if (isSectorScope && !taskForm.sector) {
+                      setSnackbar({ open: true, message: 'Select a sector first', severity: 'warning' });
+                      return;
+                    }
+
+                    const minAmountForRequest = isSectorScope ? '0' : taskForm.minAmount;
+                    const maxAmountForRequest = isSectorScope ? '' : taskForm.maxAmount;
+                    const min = Number(minAmountForRequest);
                     if (isNaN(min) || min < 0) {
                       setSnackbar({ open: true, message: 'Enter a valid minimum amount first', severity: 'warning' });
                       return;
@@ -684,14 +847,16 @@ const RecoveryTaskAssignment = () => {
                     try {
                       const res = await fetchSlabTargetCount({
                         sector: taskForm.sector || undefined,
-                        minAmount: taskForm.minAmount,
-                        maxAmount: taskForm.maxAmount
+                        minAmount: minAmountForRequest,
+                        maxAmount: maxAmountForRequest
                       });
                       const count = res.data?.data?.count ?? 0;
                       setTaskForm((f) => ({ ...f, targetCount: String(count) }));
                       setSnackbar({
                         open: true,
-                        message: `Target count set from Recovery Assignments: ${count}`,
+                        message: isSectorScope
+                          ? `Target count set for sector "${taskForm.sector}": ${count}`
+                          : `Target count set from Recovery Assignments: ${count}`,
                         severity: 'info'
                       });
                     } catch (err) {
@@ -704,7 +869,7 @@ const RecoveryTaskAssignment = () => {
                       setAutoCountLoading(false);
                     }
                   }}
-                  disabled={autoCountLoading || taskForm.scopeType !== 'slab'}
+                  disabled={autoCountLoading || !taskForm.scopeType}
                 >
                   {autoCountLoading ? <CircularProgress size={18} /> : 'Auto count'}
                 </Button>
@@ -732,10 +897,14 @@ const RecoveryTaskAssignment = () => {
       <Dialog open={progressDialogOpen} onClose={handleCloseProgressDialog} maxWidth="xs" fullWidth>
         <DialogTitle>Update progress</DialogTitle>
         <DialogContent>
-          {selectedTask && (
+          {(selectedTask || selectedRule) && (
             <>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {selectedTask.title || formatTaskScope(selectedTask)} · {getTaskMemberName(selectedTask)}
+                {(selectedTask ? (selectedTask.title || formatTaskScope(selectedTask)) : (selectedRule?.type === 'sector'
+                  ? `Sector rule · ${selectedRule.sector || '—'}`
+                  : `Slab rule · ${formatAmount(selectedRule?.minAmount)} – ${selectedRule?.maxAmount != null ? formatAmount(selectedRule?.maxAmount) : 'above'}${selectedRule?.sector ? ` (${selectedRule.sector})` : ''}`))}
+                {' · '}
+                {selectedTask ? getTaskMemberName(selectedTask) : getMemberName(selectedRule)}
               </Typography>
               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
                 <InputLabel>Status</InputLabel>
@@ -746,8 +915,8 @@ const RecoveryTaskAssignment = () => {
                   <MenuItem value="cancelled">Cancelled</MenuItem>
                 </Select>
               </FormControl>
-              {selectedTask.targetCount != null && selectedTask.targetCount > 0 ? (
-                <TextField fullWidth size="small" label="Completed count" type="number" value={progressForm.completedCount} onChange={(e) => setProgressForm((f) => ({ ...f, completedCount: e.target.value }))} inputProps={{ min: 0, max: selectedTask.targetCount }} />
+              {(selectedTask || selectedRule)?.targetCount != null && (selectedTask || selectedRule)?.targetCount > 0 ? (
+                <TextField fullWidth size="small" label="Completed count" type="number" value={progressForm.completedCount} onChange={(e) => setProgressForm((f) => ({ ...f, completedCount: e.target.value }))} inputProps={{ min: 0, max: (selectedTask || selectedRule)?.targetCount }} />
               ) : (
                 <TextField fullWidth size="small" label="Progress %" type="number" value={progressForm.progressPercent} onChange={(e) => setProgressForm((f) => ({ ...f, progressPercent: e.target.value }))} inputProps={{ min: 0, max: 100 }} />
               )}

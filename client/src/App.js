@@ -34,6 +34,7 @@ import AttendanceForm from './pages/HR/AttendanceForm';
 import AttendanceReport from './pages/HR/AttendanceReport';
 import BiometricIntegration from './pages/HR/BiometricIntegration';
 import AdvancedFinanceDashboard from './pages/Finance/AdvancedFinanceDashboard';
+import FinanceDashboard from './pages/Finance/FinanceDashboard';
 import ChartOfAccounts from './pages/Finance/ChartOfAccounts';
 import GeneralLedger from './pages/Finance/GeneralLedger';
 import AccountsReceivable from './pages/Finance/AccountsReceivable';
@@ -64,6 +65,47 @@ import FinanceJournals from './pages/Finance/FinanceJournals';
 import FiscalPeriods from './pages/Finance/FiscalPeriods';
 import InventoryCategories from './pages/Finance/InventoryCategories';
 import InventoryValuation from './pages/Finance/InventoryValuation';
+import TaxManagement from './pages/Finance/TaxManagement';
+import FixedAssets from './pages/Finance/FixedAssets';
+import AssetTaggingDashboard from './pages/AssetTagging/AssetTaggingDashboard';
+import TaggedAssetsPage from './pages/AssetTagging/TaggedAssetsPage';
+import VerificationPage from './pages/AssetTagging/VerificationPage';
+import TagEventsPage from './pages/AssetTagging/TagEventsPage';
+import ScanAssetPage from './pages/AssetTagging/ScanAssetPage';
+import LabelPrintPage from './pages/AssetTagging/LabelPrintPage';
+import BankReconciliation from './pages/Finance/BankReconciliation';
+import VendorStatement from './pages/Finance/VendorStatement';
+import BudgetVsActual from './pages/Finance/BudgetVsActual';
+import AgedPayables from './pages/Finance/AgedPayables';
+import PaymentTerms from './pages/Finance/PaymentTerms';
+import BalanceSheet from './pages/Finance/BalanceSheet';
+import ProfitLoss from './pages/Finance/ProfitLoss';
+import TaxSummary from './pages/Finance/TaxSummary';
+import OpeningBalances from './pages/Finance/OpeningBalances';
+import TrialBalance from './pages/Finance/TrialBalance';
+import CashFlow from './pages/Finance/CashFlow';
+import YearEndClosing from './pages/Finance/YearEndClosing';
+import CustomerStatement from './pages/Finance/CustomerStatement';
+import AgedReceivables from './pages/Finance/AgedReceivables';
+import CustomerPayments from './pages/Finance/CustomerPayments';
+import CreditNotes from './pages/Finance/CreditNotes';
+import VendorPayments from './pages/Finance/VendorPayments';
+import VendorRefunds from './pages/Finance/VendorRefunds';
+import BillToReceive from './pages/Finance/BillToReceive';
+import BilledNotReceived from './pages/Finance/BilledNotReceived';
+import InvoicePrint from './pages/Finance/InvoicePrint';
+import BillPrint from './pages/Finance/BillPrint';
+import RecurringJournals from './pages/Finance/RecurringJournals';
+import BatchPayment from './pages/Finance/BatchPayment';
+import CompanyProfile from './pages/Finance/CompanyProfile';
+import ComparativePL from './pages/Finance/ComparativePL';
+import CostCenterPL from './pages/Finance/CostCenterPL';
+import BudgetList from './pages/Finance/BudgetList';
+import BudgetForm from './pages/Finance/BudgetForm';
+import DeferredEntries from './pages/Finance/DeferredEntries';
+import BankStatementImport from './pages/Finance/BankStatementImport';
+import FinanceSetup from './pages/Finance/FinanceSetup';
+import PurchaseReturns from './pages/Procurement/PurchaseReturns';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
 import Requisitions from './pages/Procurement/Requisitions';
 import RequisitionPrintView from './pages/Procurement/RequisitionPrintView';
@@ -441,7 +483,7 @@ function App() {
         <Sidebar />
         <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
           <Header />
-          <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+          <Box component="main" className="app-main-print" sx={{ flexGrow: 1, p: 3 }}>
             <Routes>
             {/* Dashboard */}
             <Route 
@@ -880,7 +922,7 @@ function App() {
             {/* Finance Module */}
             <Route 
               path="/finance" 
-              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AdvancedFinanceDashboard /></ProtectedRoute>} 
+              element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FinanceDashboard /></ProtectedRoute>} 
             />
             <Route 
               path="/finance/accounts" 
@@ -938,6 +980,48 @@ function App() {
               path="/finance/inventory-valuation"
               element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><InventoryValuation /></ProtectedRoute>}
             />
+            <Route path="/finance/taxes" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><TaxManagement /></ProtectedRoute>} />
+            <Route path="/finance/fixed-assets" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FixedAssets /></ProtectedRoute>} />
+            <Route path="/asset-tagging" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><AssetTaggingDashboard /></ProtectedRoute>} />
+            <Route path="/asset-tagging/assets" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><TaggedAssetsPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/verification/:sessionId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/verification" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/events" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><TagEventsPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/scan/:tagCode" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><ScanAssetPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/label/:assetId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><LabelPrintPage /></ProtectedRoute>} />
+            <Route path="/finance/bank-reconciliation" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankReconciliation /></ProtectedRoute>} />
+            <Route path="/finance/vendor-statement" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><VendorStatement /></ProtectedRoute>} />
+            <Route path="/finance/budget-vs-actual" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetVsActual /></ProtectedRoute>} />
+            <Route path="/finance/aged-payables" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AgedPayables /></ProtectedRoute>} />
+            <Route path="/finance/payment-terms" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><PaymentTerms /></ProtectedRoute>} />
+            <Route path="/finance/balance-sheet" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BalanceSheet /></ProtectedRoute>} />
+            <Route path="/finance/profit-loss" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><ProfitLoss /></ProtectedRoute>} />
+            <Route path="/finance/tax-summary" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><TaxSummary /></ProtectedRoute>} />
+            <Route path="/finance/opening-balances" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><OpeningBalances /></ProtectedRoute>} />
+            <Route path="/finance/trial-balance" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><TrialBalance /></ProtectedRoute>} />
+            <Route path="/finance/cash-flow" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CashFlow /></ProtectedRoute>} />
+            <Route path="/finance/year-end-closing" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><YearEndClosing /></ProtectedRoute>} />
+            <Route path="/finance/customer-statement" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CustomerStatement /></ProtectedRoute>} />
+            <Route path="/finance/aged-receivables" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AgedReceivables /></ProtectedRoute>} />
+            <Route path="/finance/customer-payments" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CustomerPayments /></ProtectedRoute>} />
+            <Route path="/finance/credit-notes" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CreditNotes /></ProtectedRoute>} />
+            <Route path="/finance/vendor-payments" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorPayments /></ProtectedRoute>} />
+            <Route path="/finance/vendor-refunds" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorRefunds /></ProtectedRoute>} />
+            <Route path="/finance/bill-to-receive" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BillToReceive /></ProtectedRoute>} />
+            <Route path="/finance/billed-not-received" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BilledNotReceived /></ProtectedRoute>} />
+            <Route path="/finance/invoice-print/:id" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><InvoicePrint /></ProtectedRoute>} />
+            <Route path="/finance/bill-print/:id" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BillPrint /></ProtectedRoute>} />
+            <Route path="/finance/recurring-journals" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><RecurringJournals /></ProtectedRoute>} />
+            <Route path="/finance/batch-payment" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BatchPayment /></ProtectedRoute>} />
+            <Route path="/finance/company-profile" element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><CompanyProfile /></ProtectedRoute>} />
+            <Route path="/finance/comparative-pl" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><ComparativePL /></ProtectedRoute>} />
+            <Route path="/finance/cost-center-pl" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CostCenterPL /></ProtectedRoute>} />
+            <Route path="/finance/budgets" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetList /></ProtectedRoute>} />
+            <Route path="/finance/budgets/:id" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BudgetForm /></ProtectedRoute>} />
+            <Route path="/finance/deferred-entries" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><DeferredEntries /></ProtectedRoute>} />
+            <Route path="/finance/bank-statement-import" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankStatementImport /></ProtectedRoute>} />
+            <Route path="/finance/setup" element={<ProtectedRoute requiredRole={["super_admin"]}><FinanceSetup /></ProtectedRoute>} />
+            <Route path="/procurement/purchase-returns" element={<ProtectedRoute requiredRole={["super_admin", "admin", "procurement_manager"]}><PurchaseReturns /></ProtectedRoute>} />
             <Route
               path="/finance/taj-utilities-charges"
               element={<Navigate to="/finance/taj-utilities-charges/dashboard" replace />}

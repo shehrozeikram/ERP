@@ -154,6 +154,30 @@ const goodsReceiveSchema = new mongoose.Schema({
     type: String,
     enum: ['Draft', 'Received', 'Complete', 'Partial'],
     default: 'Partial'
+  },
+  // Finance / billing integration
+  billingStatus: {
+    type: String,
+    enum: ['nothing_to_bill', 'waiting_bills', 'fully_billed'],
+    default: 'nothing_to_bill'
+  },
+  // AP bill generated from this GRN
+  vendorBill: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'AccountsPayable'
+  },
+  vendorBillNumber: {
+    type: String,
+    trim: true
+  },
+  // Journal entry posted on receipt
+  journalEntry: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'JournalEntry'
+  },
+  financePosted: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
@@ -214,9 +238,77 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
     const item = items[idx] && typeof items[idx].toObject === 'function' ? items[idx].toObject() : items[idx];
     if (!item || item.quantity == null) continue;
     try {
+      const linkedId = item.inventoryItem?._id || item.inventoryItem;
       const codeStr = item.itemCode != null ? String(item.itemCode).trim() : '';
       const nameStr = item.itemName != null ? String(item.itemName).trim() : '';
 
+      // Resolve sub-store: item-level subStore overrides GRN-level store
+      const subStoreId = item.subStore?._id || item.subStore || null;
+      const txStoreId = subStoreId || storeId;
+      const subStoreSnapshot = subStoreId ? await resolveStoreName(subStoreId) : '';
+      const qty = Number(item.quantity) || 0;
+
+      // ── Linked store item: add stock to existing master item (matches finance GRN journal) ──
+      if (linkedId) {
+        const inv = await Inventory.findById(linkedId);
+        if (!inv) {
+          console.error(`GoodsReceive syncItemsToInventory: inventoryItem not found ${linkedId}`);
+          continue;
+        }
+        if (storeId) {
+          inv.store = storeId;
+          inv.storeSnapshot = storeSnapshot;
+        }
+        if (subStoreId) {
+          inv.subStore = subStoreId;
+          inv.subStoreSnapshot = subStoreSnapshot;
+        }
+        if (item.location && (item.location.rack || item.location.shelf || item.location.bin)) {
+          inv.location = {
+            rack: item.location.rack || '',
+            shelf: item.location.shelf || '',
+            bin: item.location.bin || ''
+          };
+        }
+        await inv.save();
+        await inv.addStock(
+          qty,
+          receiveNumber,
+          item.notes || `Received via GRN ${receiveNumber}`,
+          grnDoc.receivedBy
+        );
+        if (qty > 0 && txStoreId) {
+          const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inv._id);
+          const balanceAfter = currentBalance + qty;
+          await StockTransaction.create({
+            store: txStoreId,
+            storeSnapshot: subStoreSnapshot || storeSnapshot,
+            project: projectId,
+            item: inv._id,
+            itemCode: inv.itemCode,
+            itemName: inv.name,
+            transactionType: 'IN',
+            quantity: qty,
+            unit: inv.unit,
+            unitPrice: Number(item.unitPrice) || 0,
+            referenceType: 'GRN',
+            referenceId: grnDoc._id,
+            referenceNumber: receiveNumber,
+            balanceAfter,
+            location: {
+              rack: item.location?.rack || '',
+              shelf: item.location?.shelf || '',
+              bin: item.location?.bin || ''
+            },
+            description: `Received via GRN ${receiveNumber}`,
+            notes: item.notes || '',
+            createdBy: grnDoc.receivedBy
+          });
+        }
+        continue;
+      }
+
+      // ── No link: legacy behaviour — create a GRN-specific inventory row ──
       let baseCode = (codeStr && codeStr !== '—') ? codeStr : nameStr || `ITEM-${idx + 1}`;
       let uniqueCode = `${baseCode}-GRN${receiveNumber}-${idx + 1}`;
 
@@ -228,15 +320,8 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
 
       const name = (nameStr && nameStr !== '—') ? nameStr : uniqueCode;
 
-      // Generate unique barcode value
       const barcodeValue = await Inventory.generateBarcodeValue(uniqueCode);
 
-      // Resolve sub-store: item-level subStore overrides GRN-level store
-      const subStoreId = item.subStore?._id || item.subStore || null;
-      const txStoreId = subStoreId || storeId;
-      const subStoreSnapshot = subStoreId ? await resolveStoreName(subStoreId) : '';
-
-      // Build the Inventory document with full WMS location data
       const inv = new Inventory({
         itemCode: uniqueCode,
         name,
@@ -247,7 +332,6 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
         unitPrice: Number(item.unitPrice) || 0,
         barcode: barcodeValue,
         barcodeType: 'CODE128',
-        // WMS location fields
         store: storeId || undefined,
         storeSnapshot: storeSnapshot,
         subStore: subStoreId || undefined,
@@ -262,13 +346,12 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
       await inv.save();
 
       await inv.addStock(
-        Number(item.quantity) || 0,
+        qty,
         receiveNumber,
         item.notes || `Received via GRN ${receiveNumber}`,
         grnDoc.receivedBy
       );
 
-      const qty = Number(item.quantity) || 0;
       if (qty > 0 && txStoreId) {
         const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inv._id);
         const balanceAfter = currentBalance + qty;

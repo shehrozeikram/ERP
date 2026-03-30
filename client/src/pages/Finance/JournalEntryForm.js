@@ -95,7 +95,15 @@ const JournalEntryForm = () => {
       setLoading(true);
       const response = await api.get(`/finance/journal-entries/${id}`);
       if (response.data.success) {
-        setFormData(response.data.data);
+        const entry = response.data.data;
+        // Normalize lines: if account is a populated object, extract _id for the Select value
+        // but keep the full object so we can display account name
+        const normalizedLines = (entry.lines || []).map(line => ({
+          ...line,
+          account: line.account?._id || line.account || '',
+          _accountObj: line.account // preserve full object for display
+        }));
+        setFormData({ ...entry, lines: normalizedLines });
       }
     } catch (error) {
       console.error('Error fetching journal entry:', error);
@@ -226,6 +234,107 @@ const JournalEntryForm = () => {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
         <CircularProgress />
+      </Box>
+    );
+  }
+
+  // ── READ-ONLY VIEW for posted / reversed entries ────────────────────────────
+  if (isEdit && (formData.status === 'posted' || formData.status === 'reversed')) {
+    const totalDr = (formData.lines || []).reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+    const totalCr = (formData.lines || []).reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+    const balanced = Math.abs(totalDr - totalCr) < 0.01;
+    return (
+      <Box sx={{ p: 3 }}>
+        {/* Header */}
+        <Paper sx={{ p: 3, mb: 3, background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.secondary.main, 0.1)} 100%)` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <IconButton onClick={() => navigate('/finance/journal-entries')} sx={{ bgcolor: alpha(theme.palette.primary.main, 0.1) }}>
+              <ArrowBackIcon />
+            </IconButton>
+            <Avatar sx={{ bgcolor: theme.palette.primary.main }}><AccountBalanceIcon /></Avatar>
+            <Box flex={1}>
+              <Typography variant="h4" sx={{ fontWeight: 'bold', color: theme.palette.primary.main }}>
+                {formData.entryNumber || 'Journal Entry'}
+              </Typography>
+              <Typography variant="body2" color="textSecondary">{formData.description}</Typography>
+            </Box>
+            <Chip
+              label={formData.status?.toUpperCase()}
+              color={formData.status === 'posted' ? 'success' : 'error'}
+              sx={{ fontWeight: 700 }}
+            />
+          </Box>
+        </Paper>
+
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        {/* Summary chips */}
+        <Paper variant="outlined" sx={{ p: 2, mb: 3, display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Box><Typography variant="caption" color="text.secondary">Date</Typography><Typography fontWeight={700}>{formData.date ? new Date(formData.date).toLocaleDateString() : '—'}</Typography></Box>
+          <Box><Typography variant="caption" color="text.secondary">Reference</Typography><Typography fontWeight={700}>{formData.reference || '—'}</Typography></Box>
+          <Box><Typography variant="caption" color="text.secondary">Department</Typography><Typography fontWeight={700}>{formData.department?.toUpperCase()}</Typography></Box>
+          <Box><Typography variant="caption" color="text.secondary">Module</Typography><Typography fontWeight={700}>{formData.module?.toUpperCase()}</Typography></Box>
+          <Box flex={1} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {balanced ? <CheckCircleIcon color="success" /> : <ErrorIcon color="error" />}
+            <Typography color={balanced ? 'success.main' : 'error.main'} fontWeight={700}>
+              {balanced ? 'Balanced' : 'Not Balanced'} — Debits: {formatPKR(totalDr)} | Credits: {formatPKR(totalCr)}
+            </Typography>
+          </Box>
+        </Paper>
+
+        {/* Lines */}
+        <Card variant="outlined">
+          <CardContent sx={{ p: 0 }}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'grey.50' }}>
+                    <TableCell><b>#</b></TableCell>
+                    <TableCell><b>Account</b></TableCell>
+                    <TableCell><b>Description</b></TableCell>
+                    <TableCell align="right"><b>Debit (PKR)</b></TableCell>
+                    <TableCell align="right"><b>Credit (PKR)</b></TableCell>
+                    <TableCell><b>Dept</b></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(formData.lines || []).map((line, idx) => {
+                    const accObj = line._accountObj || accounts.find(a => a._id === line.account);
+                    const accLabel = accObj
+                      ? `${accObj.accountNumber} — ${accObj.name}`
+                      : (line.account || '—');
+                    const dr = parseFloat(line.debit) || 0;
+                    const cr = parseFloat(line.credit) || 0;
+                    return (
+                      <TableRow key={idx} sx={{ bgcolor: dr > 0 ? 'success.50' : cr > 0 ? 'primary.50' : undefined }}>
+                        <TableCell sx={{ color: 'text.secondary', width: 36 }}>{idx + 1}</TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace' }}>{accLabel}</Typography>
+                        </TableCell>
+                        <TableCell sx={{ color: 'text.secondary' }}>{line.description}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: dr > 0 ? 700 : 400, color: dr > 0 ? 'success.main' : 'text.disabled' }}>
+                          {dr > 0 ? formatPKR(dr) : '—'}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: cr > 0 ? 700 : 400, color: cr > 0 ? 'primary.main' : 'text.disabled' }}>
+                          {cr > 0 ? formatPKR(cr) : '—'}
+                        </TableCell>
+                        <TableCell sx={{ color: 'text.secondary', fontSize: 11 }}>{line.department?.toUpperCase()}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {/* Totals row */}
+                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell colSpan={3} align="right"><b>Totals</b></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800, color: 'success.main' }}><b>{formatPKR(totalDr)}</b></TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 800, color: 'primary.main' }}><b>{formatPKR(totalCr)}</b></TableCell>
+                    <TableCell />
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
       </Box>
     );
   }

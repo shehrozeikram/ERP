@@ -15,7 +15,9 @@
     "setup": "node setup.js",
     "test:rental-bulk-invoice": "node tests/rental-bulk-invoice-jan2026.test.js",
     "test:create-open-invoice": "node tests/create-open-invoice-jan2026.js",
-    "test:compare-arrears": "node tests/compare-pr1015-pr1016-arrears.test.js"
+    "test:compare-arrears": "node tests/compare-pr1015-pr1016-arrears.test.js",
+    "test:cement-e2e": "node tests/cement-e2e-procurement-finance.test.js",
+    "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js"
   },
   "keywords": [
     "erp",

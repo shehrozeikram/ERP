@@ -67,6 +67,7 @@ const Inventory = () => {
   const [vendors, setVendors] = useState([]);
   const [coaAccounts, setCoaAccounts] = useState([]);
   const [coaLoading, setCoaLoading] = useState(false);
+  const [invCategories, setInvCategories] = useState([]);
   const [formTab, setFormTab] = useState(0);
   
   // Pagination and filters
@@ -94,9 +95,11 @@ const Inventory = () => {
     maxQuantity: 1000,
     unitPrice: 0,
     supplier: '',
+    inventoryCategory: '',
     location: { rack: '', shelf: '', bin: '' },
     notes: '',
     inventoryAccount: '',
+    grniAccount: '',
     cogsAccount: '',
     salesAccount: '',
     purchaseAccount: ''
@@ -113,9 +116,14 @@ const Inventory = () => {
     if (coaAccounts.length > 0) return;
     try {
       setCoaLoading(true);
-      const res = await api.get('/finance/accounts', { params: { limit: 5000, isActive: true } });
-      const list = res.data?.data?.accounts || res.data?.data || [];
+      const [coaRes, catRes] = await Promise.all([
+        api.get('/finance/accounts', { params: { limit: 5000, isActive: true } }),
+        api.get('/inventory-categories').catch(() => ({ data: { data: [] } }))
+      ]);
+      const list = coaRes.data?.data?.accounts || coaRes.data?.data || [];
       setCoaAccounts(Array.isArray(list) ? list : []);
+      const cats = catRes.data?.data;
+      setInvCategories(Array.isArray(cats) ? cats : []);
     } catch {
       // silently ignore – finance module may not be accessible for this role
     } finally {
@@ -188,9 +196,11 @@ const Inventory = () => {
       maxQuantity: 1000,
       unitPrice: 0,
       supplier: '',
+      inventoryCategory: '',
       location: { rack: '', shelf: '', bin: '' },
       notes: '',
       inventoryAccount: '',
+      grniAccount: '',
       cogsAccount: '',
       salesAccount: '',
       purchaseAccount: ''
@@ -211,12 +221,14 @@ const Inventory = () => {
       maxQuantity: item.maxQuantity,
       unitPrice: item.unitPrice,
       supplier: item.supplier?._id || '',
+      inventoryCategory: item.inventoryCategory?._id || item.inventoryCategory || '',
       location: { rack: item.location?.rack || '', shelf: item.location?.shelf || '', bin: item.location?.bin || '' },
       notes: item.notes || '',
       inventoryAccount: item.inventoryAccount?._id || item.inventoryAccount || '',
-      cogsAccount: item.cogsAccount?._id || item.cogsAccount || '',
-      salesAccount: item.salesAccount?._id || item.salesAccount || '',
-      purchaseAccount: item.purchaseAccount?._id || item.purchaseAccount || ''
+      grniAccount:      item.grniAccount?._id      || item.grniAccount      || '',
+      cogsAccount:      item.cogsAccount?._id      || item.cogsAccount      || '',
+      salesAccount:     item.salesAccount?._id     || item.salesAccount     || '',
+      purchaseAccount:  item.purchaseAccount?._id  || item.purchaseAccount  || ''
     });
     setFormTab(0);
     setFormDialog({ open: true, mode: 'edit', data: item });
@@ -471,10 +483,12 @@ const Inventory = () => {
                 <TableCell><strong>Item Code</strong></TableCell>
                 <TableCell><strong>Name</strong></TableCell>
                 <TableCell><strong>Category</strong></TableCell>
+                <TableCell><strong>Finance Category</strong></TableCell>
                 <TableCell><strong>Location</strong></TableCell>
-                <TableCell align="right"><strong>Quantity</strong></TableCell>
-                <TableCell align="right"><strong>Unit Price</strong></TableCell>
-                <TableCell align="right"><strong>Total Value</strong></TableCell>
+                <TableCell align="right"><strong>Qty</strong></TableCell>
+                <TableCell align="right"><strong>WAC (Avg Cost)</strong></TableCell>
+                <TableCell align="right"><strong>List Price</strong></TableCell>
+                <TableCell align="right"><strong>Stock Value</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
                 <TableCell align="center"><strong>Actions</strong></TableCell>
               </TableRow>
@@ -482,13 +496,13 @@ const Inventory = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={12} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={12} align="center">
                     <Typography variant="body2" color="textSecondary">
                       No inventory items found
                     </Typography>
@@ -500,6 +514,12 @@ const Inventory = () => {
                     <TableCell>{item.itemCode}</TableCell>
                     <TableCell>{item.name}</TableCell>
                     <TableCell>{item.category}</TableCell>
+                    <TableCell>
+                      {item.inventoryCategory?.name
+                        ? <Chip label={item.inventoryCategory.name} size="small" color="primary" variant="outlined" />
+                        : <Chip label="Not set" size="small" color="warning" variant="outlined" />
+                      }
+                    </TableCell>
                     <TableCell>
                       <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
                         {item.storeSnapshot || item.subStoreSnapshot
@@ -513,6 +533,11 @@ const Inventory = () => {
                       )}
                     </TableCell>
                     <TableCell align="right">{item.quantity} {item.unit}</TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight={item.averageCost > 0 ? 700 : 400} color={item.averageCost > 0 ? 'primary' : 'text.secondary'}>
+                        {item.averageCost > 0 ? formatPKR(item.averageCost) : '—'}
+                      </Typography>
+                    </TableCell>
                     <TableCell align="right">{formatPKR(item.unitPrice)}</TableCell>
                     <TableCell align="right">{formatPKR(item.totalValue)}</TableCell>
                     <TableCell>
@@ -612,6 +637,24 @@ const Inventory = () => {
                 <MenuItem value="Equipment">Equipment</MenuItem>
                 <MenuItem value="Consumables">Consumables</MenuItem>
                 <MenuItem value="Other">Other</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                select
+                label="Finance Category (Inventory Category)"
+                value={formData.inventoryCategory}
+                onChange={(e) => setFormData({ ...formData, inventoryCategory: e.target.value })}
+                helperText="Links item to GL accounts — required for auto journal entries on GRN/SIN"
+                onClick={loadCoaAccounts}
+              >
+                <MenuItem value=""><em>None</em></MenuItem>
+                {invCategories.map((cat) => (
+                  <MenuItem key={cat._id} value={cat._id}>
+                    {cat.name}
+                  </MenuItem>
+                ))}
               </TextField>
             </Grid>
             <Grid item xs={12}>
@@ -735,8 +778,14 @@ const Inventory = () => {
 
           {formTab === 1 && (
             <Box sx={{ mt: 2 }}>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                <strong>Recommended:</strong> Set <em>Finance Category</em> on the Details tab — the system will inherit all GL accounts from the category automatically. Use the fields below only if this item needs account overrides different from its category.
+              </Alert>
               <Alert severity="info" sx={{ mb: 2 }}>
-                Link this item to Chart of Accounts. When stock is issued (SIN), the system will automatically post a journal entry: <strong>DR COGS Account / CR Inventory Account</strong>. When stock is received (GRN), it will post: <strong>DR Inventory Account / CR Purchase Account</strong>.
+                <strong>Journal entries posted automatically:</strong><br/>
+                • <strong>GRN received:</strong> DR Inventory Account &nbsp;/&nbsp; CR GRNI Account<br/>
+                • <strong>Vendor Bill:</strong> DR GRNI Account &nbsp;/&nbsp; CR Accounts Payable<br/>
+                • <strong>Goods Issue (SIN):</strong> DR COGS Account &nbsp;/&nbsp; CR Inventory Account &nbsp;(at Weighted Avg Cost)
               </Alert>
 
               {coaLoading ? (
@@ -744,25 +793,24 @@ const Inventory = () => {
                   <CircularProgress size={28} />
                 </Box>
               ) : (
-                <Grid container spacing={3}>
+                <Grid container spacing={2}>
+                  {/* ── GRN Accounts ── */}
                   <Grid item xs={12}>
-                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 1 }}>
-                      Asset Accounts
+                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 0.5 }}>
+                      On GRN (Goods Received)
                     </Typography>
-                    <Divider sx={{ mb: 2 }} />
+                    <Divider sx={{ mb: 1.5 }} />
                   </Grid>
 
                   <Grid item xs={12} md={6}>
                     <TextField
-                      fullWidth
-                      select
-                      label="Inventory Account (Asset)"
+                      fullWidth select size="small"
+                      label="Inventory / Stock Valuation Account (DR)"
                       value={formData.inventoryAccount}
                       onChange={(e) => setFormData({ ...formData, inventoryAccount: e.target.value })}
-                      helperText="Used to record stock value on GRN / SIN"
-                      size="small"
+                      helperText="Asset account — increases when stock is received (e.g. 1100 Inventory)"
                     >
-                      <MenuItem value=""><em>None</em></MenuItem>
+                      <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
                       {coaAccounts
                         .filter(a => a.type === 'Asset' || a.type === 'asset')
                         .map(a => (
@@ -773,24 +821,42 @@ const Inventory = () => {
                     </TextField>
                   </Grid>
 
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth select size="small"
+                      label="GRNI Account — Goods Received Not Invoiced (CR)"
+                      value={formData.grniAccount}
+                      onChange={(e) => setFormData({ ...formData, grniAccount: e.target.value })}
+                      helperText="Clearing liability — credited on GRN, debited when vendor bill is created (e.g. 2100 GRNI)"
+                    >
+                      <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
+                      {coaAccounts
+                        .filter(a => a.type === 'Liability' || a.type === 'liability')
+                        .map(a => (
+                          <MenuItem key={a._id} value={a._id}>
+                            {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                  </Grid>
+
+                  {/* ── SIN Accounts ── */}
                   <Grid item xs={12}>
-                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 1, mt: 1 }}>
-                      Expense Accounts
+                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 0.5, mt: 1 }}>
+                      On SIN (Goods Issued from Store)
                     </Typography>
-                    <Divider sx={{ mb: 2 }} />
+                    <Divider sx={{ mb: 1.5 }} />
                   </Grid>
 
                   <Grid item xs={12} md={6}>
                     <TextField
-                      fullWidth
-                      select
-                      label="COGS Account (Expense)"
+                      fullWidth select size="small"
+                      label="COGS / Expense Account (DR)"
                       value={formData.cogsAccount}
                       onChange={(e) => setFormData({ ...formData, cogsAccount: e.target.value })}
-                      helperText="Debited when stock is issued via SIN"
-                      size="small"
+                      helperText="Expense account — debited at Weighted Avg Cost when stock is issued (e.g. 5000 COGS)"
                     >
-                      <MenuItem value=""><em>None</em></MenuItem>
+                      <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
                       {coaAccounts
                         .filter(a => a.type === 'Expense' || a.type === 'expense')
                         .map(a => (
@@ -801,19 +867,25 @@ const Inventory = () => {
                     </TextField>
                   </Grid>
 
+                  {/* ── Sales / Purchase ── */}
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 0.5, mt: 1 }}>
+                      Sales &amp; Direct Purchase (optional overrides)
+                    </Typography>
+                    <Divider sx={{ mb: 1.5 }} />
+                  </Grid>
+
                   <Grid item xs={12} md={6}>
                     <TextField
-                      fullWidth
-                      select
-                      label="Purchase Account (Expense)"
-                      value={formData.purchaseAccount}
-                      onChange={(e) => setFormData({ ...formData, purchaseAccount: e.target.value })}
-                      helperText="Credited when stock is received via GRN"
-                      size="small"
+                      fullWidth select size="small"
+                      label="Sales / Revenue Account"
+                      value={formData.salesAccount}
+                      onChange={(e) => setFormData({ ...formData, salesAccount: e.target.value })}
+                      helperText="Revenue account when item is sold via AR invoice"
                     >
-                      <MenuItem value=""><em>None</em></MenuItem>
+                      <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
                       {coaAccounts
-                        .filter(a => a.type === 'Expense' || a.type === 'expense' || a.type === 'Liability' || a.type === 'liability')
+                        .filter(a => a.type === 'Revenue' || a.type === 'revenue' || a.type === 'Income' || a.type === 'income')
                         .map(a => (
                           <MenuItem key={a._id} value={a._id}>
                             {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
@@ -822,26 +894,17 @@ const Inventory = () => {
                     </TextField>
                   </Grid>
 
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" color="primary" fontWeight={700} sx={{ mb: 1, mt: 1 }}>
-                      Revenue Accounts
-                    </Typography>
-                    <Divider sx={{ mb: 2 }} />
-                  </Grid>
-
                   <Grid item xs={12} md={6}>
                     <TextField
-                      fullWidth
-                      select
-                      label="Sales Account (Revenue)"
-                      value={formData.salesAccount}
-                      onChange={(e) => setFormData({ ...formData, salesAccount: e.target.value })}
-                      helperText="Used when items are sold (future sales flow)"
-                      size="small"
+                      fullWidth select size="small"
+                      label="Purchase / Direct Expense Account"
+                      value={formData.purchaseAccount}
+                      onChange={(e) => setFormData({ ...formData, purchaseAccount: e.target.value })}
+                      helperText="Expense account for direct (non-GRN) AP bills only"
                     >
-                      <MenuItem value=""><em>None</em></MenuItem>
+                      <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
                       {coaAccounts
-                        .filter(a => a.type === 'Revenue' || a.type === 'revenue' || a.type === 'Income' || a.type === 'income')
+                        .filter(a => a.type === 'Expense' || a.type === 'expense')
                         .map(a => (
                           <MenuItem key={a._id} value={a._id}>
                             {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
@@ -853,7 +916,7 @@ const Inventory = () => {
                   {coaAccounts.length === 0 && !coaLoading && (
                     <Grid item xs={12}>
                       <Alert severity="warning">
-                        No Chart of Accounts found. Please set up accounts in the Finance module first.
+                        No Chart of Accounts found. Please set up accounts in Finance → Chart of Accounts first, then use the Finance Setup Wizard to seed standard accounts.
                       </Alert>
                     </Grid>
                   )}
@@ -918,11 +981,18 @@ const Inventory = () => {
                     </Typography>
                   </Grid>
                   <Grid item xs={12} md={4}>
-                    <Typography variant="body2" color="text.secondary">Unit Price</Typography>
+                    <Typography variant="body2" color="text.secondary">Unit / List Price</Typography>
                     <Typography variant="body1">{formatPKR(viewDialog.data.unitPrice)}</Typography>
                   </Grid>
                   <Grid item xs={12} md={4}>
-                    <Typography variant="body2" color="text.secondary">Total Value</Typography>
+                    <Typography variant="body2" color="text.secondary">Weighted Avg Cost (WAC)</Typography>
+                    <Typography variant="body1" fontWeight="bold" color="primary">
+                      {viewDialog.data.averageCost > 0 ? formatPKR(viewDialog.data.averageCost) : '—'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">Used for COGS on SIN</Typography>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Typography variant="body2" color="text.secondary">Total Stock Value</Typography>
                     <Typography variant="body1" fontWeight="bold">
                       {formatPKR(viewDialog.data.totalValue)}
                     </Typography>
@@ -996,14 +1066,43 @@ const Inventory = () => {
 
               {viewDialog.tab === 2 && (
                 <Grid container spacing={2} sx={{ mt: 1 }}>
+                  {/* WAC / Costing banner */}
+                  <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', gap: 3, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200', mb: 1 }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Weighted Avg Cost (WAC)</Typography>
+                        <Typography variant="h6" fontWeight={700} color="primary">
+                          {formatPKR(viewDialog.data.averageCost || 0)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">Used for COGS on every SIN</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">List / Standard Price</Typography>
+                        <Typography variant="h6" fontWeight={700}>
+                          {formatPKR(viewDialog.data.unitPrice || 0)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">Used on PO / initial cost</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Finance Category</Typography>
+                        <Typography variant="body1" fontWeight={600}>
+                          {viewDialog.data.inventoryCategory?.name || <em style={{ color: '#f57c00' }}>Not linked</em>}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">Inherits GL accounts from category</Typography>
+                      </Box>
+                    </Box>
+                  </Grid>
+
+                  {/* GL Account chips */}
                   {[
-                    { label: 'Inventory Account (Asset)', field: 'inventoryAccount', color: 'primary' },
-                    { label: 'COGS Account (Expense)', field: 'cogsAccount', color: 'error' },
-                    { label: 'Purchase Account', field: 'purchaseAccount', color: 'warning' },
-                    { label: 'Sales Account (Revenue)', field: 'salesAccount', color: 'success' }
-                  ].map(({ label, field, color }) => (
+                    { label: 'Inventory / Stock Valuation Account (DR on GRN)', field: 'inventoryAccount', color: 'primary',   note: 'Asset — increases on receipt' },
+                    { label: 'GRNI Account — Goods Received Not Invoiced (CR on GRN)', field: 'grniAccount', color: 'warning', note: 'Liability clearing — reversed by vendor bill' },
+                    { label: 'COGS / Expense Account (DR on SIN)', field: 'cogsAccount', color: 'error',    note: 'Expense — debited at WAC on issue' },
+                    { label: 'Sales / Revenue Account', field: 'salesAccount', color: 'success', note: 'Revenue — credited on AR invoice' },
+                    { label: 'Direct Purchase Account', field: 'purchaseAccount', color: 'default', note: 'Expense for non-GRN direct AP bills' }
+                  ].map(({ label, field, color, note }) => (
                     <Grid item xs={12} md={6} key={field}>
-                      <Typography variant="body2" color="text.secondary">{label}</Typography>
+                      <Typography variant="body2" color="text.secondary" fontWeight={600}>{label}</Typography>
                       {viewDialog.data[field] ? (
                         <Chip
                           size="small"
@@ -1013,14 +1112,18 @@ const Inventory = () => {
                           sx={{ mt: 0.5 }}
                         />
                       ) : (
-                        <Typography variant="body2" color="text.disabled" sx={{ mt: 0.5 }}>Not linked</Typography>
+                        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.5 }}>
+                          Inherited from Finance Category
+                        </Typography>
                       )}
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{note}</Typography>
                     </Grid>
                   ))}
-                  {!viewDialog.data.inventoryAccount && !viewDialog.data.cogsAccount && (
+
+                  {!viewDialog.data.inventoryAccount && !viewDialog.data.cogsAccount && !viewDialog.data.inventoryCategory && (
                     <Grid item xs={12}>
-                      <Alert severity="info" sx={{ mt: 1 }}>
-                        No finance accounts linked. Edit this item and go to the Finance tab to link Chart of Accounts.
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        No finance accounts or Finance Category linked. Edit this item → set Finance Category on the Details tab (recommended), or manually link accounts on the Finance tab.
                       </Alert>
                     </Grid>
                   )}

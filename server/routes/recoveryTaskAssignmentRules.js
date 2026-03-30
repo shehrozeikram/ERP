@@ -7,6 +7,14 @@ const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
 
 const router = express.Router();
 
+function getProgress(rule) {
+  const r = rule?.toObject ? rule.toObject() : rule;
+  if (r.targetCount != null && r.targetCount > 0) {
+    return Math.min(100, Math.round(((r.completedCount || 0) / r.targetCount) * 100));
+  }
+  return Math.min(100, Math.max(0, Number(r.progressPercent) || 0));
+}
+
 // GET /api/finance/recovery-task-rules
 router.get(
   '/',
@@ -19,7 +27,7 @@ router.get(
       .sort({ type: 1, sector: 1, minAmount: 1 })
       .lean();
 
-    res.json({ success: true, data: rules });
+    res.json({ success: true, data: rules.map((r) => ({ ...r, progress: getProgress(r) })) });
   })
 );
 
@@ -28,7 +36,7 @@ router.post(
   '/',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { type, assignedTo, sector, minAmount, maxAmount, action } = req.body;
+    const { type, assignedTo, sector, minAmount, maxAmount, action, targetCount } = req.body;
 
     if (!type || !assignedTo) {
       return res.status(400).json({
@@ -76,6 +84,10 @@ router.post(
       minAmount: type === 'slab' ? Number(minAmount) : 0,
       maxAmount: type === 'slab' && maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null,
       action: action && ['whatsapp', 'call', 'both'].includes(action) ? action : 'both',
+      targetCount: targetCount != null && targetCount !== '' ? Number(targetCount) : null,
+      completedCount: 0,
+      progressPercent: 0,
+      status: 'pending',
       createdBy: req.user._id
     });
 
@@ -87,7 +99,7 @@ router.post(
     res.status(201).json({
       success: true,
       message: 'Assignment rule created',
-      data: rule
+      data: { ...rule.toObject(), progress: getProgress(rule) }
     });
   })
 );
@@ -97,7 +109,7 @@ router.put(
   '/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { type, assignedTo, sector, minAmount, maxAmount, isActive, action } = req.body;
+    const { type, assignedTo, sector, minAmount, maxAmount, isActive, action, status, completedCount, progressPercent, targetCount } = req.body;
     const rule = await RecoveryTaskAssignmentRule.findById(req.params.id);
 
     if (!rule) {
@@ -113,6 +125,10 @@ router.put(
     }
     if (isActive !== undefined) rule.isActive = isActive;
     if (action !== undefined && ['whatsapp', 'call', 'both'].includes(action)) rule.action = action;
+    if (status !== undefined && ['pending', 'in_progress', 'completed', 'cancelled'].includes(status)) rule.status = status;
+    if (targetCount !== undefined) rule.targetCount = targetCount === '' || targetCount == null ? null : Number(targetCount);
+    if (completedCount !== undefined) rule.completedCount = Math.max(0, Number(completedCount) || 0);
+    if (progressPercent !== undefined) rule.progressPercent = Math.min(100, Math.max(0, Number(progressPercent) || 0));
     rule.updatedBy = req.user._id;
 
     await rule.save();
@@ -120,7 +136,7 @@ router.put(
       { path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } }
     ]);
 
-    res.json({ success: true, data: rule });
+    res.json({ success: true, data: { ...rule.toObject(), progress: getProgress(rule) } });
   })
 );
 

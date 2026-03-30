@@ -10,11 +10,31 @@ const announcementSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const companyProfileSchema = new mongoose.Schema({
+  name:        { type: String, default: 'SGC International' },
+  legalName:   { type: String, default: '' },
+  ntn:         { type: String, default: '' },   // FBR NTN
+  strn:        { type: String, default: '' },   // Sales Tax Registration Number
+  address:     { type: String, default: '' },
+  city:        { type: String, default: 'Islamabad' },
+  country:     { type: String, default: 'Pakistan' },
+  phone:       { type: String, default: '' },
+  email:       { type: String, default: 'finance@sgc.international' },
+  website:     { type: String, default: 'www.sgc.international' },
+  logoUrl:     { type: String, default: '' },
+  currency:    { type: String, default: 'PKR' },
+  bankName:    { type: String, default: '' },
+  bankAccount: { type: String, default: '' },
+  bankIBAN:    { type: String, default: '' },
+  invoiceFooter: { type: String, default: 'Thank you for your business.' },
+}, { _id: false });
+
 const systemSettingsSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true, unique: true, default: 'default' },
-    announcement: { type: announcementSchema, default: () => ({}) },
-    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    key:            { type: String, required: true, unique: true, default: 'default' },
+    announcement:   { type: announcementSchema, default: () => ({}) },
+    companyProfile: { type: companyProfileSchema, default: () => ({}) },
+    updatedBy:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }
 );

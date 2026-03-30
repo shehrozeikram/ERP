@@ -195,11 +195,15 @@ router.get(
   '/my-tasks',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, sector, status, unread } = req.query;
+    const { page = 1, limit = 50, search, sector, status, unread, dueSort } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
     const requestedLimit = Math.max(1, parseInt(limit, 10) || 50);
     const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimit);
     const skip = (Math.max(1, parseInt(page, 10) || 1) - 1) * limitNum;
+
+    const sortByDue = dueSort === 'asc' || dueSort === 'desc';
+    const dueDir = dueSort === 'asc' ? 1 : -1;
+    const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
 
     // Super admin and admin: only assignments that are assigned to some recovery member (any rule)
     if (req.user.role === 'super_admin' || req.user.role === 'admin') {
@@ -295,11 +299,21 @@ router.get(
           unreadSet.has(normalizePhoneForLookup(r.mobileNumber))
         );
 
+        if (sortByDue) {
+          filtered.sort((a, b) => {
+            const da = Number(a.currentlyDue) || 0;
+            const db = Number(b.currentlyDue) || 0;
+            const diff = (da - db) * dueDir;
+            if (diff !== 0) return diff;
+            return String(a.orderCode || '').localeCompare(String(b.orderCode || ''));
+          });
+        }
+
         total = filtered.length;
         records = filtered.slice(skip, skip + limitNum);
       } else {
         [records, total] = await Promise.all([
-          RecoveryAssignment.find(query).sort({ sortOrder: 1, orderCode: 1 }).skip(skip).limit(limitNum).lean(),
+          RecoveryAssignment.find(query).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
           RecoveryAssignment.countDocuments(query)
         ]);
       }
@@ -434,11 +448,21 @@ router.get(
         unreadSet.has(normalizePhoneForLookup(r.mobileNumber))
       );
 
+      if (sortByDue) {
+        filtered.sort((a, b) => {
+          const da = Number(a.currentlyDue) || 0;
+          const db = Number(b.currentlyDue) || 0;
+          const diff = (da - db) * dueDir;
+          if (diff !== 0) return diff;
+          return String(a.orderCode || '').localeCompare(String(b.orderCode || ''));
+        });
+      }
+
       total = filtered.length;
       records = filtered.slice(skip, skip + limitNum);
     } else {
       [records, total] = await Promise.all([
-        RecoveryAssignment.find(query).sort({ sortOrder: 1, orderCode: 1 }).skip(skip).limit(limitNum).lean(),
+        RecoveryAssignment.find(query).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
         RecoveryAssignment.countDocuments(query)
       ]);
     }
@@ -465,7 +489,7 @@ router.get(
   '/',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, sector, status, unread, memberId } = req.query;
+    const { page = 1, limit = 50, search, sector, status, unread, memberId, dueSort } = req.query;
     const unreadOnly = unread === 'true' || unread === '1';
     const query = {};
 
@@ -531,6 +555,10 @@ router.get(
     let records;
     let total;
 
+    const sortByDue = dueSort === 'asc' || dueSort === 'desc';
+    const dueDir = dueSort === 'asc' ? 1 : -1;
+    const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
+
     if (unreadOnly) {
       // Build set of phone numbers that have unread incoming WhatsApp messages for this user
       const userId = req.user?._id;
@@ -575,11 +603,21 @@ router.get(
         unreadSet.has(normalizePhoneForLookup(r.mobileNumber))
       );
 
+      if (sortByDue) {
+        filtered.sort((a, b) => {
+          const da = Number(a.currentlyDue) || 0;
+          const db = Number(b.currentlyDue) || 0;
+          const diff = (da - db) * dueDir;
+          if (diff !== 0) return diff;
+          return String(a.orderCode || '').localeCompare(String(b.orderCode || ''));
+        });
+      }
+
       total = filtered.length;
       records = filtered.slice(skip, skip + limitNum);
     } else {
       [records, total] = await Promise.all([
-        RecoveryAssignment.find(query).sort({ sortOrder: 1, orderCode: 1 }).skip(skip).limit(limitNum).lean(),
+        RecoveryAssignment.find(query).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
         RecoveryAssignment.countDocuments(query)
       ]);
     }
@@ -1376,13 +1414,19 @@ router.get(
   '/completed-tasks',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, search, sector, status } = req.query;
+    const { page = 1, limit = 50, search, sector, status, dueSort } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const requestedLimitCompleted = Math.max(1, parseInt(limit, 10) || 50);
     const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimitCompleted);
     const skip = (pageNum - 1) * limitNum;
 
     const query = { taskStatus: 'completed' };
+
+    const sortByDue = dueSort === 'asc' || dueSort === 'desc';
+    const dueDir = dueSort === 'asc' ? 1 : -1;
+    const sortObj = sortByDue
+      ? { currentlyDue: dueDir, taskCompletedAt: -1, orderCode: 1 }
+      : { taskCompletedAt: -1, orderCode: 1 };
 
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
@@ -1406,7 +1450,7 @@ router.get(
 
     const [records, total] = await Promise.all([
       RecoveryAssignment.find(query)
-        .sort({ taskCompletedAt: -1, orderCode: 1 })
+        .sort(sortObj)
         .skip(skip)
         .limit(limitNum)
         .populate('taskCompletedBy', 'firstName lastName email')

@@ -26,6 +26,45 @@ console.log('✅ Procurement routes loaded successfully');
 
 const router = express.Router();
 
+// Convert blank string ObjectId-like fields from forms into undefined
+// so Mongoose does not try to cast "" to ObjectId.
+function normalizeInventoryObjectIdFields(payload = {}) {
+  const cleaned = { ...payload };
+  const objectIdLikeFields = [
+    'supplier',
+    'inventoryCategory',
+    'inventoryAccount',
+    'grniAccount',
+    'cogsAccount',
+    'salesAccount',
+    'purchaseAccount',
+    'store',
+    'subStore',
+    'project'
+  ];
+  for (const field of objectIdLikeFields) {
+    if (cleaned[field] === '') cleaned[field] = undefined;
+  }
+  return cleaned;
+}
+
+/** Match a GRN line to a PO line: description → product code → same row index (simple, predictable). */
+function matchPurchaseOrderLineIndex(poItems, grnLine, grnIndex) {
+  if (!poItems?.length) return -1;
+  const norm = (s) => (s == null ? '' : String(s).trim().toLowerCase().replace(/\s+/g, ' '));
+  const name = norm(grnLine.itemName);
+  const code = norm(grnLine.itemCode);
+  for (let j = 0; j < poItems.length; j++) {
+    if (name && norm(poItems[j].description) === name) return j;
+  }
+  for (let j = 0; j < poItems.length; j++) {
+    const pc = poItems[j].productCode;
+    if (pc && code && norm(pc) === code) return j;
+  }
+  if (grnIndex < poItems.length) return grnIndex;
+  return -1;
+}
+
 // Multer for quotation attachments
 const quotationAttachmentsDir = path.join(__dirname, '../uploads/quotation-attachments');
 const quotationAttachmentStorage = multer.diskStorage({
@@ -1678,12 +1717,14 @@ router.put('/purchase-orders/:id/receive',
   
   await purchaseOrder.save();
 
-  // If status is "Received", create Accounts Payable only if not already created (e.g. by CEO approval)
+  // If status is "Received", create AP only when no bill exists yet and this PO was not received via GRN
+  // (GRN flow creates AP from the vendor bill — avoids duplicate AP for the same PO)
   if (purchaseOrder.status === 'Received') {
     try {
       const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
+      const hasGrn = await GoodsReceive.exists({ purchaseOrder: purchaseOrder._id });
       const amount = Number(purchaseOrder.totalAmount) || 0;
-      if (!existingAP && amount > 0) {
+      if (!existingAP && !hasGrn && amount > 0) {
         const supplier = await Supplier.findById(purchaseOrder.vendor);
         const billDate = new Date();
         billDate.setHours(0, 0, 0, 0);
@@ -2008,10 +2049,12 @@ router.get('/inventory',
     const items = await Inventory.find(query)
       .populate('supplier', 'name contactPerson')
       .populate('createdBy', 'firstName lastName')
+      .populate('inventoryCategory', 'name stockValuationAccount stockInputAccount stockOutputAccount purchaseAccount salesAccount')
       .populate('inventoryAccount', 'accountNumber name type')
-      .populate('cogsAccount', 'accountNumber name type')
-      .populate('salesAccount', 'accountNumber name type')
-      .populate('purchaseAccount', 'accountNumber name type')
+      .populate('grniAccount',      'accountNumber name type')
+      .populate('cogsAccount',      'accountNumber name type')
+      .populate('salesAccount',     'accountNumber name type')
+      .populate('purchaseAccount',  'accountNumber name type')
       .sort({ name: 1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -2068,10 +2111,12 @@ router.get('/inventory/:id',
       .populate('supplier', 'name contactPerson email phone')
       .populate('createdBy', 'firstName lastName email')
       .populate('transactions.performedBy', 'firstName lastName')
+      .populate('inventoryCategory', 'name stockValuationAccount stockInputAccount stockOutputAccount purchaseAccount salesAccount')
       .populate('inventoryAccount', 'accountNumber name type')
-      .populate('cogsAccount', 'accountNumber name type')
-      .populate('salesAccount', 'accountNumber name type')
-      .populate('purchaseAccount', 'accountNumber name type');
+      .populate('grniAccount',      'accountNumber name type')
+      .populate('cogsAccount',      'accountNumber name type')
+      .populate('salesAccount',     'accountNumber name type')
+      .populate('purchaseAccount',  'accountNumber name type');
 
     if (!item) {
       return res.status(404).json({
@@ -2095,7 +2140,8 @@ router.post('/inventory', [
   body('category').isIn(['Raw Materials', 'Finished Goods', 'Office Supplies', 'Equipment', 'Consumables', 'Other']).withMessage('Valid category is required'),
   body('unit').trim().notEmpty().withMessage('Unit is required'),
   body('quantity').isFloat({ min: 0 }).withMessage('Quantity must be non-negative'),
-  body('unitPrice').isFloat({ min: 0 }).withMessage('Unit price must be non-negative')
+  body('unitPrice').isFloat({ min: 0 }).withMessage('Unit price must be non-negative'),
+  body('itemCode').optional().trim().isLength({ min: 1, max: 64 }).withMessage('itemCode must be 1–64 characters')
 ], authorize('super_admin', 'admin', 'procurement_manager'), asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -2105,17 +2151,22 @@ router.post('/inventory', [
     });
   }
 
-  // Generate itemCode
-  const lastItem = await Inventory.findOne().sort({ itemCode: -1 });
-  let newItemCode = 'INV-0001';
-  
-  if (lastItem && lastItem.itemCode) {
-    const lastNum = parseInt(lastItem.itemCode.split('-')[1]);
-    newItemCode = `INV-${String(lastNum + 1).padStart(4, '0')}`;
+  let newItemCode = (req.body.itemCode != null && String(req.body.itemCode).trim() !== '')
+    ? String(req.body.itemCode).trim()
+    : '';
+  if (newItemCode) {
+    const taken = await Inventory.findOne({ itemCode: newItemCode });
+    if (taken) {
+      return res.status(400).json({ success: false, message: 'itemCode already exists' });
+    }
+  } else {
+    const invCount = await Inventory.countDocuments();
+    newItemCode = `INV-${String(invCount + 1).padStart(5, '0')}`;
   }
 
+  const normalizedBody = normalizeInventoryObjectIdFields(req.body);
   const item = new Inventory({
-    ...req.body,
+    ...normalizedBody,
     itemCode: newItemCode,
     createdBy: req.user.id,
     lastRestocked: new Date()
@@ -2159,7 +2210,8 @@ router.put('/inventory/:id', [
     });
   }
 
-  Object.assign(item, req.body);
+  const normalizedBody = normalizeInventoryObjectIdFields(req.body);
+  Object.assign(item, normalizedBody);
   item.updatedBy = req.user.id;
   await item.save();
 
@@ -2275,12 +2327,53 @@ router.post('/inventory/:id/adjust-stock', [
     });
   }
 
+  const oldQty = item.quantity;
+  const newQty = Number(req.body.quantity);
+  const diff = newQty - oldQty;
+
   await item.adjustStock(
-    req.body.quantity,
+    newQty,
     req.body.reference || 'Manual Adjustment',
     req.body.notes || '',
     req.user.id
   );
+
+  // Post GL journal for quantity difference (stock gain/loss).
+  // resolveInventoryAccounts handles the full fallback chain (item → category → global).
+  if (Math.abs(diff) > 0) {
+    try {
+      const FinanceHelper = require('../utils/financeHelper');
+      const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(item);
+      // For adjustments: gains offset against COGS (reversed), losses hit COGS
+      const adjAccount = cogsAccountId || inventoryAccountId;
+      const unitCost = item.averageCost || item.unitPrice || 0;
+      const adjAmt = Math.abs(Math.round(diff * unitCost * 100) / 100);
+
+      if (inventoryAccountId && adjAccount && adjAmt > 0) {
+        const isGain = diff > 0;
+        await FinanceHelper.createAndPostJournalEntry({
+          date: new Date(),
+          reference: req.body.reference || `ADJ-${item.itemCode}`,
+          description: `Stock adjustment – ${item.name} (${diff > 0 ? '+' : ''}${diff} units)`,
+          department: 'procurement',
+          module: 'procurement',
+          referenceId: item._id,
+          referenceType: 'stock_adjustment',
+          journalCode: 'INV',
+          createdBy: req.user.id,
+          lines: isGain ? [
+            { account: inventoryAccountId, description: `Stock gain – ${item.name}`,  debit: adjAmt,  department: 'procurement' },
+            { account: adjAccount,         description: `Gain offset – ${item.name}`, credit: adjAmt, department: 'procurement' }
+          ] : [
+            { account: adjAccount,         description: `Stock loss – ${item.name}`,    debit: adjAmt,  department: 'procurement' },
+            { account: inventoryAccountId, description: `Inventory reduction – ${item.name}`, credit: adjAmt, department: 'procurement' }
+          ]
+        });
+      }
+    } catch (finErr) {
+      console.warn('[Stock Adj] Finance journal skipped:', finErr.message);
+    }
+  }
 
   res.json({
     success: true,
@@ -2531,48 +2624,56 @@ router.post('/goods-receive',
       { path: 'supplier', select: 'name contactPerson supplierId address' },
       { path: 'purchaseOrder', select: 'orderNumber' },
       { path: 'receivedBy', select: 'firstName lastName' },
-      { path: 'items.inventoryItem', populate: { path: 'inventoryAccount cogsAccount purchaseAccount salesAccount', select: 'accountNumber name type' } }
+      {
+        path: 'items.inventoryItem',
+        populate: [
+          { path: 'inventoryCategory', select: 'name stockValuationAccount stockInputAccount stockOutputAccount purchaseAccount salesAccount' },
+          { path: 'inventoryAccount grniAccount cogsAccount purchaseAccount salesAccount', select: 'accountNumber name type' }
+        ]
+      }
     ]);
 
-    // Auto-post GRN journal entries for items linked to finance accounts
+    // Auto-post GRN journal entries — resolveInventoryAccounts handles the full
+    // fallback chain: item-level account → inventoryCategory → global account number.
+    // We call it for every received item; skipping is done inside postGRNJournal.
     const FinanceHelper = require('../utils/financeHelper');
     for (const grnItem of receive.items) {
       const inv = grnItem.inventoryItem;
-      if (inv && inv.inventoryAccount && inv.purchaseAccount) {
-        // Use _id if populated, otherwise use the value directly
-        const normalizedInv = {
-          ...inv.toObject ? inv.toObject() : inv,
-          inventoryAccount: inv.inventoryAccount?._id || inv.inventoryAccount,
-          purchaseAccount: inv.purchaseAccount?._id || inv.purchaseAccount
-        };
-        await FinanceHelper.postGRNJournal({
-          inventoryItem: normalizedInv,
-          grnDoc: receive,
-          qty: grnItem.quantity,
-          unitPrice: grnItem.unitPrice,
-          createdBy: req.user.id
-        });
-      }
+      if (!inv) continue;
+      await FinanceHelper.postGRNJournal({
+        inventoryItem: inv.toObject ? inv.toObject() : inv,
+        grnDoc: receive,
+        qty: grnItem.quantity,
+        unitPrice: grnItem.unitPrice,
+        createdBy: req.user.id
+      });
     }
 
-    // Update PO status to GRN Created when GRN is created
+    // Apply received quantities to the linked PO (accumulates across multiple GRNs)
     if (purchaseOrder) {
-      const po = await PurchaseOrder.findById(purchaseOrder).select('status').lean();
-      if (po) {
-        await PurchaseOrder.findByIdAndUpdate(purchaseOrder, {
-          status: 'GRN Created',
-          updatedBy: req.user.id,
-          $push: {
-            workflowHistory: {
-              fromStatus: po.status || 'Sent to Store',
-              toStatus: 'GRN Created',
-              changedBy: req.user.id,
-              changedAt: new Date(),
-              comments: 'GRN created in Store',
-              module: 'Store'
-            }
-          }
+      const poDoc = await PurchaseOrder.findById(purchaseOrder);
+      if (poDoc?.items?.length) {
+        const prevStatus = poDoc.status;
+        itemsWithDetails.forEach((grnLine, i) => {
+          const qty = Number(grnLine.quantity) || 0;
+          if (qty <= 0) return;
+          const j = matchPurchaseOrderLineIndex(poDoc.items, grnLine, i);
+          if (j < 0) return;
+          const prev = Number(poDoc.items[j].receivedQuantity) || 0;
+          poDoc.items[j].receivedQuantity = Math.round((prev + qty) * 100) / 100;
         });
+        poDoc.updatedBy = req.user.id;
+        poDoc.updateReceivingStatus();
+        poDoc.workflowHistory = poDoc.workflowHistory || [];
+        poDoc.workflowHistory.push({
+          fromStatus: prevStatus,
+          toStatus: poDoc.status,
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: `GRN ${receive.receiveNumber || ''} — quantities applied to PO`,
+          module: 'Store'
+        });
+        await poDoc.save();
       }
     }
 
@@ -2806,8 +2907,26 @@ router.post('/goods-issue',
       { path: 'requestedBy', select: 'firstName lastName' },
       { path: 'issuedBy', select: 'firstName lastName' },
       { path: 'costCenter', select: 'code name department' },
-      { path: 'items.inventoryItem' }
+      {
+        path: 'items.inventoryItem',
+        populate: [
+          { path: 'inventoryCategory', select: 'name stockValuationAccount stockInputAccount stockOutputAccount' },
+          { path: 'inventoryAccount grniAccount cogsAccount', select: 'accountNumber name type' }
+        ]
+      }
     ]);
+
+    // Post COGS journal entry (DR COGS / CR Inventory) for each issued item
+    try {
+      const FinanceHelper = require('../utils/financeHelper');
+      await FinanceHelper.postCOGSJournal({
+        items: issue.items,
+        sinDoc: issue,
+        createdBy: req.user.id
+      });
+    } catch (cogsErr) {
+      console.warn('[SIN] COGS GL posting skipped:', cogsErr.message);
+    }
 
     res.status(201).json({
       success: true,

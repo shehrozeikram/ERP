@@ -52,7 +52,8 @@ import {
   Download as DownloadIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Print as PrintIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -86,6 +87,7 @@ const AccountsPayable = () => {
     paymentDate: new Date().toISOString().split('T')[0]
   });
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState([]);
   const [posForBilling, setPosForBilling] = useState([]);
   const [loadingPosForBilling, setLoadingPosForBilling] = useState(false);
   const [createFromPoDialog, setCreateFromPoDialog] = useState({ open: false, po: null, billNumber: '', creating: false });
@@ -114,6 +116,16 @@ const AccountsPayable = () => {
   useEffect(() => {
     fetchAccountsPayable();
   }, [filters, pagination.currentPage]);
+
+  // Load bank/cash accounts for payment dialog
+  useEffect(() => {
+    api.get('/finance/accounts', { params: { type: 'current_asset', limit: 100 } })
+      .then(res => {
+        const all = res.data.data || res.data.accounts || [];
+        setBankAccounts(all.filter(a => ['1001','1002'].includes(a.accountNumber) || a.name?.toLowerCase().includes('bank') || a.name?.toLowerCase().includes('cash')));
+      })
+      .catch(() => setBankAccounts([]));
+  }, []);
 
   const fetchPosForBilling = async () => {
     try {
@@ -194,10 +206,11 @@ const AccountsPayable = () => {
   const handleOpenPayment = (bill) => {
     setSelectedBill(bill);
     setPaymentData({
-      amount: bill.totalAmount - (bill.paidAmount || 0),
+      amount:        Math.round((bill.totalAmount - (bill.paidAmount || 0)) * 100) / 100,
       paymentMethod: 'bank_transfer',
-      reference: '',
-      paymentDate: new Date().toISOString().split('T')[0]
+      reference:     '',
+      paymentDate:   new Date().toISOString().split('T')[0],
+      whtRate:       0
     });
     setPaymentDialogOpen(true);
   };
@@ -358,7 +371,23 @@ const AccountsPayable = () => {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="outlined" size="small" color="primary"
+              onClick={() => navigate('/finance/vendor-payments')} sx={{ fontSize: 12 }}>
+              Payments
+            </Button>
+            <Button variant="outlined" size="small" color="error"
+              onClick={() => navigate('/finance/vendor-refunds')} sx={{ fontSize: 12 }}>
+              Refunds
+            </Button>
+            <Button variant="outlined" size="small" color="warning"
+              onClick={() => navigate('/finance/bill-to-receive')} sx={{ fontSize: 12 }}>
+              Bill to Receive
+            </Button>
+            <Button variant="outlined" size="small"
+              onClick={() => navigate('/finance/billed-not-received')} sx={{ fontSize: 12 }}>
+              Billed Not Received
+            </Button>
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -702,6 +731,12 @@ const AccountsPayable = () => {
                               onClick={() => handleOpenEdit(bill)}
                             >
                               <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Print / Download Bill">
+                            <IconButton size="small"
+                              onClick={() => navigate(`/finance/bill-print/${bill._id}`)}>
+                              <PrintIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         </Box>
@@ -1180,70 +1215,78 @@ const AccountsPayable = () => {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Record Payment: {selectedBill?.billNumber}</DialogTitle>
+        <DialogTitle>
+          Register Payment — {selectedBill?.billNumber}
+          <Typography variant="body2" color="text.secondary">Vendor: {selectedBill?.vendor?.name}</Typography>
+        </DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                Outstanding Balance: <strong>{selectedBill ? formatPKR(selectedBill.totalAmount - (selectedBill.paidAmount || 0)) : 0}</strong>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Bill Total: <strong>{selectedBill ? formatPKR(selectedBill.totalAmount) : 0}</strong> &nbsp;|&nbsp;
+                Paid: <strong>{formatPKR(selectedBill?.paidAmount || 0)}</strong> &nbsp;|&nbsp;
+                Outstanding: <strong style={{ color: '#d32f2f' }}>{selectedBill ? formatPKR(selectedBill.totalAmount - (selectedBill.paidAmount || 0)) : 0}</strong>
               </Typography>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Amount"
-                type="number"
+            <Grid item xs={6}>
+              <TextField fullWidth label="Payment Amount (PKR)" type="number"
                 value={paymentData.amount}
                 onChange={(e) => setPaymentData({ ...paymentData, amount: parseFloat(e.target.value) })}
-                size="small"
-              />
+                size="small" inputProps={{ min: 0, step: 0.01 }} />
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={6}>
+              <TextField fullWidth label="WHT Rate %" type="number" placeholder="e.g. 4.5"
+                value={paymentData.whtRate || ''}
+                onChange={(e) => setPaymentData({ ...paymentData, whtRate: e.target.value })}
+                size="small" inputProps={{ min: 0, max: 30, step: 0.01 }}
+                helperText={paymentData.whtRate > 0
+                  ? `WHT: PKR ${((paymentData.amount || 0) * (paymentData.whtRate / 100)).toFixed(2)} — Net to bank: PKR ${((paymentData.amount || 0) * (1 - paymentData.whtRate / 100)).toFixed(2)}`
+                  : 'Leave 0 if no WHT applies'} />
+            </Grid>
+            <Grid item xs={6}>
               <FormControl fullWidth size="small">
                 <InputLabel>Payment Method</InputLabel>
-                <Select
-                  value={paymentData.paymentMethod}
+                <Select value={paymentData.paymentMethod}
                   onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
-                  label="Payment Method"
-                >
+                  label="Payment Method">
                   <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                  <MenuItem value="check">Check</MenuItem>
+                  <MenuItem value="check">Check / Cheque</MenuItem>
                   <MenuItem value="cash">Cash</MenuItem>
                   <MenuItem value="other">Other</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Date"
-                type="date"
+            <Grid item xs={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Pay From Account</InputLabel>
+                <Select value={paymentData.bankAccountId || ''}
+                  onChange={(e) => setPaymentData({ ...paymentData, bankAccountId: e.target.value })}
+                  label="Pay From Account">
+                  <MenuItem value="">— Auto (default bank) —</MenuItem>
+                  {bankAccounts.map(a => (
+                    <MenuItem key={a._id} value={a._id}>{a.accountNumber} — {a.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth label="Payment Date" type="date"
                 value={paymentData.paymentDate}
                 onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                size="small"
-              />
+                InputLabelProps={{ shrink: true }} size="small" />
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Reference / Transaction #"
+            <Grid item xs={6}>
+              <TextField fullWidth label="Reference / Cheque # / TT #"
                 value={paymentData.reference}
                 onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
-                size="small"
-              />
+                size="small" />
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            color="success" 
-            onClick={handleRecordPayment}
-            disabled={processingPayment}
-          >
-            {processingPayment ? 'Processing...' : 'Confirm Payment'}
+          <Button variant="contained" color="success" onClick={handleRecordPayment} disabled={processingPayment}>
+            {processingPayment ? 'Processing…' : 'Post Payment'}
           </Button>
         </DialogActions>
       </Dialog>

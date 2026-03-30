@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
   Paper,
   Typography,
   Table,
@@ -28,7 +29,7 @@ import {
   Snackbar,
   Badge
 } from '@mui/material';
-import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon } from '@mui/icons-material';
+import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -101,6 +102,7 @@ const RecoveryAssignments = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [memberFilter, setMemberFilter] = useState('');
   const [members, setMembers] = useState([]);
+  const [dueSort, setDueSort] = useState('desc'); // desc = high to low currentlyDue
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 400);
@@ -112,6 +114,8 @@ const RecoveryAssignments = () => {
   const [repliesRow, setRepliesRow] = useState(null);
   const [repliesMessages, setRepliesMessages] = useState([]);
   const [repliesLoading, setRepliesLoading] = useState(false);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [feedbackRow, setFeedbackRow] = useState(null);
   const [numbersWithMessages, setNumbersWithMessages] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,7 +144,7 @@ const RecoveryAssignments = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, memberFilter]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, memberFilter, dueSort]
   });
 
   const loadAssignments = useCallback(async () => {
@@ -153,6 +157,7 @@ const RecoveryAssignments = () => {
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
         ...(memberFilter && { memberId: memberFilter }),
+        ...(dueSort && { dueSort }),
         ...(unreadFilter === 'unread' && { unread: 'true' })
       };
       const res = await fetchRecoveryAssignments(params);
@@ -170,7 +175,7 @@ const RecoveryAssignments = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, memberFilter, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, memberFilter, dueSort, pagination.page, pagination.rowsPerPage]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -238,6 +243,16 @@ const RecoveryAssignments = () => {
     setReplyText('');
     setReplyAttachment(null);
     loadNumbersWithMessages();
+  };
+
+  const handleOpenFeedback = (row) => {
+    setFeedbackRow(row || null);
+    setFeedbackDialogOpen(true);
+  };
+
+  const handleCloseFeedback = () => {
+    setFeedbackDialogOpen(false);
+    setFeedbackRow(null);
   };
 
   const handleReplyFileSelect = (e) => {
@@ -578,6 +593,13 @@ const RecoveryAssignments = () => {
                 <MenuItem value="unread">Unread only</MenuItem>
               </Select>
             </FormControl>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Currently Due sort</InputLabel>
+              <Select value={dueSort} onChange={(e) => setDueSort(e.target.value || 'desc')} label="Currently Due sort">
+                <MenuItem value="desc">High → Low</MenuItem>
+                <MenuItem value="asc">Low → High</MenuItem>
+              </Select>
+            </FormControl>
             <Chip label={`Total: ${stats.total.toLocaleString()}`} color="primary" variant="outlined" />
             <input
               type="file"
@@ -652,6 +674,11 @@ const RecoveryAssignments = () => {
                             <IconButton size="small" onClick={() => handleOpenEdit(row)} title="Edit">
                               <EditIcon fontSize="small" />
                             </IconButton>
+                            {String(row.callFeedback || '').trim() && (
+                              <IconButton size="small" onClick={() => handleOpenFeedback(row)} title="View call feedback">
+                                <FeedbackIcon fontSize="small" />
+                              </IconButton>
+                            )}
                             <Badge
                               badgeContent={unreadCounts[normalizeWhatsAppNumber(row.mobileNumber)] || 0}
                               color="error"
@@ -875,6 +902,27 @@ const RecoveryAssignments = () => {
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      <Dialog open={feedbackDialogOpen} onClose={handleCloseFeedback} maxWidth="sm" fullWidth>
+        <DialogTitle>Call Feedback</DialogTitle>
+        <DialogContent>
+          {feedbackRow && (
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {feedbackRow.customerName || '—'} — {feedbackRow.orderCode || '—'}
+              </Typography>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {String(feedbackRow.callFeedback || '').trim() || 'No call feedback available.'}
+                </Typography>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseFeedback}>Close</Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={formDialogOpen} onClose={handleCloseForm} maxWidth="md" fullWidth>

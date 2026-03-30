@@ -34,6 +34,25 @@ const recoveryTaskAssignmentRuleSchema = new mongoose.Schema(
       enum: ['whatsapp', 'call', 'both'],
       default: 'both'
     },
+    targetCount: {
+      type: Number,
+      default: null
+    },
+    completedCount: {
+      type: Number,
+      default: 0
+    },
+    progressPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'in_progress', 'completed', 'cancelled'],
+      default: 'pending'
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'

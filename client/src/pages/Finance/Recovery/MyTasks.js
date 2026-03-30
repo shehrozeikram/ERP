@@ -29,7 +29,7 @@ import {
   DialogActions,
   SvgIcon
 } from '@mui/material';
-import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon } from '@mui/icons-material';
+import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -88,6 +88,7 @@ const MyTasks = () => {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [sectorFilter, setSectorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [dueSort, setDueSort] = useState('desc'); // desc = high to low currentlyDue
   const [notRecoveryMember, setNotRecoveryMember] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
@@ -99,6 +100,8 @@ const MyTasks = () => {
   const [feedbackRow, setFeedbackRow] = useState(null);
   const [feedbackForm, setFeedbackForm] = useState({ callFeedback: '' });
   const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackViewOpen, setFeedbackViewOpen] = useState(false);
+  const [feedbackViewRow, setFeedbackViewRow] = useState(null);
   const [sendingViaApi, setSendingViaApi] = useState(false);
   const [repliesDialogOpen, setRepliesDialogOpen] = useState(false);
   const [repliesRow, setRepliesRow] = useState(null);
@@ -129,7 +132,7 @@ const MyTasks = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, dueSort]
   });
 
   const loadMyTasks = useCallback(async () => {
@@ -146,7 +149,8 @@ const MyTasks = () => {
         ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
         ...(statusFilter && { status: statusFilter }),
-        ...(unreadFilter === 'unread' && { unread: 'true' })
+        ...(unreadFilter === 'unread' && { unread: 'true' }),
+        ...(dueSort && { dueSort })
       };
       const res = await fetchMyRecoveryTasks(params);
       const data = res.data?.data || [];
@@ -197,7 +201,7 @@ const MyTasks = () => {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- pagination object is new each render; use page/rowsPerPage only to avoid infinite loop
-  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, tasks, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, unreadFilter, selectedTaskId, dueSort, tasks, pagination.page, pagination.rowsPerPage]);
 
   const loadNumbersWithMessages = useCallback(async () => {
     try {
@@ -562,6 +566,16 @@ const MyTasks = () => {
     setFeedbackRow(null);
   };
 
+  const handleOpenFeedbackView = (row) => {
+    setFeedbackViewRow(row || null);
+    setFeedbackViewOpen(true);
+  };
+
+  const handleCloseFeedbackView = () => {
+    setFeedbackViewOpen(false);
+    setFeedbackViewRow(null);
+  };
+
   const handleSaveFeedback = async () => {
     if (!feedbackRow) return;
     try {
@@ -690,6 +704,13 @@ const MyTasks = () => {
                   >
                     <MenuItem value="all">All</MenuItem>
                     <MenuItem value="unread">Unread only</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  <InputLabel>Currently Due sort</InputLabel>
+                  <Select value={dueSort} onChange={(e) => setDueSort(e.target.value || 'desc')} label="Currently Due sort">
+                    <MenuItem value="desc">High → Low</MenuItem>
+                    <MenuItem value="asc">Low → High</MenuItem>
                   </Select>
                 </FormControl>
                 <Typography variant="body2" color="text.secondary">
@@ -855,6 +876,11 @@ const MyTasks = () => {
                                   <CallIcon fontSize="small" />
                                 </IconButton>
                               )}
+                              {String(row.callFeedback || '').trim() && (
+                                <IconButton size="small" onClick={() => handleOpenFeedbackView(row)} title="View saved feedback">
+                                  <FeedbackIcon fontSize="small" />
+                                </IconButton>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -953,6 +979,27 @@ const MyTasks = () => {
           <Button variant="contained" onClick={handleSaveFeedback} disabled={feedbackSaving}>
             {feedbackSaving ? <CircularProgress size={24} /> : 'Save'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={feedbackViewOpen} onClose={handleCloseFeedbackView} maxWidth="sm" fullWidth>
+        <DialogTitle>Call Feedback</DialogTitle>
+        <DialogContent>
+          {feedbackViewRow && (
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {feedbackViewRow.customerName} — {feedbackViewRow.orderCode}
+              </Typography>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {String(feedbackViewRow.callFeedback || '').trim() || 'No call feedback available.'}
+                </Typography>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseFeedbackView}>Close</Button>
         </DialogActions>
       </Dialog>
 

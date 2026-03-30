@@ -80,8 +80,13 @@ const generalLedgerSchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual', 'grn', 'sin', 'purchase_order'],
+    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual', 'grn', 'sin', 'purchase_order', 'stock_adjustment', 'purchase_return', 'depreciation', 'expense'],
     default: 'manual'
+  },
+  // Analytic / cost-center tag — enables cost-center P&L
+  costCenter: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CostCenter'
   },
   // Status
   status: {

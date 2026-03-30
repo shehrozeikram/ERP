@@ -25,7 +25,14 @@ import {
   DialogContent,
   SvgIcon
 } from '@mui/material';
-import { TaskAlt as TaskAltIcon, Search as SearchIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon } from '@mui/icons-material';
+import {
+  TaskAlt as TaskAltIcon,
+  Search as SearchIcon,
+  ChatBubbleOutline as ChatIcon,
+  Close as CloseIcon,
+  AttachFile as AttachFileIcon,
+  InfoOutlined as FeedbackIcon
+} from '@mui/icons-material';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
 import { fetchCompletedRecoveryTasks, fetchRecoveryAssignmentStats, fetchWhatsAppIncomingMessages } from '../../../services/recoveryAssignmentService';
@@ -42,6 +49,8 @@ const formatDate = (val) => {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+const ASSIGNED_ACTION_LABELS = { whatsapp: 'WhatsApp message', call: 'Call', both: 'Both' };
+
 const CompletedTasks = () => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,11 +59,14 @@ const CompletedTasks = () => {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [sectorFilter, setSectorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [dueSort, setDueSort] = useState('desc'); // desc = high to low currentlyDue
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [repliesDialogOpen, setRepliesDialogOpen] = useState(false);
   const [repliesRow, setRepliesRow] = useState(null);
   const [repliesMessages, setRepliesMessages] = useState([]);
   const [repliesLoading, setRepliesLoading] = useState(false);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [feedbackRow, setFeedbackRow] = useState(null);
   const [scopedToMyCompletions, setScopedToMyCompletions] = useState(false);
 
   useEffect(() => {
@@ -64,7 +76,7 @@ const CompletedTasks = () => {
 
   const pagination = usePagination({
     defaultRowsPerPage: 50,
-    resetDependencies: [searchDebounced, sectorFilter, statusFilter]
+    resetDependencies: [searchDebounced, sectorFilter, statusFilter, dueSort]
   });
 
   const loadCompleted = useCallback(async () => {
@@ -75,7 +87,8 @@ const CompletedTasks = () => {
         ...apiParams,
         ...(searchDebounced.trim() && { search: searchDebounced.trim() }),
         ...(sectorFilter && { sector: sectorFilter }),
-        ...(statusFilter && { status: statusFilter })
+        ...(statusFilter && { status: statusFilter }),
+        ...(dueSort && { dueSort })
       };
       const res = await fetchCompletedRecoveryTasks(params);
       const data = res.data?.data || [];
@@ -92,7 +105,7 @@ const CompletedTasks = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchDebounced, sectorFilter, statusFilter, pagination.page, pagination.rowsPerPage]);
+  }, [searchDebounced, sectorFilter, statusFilter, dueSort, pagination.page, pagination.rowsPerPage]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -135,6 +148,16 @@ const CompletedTasks = () => {
   const handleCloseReplies = () => {
     setRepliesDialogOpen(false);
     setRepliesRow(null);
+  };
+
+  const handleOpenFeedback = (row) => {
+    setFeedbackRow(row || null);
+    setFeedbackDialogOpen(true);
+  };
+
+  const handleCloseFeedback = () => {
+    setFeedbackDialogOpen(false);
+    setFeedbackRow(null);
   };
 
   return (
@@ -187,6 +210,13 @@ const CompletedTasks = () => {
                 ))}
               </Select>
             </FormControl>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Currently Due sort</InputLabel>
+              <Select value={dueSort} onChange={(e) => setDueSort(e.target.value || 'desc')} label="Currently Due sort">
+                <MenuItem value="desc">High → Low</MenuItem>
+                <MenuItem value="asc">Low → High</MenuItem>
+              </Select>
+            </FormControl>
             <Typography variant="body2" color="text.secondary">
               {pagination.total} completed task{pagination.total !== 1 ? 's' : ''} found
             </Typography>
@@ -214,7 +244,7 @@ const CompletedTasks = () => {
                       <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Completed Date</TableCell>
                       <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Assigned By</TableCell>
                       <TableCell sx={{ minWidth: 140, fontWeight: 600, bgcolor: 'grey.50' }}>Completed By</TableCell>
-                      <TableCell sx={{ minWidth: 80, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Replies</TableCell>
+                      <TableCell sx={{ minWidth: 110, fontWeight: 600, bgcolor: 'grey.50' }} align="right">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -235,6 +265,15 @@ const CompletedTasks = () => {
                             : '—'}
                         </TableCell>
                         <TableCell align="right">
+                          {String(row.callFeedback || '').trim() && (
+                            <IconButton
+                              size="small"
+                              onClick={() => handleOpenFeedback(row)}
+                              title={`View call feedback (${ASSIGNED_ACTION_LABELS[row.assignedToMember?.action] || row.assignedToMember?.action || '—'})`}
+                            >
+                              <FeedbackIcon />
+                            </IconButton>
+                          )}
                           <IconButton
                             size="small"
                             onClick={() => handleOpenReplies(row)}
@@ -303,12 +342,66 @@ const CompletedTasks = () => {
                     boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
                   }}
                 >
-                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
+                  {m.mediaUrl && m.mediaType === 'image' ? (
+                    <Box sx={{ mb: m.text ? 0.75 : 0 }}>
+                      <Box
+                        component="img"
+                        src={m.mediaUrl}
+                        alt="media"
+                        sx={{ maxWidth: 220, maxHeight: 220, borderRadius: 1, cursor: 'pointer' }}
+                        onClick={() => window.open(m.mediaUrl, '_blank')}
+                      />
+                    </Box>
+                  ) : m.mediaUrl && m.mediaType === 'video' ? (
+                    <Box sx={{ mb: m.text ? 0.75 : 0 }}>
+                      <Box component="video" src={m.mediaUrl} controls sx={{ maxWidth: 260, maxHeight: 200, borderRadius: 1, display: 'block' }} />
+                    </Box>
+                  ) : m.mediaUrl && m.mediaType === 'audio' ? (
+                    <Box sx={{ mb: m.text ? 0.75 : 0 }}>
+                      <Box component="audio" src={m.mediaUrl} controls sx={{ maxWidth: 260, display: 'block' }} />
+                    </Box>
+                  ) : m.mediaUrl ? (
+                    <Box sx={{ mb: m.text ? 0.75 : 0, display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                      <AttachFileIcon fontSize="small" />
+                      <Typography
+                        component="a"
+                        href={m.mediaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        variant="body2"
+                        sx={{ color: 'primary.main', textDecoration: 'underline' }}
+                      >
+                        {m.mediaFilename || 'Download attachment'}
+                      </Typography>
+                    </Box>
+                  ) : null}
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || (m.mediaUrl ? '' : '(media)')}</Typography>
                   <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', opacity: 0.7, mt: 0.25 }}>
                     {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
                   </Typography>
                 </Box>
               ))}
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={feedbackDialogOpen} onClose={handleCloseFeedback} maxWidth="sm" fullWidth>
+        <DialogTitle>Call Feedback</DialogTitle>
+        <DialogContent>
+          {feedbackRow && (
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {feedbackRow.customerName || '—'} — {feedbackRow.orderCode || '—'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Action: {ASSIGNED_ACTION_LABELS[feedbackRow.assignedToMember?.action] || feedbackRow.assignedToMember?.action || '—'}
+              </Typography>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {String(feedbackRow.callFeedback || '').trim() || 'No call feedback available.'}
+                </Typography>
+              </Paper>
             </Box>
           )}
         </DialogContent>

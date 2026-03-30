@@ -1,0 +1,50 @@
+/**
+ * Global print rules: hide app shell (sidebar, header, toasts) so Save as PDF / Print
+ * shows only page content. Add .print-hide-toolbar to report action rows (Generate, PDF, etc.).
+ */
+@media print {
+  .app-print-hide {
+    display: none !important;
+  }
+
+  /* MUI layout chrome (covers permanent drawer + sticky app bar) */
+  .MuiDrawer-root,
+  .MuiDrawer-docked,
+  .MuiAppBar-root {
+    display: none !important;
+  }
+
+  /* Dimmed backdrop only — do not hide .MuiModal-root or dialog content will not print */
+  .MuiBackdrop-root {
+    display: none !important;
+  }
+
+  /* react-hot-toast */
+  [data-testid="react-hot-toast"],
+  div[id^="react-hot-toast"] {
+    display: none !important;
+  }
+
+  /* Report pages: hide Generate / PDF / Excel / Print toolbars */
+  .print-hide-toolbar {
+    display: none !important;
+  }
+
+  body {
+    margin: 0 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #root {
+    overflow: visible !important;
+  }
+
+  main.app-main-print {
+    padding: 12px 16px !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}

@@ -534,6 +534,23 @@ const ChartOfAccounts = () => {
               Refresh
             </Button>
             <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              onClick={async () => {
+                try {
+                  const api = (await import('../../services/api')).default;
+                  const res = await api.post('/finance/accounts/ensure-defaults');
+                  alert(res.data.message);
+                  fetchAccounts();
+                } catch (e) {
+                  alert(e.response?.data?.message || 'Failed to ensure system accounts');
+                }
+              }}
+            >
+              Ensure System Accounts
+            </Button>
+            <Button
               variant="contained"
               startIcon={<AddIcon />}
               onClick={openNewAccountDialog}

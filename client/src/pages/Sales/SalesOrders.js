@@ -17,6 +17,7 @@ import {
   TableBody,
   TablePagination,
   IconButton,
+  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -31,9 +32,11 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Receipt as InvoiceIcon
 } from '@mui/icons-material';
 import salesService from '../../services/salesService';
+import api from '../../services/api';
 
 const STATUS_OPTIONS = ['draft', 'pending', 'approved', 'fulfilled', 'completed', 'cancelled'];
 const STAGE_OPTIONS = ['lead', 'proposal', 'negotiation', 'closed_won', 'closed_lost'];
@@ -450,6 +453,26 @@ const SalesOrders = () => {
                   <IconButton onClick={() => handleDeleteOrder(order._id)}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
+                  {order.billingStatus !== 'fully_invoiced' && order.status !== 'cancelled' && (
+                    <Tooltip title="Create AR Invoice from this Sales Order">
+                      <IconButton size="small" color="success"
+                        onClick={async () => {
+                          if (!window.confirm(`Create invoice from Sales Order ${order.orderNumber}?`)) return;
+                          try {
+                            const res = await api.post(`/finance/sales-orders/${order._id}/create-invoice`);
+                            alert(res.data.message);
+                            loadOrders();
+                          } catch (err) {
+                            alert(err.response?.data?.message || 'Invoice creation failed');
+                          }
+                        }}>
+                        <InvoiceIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {order.billingStatus === 'fully_invoiced' && (
+                    <Chip label="Invoiced" size="small" color="info" sx={{ ml: 0.5, fontSize: 10 }} />
+                  )}
                 </TableCell>
               </TableRow>
             ))}

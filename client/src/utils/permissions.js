@@ -32,7 +32,8 @@ export const MODULE_KEYS = {
   IT: 'it',
   TAJ_RESIDENCIA: 'taj_residencia',
   GENERAL: 'general',
-  ADMIN: 'admin'
+  ADMIN: 'admin',
+  ASSET_TAGGING: 'asset_tagging'
 };
 
 // Role-based Module Access (matching server config)
@@ -54,7 +55,7 @@ export const PERMISSIONS = {
   // Admin has access to admin module and general module
   [ROLES.ADMIN]: {
     canAccessAll: false,
-    modules: [MODULE_KEYS.ADMIN, MODULE_KEYS.GENERAL],
+    modules: [MODULE_KEYS.ADMIN, MODULE_KEYS.GENERAL, MODULE_KEYS.ASSET_TAGGING],
     description: 'Admin module and general module access'
   },
   
@@ -86,14 +87,14 @@ export const PERMISSIONS = {
   // Finance Manager has access to Finance module
   [ROLES.FINANCE_MANAGER]: {
     canAccessAll: false,
-    modules: [MODULE_KEYS.FINANCE],
+    modules: [MODULE_KEYS.FINANCE, MODULE_KEYS.ASSET_TAGGING],
     description: 'Finance module management'
   },
   
   // Procurement Manager has access to Procurement module
   [ROLES.PROCUREMENT_MANAGER]: {
     canAccessAll: false,
-    modules: [MODULE_KEYS.PROCUREMENT],
+    modules: [MODULE_KEYS.PROCUREMENT, MODULE_KEYS.ASSET_TAGGING],
     description: 'Procurement module management'
   },
   
@@ -114,7 +115,7 @@ export const PERMISSIONS = {
   // Audit Manager has access to Audit module
   [ROLES.AUDIT_MANAGER]: {
     canAccessAll: false,
-    modules: [MODULE_KEYS.AUDIT],
+    modules: [MODULE_KEYS.AUDIT, MODULE_KEYS.ASSET_TAGGING],
     description: 'Audit module management'
   },
   
@@ -243,6 +244,19 @@ export const SUBMODULES = {
     'accounts_payable',
     'banking',
     'financial_reports',
+    'tax_management',
+    'fixed_assets',
+    'bank_reconciliation',
+    'vendor_statement',
+    'budget_vs_actual',
+    'aged_payables',
+    'payment_terms',
+    'opening_balances',
+    'financial_statements',
+    'tax_summary',
+    'year_end_closing',
+    'customer_statement',
+    'aged_receivables',
     'taj_utilities_charges',
     'taj_cam_charges',
     'taj_electricity_bills',
@@ -276,7 +290,8 @@ export const SUBMODULES = {
     'goods_receive',
     'goods_issue',
     'cost_center',
-    'procurement_reports'
+    'procurement_reports',
+    'purchase_returns'
   ],
   [MODULE_KEYS.SALES]: [
     'sales_orders',
@@ -550,16 +565,97 @@ export const MODULES = {
     roles: ['super_admin', 'admin', 'finance_manager', 'tcm_manager'],
     subItems: [
       { name: 'Finance Dashboard', path: '/finance' },
-      { name: 'Chart of Accounts', path: '/finance/accounts' },
-      { name: 'Journal Entries', path: '/finance/journal-entries' },
-      { name: 'Journals (Folders)', path: '/finance/journals' },
-      { name: 'Fiscal Periods', path: '/finance/fiscal-periods' },
-      { name: 'Inventory Categories', path: '/finance/inventory-categories' },
-      { name: 'Inventory Valuation', path: '/finance/inventory-valuation' },
-      { name: 'General Ledger', path: '/finance/general-ledger' },
-      { name: 'Accounts Receivable', path: '/finance/accounts-receivable' },
-      { name: 'Accounts Payable', path: '/finance/accounts-payable' },
-      { name: 'Banking', path: '/finance/banking' },
+
+      // ── CUSTOMERS (AR) ──────────────────────────────────────────────────────
+      {
+        name: 'Customers',
+        path: '/finance/accounts-receivable',
+        subItems: [
+          { name: 'AR Invoices',          path: '/finance/accounts-receivable' },
+          { name: 'Credit Notes',         path: '/finance/credit-notes'        },
+          { name: 'Customer Payments',    path: '/finance/customer-payments'   },
+          { name: 'Customer Statements',  path: '/finance/customer-statement'  },
+          { name: 'Aged Receivables',     path: '/finance/aged-receivables'    },
+        ]
+      },
+
+      // ── VENDORS (AP) ────────────────────────────────────────────────────────
+      {
+        name: 'Vendors',
+        path: '/finance/accounts-payable',
+        subItems: [
+          { name: 'Vendor Bills',         path: '/finance/accounts-payable'     },
+          { name: 'Batch Payment',        path: '/finance/batch-payment'        },
+          { name: 'Vendor Payments',      path: '/finance/vendor-payments'      },
+          { name: 'Vendor Refunds',       path: '/finance/vendor-refunds'       },
+          { name: 'Bill to Receive',      path: '/finance/bill-to-receive'      },
+          { name: 'Billed Not Received',  path: '/finance/billed-not-received'  },
+          { name: 'Vendor Statements',    path: '/finance/vendor-statement'     },
+          { name: 'Aged Payables',        path: '/finance/aged-payables'        },
+          { name: 'Payment Terms',        path: '/finance/payment-terms'        },
+        ]
+      },
+
+      // ── ACCOUNTING ──────────────────────────────────────────────────────────
+      {
+        name: 'Accounting',
+        path: '/finance/journal-entries',
+        subItems: [
+          { name: 'Journal Entries',       path: '/finance/journal-entries'       },
+          { name: 'Recurring Journals',   path: '/finance/recurring-journals'   },
+          { name: 'Deferred Entries',     path: '/finance/deferred-entries'     },
+          { name: 'General Ledger',       path: '/finance/general-ledger'       },
+          { name: 'Banking',              path: '/finance/banking'              },
+          { name: 'Bank Statement Import',path: '/finance/bank-statement-import'},
+          { name: 'Bank Reconciliation',  path: '/finance/bank-reconciliation'  },
+          { name: 'Opening Balances',     path: '/finance/opening-balances'     },
+          { name: 'Year-End Closing',     path: '/finance/year-end-closing'     },
+        ]
+      },
+
+      // ── REVIEW ──────────────────────────────────────────────────────────────
+      {
+        name: 'Review',
+        path: '/finance/inventory-valuation',
+        subItems: [
+          { name: 'Inventory Valuation', path: '/finance/inventory-valuation' },
+          { name: 'Fixed Assets',        path: '/finance/fixed-assets'        },
+          { name: 'Budgets',             path: '/finance/budgets'             },
+          { name: 'Budget vs Actual',    path: '/finance/budget-vs-actual'    },
+        ]
+      },
+
+      // ── REPORTING ───────────────────────────────────────────────────────────
+      {
+        name: 'Reporting',
+        path: '/finance/balance-sheet',
+        subItems: [
+          { name: 'Balance Sheet',         path: '/finance/balance-sheet'   },
+          { name: 'Profit & Loss',         path: '/finance/profit-loss'     },
+          { name: 'Comparative P&L',       path: '/finance/comparative-pl'  },
+          { name: 'Cost Center P&L',       path: '/finance/cost-center-pl'  },
+          { name: 'Cash Flow Statement',   path: '/finance/cash-flow'       },
+          { name: 'Trial Balance',         path: '/finance/trial-balance'   },
+          { name: 'Tax Summary (FBR)',     path: '/finance/tax-summary'     },
+          { name: 'Customer Statements',   path: '/finance/customer-statement' },
+          { name: 'Aged Receivables',      path: '/finance/aged-receivables'   },
+        ]
+      },
+
+      // ── CONFIGURATION ───────────────────────────────────────────────────────
+      {
+        name: 'Configuration',
+        path: '/finance/accounts',
+        subItems: [
+          { name: 'Chart of Accounts',    path: '/finance/accounts'               },
+          { name: 'Tax Management',       path: '/finance/taxes'                  },
+          { name: 'Finance Journals',     path: '/finance/journals'               },
+          { name: 'Fiscal Periods',       path: '/finance/fiscal-periods'         },
+          { name: 'Inventory Categories', path: '/finance/inventory-categories'   },
+          { name: 'Company Profile',      path: '/finance/company-profile'        },
+          { name: '⚙ Finance Setup Wizard', path: '/finance/setup'              },
+        ]
+      },
       {
         name: 'Taj Utilities & Charges',
         path: '/finance/taj-utilities-charges',
@@ -679,7 +775,8 @@ export const MODULES = {
           { name: 'Inventory', path: '/procurement/store/inventory' },
           { name: 'GRN (Goods Received Note)', path: '/procurement/store/goods-receive' },
           { name: 'Store Issue Note', path: '/procurement/store/goods-issue' },
-          { name: 'Cost Center', path: '/procurement/store/cost-center' }
+          { name: 'Cost Center', path: '/procurement/store/cost-center' },
+          { name: 'Purchase Returns', path: '/procurement/purchase-returns' }
         ]
       }
     ]
@@ -824,6 +921,20 @@ export const MODULES = {
         name: 'Complains & Tickets',
         path: '/taj-residencia/complains-tickets'
       }
+    ]
+  },
+
+  asset_tagging: {
+    name: 'Asset Tagging',
+    path: '/asset-tagging',
+    icon: 'QrCode',
+    description: 'Fixed asset QR labels, scans, custody, and physical verification',
+    roles: ['super_admin', 'admin', 'finance_manager', 'procurement_manager', 'audit_manager', 'higher_management'],
+    subItems: [
+      { name: 'Dashboard', path: '/asset-tagging' },
+      { name: 'Tagged Assets', path: '/asset-tagging/assets' },
+      { name: 'Physical Verification', path: '/asset-tagging/verification' },
+      { name: 'Tag Events', path: '/asset-tagging/events' }
     ]
   },
 
@@ -1060,6 +1171,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
     if (pathToCheck.startsWith('/taj-residencia')) return 'taj_residencia';
     if (pathToCheck.startsWith('/documents-tracking')) return 'general';
     if (pathToCheck.startsWith('/general')) return 'general';
+    if (pathToCheck.startsWith('/asset-tagging')) return 'asset_tagging';
     return null;
   };
   
@@ -1113,6 +1225,14 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/general/project-management': 'project_management',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
+
+      // Asset Tagging Module
+      '/asset-tagging': 'asset_tagging_dashboard',
+      '/asset-tagging/assets': 'asset_tagging_assets',
+      '/asset-tagging/verification': 'asset_tagging_verification',
+      '/asset-tagging/events': 'asset_tagging_events',
+      '/asset-tagging/scan': 'asset_tagging_scan',
+      '/asset-tagging/label': 'asset_tagging_label',
       
       // Finance Module
       '/finance': 'finance_dashboard',
@@ -1126,6 +1246,23 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/banking': 'banking',
+      '/finance/taxes': 'tax_management',
+      '/finance/fixed-assets': 'fixed_assets',
+      '/finance/bank-reconciliation': 'bank_reconciliation',
+      '/finance/vendor-statement': 'vendor_statement',
+      '/finance/budget-vs-actual': 'budget_vs_actual',
+      '/finance/aged-payables': 'aged_payables',
+      '/finance/payment-terms': 'payment_terms',
+      '/finance/balance-sheet': 'financial_statements',
+      '/finance/profit-loss': 'financial_statements',
+      '/finance/tax-summary': 'tax_summary',
+      '/finance/trial-balance': 'financial_statements',
+      '/finance/cash-flow': 'financial_statements',
+      '/finance/year-end-closing': 'year_end_closing',
+      '/finance/opening-balances': 'opening_balances',
+      '/finance/customer-statement': 'customer_statement',
+      '/finance/aged-receivables': 'aged_receivables',
+      '/procurement/purchase-returns': 'purchase_returns',
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/dashboard': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',

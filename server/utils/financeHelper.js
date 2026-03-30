@@ -41,12 +41,12 @@ const FinanceHelper = {
 
     // Try category-level defaults for any missing account
     if ((!inventoryAccountId || !grniAccountId || !cogsAccountId) && inventoryItem.inventoryCategory) {
-      const cat = await InventoryCategory.findById(inventoryItem.inventoryCategory).lean();
+      const catId = inventoryItem.inventoryCategory?._id || inventoryItem.inventoryCategory;
+      const cat = await InventoryCategory.findById(catId).lean();
       if (cat) {
         if (!inventoryAccountId) inventoryAccountId = cat.stockValuationAccount;
-        if (!grniAccountId) inventoryAccountId = inventoryAccountId || cat.stockValuationAccount;
-        if (!grniAccountId) grniAccountId = cat.stockInputAccount;
-        if (!cogsAccountId) cogsAccountId = cat.stockOutputAccount;
+        if (!grniAccountId)      grniAccountId      = cat.stockInputAccount;
+        if (!cogsAccountId)      cogsAccountId      = cat.stockOutputAccount;
       }
     }
 
@@ -116,9 +116,10 @@ const FinanceHelper = {
           module: entry.module,
           referenceId: entry.referenceId,
           referenceType: entry.referenceType,
+          costCenter: line.costCenter || null,
           status: 'posted',
           createdBy: entry.createdBy,
-          runningBalance: currentAccount.balance 
+          runningBalance: currentAccount.balance
         });
       }
 
@@ -322,9 +323,9 @@ const FinanceHelper = {
     try {
       const {
         vendorName, vendorEmail, vendorId,
-        billNumber, billDate, dueDate,
+        billNumber, vendorInvoiceNumber, billDate, dueDate,
         amount, department, module, referenceId,
-        createdBy,
+        createdBy, notes,
         referenceType = 'manual',
         lineItems: optsLineItems,
         lineDescription
@@ -343,6 +344,7 @@ const FinanceHelper = {
       const apEntry = new AccountsPayable({
         vendor: { name: vendorName, email: vendorEmail, vendorId: vendorId },
         billNumber,
+        vendorInvoiceNumber: vendorInvoiceNumber || '',
         billDate: billDateNorm,
         dueDate,
         totalAmount: amount,
@@ -353,6 +355,7 @@ const FinanceHelper = {
         referenceId,
         referenceType: referenceType,
         lineItems,
+        notes: notes || '',
         createdBy
       });
 
@@ -418,31 +421,40 @@ const FinanceHelper = {
       const invoice = await AccountsReceivable.findById(invoiceId);
       if (!invoice) throw new Error('Invoice not found');
 
-      const { amount, paymentMethod, reference, date, createdBy } = paymentData;
+      const { amount, paymentMethod, reference, date, createdBy, bankAccountId } = paymentData;
+
+      const balance = Math.round((invoice.totalAmount - invoice.amountPaid) * 100) / 100;
+      if (amount > balance + 0.01) {
+        throw new Error(`Receipt amount PKR ${amount} exceeds outstanding balance PKR ${balance}`);
+      }
 
       invoice.payments.push({ amount, paymentDate: date || new Date(), paymentMethod, reference, createdBy });
-      invoice.amountPaid += amount;
+      invoice.amountPaid = Math.round((invoice.amountPaid + amount) * 100) / 100;
       FinanceHelper._updateDocumentStatus(invoice);
       await invoice.save();
 
       const arAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.RECEIVABLE);
-      const bankAccount = await FinanceHelper.getAccountByNumber(
-        paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
-      );
+      let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+      if (!bankAccount) {
+        bankAccount = await FinanceHelper.getAccountByNumber(
+          paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+        );
+      }
 
       if (arAccount && bankAccount) {
         await FinanceHelper.createAndPostJournalEntry({
-          date: date,
-          reference: reference || invoice.invoiceNumber,
-          description: `Payment Receipt: ${invoice.invoiceNumber} from ${invoice.customer.name}`,
-          department: invoice.department,
-          module: invoice.module,
-          referenceId: invoice._id,
-          referenceType: 'payment',
+          date:          date || new Date(),
+          reference:     reference || invoice.invoiceNumber,
+          description:   `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}`,
+          department:    invoice.department,
+          module:        invoice.module,
+          referenceId:   invoice._id,
+          referenceType: 'receipt',
+          journalCode:   'BANK',
           createdBy,
           lines: [
-            { account: bankAccount._id, description: `Receipt for ${invoice.invoiceNumber}`, debit: amount, department: invoice.department },
-            { account: arAccount._id, description: `Credit to AR for ${invoice.customer.name}`, credit: amount, department: invoice.department }
+            { account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}`, debit:  amount, department: invoice.department },
+            { account: arAccount._id,   description: `Clear AR – ${invoice.invoiceNumber}`, credit: amount, department: invoice.department }
           ]
         });
       }
@@ -462,32 +474,59 @@ const FinanceHelper = {
       const bill = await AccountsPayable.findById(billId);
       if (!bill) throw new Error('Bill not found');
 
-      const { amount, paymentMethod, reference, date, createdBy } = paymentData;
+      const { amount, paymentMethod, reference, date, createdBy, whtRate = 0, bankAccountId } = paymentData;
+
+      // Validate amount doesn't exceed balance
+      const balance = Math.round((bill.totalAmount - bill.amountPaid) * 100) / 100;
+      if (amount > balance + 0.01) {
+        throw new Error(`Payment amount PKR ${amount} exceeds outstanding balance PKR ${balance}`);
+      }
+
+      // WHT calculation
+      const whtAmount = whtRate > 0 ? Math.round(amount * (whtRate / 100) * 100) / 100 : 0;
+      const netBankAmount = Math.round((amount - whtAmount) * 100) / 100;
 
       bill.payments.push({ amount, paymentDate: date || new Date(), paymentMethod, reference, createdBy });
-      bill.amountPaid += amount;
+      bill.amountPaid = Math.round((bill.amountPaid + amount) * 100) / 100;
       FinanceHelper._updateDocumentStatus(bill);
       await bill.save();
 
-      const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
-      const bankAccount = await FinanceHelper.getAccountByNumber(
-        paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
-      );
+      const apAccount  = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+      let bankAccount  = bankAccountId ? await Account.findById(bankAccountId) : null;
+      if (!bankAccount) {
+        bankAccount = await FinanceHelper.getAccountByNumber(
+          paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+        );
+      }
 
       if (apAccount && bankAccount) {
+        const lines = [
+          { account: apAccount._id,  description: `Payment to ${bill.vendor.name} – ${bill.billNumber}`, debit: amount,        department: bill.department },
+          { account: bankAccount._id, description: `Bank payment – ${bill.billNumber}`,                  credit: netBankAmount, department: bill.department }
+        ];
+
+        // WHT deduction line
+        if (whtAmount > 0) {
+          const whtAccount = await FinanceHelper.getAccountByNumber('2004'); // WHT Payable
+          if (whtAccount) {
+            lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${bill.vendor.name}`, credit: whtAmount, department: bill.department });
+          } else {
+            // If no WHT account, add to bank credit to keep it balanced
+            lines[1].credit = amount;
+          }
+        }
+
         await FinanceHelper.createAndPostJournalEntry({
-          date: date,
-          reference: reference || bill.billNumber,
-          description: `Bill Payment: ${bill.billNumber} to ${bill.vendor.name}`,
-          department: bill.department,
-          module: bill.module,
-          referenceId: bill._id,
+          date:          date || new Date(),
+          reference:     reference || bill.billNumber,
+          description:   `Payment: ${bill.billNumber} – ${bill.vendor.name}`,
+          department:    bill.department,
+          module:        bill.module,
+          referenceId:   bill._id,
           referenceType: 'payment',
+          journalCode:   'BANK',
           createdBy,
-          lines: [
-            { account: apAccount._id, description: `Debit to AP for ${bill.vendor.name}`, debit: amount, department: bill.department },
-            { account: bankAccount._id, description: `Payment from Bank/Cash`, credit: amount, department: bill.department }
-          ]
+          lines
         });
       }
 
@@ -495,6 +534,63 @@ const FinanceHelper = {
     } catch (error) {
       console.error('❌ Error recording AP payment:', error);
       throw error;
+    }
+  },
+
+  /**
+   * Post COGS journal for goods issued from store.
+   * DR Cost of Goods Sold / CR Inventory
+   */
+  postCOGSJournal: async ({ items, sinDoc, createdBy }) => {
+    const lineGroups = [];
+    for (const item of items) {
+      try {
+        const inv = item.inventoryItem;
+        if (!inv) continue;
+        const qty = Number(item.qtyIssued || item.quantity) || 0;
+        if (qty <= 0) continue;
+        // Use WAC (averageCost) first; fall back to unitPrice so newly added items
+        // with no GRN history still produce a COGS entry at their list price.
+        const unitCost = Number(inv.averageCost) > 0 ? Number(inv.averageCost) : Number(inv.unitPrice) || 0;
+        if (unitCost <= 0) {
+          console.warn(`[COGS] Skipped ${inv.name || inv._id}: no WAC or unit price set`);
+          continue;
+        }
+        const cost = Math.round(qty * unitCost * 100) / 100;
+        const { inventoryAccountId, cogsAccountId } = await FinanceHelper.resolveInventoryAccounts(inv);
+        if (inventoryAccountId && cogsAccountId) {
+          lineGroups.push({ inventoryAccountId, cogsAccountId, cost, itemName: inv.name || item.itemName });
+        } else {
+          console.warn(`[COGS] Skipped ${inv.name || inv._id}: could not resolve inventory/COGS accounts`);
+        }
+      } catch (itemErr) {
+        console.warn('[COGS] Item error:', itemErr.message);
+      }
+    }
+
+    if (lineGroups.length === 0) return;
+
+    const lines = [];
+    for (const g of lineGroups) {
+      lines.push({ account: g.cogsAccountId,       description: `COGS – ${g.itemName}`, debit:  g.cost, department: sinDoc.department || 'procurement' });
+      lines.push({ account: g.inventoryAccountId,  description: `Inventory out – ${g.itemName}`, credit: g.cost, department: sinDoc.department || 'procurement' });
+    }
+
+    try {
+      await FinanceHelper.createAndPostJournalEntry({
+        date:          sinDoc.issueDate || new Date(),
+        reference:     sinDoc.issueNumber || 'SIN',
+        description:   `COGS – Store Issue ${sinDoc.issueNumber || ''}`,
+        department:    sinDoc.department || 'procurement',
+        module:        'procurement',
+        referenceId:   sinDoc._id,
+        referenceType: 'expense',
+        journalCode:   'INV',
+        createdBy,
+        lines
+      });
+    } catch (cogsErr) {
+      console.warn('[COGS] GL posting skipped:', cogsErr.message);
     }
   },
 
@@ -599,10 +695,15 @@ const FinanceHelper = {
         return;
       }
 
-      // Use Weighted Average Cost; fallback to unitPrice if WAC not set
-      const unitCost = inventoryItem.averageCost || inventoryItem.unitPrice || 0;
+      // Use WAC (averageCost) first; fall back to unitPrice for newly created items
+      const unitCost = Number(inventoryItem.averageCost) > 0
+        ? Number(inventoryItem.averageCost)
+        : Number(inventoryItem.unitPrice) || 0;
       const amount = Math.round(qty_ * unitCost * 100) / 100;
-      if (amount <= 0) return;
+      if (amount <= 0) {
+        console.warn(`[SIN Journal] Skipped ${inventoryItem.name || inventoryItem._id}: unitCost is 0`);
+        return;
+      }
 
       const referenceNumber = sinDoc.issueNumber || sinDoc.sinNumber || sinDoc._id?.toString() || 'SIN';
       await FinanceHelper.createAndPostJournalEntry({

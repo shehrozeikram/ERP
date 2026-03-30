@@ -47,9 +47,12 @@ import {
   Visibility as ViewIcon,
   Payment as PaymentIcon,
   Download as DownloadIcon,
+  ReceiptLong as CreditNoteIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Print as PrintIcon,
+  Email as EmailIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -68,6 +71,9 @@ const AccountsReceivable = () => {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [creditNoteDialog, setCreditNoteDialog] = useState({ open: false, invoice: null, amount: '', reason: '' });
+  const [emailDialog, setEmailDialog] = useState({ open: false, invoice: null });
+  const [emailSending, setEmailSending] = useState(false);
   const [editData, setEditData] = useState({
     invoiceNumber: '',
     totalAmount: 0,
@@ -81,6 +87,7 @@ const AccountsReceivable = () => {
     paymentDate: new Date().toISOString().split('T')[0]
   });
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState([]);
 
   const [filters, setFilters] = useState({
     status: '',
@@ -101,6 +108,15 @@ const AccountsReceivable = () => {
     totalPaid: 0,
     totalInvoices: 0
   });
+
+  useEffect(() => {
+    api.get('/finance/accounts', { params: { type: 'current_asset', limit: 100 } })
+      .then(res => {
+        const all = res.data.data || res.data.accounts || [];
+        setBankAccounts(all.filter(a => ['1001','1002'].includes(a.accountNumber) || a.name?.toLowerCase().includes('bank') || a.name?.toLowerCase().includes('cash')));
+      })
+      .catch(() => setBankAccounts([]));
+  }, []);
 
   useEffect(() => {
     fetchAccountsReceivable();
@@ -166,10 +182,11 @@ const AccountsReceivable = () => {
   const handleOpenPayment = (invoice) => {
     setSelectedInvoice(invoice);
     setPaymentData({
-      amount: invoice.totalAmount - (invoice.paidAmount || 0),
+      amount:        Math.round((invoice.totalAmount - (invoice.paidAmount || 0)) * 100) / 100,
       paymentMethod: 'bank_transfer',
-      reference: '',
-      paymentDate: new Date().toISOString().split('T')[0]
+      reference:     '',
+      paymentDate:   new Date().toISOString().split('T')[0],
+      bankAccountId: ''
     });
     setPaymentDialogOpen(true);
   };
@@ -284,7 +301,19 @@ const AccountsReceivable = () => {
               </Typography>
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="outlined" size="small" color="warning"
+              onClick={() => navigate('/finance/credit-notes')} sx={{ fontSize: 12 }}>
+              Credit Notes
+            </Button>
+            <Button variant="outlined" size="small" color="success"
+              onClick={() => navigate('/finance/customer-payments')} sx={{ fontSize: 12 }}>
+              Payments
+            </Button>
+            <Button variant="outlined" size="small"
+              onClick={() => navigate('/finance/customer-statement')} sx={{ fontSize: 12 }}>
+              Statements
+            </Button>
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -580,6 +609,26 @@ const AccountsReceivable = () => {
                               <EditIcon />
                             </IconButton>
                           </Tooltip>
+                          {invoice.status !== 'paid' && !invoice.invoiceNumber?.startsWith('CN-') && (
+                            <Tooltip title="Issue Credit Note">
+                              <IconButton size="small" color="warning"
+                                onClick={() => setCreditNoteDialog({ open: true, invoice, amount: invoice.totalAmount, reason: '' })}>
+                                <CreditNoteIcon />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          <Tooltip title="Print / Download Invoice">
+                            <IconButton size="small" color="default"
+                              onClick={() => navigate(`/finance/invoice-print/${invoice._id}`)}>
+                              <PrintIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Send Invoice by Email">
+                            <IconButton size="small" color="info"
+                              onClick={() => setEmailDialog({ open: true, invoice })}>
+                              <EmailIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                         </Box>
                       </TableCell>
                     </TableRow>
@@ -719,58 +768,62 @@ const AccountsReceivable = () => {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Record Payment: {selectedInvoice?.invoiceNumber}</DialogTitle>
+        <DialogTitle>
+          Register Receipt — {selectedInvoice?.invoiceNumber}
+          <Typography variant="body2" color="text.secondary">Customer: {selectedInvoice?.customer?.name || selectedInvoice?.customerName}</Typography>
+        </DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                Outstanding Balance: <strong>{selectedInvoice ? formatPKR(selectedInvoice.totalAmount - (selectedInvoice.paidAmount || 0)) : 0}</strong>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Invoice Total: <strong>{selectedInvoice ? formatPKR(selectedInvoice.totalAmount) : 0}</strong> &nbsp;|&nbsp;
+                Received: <strong>{formatPKR(selectedInvoice?.paidAmount || 0)}</strong> &nbsp;|&nbsp;
+                Outstanding: <strong style={{ color: '#2e7d32' }}>{selectedInvoice ? formatPKR(selectedInvoice.totalAmount - (selectedInvoice.paidAmount || 0)) : 0}</strong>
               </Typography>
             </Grid>
             <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Amount"
-                type="number"
+              <TextField fullWidth label="Receipt Amount (PKR)" type="number"
                 value={paymentData.amount}
                 onChange={(e) => setPaymentData({ ...paymentData, amount: parseFloat(e.target.value) })}
-                size="small"
-              />
+                size="small" inputProps={{ min: 0, step: 0.01 }} />
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={6}>
               <FormControl fullWidth size="small">
                 <InputLabel>Payment Method</InputLabel>
-                <Select
-                  value={paymentData.paymentMethod}
+                <Select value={paymentData.paymentMethod}
                   onChange={(e) => setPaymentData({ ...paymentData, paymentMethod: e.target.value })}
-                  label="Payment Method"
-                >
+                  label="Payment Method">
                   <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                  <MenuItem value="check">Check</MenuItem>
+                  <MenuItem value="check">Cheque</MenuItem>
                   <MenuItem value="cash">Cash</MenuItem>
                   <MenuItem value="other">Other</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Date"
-                type="date"
+            <Grid item xs={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Deposit To Account</InputLabel>
+                <Select value={paymentData.bankAccountId || ''}
+                  onChange={(e) => setPaymentData({ ...paymentData, bankAccountId: e.target.value })}
+                  label="Deposit To Account">
+                  <MenuItem value="">— Auto (default bank) —</MenuItem>
+                  {bankAccounts.map(a => (
+                    <MenuItem key={a._id} value={a._id}>{a.accountNumber} — {a.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={6}>
+              <TextField fullWidth label="Receipt Date" type="date"
                 value={paymentData.paymentDate}
                 onChange={(e) => setPaymentData({ ...paymentData, paymentDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                size="small"
-              />
+                InputLabelProps={{ shrink: true }} size="small" />
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Reference / Receipt #"
+            <Grid item xs={6}>
+              <TextField fullWidth label="Reference / Receipt # / Cheque #"
                 value={paymentData.reference}
                 onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
-                size="small"
-              />
+                size="small" />
             </Grid>
           </Grid>
         </DialogContent>
@@ -848,6 +901,100 @@ const AccountsReceivable = () => {
             onClick={handleUpdateInvoice}
           >
             Update Invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Credit Note Dialog */}
+      <Dialog open={creditNoteDialog.open} onClose={() => setCreditNoteDialog({ open: false, invoice: null, amount: '', reason: '' })} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Issue Credit Note
+          <Typography variant="body2" color="text.secondary">Invoice: {creditNoteDialog.invoice?.invoiceNumber}</Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            A Credit Note reduces the amount owed by the customer. It posts a reversal journal entry (DR Revenue / CR AR).
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField fullWidth label="Credit Note Amount (PKR)" type="number"
+                value={creditNoteDialog.amount}
+                onChange={e => setCreditNoteDialog(p => ({ ...p, amount: e.target.value }))}
+                inputProps={{ min: 0.01, max: creditNoteDialog.invoice?.totalAmount, step: 0.01 }}
+                helperText={`Max: PKR ${Number(creditNoteDialog.invoice?.totalAmount || 0).toLocaleString()}`}
+                size="small" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth label="Reason" multiline rows={2}
+                value={creditNoteDialog.reason}
+                onChange={e => setCreditNoteDialog(p => ({ ...p, reason: e.target.value }))}
+                placeholder="e.g. Goods returned, pricing error, service issue…"
+                size="small" />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreditNoteDialog({ open: false, invoice: null, amount: '', reason: '' })}>Cancel</Button>
+          <Button variant="contained" color="warning"
+            onClick={async () => {
+              try {
+                const res = await api.post(`/finance/accounts-receivable/${creditNoteDialog.invoice._id}/credit-note`, {
+                  amount: Number(creditNoteDialog.amount),
+                  reason: creditNoteDialog.reason
+                });
+                if (res.data.success) {
+                  setCreditNoteDialog({ open: false, invoice: null, amount: '', reason: '' });
+                  fetchAccountsReceivable();
+                }
+              } catch (err) {
+                alert(err.response?.data?.message || 'Failed to create credit note');
+              }
+            }}
+            disabled={!creditNoteDialog.amount || creditNoteDialog.amount <= 0}
+          >
+            Issue Credit Note
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Email Invoice Dialog ─────────────────────────────────────────── */}
+      <Dialog open={emailDialog.open} onClose={() => setEmailDialog({ open: false, invoice: null })} maxWidth="sm" fullWidth>
+        <DialogTitle>Send Invoice by Email</DialogTitle>
+        <DialogContent>
+          {emailDialog.invoice && (
+            <Box pt={1}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Send invoice <strong>{emailDialog.invoice.invoiceNumber}</strong> to:
+              </Typography>
+              <Typography variant="body1" fontWeight={600} color="primary.main">
+                {emailDialog.invoice.customer?.name} &lt;{emailDialog.invoice.customer?.email}&gt;
+              </Typography>
+              {!emailDialog.invoice.customer?.email && (
+                <Alert severity="warning" sx={{ mt: 1 }}>This customer has no email address on file.</Alert>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEmailDialog({ open: false, invoice: null })}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="info"
+            disabled={emailSending || !emailDialog.invoice?.customer?.email}
+            startIcon={<EmailIcon />}
+            onClick={async () => {
+              setEmailSending(true);
+              try {
+                await api.post(`/finance/accounts-receivable/${emailDialog.invoice._id}/send-email`);
+                toast.success('Invoice emailed successfully!');
+                setEmailDialog({ open: false, invoice: null });
+              } catch (e) {
+                toast.error(e.response?.data?.message || 'Failed to send email');
+              } finally {
+                setEmailSending(false);
+              }
+            }}
+          >
+            {emailSending ? 'Sending…' : 'Send Email'}
           </Button>
         </DialogActions>
       </Dialog>

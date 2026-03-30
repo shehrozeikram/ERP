@@ -44,9 +44,12 @@ const journalEntrySchema = new mongoose.Schema({
   },
   referenceType: {
     type: String,
-    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual', 'grn', 'sin'],
+    enum: ['payroll', 'invoice', 'bill', 'payment', 'receipt', 'adjustment', 'manual', 'grn', 'sin', 'purchase_order', 'stock_adjustment', 'purchase_return', 'depreciation', 'expense'],
     default: 'manual'
   },
+  // Reversal tracking
+  isReversed: { type: Boolean, default: false },
+  reversalEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
   // Journal entry lines
   lines: [{
     account: {
@@ -85,6 +88,11 @@ const journalEntrySchema = new mongoose.Schema({
       type: String,
       enum: ['hr', 'admin', 'procurement', 'sales', 'finance', 'audit', 'general'],
       default: 'general'
+    },
+    // Analytic / cost-center tagging on each line for cost-center P&L reporting
+    costCenter: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CostCenter'
     }
   }],
   // Totals (calculated)

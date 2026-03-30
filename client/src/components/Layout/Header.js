@@ -109,6 +109,7 @@ const Header = () => {
   return (
     <AppBar
       position="sticky"
+      className="app-print-hide"
       sx={{
         zIndex: theme.zIndex.drawer + 1,
         bgcolor: 'background.paper',

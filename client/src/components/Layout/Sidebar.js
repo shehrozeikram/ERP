@@ -36,7 +36,8 @@ import {
   Computer,
   LocationCity,
   Description,
-  Folder
+  Folder,
+  QrCode2 as QrCodeIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -72,7 +73,8 @@ const iconMap = {
   Computer: <Computer />,
   LocationCity: <LocationCity />,
   Description: <Description />,
-  Folder: <Folder />
+  Folder: <Folder />,
+  QrCode: <QrCodeIcon />
 };
   return iconMap[iconName] || <Dashboard />;
 };
@@ -145,6 +147,11 @@ const Sidebar = () => {
       '/general/project-management': 'project_management',
       '/general/ceo-secretariat': 'ceo_secretariat',
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
+
+      '/asset-tagging': 'asset_tagging_dashboard',
+      '/asset-tagging/assets': 'asset_tagging_assets',
+      '/asset-tagging/verification': 'asset_tagging_verification',
+      '/asset-tagging/events': 'asset_tagging_events',
       
       // Finance Module
       '/finance': 'finance_dashboard',
@@ -158,6 +165,38 @@ const Sidebar = () => {
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
       '/finance/banking': 'banking',
+      '/finance/taxes': 'tax_management',
+      '/finance/fixed-assets': 'fixed_assets',
+      '/finance/bank-reconciliation': 'bank_reconciliation',
+      '/finance/vendor-statement': 'vendor_statement',
+      '/finance/budget-vs-actual': 'budget_vs_actual',
+      '/finance/aged-payables': 'aged_payables',
+      '/finance/payment-terms': 'payment_terms',
+      '/finance/aged-receivables': 'aged_receivables',
+      '/finance/customer-statement': 'customer_statement',
+      '/finance/customer-payments': 'customer_payments',
+      '/finance/credit-notes': 'credit_notes',
+      '/finance/vendor-payments': 'vendor_payments',
+      '/finance/vendor-refunds': 'vendor_refunds',
+      '/finance/bill-to-receive': 'bill_to_receive',
+      '/finance/billed-not-received': 'billed_not_received',
+      '/finance/balance-sheet': 'financial_statements',
+      '/finance/profit-loss': 'financial_statements',
+      '/finance/cash-flow': 'financial_statements',
+      '/finance/trial-balance': 'financial_statements',
+      '/finance/tax-summary': 'tax_summary',
+      '/finance/opening-balances': 'opening_balances',
+      '/finance/year-end-closing': 'year_end_closing',
+      '/finance/recurring-journals': 'recurring_journals',
+      '/finance/batch-payment':           'batch_payment',
+      '/finance/company-profile':         'company_profile',
+      '/finance/comparative-pl':          'comparative_pl',
+      '/finance/cost-center-pl':          'cost_center_pl',
+      '/finance/budgets':                 'budgets',
+      '/finance/deferred-entries':        'deferred_entries',
+      '/finance/bank-statement-import':   'bank_statement_import',
+      '/finance/setup':                   'finance_setup',
+      '/procurement/purchase-returns': 'purchase_returns',
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/dashboard': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
@@ -251,6 +290,7 @@ const Sidebar = () => {
   // Helper function to get module name from path
   const getModuleNameFromPath = (path) => {
     if (!path) return '';
+    if (path.startsWith('/asset-tagging')) return 'asset_tagging';
     const parts = path.split('/').filter(p => p);
     if (parts.length === 0) return '';
     
@@ -680,6 +720,7 @@ const Sidebar = () => {
   return (
     <Drawer
       variant="permanent"
+      className="app-print-hide"
       sx={{
         width: drawerWidth,
         flexShrink: 0,

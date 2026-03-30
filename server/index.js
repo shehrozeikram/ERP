@@ -125,9 +125,21 @@ const activityLogger = require('./middleware/activityLogger');
 const financeJournalsRoutes = require('./routes/financeJournals');
 const fiscalPeriodsRoutes = require('./routes/fiscalPeriods');
 const inventoryCategoriesRoutes = require('./routes/inventoryCategories');
+const taxesRoutes = require('./routes/taxes');
+const fixedAssetsRoutes = require('./routes/fixedAssets');
+const assetTaggingRoutes = require('./routes/assetTagging');
+const paymentTermsRoutes = require('./routes/paymentTerms');
+const purchaseReturnsRoutes = require('./routes/purchaseReturns');
 // Pre-load new models so Mongoose registers them before any route uses them
 require('./models/finance/FinanceJournal');
 require('./models/finance/FiscalPeriod');
+require('./models/finance/Tax');
+require('./models/finance/FixedAsset');
+require('./models/assetTagging/AssetTag');
+require('./models/assetTagging/AssetTagEvent');
+require('./models/assetTagging/AssetVerificationSession');
+require('./models/finance/PaymentTerm');
+require('./models/procurement/PurchaseReturn');
 require('./models/procurement/InventoryCategory');
 
 
@@ -505,7 +517,12 @@ app.use('/api/finance/recovery-campaigns', authMiddleware, activityLogger, recov
 app.use('/api/finance', authMiddleware, activityLogger, financeAdvancedRoutes);
 app.use('/api/finance/journals', authMiddleware, activityLogger, financeJournalsRoutes);
 app.use('/api/finance/fiscal-periods', authMiddleware, activityLogger, fiscalPeriodsRoutes);
+app.use('/api/finance/taxes', authMiddleware, activityLogger, taxesRoutes);
+app.use('/api/finance/fixed-assets', authMiddleware, activityLogger, fixedAssetsRoutes);
+app.use('/api/asset-tagging', authMiddleware, activityLogger, assetTaggingRoutes);
+app.use('/api/finance/payment-terms', authMiddleware, activityLogger, paymentTermsRoutes);
 app.use('/api/inventory-categories', authMiddleware, activityLogger, inventoryCategoriesRoutes);
+app.use('/api/procurement/purchase-returns', authMiddleware, activityLogger, purchaseReturnsRoutes);
 app.use('/api/procurement', authMiddleware, activityLogger, procurementRoutes);
 app.use('/api/sales', authMiddleware, activityLogger, salesRoutes);
 app.use('/api/crm', authMiddleware, activityLogger, crmRoutes);
@@ -732,6 +749,30 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.log('✅ Anniversary Leave Scheduler started successfully');
   } catch (error) {
     console.error('❌ Failed to start Anniversary Leave Scheduler:', error);
+  }
+
+  // Start Recurring Journal Entries cron
+  try {
+    const { startRecurringJournalCron } = require('./utils/recurringJournalCron');
+    startRecurringJournalCron();
+  } catch (error) {
+    console.error('❌ Failed to start Recurring Journal Cron:', error);
+  }
+
+  // Start Fixed Asset Auto-Depreciation cron (1st of month, 07:00 AM PKT)
+  try {
+    const { startFixedAssetDepreciationCron } = require('./utils/fixedAssetDepreciationCron');
+    startFixedAssetDepreciationCron();
+  } catch (error) {
+    console.error('❌ Failed to start Fixed Asset Depreciation Cron:', error);
+  }
+
+  // Start Deferred Revenue/Expense Recognition cron (1st of month, 07:30 AM PKT)
+  try {
+    const { startDeferredEntryCron } = require('./utils/deferredEntryCron');
+    startDeferredEntryCron();
+  } catch (error) {
+    console.error('❌ Failed to start Deferred Entry Cron:', error);
   }
   
   // Automatically sync any missed attendance records on startup
