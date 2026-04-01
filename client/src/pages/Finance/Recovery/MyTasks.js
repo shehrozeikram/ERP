@@ -71,6 +71,12 @@ const formatDate = (val) => {
 };
 
 const ASSIGNED_ACTION_LABELS = { whatsapp: 'WhatsApp message', call: 'Call', both: 'Both' };
+const getOrderCodeLabel = (row) =>
+  row?.orderCode ||
+  row?.order?.orderCode ||
+  row?.booking?.orderCode ||
+  row?.plot?.orderCode ||
+  '';
 
 function normalizeWhatsAppNumber(mobile) {
   if (!mobile) return '';
@@ -1019,7 +1025,7 @@ const MyTasks = () => {
             </Box>
             <Box>
               <Typography variant="subtitle1" fontWeight={600}>
-                {repliesRow?.customerName || '—'}{repliesRow?.orderCode ? ` - ${repliesRow.orderCode}` : ''}
+                {repliesRow?.customerName || '—'}{getOrderCodeLabel(repliesRow) ? ` - ${getOrderCodeLabel(repliesRow)}` : ''}
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.9 }}>{repliesRow?.mobileNumber || '—'}</Typography>
             </Box>
@@ -1051,7 +1057,8 @@ const MyTasks = () => {
                     borderTopRightRadius: m.direction === 'out' ? 0.5 : 2,
                     borderTopLeftRadius: m.direction === 'in' ? 0.5 : 2,
                     bgcolor: m.direction === 'out' ? '#DCF8C6' : 'white',
-                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
+                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)',
+                    '&:hover .reply-action': { opacity: 1 }
                   }}
                 >
                   {m.mediaUrl && m.mediaType === 'image' ? (
@@ -1109,7 +1116,8 @@ const MyTasks = () => {
                     <Tooltip title="Reply to this message">
                       <IconButton
                         size="small"
-                        sx={{ p: 0.25, mr: 0.5 }}
+                        className="reply-action"
+                        sx={{ p: 0.25, mr: 0.5, opacity: 0, transition: 'opacity 0.15s ease' }}
                         onClick={() => {
                           setReplyToMessage(m);
                         }}
