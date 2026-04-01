@@ -27,9 +27,10 @@ import {
   Chip,
   Alert,
   Snackbar,
-  Badge
+  Badge,
+  Tooltip
 } from '@mui/material';
-import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
+import { Assignment as AssignmentIcon, Search as SearchIcon, Upload as UploadIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, CheckCircleOutline as CheckIcon, Add as AddIcon, Edit as EditIcon, Info as InfoIcon, Download as DownloadIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon, Reply as ReplyIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -71,6 +72,12 @@ function normalizeWhatsAppNumber(mobile) {
 }
 
 const ASSIGNED_ACTION_LABELS = { whatsapp: 'WhatsApp message', call: 'Call', both: 'Both' };
+const getOrderCodeLabel = (row) =>
+  row?.orderCode ||
+  row?.order?.orderCode ||
+  row?.booking?.orderCode ||
+  row?.plot?.orderCode ||
+  '';
 
 const COLUMNS = [
   { id: 'orderCode', label: 'Order Code', minWidth: 90 },
@@ -121,6 +128,7 @@ const RecoveryAssignments = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const unreadFilter = (searchParams.get('unread') === 'true' || searchParams.get('unread') === '1') ? 'unread' : 'all';
   const [replyText, setReplyText] = useState('');
+  const [replyToMessage, setReplyToMessage] = useState(null);
   const [replySending, setReplySending] = useState(false);
   const [replyAttachment, setReplyAttachment] = useState(null);
   const replyFileInputRef = React.useRef(null);
@@ -241,6 +249,7 @@ const RecoveryAssignments = () => {
     setRepliesDialogOpen(false);
     setRepliesRow(null);
     setReplyText('');
+    setReplyToMessage(null);
     setReplyAttachment(null);
     loadNumbersWithMessages();
   };
@@ -331,7 +340,7 @@ const RecoveryAssignments = () => {
       }
       await sendRecoveryWhatsApp({
         to: toNumber,
-        body: text || '',
+        body: `${replyToMessage ? `Replying to: "${String(replyToMessage?.text || '(media)').slice(0, 120)}"\n` : ''}${text || ''}`.trim(),
         // Always pass mediaUrl (local URL for chat display) + mediaId (for Meta delivery)
         ...(mediaType && (mediaId || mediaUrl) && {
           mediaType,
@@ -340,6 +349,7 @@ const RecoveryAssignments = () => {
         })
       });
       setReplyText('');
+      setReplyToMessage(null);
       handleRemoveReplyAttachment();
       const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
       setRepliesMessages(res?.data?.data || []);
@@ -715,7 +725,9 @@ const RecoveryAssignments = () => {
               <ChatIcon />
             </Box>
             <Box>
-              <Typography variant="subtitle1" fontWeight={600}>{repliesRow?.customerName || '—'}</Typography>
+              <Typography variant="subtitle1" fontWeight={600}>
+                {repliesRow?.customerName || '—'}{getOrderCodeLabel(repliesRow) ? ` - ${getOrderCodeLabel(repliesRow)}` : ''}
+              </Typography>
               <Typography variant="caption" sx={{ opacity: 0.9 }}>{repliesRow?.mobileNumber || '—'}</Typography>
             </Box>
           </Box>
@@ -733,7 +745,7 @@ const RecoveryAssignments = () => {
               <Typography variant="body2" color="text.secondary">No messages yet. Start the conversation below.</Typography>
             </Box>
           ) : (
-            <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ flex: 1, height: 360, maxHeight: 360, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {repliesMessages.map((m, idx) => (
                 <Box
                   key={m._id || m.messageId || idx}
@@ -746,7 +758,8 @@ const RecoveryAssignments = () => {
                     borderTopRightRadius: m.direction === 'out' ? 0.5 : 2,
                     borderTopLeftRadius: m.direction === 'in' ? 0.5 : 2,
                     bgcolor: m.direction === 'out' ? '#DCF8C6' : 'white',
-                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
+                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)',
+                    '&:hover .reply-action': { opacity: 1 }
                   }}
                 >
                   {m.mediaUrl && m.mediaType === 'image' ? (
@@ -801,6 +814,16 @@ const RecoveryAssignments = () => {
                     <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
                   )}
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.3, mt: 0.25 }}>
+                    <Tooltip title="Reply to this message">
+                      <IconButton
+                        size="small"
+                        className="reply-action"
+                        sx={{ p: 0.25, mr: 0.5, opacity: 0, transition: 'opacity 0.15s ease' }}
+                        onClick={() => setReplyToMessage(m)}
+                      >
+                        <ReplyIcon sx={{ fontSize: 14, opacity: 0.7 }} />
+                      </IconButton>
+                    </Tooltip>
                     <Typography variant="caption" sx={{ opacity: 0.7, lineHeight: 1 }}>
                       {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
                     </Typography>
@@ -827,6 +850,16 @@ const RecoveryAssignments = () => {
                 style={{ display: 'none' }}
                 onChange={handleReplyFileSelect}
               />
+              {replyToMessage && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: '#e8f5e9', borderRadius: 2, border: '1px solid', borderColor: '#b7dfbb' }}>
+                  <ReplyIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 700 }}>Replying to</Typography>
+                    <Typography variant="body2" noWrap>{replyToMessage?.text || '(media)'}</Typography>
+                  </Box>
+                  <IconButton size="small" onClick={() => setReplyToMessage(null)} title="Cancel reply"><CloseIcon fontSize="small" /></IconButton>
+                </Box>
+              )}
               {replyAttachment && !isRecording && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: 'white', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
                   {replyAttachment.mediaType === 'audio'
