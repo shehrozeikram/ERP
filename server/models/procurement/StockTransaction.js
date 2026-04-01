@@ -114,12 +114,16 @@ stockTransactionSchema.index({ transactionType: 1, createdAt: -1 });
  * Static method to get current balance for a store + project + item combination
  */
 stockTransactionSchema.statics.getBalance = async function(store, projectId, itemId) {
+  const storeObjId =
+    store && typeof store === 'string' && mongoose.Types.ObjectId.isValid(store)
+      ? new mongoose.Types.ObjectId(store)
+      : store;
   const projectObjId = (typeof projectId === 'string' && mongoose.Types.ObjectId.isValid(projectId)) ? new mongoose.Types.ObjectId(projectId) : projectId;
   const itemObjId = (typeof itemId === 'string' && mongoose.Types.ObjectId.isValid(itemId)) ? new mongoose.Types.ObjectId(itemId) : itemId;
   const result = await this.aggregate([
     {
       $match: {
-        store: store,
+        store: storeObjId,
         project: projectObjId,
         item: itemObjId
       }
@@ -142,6 +146,10 @@ stockTransactionSchema.statics.getBalance = async function(store, projectId, ite
 stockTransactionSchema.statics.getBalances = async function(store, projectId, itemIds) {
   if (!Array.isArray(itemIds) || itemIds.length === 0) return {};
   
+  const storeObjId =
+    store && typeof store === 'string' && mongoose.Types.ObjectId.isValid(store)
+      ? new mongoose.Types.ObjectId(store)
+      : store;
   const objectIds = itemIds.map(id => 
     (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id)) ? new mongoose.Types.ObjectId(id) : id
   );
@@ -150,7 +158,7 @@ stockTransactionSchema.statics.getBalances = async function(store, projectId, it
   const results = await this.aggregate([
     {
       $match: {
-        store: store,
+        store: storeObjId,
         project: projectObjId,
         item: { $in: objectIds }
       }

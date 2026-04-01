@@ -19,8 +19,26 @@ export default function TrialBalance() {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await api.get('/finance/reports/trial-balance', { params: { asOfDate } });
-      setData(res.data.data || res.data);
+      // trial-balance-v2: sums posted journal lines (same source as BS); legacy route returned wrong shape for this UI
+      const res = await api.get('/finance/reports/trial-balance-v2', { params: { asOfDate } });
+      const payload = res.data.data || res.data;
+      const rows = payload.rows || [];
+      const accounts = rows.map((r) => ({
+        _id: r._id,
+        accountNumber: r.accountNumber,
+        name: r.accountName,
+        accountName: r.accountName,
+        type: r.accountType,
+        accountType: r.accountType,
+        totalDebit: r.totalDebit || 0,
+        totalCredit: r.totalCredit || 0,
+        balance: r.netBalance
+      }));
+      setData({
+        accounts,
+        totals: payload.totals,
+        asOfDate: payload.asOfDate
+      });
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load trial balance');
     } finally {

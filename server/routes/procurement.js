@@ -992,8 +992,28 @@ function isAdvanceOrPartialAdvance(paymentTerms) {
   return terms.includes('advance') || terms.includes('partial advance');
 }
 
+function buildBillNumber(prefix = 'BILL') {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  return `${prefix}-${y}${m}-${rand}`;
+}
+
+function computeDueDateFromTerms(billDate, paymentTerms) {
+  const base = new Date(billDate || new Date());
+  base.setHours(0, 0, 0, 0);
+  const term = String(paymentTerms || 'net_30').toLowerCase();
+  if (term === 'due_on_receipt') return base;
+  const map = { net_15: 15, net_30: 30, net_45: 45, net_60: 60 };
+  const days = map[term] || 30;
+  const due = new Date(base);
+  due.setDate(due.getDate() + days);
+  return due;
+}
+
 // @route   PUT /api/procurement/purchase-orders/:id/ceo-approve
-// @desc    CEO approves PO. If payment terms are Advance/Partial Advance -> status Pending Finance; else -> Approved + AP entry
+// @desc    CEO approves PO. If payment terms are Advance/Partial Advance -> status Pending Finance; else -> Approved
 // @access  Private (Super Admin, Admin, Higher Management / CEO)
 router.put('/purchase-orders/:id/ceo-approve',
   authorize('super_admin', 'admin', 'higher_management'),
@@ -1022,42 +1042,6 @@ router.put('/purchase-orders/:id/ceo-approve',
     purchaseOrder.updatedBy = req.user.id;
     await purchaseOrder.save();
 
-    let accountsPayableCreated = false;
-    let accountsPayableId = null;
-
-    // Create AP only when status is Approved (not when sent to Finance)
-    if (!sendToFinance) {
-      try {
-        const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
-        const amount = Number(purchaseOrder.totalAmount) || 0;
-        if (!existingAP && amount > 0) {
-          const billDate = new Date();
-          billDate.setHours(0, 0, 0, 0);
-          const dueDate = new Date(billDate);
-          dueDate.setDate(dueDate.getDate() + 30);
-          const apEntry = await FinanceHelper.createAPFromBill({
-            vendorName: purchaseOrder.vendor?.name || 'Unknown Vendor',
-            vendorEmail: purchaseOrder.vendor?.email || '',
-            vendorId: purchaseOrder.vendor?._id,
-            billNumber: `PO-${purchaseOrder.orderNumber}`,
-            billDate,
-            dueDate,
-            amount,
-            department: 'procurement',
-            module: 'procurement',
-            referenceId: purchaseOrder._id,
-            referenceType: 'purchase_order',
-            lineDescription: `Purchase Order ${purchaseOrder.orderNumber}`,
-            createdBy: req.user.id
-          });
-          accountsPayableCreated = true;
-          accountsPayableId = apEntry._id;
-        }
-      } catch (apError) {
-        console.error('❌ Error creating AP for CEO approved purchase order:', apError);
-      }
-    }
-
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
       .populate('ceoApprovedBy', 'firstName lastName email');
@@ -1065,12 +1049,8 @@ router.put('/purchase-orders/:id/ceo-approve',
       success: true,
       message: sendToFinance
         ? 'Purchase order approved by CEO and sent to Finance (advance/partial advance terms)'
-        : (accountsPayableCreated
-          ? 'Purchase order approved by CEO and Accounts Payable entry created'
-          : 'Purchase order approved by CEO successfully'),
+        : 'Purchase order approved by CEO successfully',
       data: updatedOrder,
-      accountsPayableCreated,
-      accountsPayableId,
       sentToFinance: sendToFinance
     });
   })
@@ -1143,7 +1123,7 @@ router.put('/purchase-orders/:id/ceo-return',
 );
 
 // @route   PUT /api/procurement/purchase-orders/:id/finance-approve
-// @desc    Finance approves PO that was sent from CEO (status Pending Finance -> Approved) and creates AP entry
+// @desc    Finance approves PO that was sent from CEO (status Pending Finance -> Approved)
 // @access  Private (Super Admin, Admin, Finance Manager)
 router.put('/purchase-orders/:id/finance-approve',
   authorize('super_admin', 'admin', 'finance_manager'),
@@ -1167,49 +1147,13 @@ router.put('/purchase-orders/:id/finance-approve',
     purchaseOrder.updatedBy = req.user.id;
     await purchaseOrder.save();
 
-    let accountsPayableCreated = false;
-    let accountsPayableId = null;
-    try {
-      const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
-      const amount = Number(purchaseOrder.totalAmount) || 0;
-      if (!existingAP && amount > 0) {
-        const billDate = new Date();
-        billDate.setHours(0, 0, 0, 0);
-        const dueDate = new Date(billDate);
-        dueDate.setDate(dueDate.getDate() + 30);
-        const apEntry = await FinanceHelper.createAPFromBill({
-          vendorName: purchaseOrder.vendor?.name || 'Unknown Vendor',
-          vendorEmail: purchaseOrder.vendor?.email || '',
-          vendorId: purchaseOrder.vendor?._id,
-          billNumber: `PO-${purchaseOrder.orderNumber}`,
-          billDate,
-          dueDate,
-          amount,
-          department: 'procurement',
-          module: 'procurement',
-          referenceId: purchaseOrder._id,
-          referenceType: 'purchase_order',
-          lineDescription: `Purchase Order ${purchaseOrder.orderNumber} (Finance approved)`,
-          createdBy: req.user.id
-        });
-        accountsPayableCreated = true;
-        accountsPayableId = apEntry._id;
-      }
-    } catch (apError) {
-      console.error('❌ Error creating AP for Finance approved purchase order:', apError);
-    }
-
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
       .populate('financeApprovedBy', 'firstName lastName email');
     res.json({
       success: true,
-      message: accountsPayableCreated
-        ? 'Purchase order approved by Finance and Accounts Payable entry created'
-        : 'Purchase order approved by Finance successfully',
-      data: updatedOrder,
-      accountsPayableCreated,
-      accountsPayableId
+      message: 'Purchase order approved by Finance successfully',
+      data: updatedOrder
     });
   })
 );
@@ -1400,14 +1344,14 @@ router.get('/store/pending-indents',
 );
 
 // @route   GET /api/procurement/store/dashboard
-// @desc    Get Purchase Orders with status "Sent to Store" or "GRN Created" grouped by month/year
+// @desc    Get Purchase Orders available for GRN workflow grouped by month/year
 // @access  Private (Procurement, Admin, Store Manager)
 router.get('/store/dashboard',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     try {
-      // Get POs with status "Sent to Store" (awaiting QA/GRN) or "GRN Created" (ready to send to Procurement)
-      const purchaseOrders = await PurchaseOrder.find({ status: { $in: ['Sent to Store', 'GRN Created'] } })
+      // Include partially received POs too so additional GRNs can be created until fully received
+      const purchaseOrders = await PurchaseOrder.find({ status: { $in: ['Sent to Store', 'GRN Created', 'Partially Received'] } })
         .populate('vendor', 'name email phone contactPerson')
         .populate('createdBy', 'firstName lastName email')
         .populate('updatedBy', 'firstName lastName email')
@@ -1495,17 +1439,22 @@ router.get('/store/qa-pending',
 );
 
 // @route   GET /api/procurement/store/qa-list
-// @desc    Get POs by QA state: Pending | Passed (Approved) | Rejected. status=Sent to Store.
+// @desc    Get POs by QA state: Pending | Passed | Rejected.
 // @access  Private (Procurement, Admin, Store Manager)
 router.get('/store/qa-list',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const { qaStatus = 'Pending' } = req.query; // Pending | Passed | Rejected
-    const query = { status: 'Sent to Store' };
+    const query = { status: { $in: ['Sent to Store', 'Partially Received'] } };
     if (qaStatus === 'Pending') {
       query.$or = [{ qaStatus: { $in: [null, 'Pending'] } }, { qaStatus: { $exists: false } }];
-    } else {
+    } else if (qaStatus === 'Passed') {
       query.qaStatus = qaStatus; // Passed or Rejected
+      // For passed tab, keep only statuses that can still create GRN.
+      query.status = { $in: ['Sent to Store', 'Partially Received'] };
+    } else {
+      query.qaStatus = qaStatus; // Rejected
+      query.status = 'Sent to Store';
     }
     const purchaseOrders = await PurchaseOrder.find(query)
       .populate('vendor', 'name email phone contactPerson')
@@ -1717,43 +1666,9 @@ router.put('/purchase-orders/:id/receive',
   
   await purchaseOrder.save();
 
-  // If status is "Received", create AP only when no bill exists yet and this PO was not received via GRN
-  // (GRN flow creates AP from the vendor bill — avoids duplicate AP for the same PO)
-  if (purchaseOrder.status === 'Received') {
-    try {
-      const existingAP = await AccountsPayable.findOne({ referenceId: purchaseOrder._id });
-      const hasGrn = await GoodsReceive.exists({ purchaseOrder: purchaseOrder._id });
-      const amount = Number(purchaseOrder.totalAmount) || 0;
-      if (!existingAP && !hasGrn && amount > 0) {
-        const supplier = await Supplier.findById(purchaseOrder.vendor);
-        const billDate = new Date();
-        billDate.setHours(0, 0, 0, 0);
-        await FinanceHelper.createAPFromBill({
-          vendorName: supplier ? supplier.name : 'Unknown Supplier',
-          vendorEmail: supplier ? supplier.email : '',
-          vendorId: purchaseOrder.vendor,
-          billNumber: `PO-${purchaseOrder.orderNumber}`,
-          billDate,
-          dueDate: dayjs().add(30, 'day').toDate(),
-          amount,
-          department: 'procurement',
-          module: 'procurement',
-          referenceId: purchaseOrder._id,
-          referenceType: 'purchase_order',
-          lineDescription: `Purchase Order ${purchaseOrder.orderNumber}`,
-          createdBy: req.user.id
-        });
-      }
-    } catch (apError) {
-      console.error('❌ Error creating AP for received purchase order:', apError);
-    }
-  }
-
   res.json({
     success: true,
-    message: purchaseOrder.status === 'Received' 
-      ? 'Items received and Accounts Payable entry created' 
-      : 'Receiving information updated successfully',
+    message: 'Receiving information updated successfully',
     data: purchaseOrder
   });
 }));
@@ -2489,6 +2404,186 @@ router.get('/goods-receive/:id',
   })
 );
 
+// @route   GET /api/procurement/vendor-bills/billable-grns
+// @desc    Get GRNs that can be billed for a selected vendor
+// @access  Private
+router.get('/vendor-bills/billable-grns',
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { vendorId } = req.query;
+    if (!vendorId) return res.status(400).json({ success: false, message: 'vendorId is required' });
+
+    const grns = await GoodsReceive.find({
+      supplier: vendorId,
+      status: { $in: ['Received', 'Complete', 'Partial'] },
+      billingStatus: { $ne: 'fully_billed' }
+    })
+      .populate('purchaseOrder', 'orderNumber')
+      .sort({ receiveDate: -1, createdAt: -1 })
+      .lean();
+
+    const list = grns.map((g) => {
+      const totalAmount = Math.round((Number(g.netAmount || g.total || 0) || 0) * 100) / 100;
+      const billedAmount = Math.round((Number(g.billedAmount) || 0) * 100) / 100;
+      const remainingAmount = Math.round((totalAmount - billedAmount) * 100) / 100;
+      return {
+        _id: g._id,
+        receiveNumber: g.receiveNumber,
+        receiveDate: g.receiveDate,
+        poId: g.purchaseOrder?._id || g.purchaseOrder || null,
+        poNumber: g.purchaseOrder?.orderNumber || g.poNumber || '',
+        amount: totalAmount,
+        billedAmount,
+        remainingAmount,
+        status: g.status,
+        billingStatus: g.billingStatus || 'nothing_to_bill'
+      };
+    }).filter((g) => g.remainingAmount > 0.009);
+
+    res.json({ success: true, data: { grns: list } });
+  })
+);
+
+// @route   POST /api/procurement/vendor-bills
+// @desc    Create vendor bill from one or multiple GRNs (Procurement bill creation)
+// @access  Private
+router.post('/vendor-bills',
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'),
+  [
+    body('vendorId').isMongoId().withMessage('Valid vendorId is required'),
+    body('grnIds').optional().isArray({ min: 1 }).withMessage('At least one GRN must be selected'),
+    body('grnIds.*').optional().isMongoId(),
+    body('grnAllocations').optional().isArray({ min: 1 }),
+    body('grnAllocations.*.grnId').optional().isMongoId(),
+    body('grnAllocations.*.amount').optional().isFloat({ min: 0.01 }),
+    body('billDate').optional().isISO8601(),
+    body('vendorInvoiceNumber').optional().isString(),
+    body('paymentTerms').optional().isIn(['due_on_receipt', 'net_15', 'net_30', 'net_45', 'net_60', 'custom']),
+    body('notes').optional().isString()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    const {
+      vendorId,
+      grnIds,
+      grnAllocations,
+      billDate,
+      vendorInvoiceNumber,
+      paymentTerms = 'net_30',
+      notes
+    } = req.body;
+
+    const vendor = await Supplier.findById(vendorId).lean();
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
+
+    const hasAllocations = Array.isArray(grnAllocations) && grnAllocations.length > 0;
+    const selectedSource = hasAllocations ? grnAllocations.map((x) => x.grnId) : (grnIds || []);
+    const uniqueGrnIds = [...new Set(selectedSource.map(String))];
+    if (uniqueGrnIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Select at least one GRN' });
+    }
+    const grns = await GoodsReceive.find({
+      _id: { $in: uniqueGrnIds },
+      supplier: vendorId,
+      status: { $in: ['Received', 'Complete', 'Partial'] }
+    })
+      .populate('purchaseOrder', 'orderNumber')
+      .lean();
+
+    if (grns.length !== uniqueGrnIds.length) {
+      return res.status(400).json({ success: false, message: 'One or more selected GRNs are invalid for this vendor' });
+    }
+
+    const lines = [];
+    const linkedGRNs = [];
+    let totalAmount = 0;
+    const allocMap = new Map((grnAllocations || []).map((x) => [String(x.grnId), Number(x.amount) || 0]));
+    const grnUpdates = [];
+    for (const g of grns) {
+      const gross = Math.round((Number(g.netAmount || g.total || 0) || 0) * 100) / 100;
+      const billed = Math.round((Number(g.billedAmount) || 0) * 100) / 100;
+      const remaining = Math.round((gross - billed) * 100) / 100;
+      if (remaining <= 0.009) {
+        return res.status(400).json({ success: false, message: `GRN ${g.receiveNumber} is already fully billed` });
+      }
+      const requested = hasAllocations ? Math.round((allocMap.get(String(g._id)) || 0) * 100) / 100 : remaining;
+      const amt = requested;
+      if (amt <= 0) continue;
+      if (amt - remaining > 0.01) {
+        return res.status(400).json({ success: false, message: `Billing amount for GRN ${g.receiveNumber} exceeds remaining amount (${remaining})` });
+      }
+      if (amt <= 0) continue;
+      totalAmount += amt;
+      lines.push({
+        description: `GRN ${g.receiveNumber}${g.poNumber ? ` / PO ${g.poNumber}` : ''}`,
+        quantity: 1,
+        unitPrice: amt,
+        grnId: g._id,
+        poId: g.purchaseOrder?._id || g.purchaseOrder || undefined
+      });
+      linkedGRNs.push({
+        grnId: g._id,
+        grnNumber: g.receiveNumber,
+        poId: g.purchaseOrder?._id || g.purchaseOrder || undefined,
+        poNumber: g.purchaseOrder?.orderNumber || g.poNumber || '',
+        amount: amt
+      });
+      grnUpdates.push({ id: g._id, nextBilledAmount: Math.round((billed + amt) * 100) / 100, total: gross });
+    }
+
+    if (totalAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Selected GRNs have zero billable amount' });
+    }
+
+    const effectiveBillDate = billDate ? new Date(billDate) : new Date();
+    const dueDate = computeDueDateFromTerms(effectiveBillDate, paymentTerms);
+    const billNumber = buildBillNumber('VBILL');
+
+    const apBill = await FinanceHelper.createAPFromBill({
+      vendorName: vendor.name || 'Unknown Vendor',
+      vendorEmail: vendor.email || '',
+      vendorId: vendor._id,
+      billNumber,
+      vendorInvoiceNumber: vendorInvoiceNumber || '',
+      billDate: effectiveBillDate,
+      dueDate,
+      paymentTerms,
+      amount: totalAmount,
+      department: 'procurement',
+      module: 'procurement',
+      referenceId: grns[0]._id, // primary reference; linkedGRNs keeps full mapping
+      referenceType: 'grn',
+      lineItems: lines,
+      linkedGRNs,
+      notes: notes || `Procurement vendor bill from ${grns.length} GRN(s)`,
+      createdBy: req.user.id
+    });
+
+    for (const u of grnUpdates) {
+      const remaining = Math.round((u.total - u.nextBilledAmount) * 100) / 100;
+      await GoodsReceive.updateOne(
+        { _id: u.id },
+        {
+          $set: {
+            billedAmount: u.nextBilledAmount,
+            billingStatus: remaining <= 0.009 ? 'fully_billed' : 'waiting_bills',
+            vendorBill: apBill._id,
+            vendorBillNumber: apBill.billNumber
+          }
+        }
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Vendor bill created from selected GRN(s)',
+      data: apBill
+    });
+  })
+);
+
 // @route   PUT /api/procurement/goods-receive/:id/sync-inventory
 // @desc    Sync GRN items to inventory (for existing GRNs or when post-save did not run)
 // @access  Private
@@ -2513,6 +2608,7 @@ router.post('/goods-receive',
     body('receiveDate').optional().isISO8601(),
     body('project').isMongoId().withMessage('Valid project ID is required'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
+    body('items.*.productCode').optional().trim(),
     body('items.*.inventoryItem').optional().isMongoId().withMessage('Valid inventory item ID when provided'),
     body('items.*.quantity').isFloat({ min: 0.01 }).withMessage('Quantity must be greater than 0'),
     body('items.*.itemCode').optional().trim(),
@@ -2563,6 +2659,7 @@ router.post('/goods-receive',
           }
         }
         return {
+          productCode: (item.productCode != null && String(item.productCode).trim() !== '') ? String(item.productCode).trim() : '',
           inventoryItem,
           itemCode: itemCode || '—',
           itemName: itemName || '—',
@@ -2580,6 +2677,36 @@ router.post('/goods-receive',
         };
       })
     );
+
+    // Validate GRN quantity against remaining PO quantity so multiple GRNs are allowed
+    // until PO is fulfilled, but over-receipt is blocked.
+    if (purchaseOrder) {
+      const poForValidation = await PurchaseOrder.findById(purchaseOrder);
+      if (!poForValidation) {
+        return res.status(400).json({ success: false, message: 'Linked purchase order not found' });
+      }
+      if (!['Sent to Store', 'GRN Created', 'Partially Received', 'Approved', 'Ordered'].includes(poForValidation.status)) {
+        return res.status(400).json({ success: false, message: `PO ${poForValidation.orderNumber || ''} is not open for GRN creation` });
+      }
+      for (let i = 0; i < itemsWithDetails.length; i++) {
+        const grnLine = itemsWithDetails[i];
+        const j = matchPurchaseOrderLineIndex(poForValidation.items || [], grnLine, i);
+        if (j < 0) {
+          return res.status(400).json({ success: false, message: `GRN item "${grnLine.itemName || grnLine.itemCode || i + 1}" is not matched to PO line` });
+        }
+        const poLine = poForValidation.items[j];
+        const ordered = Number(poLine.quantity) || 0;
+        const received = Number(poLine.receivedQuantity) || 0;
+        const remaining = Math.max(0, Math.round((ordered - received) * 100) / 100);
+        const requested = Number(grnLine.quantity) || 0;
+        if (requested - remaining > 0.0001) {
+          return res.status(400).json({
+            success: false,
+            message: `GRN qty exceeds remaining PO qty for line ${j + 1}. Remaining: ${remaining}, requested: ${requested}`
+          });
+        }
+      }
+    }
 
     const preparedByName = req.user.firstName && req.user.lastName
       ? `${req.user.firstName} ${req.user.lastName}`.trim()
@@ -2615,7 +2742,9 @@ router.post('/goods-receive',
       items: itemsWithDetails,
       notes,
       receivedBy: req.user.id,
-      status: grnStatus
+      status: grnStatus,
+      billingStatus: 'waiting_bills',
+      billedAmount: 0
     });
 
     await receive.save();
@@ -2638,7 +2767,20 @@ router.post('/goods-receive',
     // We call it for every received item; skipping is done inside postGRNJournal.
     const FinanceHelper = require('../utils/financeHelper');
     for (const grnItem of receive.items) {
-      const inv = grnItem.inventoryItem;
+      let inv = grnItem.inventoryItem;
+      // Manual GRN can arrive without explicit inventoryItem link.
+      // In that case, resolve by item code/product code/name so finance posting
+      // still happens for the exact inventory row that stock sync updated.
+      if (!inv) {
+        const code = String(grnItem.itemCode || grnItem.productCode || '').trim();
+        const name = String(grnItem.itemName || '').trim();
+        if (code && code !== '—') {
+          inv = await Inventory.findOne({ itemCode: code });
+        }
+        if (!inv && name && name !== '—') {
+          inv = await Inventory.findOne({ name }).sort({ createdAt: -1 });
+        }
+      }
       if (!inv) continue;
       await FinanceHelper.postGRNJournal({
         inventoryItem: inv.toObject ? inv.toObject() : inv,
@@ -2719,6 +2861,9 @@ router.get('/goods-issue',
       .populate('requestedBy', 'firstName lastName')
       .populate('issuedBy', 'firstName lastName')
       .populate('costCenter', 'code name department')
+      .populate('referenceIndent', 'indentNumber title status')
+      .populate('referencePurchaseOrder', 'orderNumber status totalAmount')
+      .populate('referenceGoodsReceive', 'receiveNumber poNumber status')
       .sort({ issueDate: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -2750,6 +2895,9 @@ router.get('/goods-issue/:id',
       .populate('requestedBy', 'firstName lastName email')
       .populate('issuedBy', 'firstName lastName email')
       .populate('costCenter', 'code name department')
+      .populate('referenceIndent', 'indentNumber title status')
+      .populate('referencePurchaseOrder', 'orderNumber status totalAmount')
+      .populate('referenceGoodsReceive', 'receiveNumber poNumber status')
       .populate('items.inventoryItem');
     
     if (!issue) {
@@ -2772,7 +2920,10 @@ router.post('/goods-issue',
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('items.*.inventoryItem').isMongoId().withMessage('Valid inventory item ID is required'),
     body('items.*.quantity').optional().isFloat({ min: 0 }),
-    body('items.*.qtyIssued').optional().isFloat({ min: 0 })
+    body('items.*.qtyIssued').optional().isFloat({ min: 0 }),
+    body('referenceIndent').optional().isMongoId(),
+    body('referencePurchaseOrder').optional().isMongoId(),
+    body('referenceGoodsReceive').optional().isMongoId()
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -2784,8 +2935,11 @@ router.post('/goods-issue',
       issueDate, department, departmentName, costCenter, costCenterCode, costCenterName,
       requestedBy, requestedByName, items, purpose, notes,
       issuingLocation, requiredFor, justification, eprNo, concernedDepartment,
-      returnedByName, approvedByName, receivedByName, project, store
+      returnedByName, approvedByName, receivedByName, project, store,
+      referenceIndent, referencePurchaseOrder, referenceGoodsReceive
     } = req.body;
+    const normalizedCostCenter = (typeof costCenter === 'string' && costCenter.trim() === '') ? undefined : costCenter;
+    const normalizedRequestedBy = (typeof requestedBy === 'string' && requestedBy.trim() === '') ? undefined : requestedBy;
 
     // Validate project exists
     const projectDoc = await Project.findById(project);
@@ -2809,8 +2963,8 @@ router.post('/goods-issue',
       }
     }
 
-    if (costCenter) {
-      const costCenterDoc = await CostCenter.findById(costCenter);
+    if (normalizedCostCenter) {
+      const costCenterDoc = await CostCenter.findById(normalizedCostCenter);
       if (!costCenterDoc || !costCenterDoc.isActive) {
         throw new Error('Invalid or inactive cost center');
       }
@@ -2879,16 +3033,19 @@ router.post('/goods-issue',
       store: resolvedStoreId || undefined,
       storeSnapshot,
       project: project,
+      referenceIndent: referenceIndent || undefined,
+      referencePurchaseOrder: referencePurchaseOrder || undefined,
+      referenceGoodsReceive: referenceGoodsReceive || undefined,
       department,
       departmentName,
       concernedDepartment: concernedDepartment || undefined,
-      costCenter,
+      costCenter: normalizedCostCenter,
       costCenterCode,
       costCenterName,
       requiredFor: requiredFor || undefined,
       justification: justification || undefined,
       eprNo: eprNo || undefined,
-      requestedBy,
+      requestedBy: normalizedRequestedBy,
       requestedByName,
       returnedByName: returnedByName || undefined,
       approvedByName: approvedByName || undefined,
@@ -2916,17 +3073,7 @@ router.post('/goods-issue',
       }
     ]);
 
-    // Post COGS journal entry (DR COGS / CR Inventory) for each issued item
-    try {
-      const FinanceHelper = require('../utils/financeHelper');
-      await FinanceHelper.postCOGSJournal({
-        items: issue.items,
-        sinDoc: issue,
-        createdBy: req.user.id
-      });
-    } catch (cogsErr) {
-      console.warn('[SIN] COGS GL posting skipped:', cogsErr.message);
-    }
+    // COGS / inventory GL: GoodsIssue post-save hook calls postSINJournal per item — do not also postCOGSJournal here (duplicate JE).
 
     res.status(201).json({
       success: true,

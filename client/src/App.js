@@ -117,6 +117,7 @@ import Inventory from './pages/Procurement/Inventory';
 import GoodsReceive from './pages/Procurement/GoodsReceive';
 import GoodsIssue from './pages/Procurement/GoodsIssue';
 import CostCenters from './pages/Procurement/CostCenters';
+import VendorBills from './pages/Procurement/VendorBills';
 import StoreDashboard from './pages/Procurement/Store/StoreDashboard';
 import QualityAssurance from './pages/Procurement/Store/QualityAssurance';
 import StoreManagement from './pages/Procurement/Store/StoreManagement';
@@ -1263,6 +1264,10 @@ function App() {
             <Route 
               path="/procurement/vendors" 
               element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
+            />
+            <Route
+              path="/procurement/vendor-bills"
+              element={<ProtectedRoute><VendorBills /></ProtectedRoute>}
             />
             {/* Store Submodule Routes */}
             <Route 

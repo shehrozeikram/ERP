@@ -891,7 +891,10 @@ router.post('/accounts-payable/:id/payment',
   authorize('super_admin', 'admin', 'finance_manager'),
   [
     body('amount').isFloat({ min: 0 }).withMessage('Payment amount must be non-negative'),
-    body('paymentMethod').isIn(['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required')
+    body('paymentMethod').isIn(['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required'),
+    body('allocations').optional().isArray(),
+    body('allocations.*.grnId').optional().isMongoId(),
+    body('allocations.*.amount').optional().isFloat({ min: 0 })
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -900,6 +903,41 @@ router.post('/accounts-payable/:id/payment',
     }
 
     try {
+      // Optional advanced GRN-level allocation validation
+      if (Array.isArray(req.body.allocations) && req.body.allocations.length > 0) {
+        const bill = await AccountsPayable.findById(req.params.id).lean();
+        if (!bill) return res.status(404).json({ success: false, message: 'Bill not found' });
+        const linked = Array.isArray(bill.linkedGRNs) ? bill.linkedGRNs : [];
+        const paidByGrn = {};
+        for (const p of (bill.payments || [])) {
+          for (const a of (p.allocations || [])) {
+            const k = String(a.grnId || '');
+            if (!k) continue;
+            paidByGrn[k] = (paidByGrn[k] || 0) + (Number(a.amount) || 0);
+          }
+        }
+        let allocTotal = 0;
+        for (const alloc of req.body.allocations) {
+          const grnId = String(alloc.grnId);
+          const amt = Math.round((Number(alloc.amount) || 0) * 100) / 100;
+          allocTotal += amt;
+          const linkedRow = linked.find((x) => String(x.grnId) === grnId);
+          if (!linkedRow) {
+            return res.status(400).json({ success: false, message: `Allocation GRN ${grnId} not linked to this bill` });
+          }
+          const billed = Number(linkedRow.amount) || 0;
+          const alreadyPaid = Number(paidByGrn[grnId] || 0);
+          const remaining = Math.round((billed - alreadyPaid) * 100) / 100;
+          if (amt - remaining > 0.01) {
+            return res.status(400).json({ success: false, message: `Allocation exceeds remaining for GRN ${linkedRow.grnNumber || grnId}` });
+          }
+        }
+        const paymentAmount = Math.round((Number(req.body.amount) || 0) * 100) / 100;
+        if (Math.abs(allocTotal - paymentAmount) > 0.01) {
+          return res.status(400).json({ success: false, message: 'Sum of GRN allocations must equal payment amount' });
+        }
+      }
+
       const updatedBill = await FinanceHelper.recordAPPayment(req.params.id, {
         amount:        req.body.amount,
         paymentMethod: req.body.paymentMethod,
@@ -907,6 +945,7 @@ router.post('/accounts-payable/:id/payment',
         date:          req.body.paymentDate,
         whtRate:       Number(req.body.whtRate)  || 0,
         bankAccountId: req.body.bankAccountId    || null,
+        allocations:   req.body.allocations      || [],
         createdBy:     req.user._id
       });
 
@@ -914,6 +953,61 @@ router.post('/accounts-payable/:id/payment',
     } catch (error) {
       res.status(500).json({ success: false, message: error.message || 'Failed to record payment' });
     }
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/advance-payment
+// @desc    Record vendor advance before/against future bills
+// @access  Private (Finance and Admin)
+router.post('/accounts-payable/advance-payment',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('vendorName').trim().notEmpty().withMessage('Vendor name is required'),
+    body('amount').isFloat({ min: 0.01 }).withMessage('Advance amount must be greater than zero'),
+    body('paymentMethod').optional().isIn(['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+
+    const advance = await FinanceHelper.recordVendorAdvance({
+      vendorName: req.body.vendorName,
+      vendorEmail: req.body.vendorEmail || '',
+      vendorId: req.body.vendorId || null,
+      amount: req.body.amount,
+      paymentMethod: req.body.paymentMethod || 'bank_transfer',
+      reference: req.body.reference,
+      date: req.body.paymentDate,
+      bankAccountId: req.body.bankAccountId || null,
+      department: req.body.department || 'procurement',
+      module: req.body.module || 'procurement',
+      referenceType: req.body.referenceType || 'advance',
+      referenceId: req.body.referenceId || null,
+      createdBy: req.user._id
+    });
+
+    res.json({ success: true, message: 'Vendor advance recorded successfully', data: advance });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/:id/apply-advance
+// @desc    Apply available vendor advance to AP bill
+// @access  Private (Finance and Admin)
+router.post('/accounts-payable/:id/apply-advance',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('amount').optional().isFloat({ min: 0.01 }).withMessage('Apply amount must be greater than zero')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+
+    const result = await FinanceHelper.applyVendorAdvanceToBill(req.params.id, req.body.amount ?? null, req.user._id);
+    res.json({
+      success: true,
+      message: `Advance applied: PKR ${Number(result.applied || 0).toLocaleString('en-PK')}`,
+      data: result
+    });
   })
 );
 
@@ -983,6 +1077,7 @@ router.get('/accounts-payable',
         $project: {
           totalAmount: { $ifNull: ['$totalAmount', 0] },
           amountPaid: { $ifNull: ['$amountPaid', 0] },
+          advanceApplied: { $ifNull: ['$advanceApplied', 0] },
           dueDate: 1
         }
       },
@@ -991,7 +1086,7 @@ router.get('/accounts-payable',
           _id: null,
           totalOutstanding: {
             $sum: {
-              $subtract: ['$totalAmount', '$amountPaid']
+              $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied']
             }
           },
           totalPaid: { $sum: '$amountPaid' },
@@ -1002,10 +1097,10 @@ router.get('/accounts-payable',
                   $and: [
                     { $ne: ['$dueDate', null] },
                     { $lt: ['$dueDate', today] },
-                    { $gt: [{ $subtract: ['$totalAmount', '$amountPaid'] }, 0] }
+                    { $gt: [{ $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied'] }, 0] }
                   ]
                 },
-                { $subtract: ['$totalAmount', '$amountPaid'] },
+                { $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied'] },
                 0
               ]
             }
@@ -1027,7 +1122,9 @@ router.get('/accounts-payable',
       ...bill,
       vendorName: bill.vendor?.name || 'Unknown Vendor',
       vendorEmail: bill.vendor?.email || '',
-      paidAmount: bill.amountPaid || 0
+      paidAmount: bill.amountPaid || 0,
+      advanceApplied: bill.advanceApplied || 0,
+      outstandingAmount: Math.round(((bill.totalAmount || 0) - (bill.amountPaid || 0) - (bill.advanceApplied || 0)) * 100) / 100
     }));
 
     const totalPages = Math.ceil(totalCount / parseInt(limit));
@@ -2499,7 +2596,8 @@ router.post('/grn/:grnId/create-bill',
       createdBy:   req.user._id
     });
 
-    // Update GRN billing status
+    // Update GRN billing status/amount
+    grn.billedAmount     = Math.round((Number(grn.netAmount || grn.total || 0) || 0) * 100) / 100;
     grn.billingStatus    = 'fully_billed';
     grn.vendorBill       = apBill._id;
     grn.vendorBillNumber = billNumber;
@@ -2602,12 +2700,13 @@ router.get('/reports/balance-sheet',
           accountNumber: '$acc.accountNumber',
           accountName:   '$acc.name',
           accountType:   '$acc.type',
-          normalBalance: '$acc.normalBalance',
           totalDebit:    1,
           totalCredit:   1,
+          // Account model has no normalBalance; use type (matches Account enum).
+          // Asset & Expense: debit − credit. Liability, Equity, Revenue: credit − debit.
           balance: {
             $cond: {
-              if: { $in: ['$acc.normalBalance', ['debit']] },
+              if: { $in: ['$acc.type', ['Asset', 'Expense']] },
               then: { $subtract: ['$totalDebit', '$totalCredit'] },
               else: { $subtract: ['$totalCredit', '$totalDebit'] }
             }
@@ -2617,32 +2716,47 @@ router.get('/reports/balance-sheet',
       { $sort: { accountNumber: 1 } }
     ]);
 
-    // Group into BS sections
-    const assetTypes    = ['asset', 'current_asset', 'fixed_asset', 'other_asset', 'bank', 'cash'];
-    const liabTypes     = ['liability', 'current_liability', 'long_term_liability', 'accounts_payable'];
-    const equityTypes   = ['equity', 'retained_earnings', 'owners_equity'];
-
-    const assets      = rows.filter(r => assetTypes.some(t => r.accountType?.toLowerCase().includes(t)));
-    const liabilities = rows.filter(r => liabTypes.some(t => r.accountType?.toLowerCase().includes(t)));
-    const equity      = rows.filter(r => equityTypes.some(t => r.accountType?.toLowerCase().includes(t)));
+    // BS sections: exact Account.type match (avoid substring bugs, e.g. "accounts_receivable" vs "asset")
+    const assets      = rows.filter(r => r.accountType === 'Asset');
+    const liabilities = rows.filter(r => r.accountType === 'Liability');
+    const equity      = rows.filter(r => r.accountType === 'Equity');
+    const revenueRows = rows.filter(r => r.accountType === 'Revenue');
+    const expenseRows = rows.filter(r => r.accountType === 'Expense');
 
     const totalAssets      = assets.reduce((s, r) => s + (r.balance || 0), 0);
     const totalLiabilities = liabilities.reduce((s, r) => s + (r.balance || 0), 0);
     const totalEquity      = equity.reduce((s, r) => s + (r.balance || 0), 0);
+    const totalRevenue     = revenueRows.reduce((s, r) => s + (r.balance || 0), 0);
+    const totalExpense     = expenseRows.reduce((s, r) => s + (r.balance || 0), 0);
+    // Unclosed P&L affects the accounting equation: Assets = Liabilities + Equity + (Revenue − Expense)
+    const netIncomeFromPL  = Math.round((totalRevenue - totalExpense) * 100) / 100;
+
+    const totalAssetsR     = Math.round(totalAssets * 100) / 100;
+    const totalLiabR       = Math.round(totalLiabilities * 100) / 100;
+    const totalEquityR     = Math.round(totalEquity * 100) / 100;
+    const liabPlusEquityPL = Math.round((totalLiabilities + totalEquity + netIncomeFromPL) * 100) / 100;
 
     res.json({
       success: true,
       data: {
         asOfDate:   asOf,
-        assets:     { rows: assets,      total: Math.round(totalAssets * 100) / 100 },
-        liabilities: { rows: liabilities, total: Math.round(totalLiabilities * 100) / 100 },
-        equity:     { rows: equity,       total: Math.round(totalEquity * 100) / 100 },
+        assets:     { rows: assets,      total: totalAssetsR },
+        liabilities: { rows: liabilities, total: totalLiabR },
+        equity:     { rows: equity,       total: totalEquityR },
+        pAndL: {
+          revenueRows,
+          expenseRows,
+          totalRevenue: Math.round(totalRevenue * 100) / 100,
+          totalExpense: Math.round(totalExpense * 100) / 100,
+          netIncome: netIncomeFromPL
+        },
         totals: {
-          totalAssets:      Math.round(totalAssets * 100) / 100,
-          totalLiabilities: Math.round(totalLiabilities * 100) / 100,
-          totalEquity:      Math.round(totalEquity * 100) / 100,
+          totalAssets:      totalAssetsR,
+          totalLiabilities: totalLiabR,
+          totalEquity:      totalEquityR,
           liabilitiesAndEquity: Math.round((totalLiabilities + totalEquity) * 100) / 100,
-          isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 1
+          liabilitiesEquityAndPL: liabPlusEquityPL,
+          isBalanced: Math.abs(totalAssetsR - liabPlusEquityPL) < 1
         }
       }
     });
@@ -2656,8 +2770,12 @@ router.get('/reports/profit-loss',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.query;
-    const from = fromDate ? new Date(fromDate) : new Date(new Date().getFullYear(), 0, 1);
-    const to   = toDate   ? new Date(toDate)   : new Date();
+    // Inclusive calendar-day range in UTC. `new Date('2026-03-31')` is midnight = start of day, so same-day
+    // journals after 00:00 UTC were wrongly excluded; use end-of-day for `to`.
+    const from = fromDate
+      ? new Date(`${fromDate}T00:00:00.000Z`)
+      : new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1, 0, 0, 0, 0));
+    const to = toDate ? new Date(`${toDate}T23:59:59.999Z`) : new Date();
 
     const rows = await JournalEntry.aggregate([
       { $match: { status: 'posted', date: { $gte: from, $lte: to } } },
@@ -2667,10 +2785,8 @@ router.get('/reports/profit-loss',
       { $unwind: '$acc' },
       {
         $match: {
-          'acc.type': {
-            $in: ['revenue', 'income', 'other_income', 'expense', 'cost_of_goods_sold',
-                  'operating_expense', 'other_expense', 'depreciation']
-          }
+          // Account model enum: Asset, Liability, Equity, Revenue, Expense (capitalized — lowercase never matched)
+          'acc.type': { $in: ['Revenue', 'Expense'] }
         }
       },
       {
@@ -2682,7 +2798,7 @@ router.get('/reports/profit-loss',
           totalCredit:   1,
           balance: {
             $cond: {
-              if: { $in: ['$acc.type', ['expense', 'cost_of_goods_sold', 'operating_expense', 'other_expense', 'depreciation']] },
+              if: { $eq: ['$acc.type', 'Expense'] },
               then: { $subtract: ['$totalDebit', '$totalCredit'] },
               else: { $subtract: ['$totalCredit', '$totalDebit'] }
             }
@@ -2692,11 +2808,8 @@ router.get('/reports/profit-loss',
       { $sort: { accountNumber: 1 } }
     ]);
 
-    const revenueTypes = ['revenue', 'income', 'other_income'];
-    const expenseTypes = ['expense', 'cost_of_goods_sold', 'operating_expense', 'other_expense', 'depreciation'];
-
-    const revenue  = rows.filter(r => revenueTypes.includes(r.accountType));
-    const expenses = rows.filter(r => expenseTypes.includes(r.accountType));
+    const revenue  = rows.filter(r => r.accountType === 'Revenue');
+    const expenses = rows.filter(r => r.accountType === 'Expense');
 
     const totalRevenue  = revenue.reduce((s, r) => s + (r.balance || 0), 0);
     const totalExpenses = expenses.reduce((s, r) => s + (r.balance || 0), 0);
@@ -3640,7 +3753,7 @@ router.post('/accounts-payable/batch-payment',
         if (!bill) { errors.push({ billId, error: 'Bill not found' }); continue; }
         if (bill.status === 'paid') { errors.push({ billId: bill.billNumber, error: 'Already paid' }); continue; }
 
-        const balance = Math.round((bill.totalAmount - (bill.amountPaid || 0)) * 100) / 100;
+        const balance = Math.round((bill.totalAmount - (bill.amountPaid || 0) - (bill.advanceApplied || 0)) * 100) / 100;
         if (balance <= 0) continue;
 
         await FinanceHelper.recordAPPayment(billId, {

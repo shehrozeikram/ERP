@@ -227,6 +227,7 @@ const Sidebar = () => {
       '/procurement/comparative-statements': 'comparative_statements',
       '/procurement/purchase-orders': 'purchase_orders',
       '/procurement/vendors': 'vendors',
+      '/procurement/vendor-bills': 'purchase_orders',
       '/procurement/store': 'store',
       '/procurement/store/quality-assurance': 'quality_assurance',
       '/procurement/store/inventory': 'inventory',

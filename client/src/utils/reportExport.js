@@ -91,7 +91,7 @@ export function exportBalanceSheetExcel(data) {
     ['', '', 'Total Equity', data.equity.total],
     [],
     ['', '', 'Total Assets', data.totals.totalAssets],
-    ['', '', 'Liabilities + Equity', data.totals.liabilitiesAndEquity],
+    ['', '', 'Liabilities + Equity + net P&L', data.totals.liabilitiesEquityAndPL ?? data.totals.liabilitiesAndEquity],
     ['', '', 'Balanced?', data.totals.isBalanced ? 'YES' : 'NO'],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);

@@ -108,10 +108,21 @@ const accountsPayableSchema = new mongoose.Schema({
       return Math.round(val * 100) / 100;
     }
   },
+  advanceApplied: {
+    type: Number,
+    default: 0,
+    min: [0, 'Advance applied cannot be negative'],
+    get: function(val) {
+      return Math.round(val * 100) / 100;
+    },
+    set: function(val) {
+      return Math.round(val * 100) / 100;
+    }
+  },
   balanceDue: {
     type: Number,
     get: function() {
-      return Math.round((this.totalAmount - this.amountPaid) * 100) / 100;
+      return Math.round((this.totalAmount - (this.amountPaid || 0) - (this.advanceApplied || 0)) * 100) / 100;
     }
   },
   // Payment terms
@@ -191,7 +202,24 @@ const accountsPayableSchema = new mongoose.Schema({
     account: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Account'
+    },
+    // Optional traceability for procurement billing
+    grnId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GoodsReceive'
+    },
+    poId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PurchaseOrder'
     }
+  }],
+  // Bill-level GRN/PO link map for multi-GRN vendor bills
+  linkedGRNs: [{
+    grnId: { type: mongoose.Schema.Types.ObjectId, ref: 'GoodsReceive' },
+    grnNumber: String,
+    poId: { type: mongoose.Schema.Types.ObjectId, ref: 'PurchaseOrder' },
+    poNumber: String,
+    amount: { type: Number, default: 0 }
   }],
   // Payment history
   payments: [{
@@ -223,6 +251,18 @@ const accountsPayableSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
+    // Optional advanced payment allocation: Bill -> GRN portions
+    allocations: [{
+      grnId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'GoodsReceive'
+      },
+      amount: {
+        type: Number,
+        default: 0,
+        min: [0, 'Allocation amount cannot be negative']
+      }
+    }],
     journalEntry: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'JournalEntry'
@@ -369,8 +409,9 @@ accountsPayableSchema.pre('save', function(next) {
   }
 
   // Update status based on balance and approval
-  if (this.balanceDue <= 0 && this.amountPaid > 0) {
-    this.status = this.amountPaid < this.totalAmount ? 'partial' : 'paid';
+  const settled = (this.amountPaid || 0) + (this.advanceApplied || 0);
+  if (this.balanceDue <= 0 && settled > 0) {
+    this.status = settled < this.totalAmount ? 'partial' : 'paid';
   } else if (this.isOverdue) {
     this.status = 'overdue';
   } else if (this.approval.required && this.approval.approvedBy) {

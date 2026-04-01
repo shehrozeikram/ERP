@@ -105,7 +105,7 @@ export default function BalanceSheet() {
                 </Typography>
               </Box>
               <Chip
-                label={data.totals.isBalanced ? 'Balanced ✓' : `Imbalance: PKR ${fmt(Math.abs(data.totals.totalAssets - data.totals.liabilitiesAndEquity))}`}
+                label={data.totals.isBalanced ? 'Balanced ✓' : `Imbalance: PKR ${fmt(Math.abs(data.totals.totalAssets - (data.totals.liabilitiesEquityAndPL ?? data.totals.liabilitiesAndEquity)))}`}
                 color={data.totals.isBalanced ? 'success' : 'error'}
                 variant="filled"
               />
@@ -118,7 +118,7 @@ export default function BalanceSheet() {
               { label: 'Total Assets',             value: data.totals.totalAssets,           color: 'primary.main'  },
               { label: 'Total Liabilities',        value: data.totals.totalLiabilities,       color: 'error.main'    },
               { label: 'Total Equity',             value: data.totals.totalEquity,            color: 'success.main'  },
-              { label: 'Liabilities + Equity',     value: data.totals.liabilitiesAndEquity,   color: 'warning.dark'  },
+              { label: 'Liabilities + Equity + P&L (net)', value: data.totals.liabilitiesEquityAndPL ?? data.totals.liabilitiesAndEquity,   color: 'warning.dark'  },
             ].map(c => (
               <Grid item xs={12} sm={6} md={3} key={c.label}>
                 <Card variant="outlined">
@@ -136,15 +136,21 @@ export default function BalanceSheet() {
           <Section title="Liabilities" rows={data.liabilities.rows} total={data.liabilities.total} color="#c62828" />
           <Section title="Equity"      rows={data.equity.rows}      total={data.equity.total}      color="#2e7d32" />
 
-          {/* Final balance check */}
+          {data.pAndL && Math.abs(data.pAndL.netIncome) > 0.01 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Unclosed P&amp;L included in balance check: net income (loss) PKR {fmt(data.pAndL.netIncome)} (Revenue − Expense from posted journals).
+            </Typography>
+          )}
+
+          {/* Final balance check: Assets = Liabilities + Equity + (Revenue − Expense) until year-end close */}
           <Paper variant="outlined" sx={{ p: 2, bgcolor: data.totals.isBalanced ? 'success.50' : 'error.50', borderColor: data.totals.isBalanced ? 'success.300' : 'error.300' }}>
             <Stack direction="row" justifyContent="space-between">
               <Typography fontWeight={700}>Total Assets</Typography>
               <Typography fontWeight={700} color="primary.main">PKR {fmt(data.totals.totalAssets)}</Typography>
             </Stack>
             <Stack direction="row" justifyContent="space-between">
-              <Typography fontWeight={700}>Total Liabilities + Equity</Typography>
-              <Typography fontWeight={700} color={data.totals.isBalanced ? 'success.main' : 'error.main'}>PKR {fmt(data.totals.liabilitiesAndEquity)}</Typography>
+              <Typography fontWeight={700}>Liabilities + Equity + net P&amp;L</Typography>
+              <Typography fontWeight={700} color={data.totals.isBalanced ? 'success.main' : 'error.main'}>PKR {fmt(data.totals.liabilitiesEquityAndPL ?? data.totals.liabilitiesAndEquity)}</Typography>
             </Stack>
           </Paper>
         </>

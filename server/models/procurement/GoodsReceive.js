@@ -92,6 +92,10 @@ const goodsReceiveSchema = new mongoose.Schema({
     trim: true
   },
   items: [{
+    productCode: {
+      type: String,
+      trim: true
+    },
     inventoryItem: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Inventory',
@@ -160,6 +164,11 @@ const goodsReceiveSchema = new mongoose.Schema({
     type: String,
     enum: ['nothing_to_bill', 'waiting_bills', 'fully_billed'],
     default: 'nothing_to_bill'
+  },
+  billedAmount: {
+    type: Number,
+    default: 0,
+    min: 0
   },
   // AP bill generated from this GRN
   vendorBill: {
@@ -239,7 +248,7 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
     if (!item || item.quantity == null) continue;
     try {
       const linkedId = item.inventoryItem?._id || item.inventoryItem;
-      const codeStr = item.itemCode != null ? String(item.itemCode).trim() : '';
+      const codeStr = item.itemCode != null ? String(item.itemCode).trim() : (item.productCode != null ? String(item.productCode).trim() : '');
       const nameStr = item.itemName != null ? String(item.itemName).trim() : '';
 
       // Resolve sub-store: item-level subStore overrides GRN-level store
@@ -275,7 +284,8 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
           qty,
           receiveNumber,
           item.notes || `Received via GRN ${receiveNumber}`,
-          grnDoc.receivedBy
+          grnDoc.receivedBy,
+          Number(item.unitPrice) || 0
         );
         if (qty > 0 && txStoreId) {
           const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inv._id);
@@ -308,7 +318,72 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
         continue;
       }
 
-      // ── No link: legacy behaviour — create a GRN-specific inventory row ──
+      // ── No explicit link: first try to resolve existing inventory by itemCode/name ──
+      if (!linkedId) {
+        let resolvedInv = null;
+        if (codeStr && codeStr !== '—') {
+          resolvedInv = await Inventory.findOne({ itemCode: codeStr });
+        }
+        if (!resolvedInv && nameStr && nameStr !== '—') {
+          resolvedInv = await Inventory.findOne({ name: nameStr }).sort({ createdAt: -1 });
+        }
+        if (resolvedInv) {
+          if (storeId) {
+            resolvedInv.store = storeId;
+            resolvedInv.storeSnapshot = storeSnapshot;
+          }
+          if (subStoreId) {
+            resolvedInv.subStore = subStoreId;
+            resolvedInv.subStoreSnapshot = subStoreSnapshot;
+          }
+          if (item.location && (item.location.rack || item.location.shelf || item.location.bin)) {
+            resolvedInv.location = {
+              rack: item.location.rack || '',
+              shelf: item.location.shelf || '',
+              bin: item.location.bin || ''
+            };
+          }
+          await resolvedInv.save();
+          await resolvedInv.addStock(
+            qty,
+            receiveNumber,
+            item.notes || `Received via GRN ${receiveNumber}`,
+            grnDoc.receivedBy,
+            Number(item.unitPrice) || 0
+          );
+          if (qty > 0 && txStoreId) {
+            const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, resolvedInv._id);
+            const balanceAfter = currentBalance + qty;
+            await StockTransaction.create({
+              store: txStoreId,
+              storeSnapshot: subStoreSnapshot || storeSnapshot,
+              project: projectId,
+              item: resolvedInv._id,
+              itemCode: resolvedInv.itemCode,
+              itemName: resolvedInv.name,
+              transactionType: 'IN',
+              quantity: qty,
+              unit: resolvedInv.unit,
+              unitPrice: Number(item.unitPrice) || 0,
+              referenceType: 'GRN',
+              referenceId: grnDoc._id,
+              referenceNumber: receiveNumber,
+              balanceAfter,
+              location: {
+                rack: item.location?.rack || '',
+                shelf: item.location?.shelf || '',
+                bin: item.location?.bin || ''
+              },
+              description: `Received via GRN ${receiveNumber}`,
+              notes: item.notes || '',
+              createdBy: grnDoc.receivedBy
+            });
+          }
+          continue;
+        }
+      }
+
+      // ── Fallback: create a GRN-specific inventory row only when no item match exists ──
       let baseCode = (codeStr && codeStr !== '—') ? codeStr : nameStr || `ITEM-${idx + 1}`;
       let uniqueCode = `${baseCode}-GRN${receiveNumber}-${idx + 1}`;
 
@@ -349,7 +424,8 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
         qty,
         receiveNumber,
         item.notes || `Received via GRN ${receiveNumber}`,
-        grnDoc.receivedBy
+        grnDoc.receivedBy,
+        Number(item.unitPrice) || 0
       );
 
       if (qty > 0 && txStoreId) {

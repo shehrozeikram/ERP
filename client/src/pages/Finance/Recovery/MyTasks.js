@@ -23,6 +23,7 @@ import {
   Badge,
   Button,
   IconButton,
+  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -30,6 +31,7 @@ import {
   SvgIcon
 } from '@mui/material';
 import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
+import { Reply as ReplyIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -110,6 +112,7 @@ const MyTasks = () => {
   const [numbersWithMessages, setNumbersWithMessages] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const [replyText, setReplyText] = useState('');
+  const [replyToMessage, setReplyToMessage] = useState(null);
   const [replyAttachment, setReplyAttachment] = useState(null);
   const replyFileInputRef = React.useRef(null);
   const [replySending, setReplySending] = useState(false);
@@ -411,6 +414,7 @@ const MyTasks = () => {
     setRepliesDialogOpen(false);
     setRepliesRow(null);
     setReplyText('');
+    setReplyToMessage(null);
     setReplyAttachment(null);
     loadNumbersWithMessages();
   };
@@ -489,9 +493,12 @@ const MyTasks = () => {
         mediaUrl = uploadRes.data?.data?.url || null;
         mediaType = uploadRes.data?.data?.mediaType || replyAttachment.mediaType;
       }
+      const quotedPrefix = replyToMessage
+        ? `Replying to: "${String(replyToMessage?.text || '(media)').slice(0, 120)}"\n`
+        : '';
       await sendRecoveryWhatsApp({
         to: toNumber,
-        body: text || '',
+        body: `${quotedPrefix}${text}`.trim(),
         // Always pass mediaUrl (local URL for chat display) + mediaId (for Meta delivery)
         ...(mediaType && (mediaId || mediaUrl) && {
           mediaType,
@@ -501,6 +508,7 @@ const MyTasks = () => {
       });
       setSnackbar({ open: true, message: 'Reply sent', severity: 'success' });
       setReplyText('');
+      setReplyToMessage(null);
       handleRemoveReplyAttachment();
       const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
       setRepliesMessages(res?.data?.data || []);
@@ -1010,7 +1018,9 @@ const MyTasks = () => {
               <ChatIcon />
             </Box>
             <Box>
-              <Typography variant="subtitle1" fontWeight={600}>{repliesRow?.customerName || '—'}</Typography>
+              <Typography variant="subtitle1" fontWeight={600}>
+                {repliesRow?.customerName || '—'}{repliesRow?.orderCode ? ` - ${repliesRow.orderCode}` : ''}
+              </Typography>
               <Typography variant="caption" sx={{ opacity: 0.9 }}>{repliesRow?.mobileNumber || '—'}</Typography>
             </Box>
           </Box>
@@ -1028,7 +1038,7 @@ const MyTasks = () => {
               <Typography variant="body2" color="text.secondary">No messages yet. Start the conversation below.</Typography>
             </Box>
           ) : (
-            <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ flex: 1, height: 360, maxHeight: 360, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {repliesMessages.map((m, idx) => (
                 <Box
                   key={m._id || m.messageId || idx}
@@ -1096,6 +1106,17 @@ const MyTasks = () => {
                     <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
                   )}
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.3, mt: 0.25 }}>
+                    <Tooltip title="Reply to this message">
+                      <IconButton
+                        size="small"
+                        sx={{ p: 0.25, mr: 0.5 }}
+                        onClick={() => {
+                          setReplyToMessage(m);
+                        }}
+                      >
+                        <ReplyIcon sx={{ fontSize: 14, opacity: 0.7 }} />
+                      </IconButton>
+                    </Tooltip>
                     <Typography variant="caption" sx={{ opacity: 0.7, lineHeight: 1 }}>
                       {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
                     </Typography>
@@ -1123,6 +1144,16 @@ const MyTasks = () => {
                 onChange={handleReplyFileSelect}
               />
               {/* Attachment preview */}
+              {replyToMessage && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: '#e8f5e9', borderRadius: 2, border: '1px solid', borderColor: '#b7dfbb' }}>
+                  <ReplyIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 700 }}>Replying to</Typography>
+                    <Typography variant="body2" noWrap>{replyToMessage?.text || '(media)'}</Typography>
+                  </Box>
+                  <IconButton size="small" onClick={() => setReplyToMessage(null)} title="Cancel reply"><CloseIcon fontSize="small" /></IconButton>
+                </Box>
+              )}
               {replyAttachment && !isRecording && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: 'white', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
                   {replyAttachment.mediaType === 'audio'

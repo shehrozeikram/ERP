@@ -765,6 +765,7 @@ export const MODULES = {
       { name: 'Comparative Statements', path: '/procurement/comparative-statements' },
       { name: 'Purchase Orders', path: '/procurement/purchase-orders' },
       { name: 'Vendors', path: '/procurement/vendors' },
+      { name: 'Vendor Bills', path: '/procurement/vendor-bills' },
       {
         name: 'Store',
         path: '/procurement/store',

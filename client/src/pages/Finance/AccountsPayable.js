@@ -53,7 +53,9 @@ import {
   Refresh as RefreshIcon,
   Close as CloseIcon,
   History as HistoryIcon,
-  Print as PrintIcon
+  Print as PrintIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -64,6 +66,7 @@ import ComparativeStatementView from '../../components/Procurement/ComparativeSt
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 
 const AccountsPayable = () => {
+  const getOutstanding = (bill) => Math.round((Number(bill?.outstandingAmount) || (Number(bill?.totalAmount) || 0) - (Number(bill?.paidAmount) || 0) - (Number(bill?.advanceApplied) || 0)) * 100) / 100;
   const navigate = useNavigate();
   const theme = useTheme();
   
@@ -87,11 +90,18 @@ const AccountsPayable = () => {
     paymentDate: new Date().toISOString().split('T')[0]
   });
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [processingAdvance, setProcessingAdvance] = useState(false);
+  const [applyAdvanceAmount, setApplyAdvanceAmount] = useState('');
   const [bankAccounts, setBankAccounts] = useState([]);
   const [posForBilling, setPosForBilling] = useState([]);
   const [loadingPosForBilling, setLoadingPosForBilling] = useState(false);
   const [createFromPoDialog, setCreateFromPoDialog] = useState({ open: false, po: null, billNumber: '', creating: false });
   const [billViewTab, setBillViewTab] = useState(0);
+  const [expandedRows, setExpandedRows] = useState({});
+  const [payeeVendors, setPayeeVendors] = useState([]);
+  const [selectedPayee, setSelectedPayee] = useState({ vendorId: '', vendorName: '' });
+  const [outstandingTransactions, setOutstandingTransactions] = useState([]);
+  const [loadingOutstandingTransactions, setLoadingOutstandingTransactions] = useState(false);
 
   const [filters, setFilters] = useState({
     status: '',
@@ -125,6 +135,18 @@ const AccountsPayable = () => {
         setBankAccounts(all.filter(a => ['1001','1002'].includes(a.accountNumber) || a.name?.toLowerCase().includes('bank') || a.name?.toLowerCase().includes('cash')));
       })
       .catch(() => setBankAccounts([]));
+  }, []);
+
+  useEffect(() => {
+    api.get('/procurement/vendors', { params: { limit: 1000 } })
+      .then((res) => {
+        const vendors = res.data?.data?.vendors || [];
+        setPayeeVendors(vendors.map((v) => ({
+          vendorId: String(v?._id || ''),
+          vendorName: v?.name || 'Unknown Vendor'
+        })));
+      })
+      .catch(() => setPayeeVendors([]));
   }, []);
 
   const fetchPosForBilling = async () => {
@@ -203,16 +225,85 @@ const AccountsPayable = () => {
     }
   };
 
-  const handleOpenPayment = (bill) => {
+  const loadOutstandingByVendor = async (vendorId, vendorName, seedBillId = null) => {
+    try {
+      setLoadingOutstandingTransactions(true);
+      const response = await api.get('/finance/accounts-payable', { params: { limit: 500, search: vendorName || '' } });
+      const allBills = response.data?.data?.bills || [];
+      const rows = allBills
+        .filter((b) => {
+          const idMatch = vendorId && String(b?.vendor?.vendorId || '') === String(vendorId);
+          const nameMatch = !vendorId && (b?.vendorName || '').toLowerCase() === (vendorName || '').toLowerCase();
+          return idMatch || nameMatch;
+        })
+        .map((b) => {
+          const outstanding = Math.max(0, getOutstanding(b));
+          return {
+            billId: b._id,
+            billNumber: b.billNumber,
+            billDate: b.billDate,
+            dueDate: b.dueDate,
+            totalAmount: Number(b.totalAmount || 0),
+            outstanding,
+            payAmount: seedBillId && String(b._id) === String(seedBillId) ? outstanding : 0
+          };
+        })
+        .filter((r) => r.outstanding > 0);
+      setOutstandingTransactions(rows);
+      const totalPay = Math.round(rows.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
+      setPaymentData((prev) => ({ ...prev, amount: totalPay }));
+    } catch (e) {
+      setOutstandingTransactions([]);
+      toast.error('Failed to load vendor outstanding transactions');
+    } finally {
+      setLoadingOutstandingTransactions(false);
+    }
+  };
+
+  const handleOpenPayment = async (bill) => {
     setSelectedBill(bill);
+    const outstanding = getOutstanding(bill);
+    const vendorId = String(bill?.vendor?.vendorId || '');
+    const vendorName = bill?.vendor?.name || bill?.vendorName || '';
+    setSelectedPayee({ vendorId, vendorName });
     setPaymentData({
-      amount:        Math.round((bill.totalAmount - (bill.paidAmount || 0)) * 100) / 100,
+      amount:        outstanding,
       paymentMethod: 'bank_transfer',
       reference:     '',
       paymentDate:   new Date().toISOString().split('T')[0],
       whtRate:       0
     });
+    setApplyAdvanceAmount(outstanding > 0 ? String(outstanding) : '');
     setPaymentDialogOpen(true);
+    await loadOutstandingByVendor(vendorId, vendorName, bill?._id);
+  };
+
+  const handleApplyAdvance = async () => {
+    const amount = Number(applyAdvanceAmount);
+    if (!selectedBill?._id) return;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid advance amount');
+      return;
+    }
+    try {
+      setProcessingAdvance(true);
+      const response = await api.post(`/finance/accounts-payable/${selectedBill._id}/apply-advance`, { amount });
+      if (response.data?.success) {
+        toast.success(response.data.message || 'Advance applied');
+        const refreshed = await api.get(`/finance/accounts-payable/${selectedBill._id}`);
+        if (refreshed.data?.success) {
+          const b = refreshed.data.data;
+          setSelectedBill(b);
+          setPaymentData((p) => ({ ...p, amount: getOutstanding(b) }));
+          setApplyAdvanceAmount(getOutstanding(b) > 0 ? String(getOutstanding(b)) : '');
+        }
+        fetchAccountsPayable();
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to apply advance');
+    } finally {
+      setProcessingAdvance(false);
+    }
   };
 
   const handleRecordPayment = async () => {
@@ -223,12 +314,27 @@ const AccountsPayable = () => {
 
     try {
       setProcessingPayment(true);
-      const response = await api.post(`/finance/accounts-payable/${selectedBill._id}/payment`, paymentData);
-      if (response.data.success) {
-        toast.success('Payment recorded successfully');
-        setPaymentDialogOpen(false);
-        fetchAccountsPayable();
+      const payRows = outstandingTransactions
+        .filter((r) => Number(r.payAmount) > 0)
+        .map((r) => ({ ...r, payAmount: Math.round((Number(r.payAmount) || 0) * 100) / 100 }));
+      if (payRows.length === 0) {
+        toast.error('Enter payment amount against at least one outstanding bill');
+        setProcessingPayment(false);
+        return;
       }
+      for (const row of payRows) {
+        await api.post(`/finance/accounts-payable/${row.billId}/payment`, {
+          amount: row.payAmount,
+          paymentMethod: paymentData.paymentMethod,
+          reference: paymentData.reference,
+          paymentDate: paymentData.paymentDate,
+          whtRate: Number(paymentData.whtRate) || 0,
+          bankAccountId: paymentData.bankAccountId || null
+        });
+      }
+      toast.success(`Payment posted for ${payRows.length} bill(s)`);
+      setPaymentDialogOpen(false);
+      fetchAccountsPayable();
     } catch (error) {
       console.error('Error recording payment:', error);
       toast.error(error.response?.data?.message || 'Failed to record payment');
@@ -342,6 +448,9 @@ const AccountsPayable = () => {
     if (!date) return '';
     const d = new Date(date);
     return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '/');
+  };
+  const toggleExpandRow = (billId) => {
+    setExpandedRows((prev) => ({ ...prev, [billId]: !prev[billId] }));
   };
 
   if (loading) {
@@ -626,6 +735,7 @@ const AccountsPayable = () => {
             <Table>
               <TableHead>
                 <TableRow>
+                  <TableCell />
                   <TableCell>Bill #</TableCell>
                   <TableCell>Vendor</TableCell>
                   <TableCell>Date</TableCell>
@@ -641,107 +751,110 @@ const AccountsPayable = () => {
               <TableBody>
                 {bills.map((bill) => {
                   const days = calculateAge(bill.billDate);
-                  const outstanding = bill.totalAmount - (bill.paidAmount || 0);
+                  const outstanding = getOutstanding(bill);
+                  const paidByGrn = {};
+                  (bill?.payments || []).forEach((p) => {
+                    (p?.allocations || []).forEach((a) => {
+                      const key = String(a?.grnId || '');
+                      if (!key) return;
+                      paidByGrn[key] = (paidByGrn[key] || 0) + (Number(a?.amount) || 0);
+                    });
+                  });
                   return (
-                    <TableRow key={bill._id} hover>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
-                          {bill.billNumber}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {bill.vendorName || 'Unknown Vendor'}
+                    <React.Fragment key={bill._id}>
+                      <TableRow hover>
+                        <TableCell sx={{ width: 48 }}>
+                          <IconButton size="small" onClick={() => toggleExpandRow(bill._id)}>
+                            {expandedRows[bill._id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                          </IconButton>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+                            {bill.billNumber}
                           </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {bill.vendorEmail}
+                        </TableCell>
+                        <TableCell>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              {bill.vendorName || 'Unknown Vendor'}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              {bill.vendorEmail}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell><Typography variant="body2">{formatDate(bill.billDate)}</Typography></TableCell>
+                        <TableCell><Typography variant="body2">{formatDate(bill.dueDate)}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(bill.totalAmount)}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>{formatPKR(bill.paidAmount || 0)}</Typography></TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" sx={{ fontWeight: 'bold', color: outstanding > 0 ? 'warning.main' : 'success.main' }}>
+                            {formatPKR(outstanding)}
                           </Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {formatDate(bill.billDate)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {formatDate(bill.dueDate)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {formatPKR(bill.totalAmount)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                          {formatPKR(bill.paidAmount || 0)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            fontWeight: 'bold',
-                            color: outstanding > 0 ? 'warning.main' : 'success.main'
-                          }}
-                        >
-                          {formatPKR(outstanding)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={bill.status?.toUpperCase() || 'UNKNOWN'} 
-                          size="small" 
-                          color={getStatusColor(bill.status)}
-                          icon={getStatusIcon(bill.status)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={`${days} days`}
-                          size="small" 
-                          color={getAgingColor(days)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Tooltip title="View Details">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => handleViewBill(bill)}
-                            >
-                              <ViewIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Make Payment">
-                            <IconButton 
-                              size="small" 
-                              color="success"
-                              onClick={() => handleOpenPayment(bill)}
-                              disabled={bill.status === 'paid'}
-                            >
-                              <PaymentIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit Bill">
-                            <IconButton 
-                              size="small"
-                              onClick={() => handleOpenEdit(bill)}
-                            >
-                              <EditIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Print / Download Bill">
-                            <IconButton size="small"
-                              onClick={() => navigate(`/finance/bill-print/${bill._id}`)}>
-                              <PrintIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={bill.status?.toUpperCase() || 'UNKNOWN'} size="small" color={getStatusColor(bill.status)} icon={getStatusIcon(bill.status)} />
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={`${days} days`} size="small" color={getAgingColor(days)} />
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Tooltip title="View Details"><IconButton size="small" onClick={() => handleViewBill(bill)}><ViewIcon /></IconButton></Tooltip>
+                            <Tooltip title="Make Payment"><IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)} disabled={bill.status === 'paid'}><PaymentIcon /></IconButton></Tooltip>
+                            <Tooltip title="Edit Bill"><IconButton size="small" onClick={() => handleOpenEdit(bill)}><EditIcon /></IconButton></Tooltip>
+                            <Tooltip title="Print / Download Bill"><IconButton size="small" onClick={() => navigate(`/finance/bill-print/${bill._id}`)}><PrintIcon fontSize="small" /></IconButton></Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                      {expandedRows[bill._id] && (
+                        <TableRow>
+                          <TableCell />
+                          <TableCell colSpan={10} sx={{ bgcolor: 'grey.50' }}>
+                            <Box sx={{ py: 1 }}>
+                              <Typography variant="subtitle2" sx={{ mb: 1 }}>Linked Documents</Typography>
+                              {bill?.linkedGRNs?.length ? (
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>GRN</TableCell>
+                                      <TableCell>PO</TableCell>
+                                      <TableCell align="right">Bill Portion</TableCell>
+                                      <TableCell align="right">Paid</TableCell>
+                                      <TableCell align="right">Remaining</TableCell>
+                                      <TableCell>Progress</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {bill.linkedGRNs.map((ln, idx) => {
+                                      const portion = Number(ln?.amount) || 0;
+                                      const paid = Math.min(portion, Number(paidByGrn[String(ln?.grnId)] || 0));
+                                      const remainingByGrn = Math.max(0, Math.round((portion - paid) * 100) / 100);
+                                      const pct = portion > 0 ? Math.round((paid / portion) * 100) : 0;
+                                      return (
+                                        <TableRow key={`${bill._id}-grn-${idx}`}>
+                                          <TableCell>{ln?.grnNumber || '—'}</TableCell>
+                                          <TableCell>{ln?.poNumber || '—'}</TableCell>
+                                          <TableCell align="right">{formatPKR(portion)}</TableCell>
+                                          <TableCell align="right">{formatPKR(paid)}</TableCell>
+                                          <TableCell align="right">{formatPKR(remainingByGrn)}</TableCell>
+                                          <TableCell sx={{ minWidth: 180 }}>
+                                            <LinearProgress variant="determinate" value={pct} sx={{ height: 8, borderRadius: 4, mb: 0.5 }} />
+                                            <Typography variant="caption" color="text.secondary">{pct}% paid</Typography>
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                    })}
+                                  </TableBody>
+                                </Table>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">No GRN linkage found for this bill.</Typography>
+                              )}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </TableBody>
@@ -1099,6 +1212,26 @@ const AccountsPayable = () => {
                       <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                         <HistoryIcon /> Payment History
                       </Typography>
+                      <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
+                        <Grid container spacing={1}>
+                          <Grid item xs={6} md={3}>
+                            <Typography variant="caption" color="text.secondary">Bill Total</Typography>
+                            <Typography fontWeight={700}>{formatPKR(selectedBill?.totalAmount || 0)}</Typography>
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            <Typography variant="caption" color="text.secondary">Advance Applied</Typography>
+                            <Typography fontWeight={700} color="info.main">{formatPKR(selectedBill?.advanceApplied || 0)}</Typography>
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            <Typography variant="caption" color="text.secondary">Cash/Bank Paid</Typography>
+                            <Typography fontWeight={700} color="success.main">{formatPKR(selectedBill?.paidAmount || 0)}</Typography>
+                          </Grid>
+                          <Grid item xs={6} md={3}>
+                            <Typography variant="caption" color="text.secondary">Outstanding</Typography>
+                            <Typography fontWeight={800} color="error.main">{formatPKR(getOutstanding(selectedBill))}</Typography>
+                          </Grid>
+                        </Grid>
+                      </Paper>
                       {selectedBill.payments && selectedBill.payments.length > 0 ? (
                         <TableContainer>
                           <Table size="small">
@@ -1119,48 +1252,32 @@ const AccountsPayable = () => {
                                   <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
                                 </TableRow>
                               ))}
+                              {(selectedBill?.advanceApplied || 0) > 0 && (
+                                <TableRow sx={{ bgcolor: 'info.50' }}>
+                                  <TableCell>{formatDate(selectedBill?.updatedAt || selectedBill?.billDate)}</TableCell>
+                                  <TableCell>advance adjustment</TableCell>
+                                  <TableCell>Auto-applied to bill</TableCell>
+                                  <TableCell align="right">{formatPKR(selectedBill.advanceApplied)}</TableCell>
+                                </TableRow>
+                              )}
                             </TableBody>
                           </Table>
                         </TableContainer>
                       ) : (
-                        <Typography variant="body2" color="textSecondary">No payments recorded yet</Typography>
+                        <>
+                          <Typography variant="body2" color="textSecondary">No cash/bank payments recorded yet</Typography>
+                          {(selectedBill?.advanceApplied || 0) > 0 && (
+                            <Typography variant="body2" sx={{ mt: 1 }} color="info.main">
+                              Advance adjustment applied: {formatPKR(selectedBill.advanceApplied)}
+                            </Typography>
+                          )}
+                        </>
                       )}
                     </Box>
                   )}
                   <Divider sx={{ my: 2 }} />
                 </>
               )}
-
-              {/* Payment History - always shown below for all bills */}
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <HistoryIcon /> Payment History
-                </Typography>
-                {selectedBill.payments && selectedBill.payments.length > 0 ? (
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Date</TableCell>
-                          <TableCell>Method</TableCell>
-                          <TableCell>Reference</TableCell>
-                          <TableCell align="right">Amount</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {selectedBill.payments.map((payment, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{formatDate(payment.paymentDate)}</TableCell>
-                            <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
-                            <TableCell>{payment.reference || '-'}</TableCell>
-                            <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                  <Typography variant="body2" color="textSecondary">No payments recorded yet</Typography>
-                )}
-              </Box>
             </>
           )}
         </DialogContent>
@@ -1212,26 +1329,49 @@ const AccountsPayable = () => {
       <Dialog 
         open={paymentDialogOpen} 
         onClose={() => setPaymentDialogOpen(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
-          Register Payment — {selectedBill?.billNumber}
-          <Typography variant="body2" color="text.secondary">Vendor: {selectedBill?.vendor?.name}</Typography>
+          Bill Payment
+          <Typography variant="body2" color="text.secondary">Amount to post: {formatPKR(paymentData.amount || 0)}</Typography>
         </DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Bill Total: <strong>{selectedBill ? formatPKR(selectedBill.totalAmount) : 0}</strong> &nbsp;|&nbsp;
-                Paid: <strong>{formatPKR(selectedBill?.paidAmount || 0)}</strong> &nbsp;|&nbsp;
-                Outstanding: <strong style={{ color: '#d32f2f' }}>{selectedBill ? formatPKR(selectedBill.totalAmount - (selectedBill.paidAmount || 0)) : 0}</strong>
-              </Typography>
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+                <Grid container spacing={1}>
+                  <Grid item xs={12} md={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Payee (Vendor)</InputLabel>
+                      <Select
+                        value={selectedPayee.vendorId || ''}
+                        label="Payee (Vendor)"
+                        onChange={async (e) => {
+                          const vendorId = e.target.value;
+                          const row = payeeVendors.find((v) => String(v.vendorId) === String(vendorId));
+                          const vendorName = row?.vendorName || '';
+                          setSelectedPayee({ vendorId, vendorName });
+                          await loadOutstandingByVendor(vendorId, vendorName, null);
+                        }}
+                      >
+                        {payeeVendors.map((v) => (
+                          <MenuItem key={v.vendorId} value={v.vendorId}>{v.vendorName}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="caption" color="text.secondary">Selected Vendor</Typography>
+                    <Typography fontWeight={700}>{selectedPayee.vendorName || '—'}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
             </Grid>
             <Grid item xs={6}>
               <TextField fullWidth label="Payment Amount (PKR)" type="number"
                 value={paymentData.amount}
-                onChange={(e) => setPaymentData({ ...paymentData, amount: parseFloat(e.target.value) })}
+                onChange={(e) => setPaymentData({ ...paymentData, amount: Number(e.target.value) })}
                 size="small" inputProps={{ min: 0, step: 0.01 }} />
             </Grid>
             <Grid item xs={6}>
@@ -1280,6 +1420,54 @@ const AccountsPayable = () => {
                 value={paymentData.reference}
                 onChange={(e) => setPaymentData({ ...paymentData, reference: e.target.value })}
                 size="small" />
+            </Grid>
+            <Grid item xs={12}>
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>Outstanding Transactions</Typography>
+                {loadingOutstandingTransactions ? (
+                  <LinearProgress />
+                ) : outstandingTransactions.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">No outstanding bills for selected vendor.</Typography>
+                ) : (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Bill #</TableCell>
+                        <TableCell>Due Date</TableCell>
+                        <TableCell align="right">Original Amount</TableCell>
+                        <TableCell align="right">Open Balance</TableCell>
+                        <TableCell align="right">Payment</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {outstandingTransactions.map((row, idx) => (
+                        <TableRow key={row.billId}>
+                          <TableCell>{row.billNumber}</TableCell>
+                          <TableCell>{formatDate(row.dueDate)}</TableCell>
+                          <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
+                          <TableCell align="right">{formatPKR(row.outstanding)}</TableCell>
+                          <TableCell align="right" sx={{ minWidth: 160 }}>
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={row.payAmount}
+                              inputProps={{ min: 0, max: row.outstanding, step: 0.01 }}
+                              onChange={(e) => {
+                                const next = [...outstandingTransactions];
+                                const v = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding || 0));
+                                next[idx] = { ...next[idx], payAmount: v };
+                                setOutstandingTransactions(next);
+                                const total = Math.round(next.reduce((s, r) => s + (Number(r.payAmount) || 0), 0) * 100) / 100;
+                                setPaymentData((prev) => ({ ...prev, amount: total }));
+                              }}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </Paper>
             </Grid>
           </Grid>
         </DialogContent>

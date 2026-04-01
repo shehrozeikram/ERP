@@ -36,6 +36,19 @@ const goodsIssueSchema = new mongoose.Schema({
     ref: 'Project',
     required: true
   },
+  /** Optional traceability — SIN always issues stock by inventory line; these link back to the business document */
+  referenceIndent: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Indent'
+  },
+  referencePurchaseOrder: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PurchaseOrder'
+  },
+  referenceGoodsReceive: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'GoodsReceive'
+  },
   department: {
     type: String,
     required: true,

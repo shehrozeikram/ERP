@@ -22,7 +22,7 @@ import BarcodePrintLabel from '../../components/Procurement/Store/BarcodePrintLa
 import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 
 const makeEmptyItem = () => ({
-  inventoryItem: '', itemCode: '', itemName: '', unit: '',
+  inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '',
   quantity: 1, quantityOrdered: null, unitPrice: '', notes: '',
   selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' }
 });
@@ -83,7 +83,7 @@ const GoodsReceive = () => {
     serviceCharges: 0,
     packingCharges: 0,
     loadingCharges: 0,
-    items: [{ inventoryItem: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' } }],
+    items: [{ inventoryItem: '', productCode: '', itemCode: '', itemName: '', unit: '', quantity: 1, quantityOrdered: null, unitPrice: '', notes: '', selected: true, subStore: '', location: { rack: '', shelf: '', bin: '' } }],
     notes: ''
   });
 
@@ -174,19 +174,26 @@ const GoodsReceive = () => {
       packingCharges: 0,
       loadingCharges: 0,
       items: (po.items && po.items.length)
-        ? po.items.map((it) => ({
-            inventoryItem: '',
-            itemCode: '',
-            itemName: it.description || '',
-            unit: it.unit || '',
-            quantity: it.quantity ?? 0,
-            quantityOrdered: it.quantity ?? 0,
-            unitPrice: it.unitPrice ?? '',
-            notes: '',
-            selected: true,
-            subStore: '',
-            location: { rack: '', shelf: '', bin: '' }
-          }))
+        ? po.items.map((it) => {
+            const orderedQty = Number(it.quantity) || 0;
+            const alreadyReceived = Number(it.receivedQuantity) || 0;
+            const remainingQty = Math.max(0, Math.round((orderedQty - alreadyReceived) * 100) / 100);
+            return {
+              inventoryItem: '',
+              productCode: it.productCode || '',
+              itemCode: it.productCode || '',
+              itemName: it.description || '',
+              unit: it.unit || '',
+              // Default GRN quantity to required-left quantity for this PO line.
+              quantity: remainingQty,
+              quantityOrdered: remainingQty,
+              unitPrice: it.unitPrice ?? '',
+              notes: '',
+              selected: remainingQty > 0,
+              subStore: '',
+              location: { rack: '', shelf: '', bin: '' }
+            };
+          })
         : [makeEmptyItem()],
       project: '',
       notes: ''
@@ -306,8 +313,11 @@ const GoodsReceive = () => {
       items: selectedItems.map((i) => {
         const d = getItemDisplay(i);
         return {
+          productCode: i.productCode || i.itemCode || '',
           inventoryItem: i.inventoryItem || undefined,
-          itemCode: (i.itemCode != null && String(i.itemCode).trim() !== '') ? i.itemCode : d.itemCode || '',
+          itemCode: (i.productCode != null && String(i.productCode).trim() !== '')
+            ? i.productCode
+            : ((i.itemCode != null && String(i.itemCode).trim() !== '') ? i.itemCode : d.itemCode || ''),
           itemName: (i.itemName != null && String(i.itemName).trim() !== '') ? i.itemName : d.itemName || '',
           unit: (i.unit != null && String(i.unit).trim() !== '') ? i.unit : d.unit || '',
           quantity: Number(i.quantity) || 0,
@@ -360,18 +370,21 @@ const GoodsReceive = () => {
   };
 
   const updateItem = (index, field, value) => {
-    const newItems = [...formData.items];
-    newItems[index] = { ...newItems[index], [field]: value };
-    if (field === 'inventoryItem') {
-      const inv = inventory.find((i) => i._id === value);
-      if (inv) {
-        newItems[index].itemCode = inv.itemCode;
-        newItems[index].itemName = inv.name;
-        newItems[index].unit = inv.unit;
-        newItems[index].unitPrice = (newItems[index].unitPrice !== undefined && newItems[index].unitPrice !== '') ? newItems[index].unitPrice : inv.unitPrice;
+    setFormData((prev) => {
+      const newItems = [...prev.items];
+      newItems[index] = { ...newItems[index], [field]: value };
+      if (field === 'inventoryItem') {
+        const inv = inventory.find((i) => i._id === value);
+        if (inv) {
+          newItems[index].productCode = inv.itemCode;
+          newItems[index].itemCode = inv.itemCode;
+          newItems[index].itemName = inv.name;
+          newItems[index].unit = inv.unit;
+          newItems[index].unitPrice = (newItems[index].unitPrice !== undefined && newItems[index].unitPrice !== '') ? newItems[index].unitPrice : inv.unitPrice;
+        }
       }
-    }
-    setFormData({ ...formData, items: newItems });
+      return { ...prev, items: newItems };
+    });
   };
 
   const getItemDisplay = (item) => {
@@ -637,12 +650,13 @@ const GoodsReceive = () => {
               <BarcodeScanner
                 onItemFound={(item) => {
                   const newItems = [...formData.items];
-                  const emptyIdx = newItems.findIndex(i => !i.itemCode && !i.itemName);
+                  const emptyIdx = newItems.findIndex(i => !i.productCode && !i.itemCode && !i.itemName);
                   const targetIdx = emptyIdx >= 0 ? emptyIdx : newItems.length;
                   if (emptyIdx < 0) newItems.push(makeEmptyItem());
                   newItems[targetIdx] = {
                     ...newItems[targetIdx],
                     inventoryItem: item._id,
+                    productCode: item.itemCode,
                     itemCode: item.itemCode,
                     itemName: item.name,
                     unit: item.unit,
@@ -655,7 +669,7 @@ const GoodsReceive = () => {
                 onError={(msg) => setError(msg)}
               />
             </Grid>
-            {/* Items table – match image: Sr.#, Product, Description, Spec Units, Qty Ordered, Qty Received, Rate, Value; select items */}
+            {/* Items table – match image: Sr.#, Product Code, Description, Spec Units, Qty Ordered, Qty Received, Rate, Value; select items */}
             <Grid item xs={12}>
               <Divider sx={{ my: 1 }} />
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -695,7 +709,7 @@ const GoodsReceive = () => {
                           </TableCell>
                           <TableCell>{index + 1}</TableCell>
                           <TableCell>
-                            <TextField size="small" fullWidth value={item.itemCode ?? d.itemCode ?? ''} onChange={(e) => updateItem(index, 'itemCode', e.target.value)} placeholder="Product code" sx={{ minWidth: 110 }} />
+                            <TextField size="small" fullWidth value={item.productCode ?? item.itemCode ?? d.itemCode ?? ''} onChange={(e) => updateItem(index, 'productCode', e.target.value)} placeholder="Product code" sx={{ minWidth: 110 }} />
                           </TableCell>
                           <TableCell>
                             <TextField size="small" fullWidth value={item.itemName ?? d.itemName ?? ''} onChange={(e) => updateItem(index, 'itemName', e.target.value)} placeholder="Description" sx={{ minWidth: 140 }} />
@@ -868,7 +882,7 @@ const GoodsReceive = () => {
                     {(viewDialog.data.items || []).map((item, idx) => (
                       <TableRow key={idx}>
                         <TableCell>{idx + 1}</TableCell>
-                        <TableCell>{item.itemCode || '—'}</TableCell>
+                        <TableCell>{item.productCode || item.itemCode || '—'}</TableCell>
                         <TableCell>{item.itemName || '—'}</TableCell>
                         <TableCell>{item.unit || '—'}</TableCell>
                         <TableCell align="right">{formatNumber(item.quantity)}</TableCell>

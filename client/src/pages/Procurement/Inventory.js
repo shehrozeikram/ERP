@@ -104,6 +104,7 @@ const Inventory = () => {
     salesAccount: '',
     purchaseAccount: ''
   });
+  const [financeItemType, setFinanceItemType] = useState('inventory');
 
   // Stock form data
   const [stockFormData, setStockFormData] = useState({
@@ -206,6 +207,7 @@ const Inventory = () => {
       purchaseAccount: ''
     });
     setFormTab(0);
+    setFinanceItemType('inventory');
     setFormDialog({ open: true, mode: 'create', data: null });
     loadCoaAccounts();
   };
@@ -231,6 +233,7 @@ const Inventory = () => {
       purchaseAccount:  item.purchaseAccount?._id  || item.purchaseAccount  || ''
     });
     setFormTab(0);
+    setFinanceItemType('inventory');
     setFormDialog({ open: true, mode: 'edit', data: item });
     loadCoaAccounts();
   };
@@ -274,10 +277,12 @@ const Inventory = () => {
       setLoading(true);
       
       if (formDialog.mode === 'create') {
-        await api.post('/procurement/inventory', formData);
+        const { ...payload } = formData;
+        await api.post('/procurement/inventory', payload);
         setSuccess('Inventory item created successfully');
       } else {
-        await api.put(`/procurement/inventory/${formDialog.data._id}`, formData);
+        const { ...payload } = formData;
+        await api.put(`/procurement/inventory/${formDialog.data._id}`, payload);
         setSuccess('Inventory item updated successfully');
       }
       
@@ -778,6 +783,32 @@ const Inventory = () => {
 
           {formTab === 1 && (
             <Box sx={{ mt: 2 }}>
+              <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                <Button
+                  variant={financeItemType === 'inventory' ? 'contained' : 'outlined'}
+                  size="small"
+                  onClick={() => setFinanceItemType('inventory')}
+                >
+                  Inventory
+                </Button>
+                <Button
+                  variant={financeItemType === 'non_inventory' ? 'contained' : 'outlined'}
+                  size="small"
+                  onClick={() => setFinanceItemType('non_inventory')}
+                >
+                  Non-Inventory
+                </Button>
+                <Button
+                  variant={financeItemType === 'services' ? 'contained' : 'outlined'}
+                  size="small"
+                  onClick={() => setFinanceItemType('services')}
+                >
+                  Services
+                </Button>
+              </Box>
+
+              {financeItemType === 'inventory' && (
+                <>
               <Alert severity="success" sx={{ mb: 2 }}>
                 <strong>Recommended:</strong> Set <em>Finance Category</em> on the Details tab — the system will inherit all GL accounts from the category automatically. Use the fields below only if this item needs account overrides different from its category.
               </Alert>
@@ -921,6 +952,100 @@ const Inventory = () => {
                     </Grid>
                   )}
                 </Grid>
+              )}
+                </>
+              )}
+
+              {financeItemType === 'non_inventory' && (
+                <>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    Non-Inventory items are expensed directly when billed. GRN/SIN inventory postings are not used.
+                  </Alert>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth select size="small"
+                        label="Purchase / Expense Account"
+                        value={formData.purchaseAccount}
+                        onChange={(e) => setFormData({ ...formData, purchaseAccount: e.target.value })}
+                        helperText="Used when vendor bill is posted directly to expense"
+                      >
+                        <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
+                        {coaAccounts
+                          .filter(a => a.type === 'Expense' || a.type === 'expense')
+                          .map(a => (
+                            <MenuItem key={a._id} value={a._id}>
+                              {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth select size="small"
+                        label="Sales / Revenue Account (optional)"
+                        value={formData.salesAccount}
+                        onChange={(e) => setFormData({ ...formData, salesAccount: e.target.value })}
+                        helperText="Use only if this non-inventory item is sold"
+                      >
+                        <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
+                        {coaAccounts
+                          .filter(a => a.type === 'Revenue' || a.type === 'revenue' || a.type === 'Income' || a.type === 'income')
+                          .map(a => (
+                            <MenuItem key={a._id} value={a._id}>
+                              {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                    </Grid>
+                  </Grid>
+                </>
+              )}
+
+              {financeItemType === 'services' && (
+                <>
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    Service items do not affect stock. Use service income/expense mapping below.
+                  </Alert>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth select size="small"
+                        label="Service Income / Revenue Account"
+                        value={formData.salesAccount}
+                        onChange={(e) => setFormData({ ...formData, salesAccount: e.target.value })}
+                        helperText="Revenue account for service invoices"
+                      >
+                        <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
+                        {coaAccounts
+                          .filter(a => a.type === 'Revenue' || a.type === 'revenue' || a.type === 'Income' || a.type === 'income')
+                          .map(a => (
+                            <MenuItem key={a._id} value={a._id}>
+                              {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth select size="small"
+                        label="Service Cost / Expense Account (optional)"
+                        value={formData.purchaseAccount}
+                        onChange={(e) => setFormData({ ...formData, purchaseAccount: e.target.value })}
+                        helperText="Optional service delivery cost account"
+                      >
+                        <MenuItem value=""><em>Inherit from Finance Category</em></MenuItem>
+                        {coaAccounts
+                          .filter(a => a.type === 'Expense' || a.type === 'expense')
+                          .map(a => (
+                            <MenuItem key={a._id} value={a._id}>
+                              {a.accountNumber ? `${a.accountNumber} – ` : ''}{a.name}
+                            </MenuItem>
+                          ))}
+                      </TextField>
+                    </Grid>
+                  </Grid>
+                </>
               )}
             </Box>
           )}

@@ -39,14 +39,23 @@ export default function BatchPayment() {
     setLoading(true); setError('');
     try {
       const [billRes, bankRes] = await Promise.all([
-        api.get('/finance/accounts-payable', { params: { status: 'pending,approved,partial,overdue', limit: 200 } }),
+        // Server expects a single status value; fetch recent bills and filter unpaid here.
+        api.get('/finance/accounts-payable', { params: { limit: 200 } }),
         api.get('/finance/banking/accounts')
       ]);
-      const unpaid = (billRes.data.data || billRes.data.bills || []).filter(b => b.status !== 'paid' && (b.totalAmount - (b.amountPaid || 0)) > 0.01);
+      const billPayload = billRes.data?.data;
+      const billList = Array.isArray(billPayload)
+        ? billPayload
+        : (billPayload?.bills || billRes.data?.bills || []);
+      const unpaid = billList.filter(b => b.status !== 'paid' && ((b.outstandingAmount ?? (b.totalAmount - (b.amountPaid || 0) - (b.advanceApplied || 0))) > 0.01));
       setBills(unpaid);
-      setBankAccounts(bankRes.data.data || bankRes.data.accounts || []);
+      const bankPayload = bankRes.data?.data;
+      const accountList = Array.isArray(bankPayload)
+        ? bankPayload
+        : (bankPayload?.accounts || bankRes.data?.accounts || []);
+      setBankAccounts(Array.isArray(accountList) ? accountList : []);
     } catch (e) {
-      setError(e.response?.data?.message || 'Failed to load bills');
+      setError(e.response?.data?.message || 'Failed to load bills in Batch Vendor Payments.');
     } finally {
       setLoading(false);
     }
@@ -73,7 +82,7 @@ export default function BatchPayment() {
   };
 
   const selectedBills = bills.filter(b => selected.has(b._id));
-  const totalSelected = selectedBills.reduce((s, b) => s + ((b.totalAmount || 0) - (b.amountPaid || 0)), 0);
+  const totalSelected = selectedBills.reduce((s, b) => s + (b.outstandingAmount ?? ((b.totalAmount || 0) - (b.amountPaid || 0) - (b.advanceApplied || 0))), 0);
   const whtAmount     = payment.whtRate > 0 ? Math.round(totalSelected * (payment.whtRate / 100) * 100) / 100 : 0;
   const netAmount     = Math.round((totalSelected - whtAmount) * 100) / 100;
 
@@ -127,19 +136,23 @@ export default function BatchPayment() {
             <TableContainer component={Paper} variant="outlined">
               <Table size="small" stickyHeader>
                 <TableHead>
-                  <TableRow sx={{ bgcolor: 'secondary.main' }}>
-                    <TableCell padding="checkbox" sx={{ bgcolor: 'secondary.main' }}>
+                  <TableRow sx={{ bgcolor: '#6a0032' }}>
+                    <TableCell padding="checkbox" sx={{ bgcolor: '#6a0032' }}>
                       <Tooltip title={selected.size === filtered.length ? 'Deselect All' : 'Select All'}>
                         <Checkbox
                           checked={filtered.length > 0 && selected.size === filtered.length}
                           indeterminate={selected.size > 0 && selected.size < filtered.length}
                           onChange={toggleAll}
-                          sx={{ color: 'white' }}
+                          sx={{
+                            color: '#fff',
+                            '&.Mui-checked': { color: '#fff' },
+                            '&.MuiCheckbox-indeterminate': { color: '#fff' }
+                          }}
                         />
                       </Tooltip>
                     </TableCell>
                     {['Bill #', 'Vendor', 'Due Date', 'Status', 'Balance Due'].map(h => (
-                      <TableCell key={h} sx={{ color: 'white', fontWeight: 700 }}>{h}</TableCell>
+                      <TableCell key={h} sx={{ color: '#fff', fontWeight: 800, bgcolor: '#6a0032' }}>{h}</TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
@@ -150,7 +163,7 @@ export default function BatchPayment() {
                     </TableCell></TableRow>
                   )}
                   {filtered.map(bill => {
-                    const balance = (bill.totalAmount || 0) - (bill.amountPaid || 0);
+                    const balance = bill.outstandingAmount ?? ((bill.totalAmount || 0) - (bill.amountPaid || 0) - (bill.advanceApplied || 0));
                     const isSelected = selected.has(bill._id);
                     const overdue = bill.dueDate && new Date(bill.dueDate) < new Date();
                     return (
@@ -200,7 +213,7 @@ export default function BatchPayment() {
                 <Select value={payment.paymentMethod} label="Payment Method"
                   onChange={e => setPayment(p => ({ ...p, paymentMethod: e.target.value }))}>
                   <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                  <MenuItem value="cheque">Cheque</MenuItem>
+                  <MenuItem value="check">Cheque</MenuItem>
                   <MenuItem value="cash">Cash</MenuItem>
                   <MenuItem value="other">Other</MenuItem>
                 </Select>

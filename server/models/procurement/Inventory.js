@@ -179,7 +179,8 @@ const inventorySchema = new mongoose.Schema({
 
 // Calculate total value before saving
 inventorySchema.pre('save', function(next) {
-  this.totalValue = this.quantity * this.unitPrice;
+  const costForValuation = (Number(this.averageCost) > 0) ? Number(this.averageCost) : Number(this.unitPrice || 0);
+  this.totalValue = this.quantity * costForValuation;
   
   // Update status based on quantity
   if (this.quantity === 0) {
@@ -193,8 +194,22 @@ inventorySchema.pre('save', function(next) {
   next();
 });
 
-// Method to add stock
-inventorySchema.methods.addStock = function(quantity, reference, notes, userId) {
+// Method to add stock (optional unitPrice updates WAC/list price)
+inventorySchema.methods.addStock = function(quantity, reference, notes, userId, unitPrice = null) {
+  const qty = Number(quantity) || 0;
+  const receiptPrice = Number(unitPrice) || 0;
+  const existingQty = Number(this.quantity) || 0;
+  const existingWac = Number(this.averageCost) > 0 ? Number(this.averageCost) : Number(this.unitPrice || 0);
+
+  if (qty > 0 && receiptPrice > 0) {
+    const newTotalQty = existingQty + qty;
+    this.averageCost = newTotalQty > 0
+      ? Math.round((((existingQty * existingWac) + (qty * receiptPrice)) / newTotalQty) * 100) / 100
+      : receiptPrice;
+    // Keep list price aligned to latest receipt unless user manually changes later.
+    this.unitPrice = receiptPrice;
+  }
+
   this.quantity += quantity;
   this.lastRestocked = new Date();
   this.transactions.push({

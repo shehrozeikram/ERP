@@ -4,6 +4,7 @@ const GeneralLedger = require('../models/finance/GeneralLedger');
 const Account = require('../models/finance/Account');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const AccountsReceivable = require('../models/finance/AccountsReceivable');
+const VendorAdvance = require('../models/finance/VendorAdvance');
 
 /**
  * Finance Helper Utility
@@ -15,6 +16,7 @@ const FinanceHelper = {
     CASH: '1001',
     BANK: '1002',
     INVENTORY: '1100',       // Stock Valuation Asset — DR on GRN
+    VENDOR_ADVANCE: '1110',  // Advance to Suppliers (asset)
     RECEIVABLE: '1200',
     PAYABLE: '2001',
     GRNI: '2100',            // Goods Received Not Invoiced — CR on GRN, DR on AP Bill (THE KEY CLEARING ACCOUNT)
@@ -65,6 +67,91 @@ const FinanceHelper = {
     }
 
     return { inventoryAccountId, grniAccountId, cogsAccountId };
+  },
+
+  /**
+   * Resolve GRNI account for AP bill clearing based on linked GRN/PO item mapping.
+   * Priority:
+   *   1) GRN lines → inventory (linked id, then code/name match) → item/category GRNI
+   *   2) When no GRN yet (AP is often created at PO approval before GRN): PO lines →
+   *      inventory by productCode / description (same idea as GRN stock sync)
+   *   3) Global GRNI account number fallback (ACCOUNTS.GRNI, often 2100)
+   */
+  resolveGrniAccountForBill: async ({ referenceType, referenceId }) => {
+    const GoodsReceive = mongoose.model('GoodsReceive');
+    const Inventory = mongoose.model('Inventory');
+    const PurchaseOrder = mongoose.model('PurchaseOrder');
+
+    const grniFromInventoryDoc = async (inv) => {
+      if (!inv) return null;
+      const { grniAccountId } = await FinanceHelper.resolveInventoryAccounts(inv);
+      if (!grniAccountId) return null;
+      const acc = await Account.findById(grniAccountId);
+      return acc || null;
+    };
+
+    const resolveInventoryFromGrnLine = async (item) => {
+      let inv = null;
+      const linkedId = item.inventoryItem?._id || item.inventoryItem;
+      if (linkedId) {
+        inv = await Inventory.findById(linkedId).lean();
+      }
+      if (!inv) {
+        const code = String(item.itemCode || item.productCode || '').trim();
+        const name = String(item.itemName || '').trim();
+        if (code && code !== '—') inv = await Inventory.findOne({ itemCode: code }).lean();
+        if (!inv && name && name !== '—') {
+          inv = await Inventory.findOne({ name }).sort({ createdAt: -1 }).lean();
+        }
+      }
+      return inv;
+    };
+
+    const resolveInventoryFromPoLine = async (line) => {
+      let inv = null;
+      const code = String(line.productCode || '').trim();
+      const desc = String(line.description || '').trim();
+      if (code && code !== '—') inv = await Inventory.findOne({ itemCode: code }).lean();
+      if (!inv && desc && desc !== '—') {
+        inv = await Inventory.findOne({ name: desc }).sort({ createdAt: -1 }).lean();
+      }
+      return inv;
+    };
+
+    let grnDoc = null;
+    if (referenceType === 'grn' && referenceId) {
+      grnDoc = await GoodsReceive.findById(referenceId).lean();
+    } else if (referenceType === 'purchase_order' && referenceId) {
+      grnDoc = await GoodsReceive.findOne({
+        purchaseOrder: referenceId,
+        status: { $in: ['Received', 'Complete', 'Partial'] }
+      })
+        .sort({ receiveDate: -1, createdAt: -1 })
+        .lean();
+    }
+
+    if (grnDoc?.items?.length) {
+      for (const item of grnDoc.items) {
+        const inv = await resolveInventoryFromGrnLine(item);
+        const acc = await grniFromInventoryDoc(inv);
+        if (acc) return acc;
+      }
+    }
+
+    // AP bill is often posted when the PO is approved — before any GRN exists.
+    // Match PO lines to inventory master so GRNI matches GRN posting later (e.g. 2140).
+    if (referenceType === 'purchase_order' && referenceId) {
+      const po = await PurchaseOrder.findById(referenceId).lean();
+      if (po?.items?.length) {
+        for (const line of po.items) {
+          const inv = await resolveInventoryFromPoLine(line);
+          const acc = await grniFromInventoryDoc(inv);
+          if (acc) return acc;
+        }
+      }
+    }
+
+    return await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.GRNI);
   },
 
   /**
@@ -180,11 +267,16 @@ const FinanceHelper = {
    * Internal helper to update AR/AP status based on paid amount
    */
   _updateDocumentStatus: (doc) => {
-    if (doc.amountPaid >= doc.totalAmount) {
+    const settled = (doc.amountPaid || 0) + (doc.advanceApplied || 0);
+    if (settled >= doc.totalAmount) {
       doc.status = 'paid';
-    } else if (doc.amountPaid > 0) {
+    } else if (settled > 0) {
       doc.status = 'partial';
     }
+  },
+
+  getAPOutstanding: (bill) => {
+    return Math.round(((Number(bill.totalAmount) || 0) - (Number(bill.amountPaid) || 0) - (Number(bill.advanceApplied) || 0)) * 100) / 100;
   },
 
   /**
@@ -328,7 +420,9 @@ const FinanceHelper = {
         createdBy, notes,
         referenceType = 'manual',
         lineItems: optsLineItems,
-        lineDescription
+        lineDescription,
+        paymentTerms,
+        linkedGRNs
       } = options;
 
       // Normalize billDate to start of day so the bill appears in default date filters (e.g. current month)
@@ -354,7 +448,9 @@ const FinanceHelper = {
         module,
         referenceId,
         referenceType: referenceType,
+        paymentTerms: paymentTerms || undefined,
         lineItems,
+        linkedGRNs: Array.isArray(linkedGRNs) ? linkedGRNs : [],
         notes: notes || '',
         createdBy
       });
@@ -377,7 +473,7 @@ const FinanceHelper = {
         let debitAccount = null;
 
         if (isGrnBacked) {
-          debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.GRNI);
+          debitAccount = await FinanceHelper.resolveGrniAccountForBill({ referenceType, referenceId });
         }
         if (!debitAccount) {
           debitAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
@@ -404,6 +500,15 @@ const FinanceHelper = {
             ]
           });
         }
+      }
+
+      // Auto-apply any open vendor advances to newly created bill (oldest first)
+      try {
+        if (vendorId || vendorName) {
+          await FinanceHelper.applyVendorAdvanceToBill(apEntry._id, null, createdBy);
+        }
+      } catch (advErr) {
+        console.warn('[AP Advance] auto-apply skipped:', advErr.message);
       }
 
       return apEntry;
@@ -474,10 +579,10 @@ const FinanceHelper = {
       const bill = await AccountsPayable.findById(billId);
       if (!bill) throw new Error('Bill not found');
 
-      const { amount, paymentMethod, reference, date, createdBy, whtRate = 0, bankAccountId } = paymentData;
+      const { amount, paymentMethod, reference, date, createdBy, whtRate = 0, bankAccountId, allocations } = paymentData;
 
       // Validate amount doesn't exceed balance
-      const balance = Math.round((bill.totalAmount - bill.amountPaid) * 100) / 100;
+      const balance = FinanceHelper.getAPOutstanding(bill);
       if (amount > balance + 0.01) {
         throw new Error(`Payment amount PKR ${amount} exceeds outstanding balance PKR ${balance}`);
       }
@@ -486,7 +591,15 @@ const FinanceHelper = {
       const whtAmount = whtRate > 0 ? Math.round(amount * (whtRate / 100) * 100) / 100 : 0;
       const netBankAmount = Math.round((amount - whtAmount) * 100) / 100;
 
-      bill.payments.push({ amount, paymentDate: date || new Date(), paymentMethod, reference, createdBy });
+      const normalizedAllocations = Array.isArray(allocations)
+        ? allocations
+          .map((a) => ({
+            grnId: a?.grnId || null,
+            amount: Math.round((Number(a?.amount) || 0) * 100) / 100
+          }))
+          .filter((a) => a.grnId && a.amount > 0)
+        : [];
+      bill.payments.push({ amount, paymentDate: date || new Date(), paymentMethod, reference, createdBy, allocations: normalizedAllocations });
       bill.amountPaid = Math.round((bill.amountPaid + amount) * 100) / 100;
       FinanceHelper._updateDocumentStatus(bill);
       await bill.save();
@@ -535,6 +648,122 @@ const FinanceHelper = {
       console.error('❌ Error recording AP payment:', error);
       throw error;
     }
+  },
+
+  recordVendorAdvance: async ({ vendorName, vendorEmail, vendorId, amount, paymentMethod, reference, date, createdBy, department = 'procurement', module = 'procurement', bankAccountId = null, referenceType = 'advance', referenceId = null }) => {
+    const amount_ = Math.round((Number(amount) || 0) * 100) / 100;
+    if (amount_ <= 0) throw new Error('Advance amount must be greater than zero');
+
+    const advance = await VendorAdvance.create({
+      vendor: { name: vendorName || 'Vendor', email: vendorEmail || '', vendorId: vendorId || null },
+      amount: amount_,
+      paymentMethod: paymentMethod || 'bank_transfer',
+      reference: reference || `ADV-${Date.now()}`,
+      paymentDate: date || new Date(),
+      createdBy,
+      department,
+      module,
+      referenceType,
+      referenceId
+    });
+
+    let advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    if (!advAccount) {
+      advAccount = await Account.create({
+        accountNumber: FinanceHelper.ACCOUNTS.VENDOR_ADVANCE,
+        name: 'Advance to Suppliers',
+        type: 'Asset',
+        category: 'Current Asset',
+        detailType: 'Other Current Assets',
+        description: 'Vendor advances paid before bill settlement',
+        isSystem: true,
+        createdBy
+      });
+    }
+    let bankAccount = bankAccountId ? await Account.findById(bankAccountId) : null;
+    if (!bankAccount) {
+      bankAccount = await FinanceHelper.getAccountByNumber(
+        (paymentMethod || 'bank_transfer') === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+      );
+    }
+    if (!advAccount || !bankAccount) throw new Error('Advance or Bank/Cash account not found');
+
+    await FinanceHelper.createAndPostJournalEntry({
+      date: date || new Date(),
+      reference: advance.reference,
+      description: `Vendor Advance: ${vendorName || 'Vendor'}`,
+      department,
+      module,
+      referenceId: advance._id,
+      referenceType: 'payment',
+      journalCode: 'BANK',
+      createdBy,
+      lines: [
+        { account: advAccount._id, description: `Advance to ${vendorName || 'Vendor'}`, debit: amount_, department },
+        { account: bankAccount._id, description: `Advance payment (${advance.reference})`, credit: amount_, department }
+      ]
+    });
+
+    return advance;
+  },
+
+  applyVendorAdvanceToBill: async (billId, requestedAmount = null, createdBy = null) => {
+    const bill = await AccountsPayable.findById(billId);
+    if (!bill) throw new Error('Bill not found');
+
+    let remainingBill = FinanceHelper.getAPOutstanding(bill);
+    if (remainingBill <= 0) return { bill, applied: 0, adjustments: [] };
+
+    let remainingRequest = requestedAmount == null ? remainingBill : Math.round((Number(requestedAmount) || 0) * 100) / 100;
+    if (remainingRequest <= 0) throw new Error('Apply amount must be greater than zero');
+
+    const advAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    const apAccount = await FinanceHelper.getAccountByNumber(FinanceHelper.ACCOUNTS.PAYABLE);
+    if (!advAccount || !apAccount) throw new Error('AP or Vendor Advance account not found');
+
+    const query = bill.vendor?.vendorId
+      ? { 'vendor.vendorId': bill.vendor.vendorId, status: { $in: ['open', 'partially_applied'] } }
+      : { 'vendor.name': bill.vendor?.name || '', status: { $in: ['open', 'partially_applied'] } };
+    const advances = await VendorAdvance.find(query).sort({ paymentDate: 1, createdAt: 1 });
+
+    const adjustments = [];
+    for (const adv of advances) {
+      if (remainingBill <= 0 || remainingRequest <= 0) break;
+      const advRemaining = Math.round(((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0)) * 100) / 100;
+      if (advRemaining <= 0) continue;
+      const applyAmount = Math.min(remainingBill, remainingRequest, advRemaining);
+      if (applyAmount <= 0) continue;
+
+      await FinanceHelper.createAndPostJournalEntry({
+        date: new Date(),
+        reference: `ADV-ADJ-${bill.billNumber}`,
+        description: `Vendor advance adjusted against ${bill.billNumber}`,
+        department: bill.department,
+        module: bill.module,
+        referenceId: bill._id,
+        referenceType: 'payment',
+        journalCode: 'PURCH',
+        createdBy: createdBy || bill.createdBy,
+        lines: [
+          { account: apAccount._id, description: `Advance adjusted – ${bill.billNumber}`, debit: applyAmount, department: bill.department },
+          { account: advAccount._id, description: `Advance utilization – ${adv.reference || adv._id}`, credit: applyAmount, department: bill.department }
+        ]
+      });
+
+      bill.advanceApplied = Math.round(((Number(bill.advanceApplied) || 0) + applyAmount) * 100) / 100;
+      adv.appliedAmount = Math.round(((Number(adv.appliedAmount) || 0) + applyAmount) * 100) / 100;
+      const newRem = Math.round(((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0)) * 100) / 100;
+      adv.status = newRem <= 0.01 ? 'applied' : 'partially_applied';
+      await adv.save();
+
+      adjustments.push({ advanceId: adv._id, reference: adv.reference, amount: applyAmount });
+      remainingBill = FinanceHelper.getAPOutstanding(bill);
+      remainingRequest = Math.round((remainingRequest - applyAmount) * 100) / 100;
+    }
+
+    FinanceHelper._updateDocumentStatus(bill);
+    await bill.save();
+    return { bill, applied: adjustments.reduce((s, a) => s + a.amount, 0), adjustments };
   },
 
   /**

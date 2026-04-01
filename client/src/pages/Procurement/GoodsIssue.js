@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
@@ -10,7 +10,7 @@ import {
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
   QrCodeScanner as ScanIcon
 } from '@mui/icons-material';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
 import { formatDate } from '../../utils/dateUtils';
@@ -30,6 +30,7 @@ const GoodsIssue = () => {
   const theme = useTheme();
   const { user } = useAuth();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -46,7 +47,12 @@ const GoodsIssue = () => {
   const [viewLoading, setViewLoading] = useState(false);
   const [formDialog, setFormDialog] = useState({ open: false });
   const processedIndentRef = useRef(null);
+  const urlSourceParamsAppliedRef = useRef(false);
   const [mainStores, setMainStores] = useState([]);
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [indentOptions, setIndentOptions] = useState([]);
+  const [poOptions, setPoOptions] = useState([]);
+  const [grnOptions, setGrnOptions] = useState([]);
   const emptyItem = () => ({
     inventoryItem: '', itemCode: '', itemName: '', unit: '',
     qtyReturned: 0, qtyIssued: 1, balanceQty: 0,
@@ -71,7 +77,10 @@ const GoodsIssue = () => {
     requestedByName: '',
     items: [emptyItem()],
     purpose: '',
-    notes: ''
+    notes: '',
+    referenceIndent: '',
+    referencePurchaseOrder: '',
+    referenceGoodsReceive: ''
   });
 
   const departments = [
@@ -164,7 +173,10 @@ const GoodsIssue = () => {
           : '',
         items: mappedItems,
         purpose: fromIndent.items?.map((i) => i.purpose).filter(Boolean).join('; ') || '',
-        notes: `Created from Indent ${fromIndent.indentNumber || fromIndent._id}`
+        notes: `Created from Indent ${fromIndent.indentNumber || fromIndent._id}`,
+        referenceIndent: fromIndent._id || '',
+        referencePurchaseOrder: '',
+        referenceGoodsReceive: ''
       });
       setFormDialog({ open: true });
       processedIndentRef.current = indentId;
@@ -191,7 +203,9 @@ const GoodsIssue = () => {
 
   const loadInventory = async () => {
     try {
-      const response = await api.get('/procurement/inventory', { params: { limit: 1000, status: 'In Stock' } });
+      const response = await api.get('/procurement/inventory', {
+        params: { limit: 2000, page: 1 }
+      });
       if (response.data.success) {
         setInventory(response.data.data.items || []);
       }
@@ -199,6 +213,164 @@ const GoodsIssue = () => {
       console.error('Error loading inventory:', err);
     }
   };
+
+  /** Stock issue is always against inventory lines; optional Indent / PO / GRN are for traceability only */
+  const loadSourceDocumentOptions = useCallback(async () => {
+    try {
+      const [indRes, poRes, grnRes] = await Promise.all([
+        api.get('/indents', { params: { limit: 100, page: 1 } }).catch(() => ({ data: {} })),
+        api.get('/procurement/purchase-orders', { params: { limit: 100, page: 1 } }).catch(() => ({ data: {} })),
+        api.get('/procurement/goods-receive', { params: { limit: 100, page: 1 } }).catch(() => ({ data: {} }))
+      ]);
+      const indData = indRes.data?.data;
+      setIndentOptions(Array.isArray(indData) ? indData : []);
+      setPoOptions(poRes.data?.data?.purchaseOrders || []);
+      setGrnOptions(grnRes.data?.data?.receives || []);
+    } catch (e) {
+      console.error('loadSourceDocumentOptions:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!formDialog.open) return;
+    loadSourceDocumentOptions();
+  }, [formDialog.open, loadSourceDocumentOptions]);
+
+  useEffect(() => {
+    if (!formDialog.open) return;
+    if (urlSourceParamsAppliedRef.current) return;
+    const po = searchParams.get('poId');
+    const grn = searchParams.get('grnId');
+    const ind = searchParams.get('indentId');
+    if (!po && !grn && !ind) return;
+    setFormData((prev) => ({
+      ...prev,
+      referencePurchaseOrder: po || prev.referencePurchaseOrder,
+      referenceGoodsReceive: grn || prev.referenceGoodsReceive,
+      referenceIndent: ind || prev.referenceIndent
+    }));
+    urlSourceParamsAppliedRef.current = true;
+  }, [formDialog.open, searchParams]);
+
+  // Open SIN form automatically when coming with source document params in URL,
+  // then prefill references and practical defaults from GRN/PO/Indent context.
+  useEffect(() => {
+    const poId = searchParams.get('poId');
+    const grnId = searchParams.get('grnId');
+    const indentId = searchParams.get('indentId');
+    if (!poId && !grnId && !indentId) return;
+    if (formDialog.open) return;
+    handleCreate();
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const poId = searchParams.get('poId');
+    const grnId = searchParams.get('grnId');
+    const indentId = searchParams.get('indentId');
+    if (!formDialog.open) return;
+    if (!poId && !grnId && !indentId) return;
+    if (inventory.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        let next = {
+          referenceIndent: indentId || '',
+          referencePurchaseOrder: poId || '',
+          referenceGoodsReceive: grnId || ''
+        };
+
+        // If GRN is provided, pull context defaults and map items to inventory rows.
+        if (grnId) {
+          const grnRes = await api.get(`/procurement/goods-receive/${grnId}`);
+          const grn = grnRes.data?.data;
+          if (grn) {
+            next = {
+              ...next,
+              project: grn.project?._id || grn.project || '',
+              store: grn.store?._id || grn.store || '',
+              issuingLocation: grn.storeSnapshot || 'Store',
+              requiredFor: grn.narration || '',
+              eprNo: grn.poNumber || grn.receiveNumber || ''
+            };
+            if (!next.referencePurchaseOrder && grn.purchaseOrder?._id) {
+              next.referencePurchaseOrder = grn.purchaseOrder._id;
+            }
+
+            const mappedItems = (grn.items || []).map((it) => {
+              const linkedId = it.inventoryItem?._id || it.inventoryItem;
+              let inv = linkedId ? inventory.find((x) => x._id === String(linkedId)) : null;
+              if (!inv && it.itemCode) inv = inventory.find((x) => x.itemCode === it.itemCode);
+              if (!inv && it.itemName) inv = inventory.find((x) => x.name === it.itemName);
+              if (!inv) return null;
+              const available = getAvailableStock(inv._id);
+              return {
+                inventoryItem: inv._id,
+                itemCode: inv.itemCode,
+                itemName: inv.name,
+                unit: inv.unit,
+                qtyReturned: 0,
+                qtyIssued: Number(it.quantity) || 1,
+                balanceQty: available,
+                issuedFromNewStock: true,
+                issuedFromOldStock: false,
+                subStore: '',
+                location: { rack: '', shelf: '', bin: '' },
+                notes: it.notes || ''
+              };
+            }).filter(Boolean);
+            if (mappedItems.length > 0) next.items = mappedItems;
+          }
+        } else if (poId) {
+          // If only PO is provided, keep refs and context fields prefilled.
+          const poRes = await api.get(`/procurement/purchase-orders/${poId}`);
+          const po = poRes.data?.data;
+          if (po) {
+            next = {
+              ...next,
+              eprNo: po.orderNumber || '',
+              requiredFor: po.description || ''
+            };
+          }
+        } else if (indentId) {
+          const indRes = await api.get(`/indents/${indentId}`);
+          const ind = indRes.data?.data;
+          if (ind) {
+            next = {
+              ...next,
+              requiredFor: ind.title || '',
+              justification: ind.justification || '',
+              eprNo: ind.erpRef || ind.indentNumber || ''
+            };
+          }
+        }
+
+        if (!cancelled) {
+          setFormData((prev) => ({
+            ...prev,
+            ...next
+          }));
+        }
+      } catch (e) {
+        // keep form usable even if source prefill fails
+        console.error('SIN source prefill failed:', e);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [formDialog.open, searchParams, inventory]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const inventoryPickList = useMemo(() => {
+    const q = (inventorySearch || '').trim().toLowerCase();
+    return (inventory || []).filter((i) => {
+      if ((i.quantity || 0) <= 0) return false;
+      if (!q) return true;
+      return (
+        String(i.itemCode || '').toLowerCase().includes(q) ||
+        String(i.name || '').toLowerCase().includes(q)
+      );
+    });
+  }, [inventory, inventorySearch]);
 
   const loadCostCenters = async () => {
     try {
@@ -224,6 +396,8 @@ const GoodsIssue = () => {
 
   const handleCreate = () => {
     processedIndentRef.current = null;
+    urlSourceParamsAppliedRef.current = false;
+    setInventorySearch('');
     setFormData({
       issueDate: new Date().toISOString().split('T')[0],
       department: 'general',
@@ -242,7 +416,10 @@ const GoodsIssue = () => {
       requestedByName: '',
       items: [emptyItem()],
       purpose: '',
-      notes: ''
+      notes: '',
+      referenceIndent: '',
+      referencePurchaseOrder: '',
+      referenceGoodsReceive: ''
     });
     setFormDialog({ open: true });
   };
@@ -254,8 +431,17 @@ const GoodsIssue = () => {
     }
     try {
       setLoading(true);
+      const {
+        referenceIndent,
+        referencePurchaseOrder,
+        referenceGoodsReceive,
+        ...formRest
+      } = formData;
       const payload = {
-        ...formData,
+        ...formRest,
+        referenceIndent: referenceIndent || undefined,
+        referencePurchaseOrder: referencePurchaseOrder || undefined,
+        referenceGoodsReceive: referenceGoodsReceive || undefined,
         store: formData.store || undefined,
         items: formData.items.map((item) => ({
           ...item,
@@ -286,7 +472,10 @@ const GoodsIssue = () => {
         requestedByName: '',
         items: [emptyItem()],
         purpose: '',
-        notes: ''
+        notes: '',
+        referenceIndent: '',
+        referencePurchaseOrder: '',
+        referenceGoodsReceive: ''
       });
       setFormDialog({ open: false });
       processedIndentRef.current = null;
@@ -321,6 +510,14 @@ const GoodsIssue = () => {
         newItems[index].itemCode = inv.itemCode;
         newItems[index].itemName = inv.name;
         newItems[index].unit = inv.unit;
+        newItems[index].subStore = inv.subStore?._id || inv.subStore || newItems[index].subStore || '';
+        if (!newItems[index].location?.rack && !newItems[index].location?.shelf && !newItems[index].location?.bin) {
+          newItems[index].location = {
+            rack: inv.location?.rack || '',
+            shelf: inv.location?.shelf || '',
+            bin: inv.location?.bin || ''
+          };
+        }
       }
     }
     setFormData({ ...formData, items: newItems });
@@ -357,13 +554,16 @@ const GoodsIssue = () => {
   }, [formData.project, formData.store, formDialog.open]);
 
   const getAvailableStock = (itemId) => {
+    const item = inventory.find(inv => inv._id === itemId);
     if (!formData.project) {
       // Fallback to overall inventory quantity if no project selected
-      const item = inventory.find(inv => inv._id === itemId);
       return item ? item.quantity : 0;
     }
-    // Use project-wise balance
-    return projectStockBalances[itemId] || 0;
+    // Prefer project-wise balance when key exists; otherwise fallback to inventory qty.
+    if (Object.prototype.hasOwnProperty.call(projectStockBalances, itemId)) {
+      return projectStockBalances[itemId] || 0;
+    }
+    return item ? item.quantity : 0;
   };
 
   return (
@@ -526,6 +726,24 @@ const GoodsIssue = () => {
                 {departments.map((dept) => <MenuItem key={dept.value} value={dept.value}>{dept.label}</MenuItem>)}
               </TextField>
               <TextField fullWidth label="Requested By" value={formData.requestedByName} onChange={(e) => setFormData({ ...formData, requestedByName: e.target.value })} placeholder="Name of requester" sx={{ mt: 1 }} />
+              <TextField fullWidth select label="Reference Indent (optional)" value={formData.referenceIndent || ''} onChange={(e) => setFormData({ ...formData, referenceIndent: e.target.value })} sx={{ mt: 1 }}>
+                <MenuItem value="">None</MenuItem>
+                {indentOptions.map((ind) => <MenuItem key={ind._id} value={ind._id}>{ind.indentNumber || ind.title || ind._id}</MenuItem>)}
+              </TextField>
+              <TextField fullWidth select label="Reference PO (optional)" value={formData.referencePurchaseOrder || ''} onChange={(e) => setFormData({ ...formData, referencePurchaseOrder: e.target.value })} sx={{ mt: 1 }}>
+                <MenuItem value="">None</MenuItem>
+                {poOptions.map((po) => <MenuItem key={po._id} value={po._id}>{po.orderNumber} ({po.status})</MenuItem>)}
+              </TextField>
+              <TextField fullWidth select label="Reference GRN (optional)" value={formData.referenceGoodsReceive || ''} onChange={(e) => setFormData({ ...formData, referenceGoodsReceive: e.target.value })} sx={{ mt: 1 }}>
+                <MenuItem value="">None</MenuItem>
+                {grnOptions.map((g) => <MenuItem key={g._id} value={g._id}>{g.receiveNumber || g.poNumber || g._id} ({g.status})</MenuItem>)}
+              </TextField>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth label="Purpose" value={formData.purpose} onChange={(e) => setFormData({ ...formData, purpose: e.target.value })} placeholder="Purpose of stock issue" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth label="Inventory Search" value={inventorySearch} onChange={(e) => setInventorySearch(e.target.value)} placeholder="Filter by item code or name" />
             </Grid>
             <Grid item xs={12}>
               <Divider sx={{ my: 1 }} />
@@ -587,7 +805,7 @@ const GoodsIssue = () => {
                           <TableCell>
                             <TextField size="small" fullWidth select value={item.inventoryItem} onChange={(e) => updateItem(index, 'inventoryItem', e.target.value)} sx={{ minWidth: 110 }}>
                               <MenuItem value="">Select</MenuItem>
-                              {inventory.map((i) => <MenuItem key={i._id} value={i._id}>{i.itemCode}</MenuItem>)}
+                              {inventoryPickList.map((i) => <MenuItem key={i._id} value={i._id}>{i.itemCode} - {i.name}</MenuItem>)}
                             </TextField>
                           </TableCell>
                           <TableCell>
