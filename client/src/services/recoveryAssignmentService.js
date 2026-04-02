@@ -31,6 +31,9 @@ export const uploadWhatsAppMedia = (file) => {
 export const fetchWhatsAppIncomingMessages = (from) =>
   api.get(`${base}/whatsapp-incoming`, { params: { from } });
 
+export const deleteRecoveryWhatsAppMessage = (id) =>
+  api.delete(`${base}/whatsapp-message/${id}`);
+
 export const fetchWhatsAppNumbersWithMessages = () =>
   api.get(`${base}/whatsapp-incoming/numbers-with-messages`);
 

@@ -23,14 +23,13 @@ import {
   Badge,
   Button,
   IconButton,
-  Tooltip,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   SvgIcon
 } from '@mui/material';
-import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Done as DoneIcon, DoneAll as DoneAllIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
+import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
 import { Reply as ReplyIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
@@ -44,8 +43,11 @@ import {
   fetchWhatsAppIncomingMessages,
   fetchWhatsAppNumbersWithMessages,
   markRecoveryWhatsAppRead,
-  completeRecoveryTask
+  completeRecoveryTask,
+  deleteRecoveryWhatsAppMessage
 } from '../../../services/recoveryAssignmentService';
+import { mergeCampaignStubIntoMessages } from '../../../utils/recoveryWhatsAppThreadUtils';
+import RecoveryWhatsAppMessageBubble from '../../../components/Recovery/RecoveryWhatsAppMessageBubble';
 import { fetchRecoveryCampaigns } from '../../../services/recoveryCampaignService';
 import { fetchRecoveryTasks } from '../../../services/recoveryTaskService';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -397,7 +399,7 @@ const MyTasks = () => {
     setRepliesLoading(true);
     try {
       const res = await fetchWhatsAppIncomingMessages(row.mobileNumber);
-      setRepliesMessages(res?.data?.data || []);
+      setRepliesMessages(mergeCampaignStubIntoMessages(row, res?.data?.data || []));
       // Mark as read when user opens the conversation
       const norm = normalizeWhatsAppNumber(row.mobileNumber);
       if (norm) {
@@ -517,7 +519,7 @@ const MyTasks = () => {
       setReplyToMessage(null);
       handleRemoveReplyAttachment();
       const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
-      setRepliesMessages(res?.data?.data || []);
+      setRepliesMessages(mergeCampaignStubIntoMessages(repliesRow, res?.data?.data || []));
     } catch (err) {
       setSnackbar({
         open: true,
@@ -526,6 +528,48 @@ const MyTasks = () => {
       });
     } finally {
       setReplySending(false);
+    }
+  };
+
+  const handleForwardMessage = async (m) => {
+    const parts = [];
+    if (m.text) parts.push(m.text);
+    if (m.mediaUrl) parts.push(m.mediaFilename ? `${m.mediaFilename}: ${m.mediaUrl}` : m.mediaUrl);
+    const str = parts.join('\n').trim();
+    try {
+      await navigator.clipboard.writeText(str || '(empty)');
+      setSnackbar({ open: true, message: 'Copied — paste in the box below to forward', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Could not copy to clipboard', severity: 'error' });
+    }
+  };
+
+  const handleDeleteMessage = async (m) => {
+    if (m.direction !== 'out') return;
+    if (m.isCampaignStub) {
+      setSnackbar({ open: true, message: 'This campaign line is informational only.', severity: 'info' });
+      return;
+    }
+    const id = m._id && String(m._id);
+    if (!id || id.startsWith('stub-campaign')) return;
+    if (
+      !window.confirm(
+        "Remove this message from your team's chat history only? It will not be deleted on the customer's phone."
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteRecoveryWhatsAppMessage(id);
+      const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
+      setRepliesMessages(mergeCampaignStubIntoMessages(repliesRow, res?.data?.data || []));
+      setSnackbar({ open: true, message: 'Message deleted', severity: 'success' });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to delete message',
+        severity: 'error'
+      });
     }
   };
 
@@ -1046,99 +1090,16 @@ const MyTasks = () => {
           ) : (
             <Box sx={{ flex: 1, height: 360, maxHeight: 360, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {repliesMessages.map((m, idx) => (
-                <Box
+                <RecoveryWhatsAppMessageBubble
                   key={m._id || m.messageId || idx}
-                  sx={{
-                    alignSelf: m.direction === 'out' ? 'flex-end' : 'flex-start',
-                    maxWidth: '80%',
-                    px: 1.5,
-                    py: 1,
-                    borderRadius: 2,
-                    borderTopRightRadius: m.direction === 'out' ? 0.5 : 2,
-                    borderTopLeftRadius: m.direction === 'in' ? 0.5 : 2,
-                    bgcolor: m.direction === 'out' ? '#DCF8C6' : 'white',
-                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)',
-                    '&:hover .reply-action': { opacity: 1 }
-                  }}
-                >
-                  {m.mediaUrl && m.mediaType === 'image' ? (
-                    <Box>
-                      <Box
-                        component="img"
-                        src={m.mediaUrl}
-                        alt="media"
-                        sx={{ maxWidth: 240, maxHeight: 200, borderRadius: 1, display: 'block', cursor: 'pointer' }}
-                        onClick={() => window.open(m.mediaUrl, '_blank')}
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.nextSibling && (e.target.nextSibling.style.display = 'flex');
-                        }}
-                      />
-                      <Box sx={{ display: 'none', alignItems: 'center', gap: 0.5 }}>
-                        <AttachFileIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                        <Typography component="a" href={m.mediaUrl} target="_blank" rel="noopener noreferrer" variant="body2" sx={{ color: 'primary.main', textDecoration: 'underline' }}>
-                          View image
-                        </Typography>
-                      </Box>
-                      {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
-                    </Box>
-                  ) : m.mediaUrl && m.mediaType === 'video' ? (
-                    <Box>
-                      <Box component="video" src={m.mediaUrl} controls sx={{ maxWidth: 260, maxHeight: 200, borderRadius: 1, display: 'block' }} />
-                      {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
-                    </Box>
-                  ) : m.mediaUrl && m.mediaType === 'audio' ? (
-                    <Box>
-                      <Box component="audio" src={m.mediaUrl} controls sx={{ maxWidth: 260, display: 'block' }} />
-                      {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>{m.text}</Typography>}
-                    </Box>
-                  ) : m.mediaUrl ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <AttachFileIcon sx={{ fontSize: 20, color: 'text.secondary', flexShrink: 0 }} />
-                      <Box>
-                        <Typography
-                          component="a"
-                          href={m.mediaUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          variant="body2"
-                          sx={{ color: 'primary.main', textDecoration: 'underline', wordBreak: 'break-all', display: 'block' }}
-                        >
-                          {m.mediaFilename || 'Download attachment'}
-                        </Typography>
-                        {m.text && <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.25 }}>{m.text}</Typography>}
-                      </Box>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || '(media)'}</Typography>
-                  )}
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.3, mt: 0.25 }}>
-                    <Tooltip title="Reply to this message">
-                      <IconButton
-                        size="small"
-                        className="reply-action"
-                        sx={{ p: 0.25, mr: 0.5, opacity: 0, transition: 'opacity 0.15s ease' }}
-                        onClick={() => {
-                          setReplyToMessage(m);
-                        }}
-                      >
-                        <ReplyIcon sx={{ fontSize: 14, opacity: 0.7 }} />
-                      </IconButton>
-                    </Tooltip>
-                    <Typography variant="caption" sx={{ opacity: 0.7, lineHeight: 1 }}>
-                      {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                    </Typography>
-                    {m.direction === 'out' && (
-                      m.status === 'read'
-                        ? <DoneAllIcon sx={{ fontSize: 14, color: '#53bdeb' }} />
-                        : m.status === 'delivered'
-                          ? <DoneAllIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.45)' }} />
-                          : m.status === 'sending'
-                            ? <DoneIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.3)' }} />
-                            : <DoneIcon sx={{ fontSize: 14, color: 'rgba(0,0,0,0.45)' }} />
-                    )}
-                  </Box>
-                </Box>
+                  m={m}
+                  idx={idx}
+                  showReply
+                  showReadReceipts
+                  onReply={(msg) => setReplyToMessage(msg)}
+                  onForward={handleForwardMessage}
+                  onDelete={handleDeleteMessage}
+                />
               ))}
             </Box>
           )}

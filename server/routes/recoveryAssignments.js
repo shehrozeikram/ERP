@@ -7,6 +7,7 @@ const execFileAsync = util.promisify(execFile);
 const XLSX = require('xlsx');
 const multer = require('multer');
 const axios = require('axios');
+const mongoose = require('mongoose');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
@@ -997,6 +998,31 @@ router.get(
   })
 );
 
+// @route   DELETE /api/finance/recovery-assignments/whatsapp-message/:id
+// @desc    Remove one outgoing (team-sent) message from local history only — does not affect customer's WhatsApp
+// @access  Private
+router.delete(
+  '/whatsapp-message/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid message id' });
+    }
+    const out = await WhatsAppOutgoingMessage.findByIdAndDelete(id);
+    if (out) return res.json({ success: true, deleted: 'outgoing' });
+    const inc = await WhatsAppIncomingMessage.findById(id).lean();
+    if (inc) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Only your team's sent messages can be removed from this view. Customer messages are not deleted here, and this never removes anything from the customer's WhatsApp."
+      });
+    }
+    return res.status(404).json({ success: false, message: 'Message not found' });
+  })
+);
+
 function getBaseUrl(req) {
   if (req) {
     const proto = req.get('x-forwarded-proto') || req.protocol || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
@@ -1299,6 +1325,33 @@ router.post(
           createPayload.mediaType = String(sentAs);
         }
         await WhatsAppOutgoingMessage.create(createPayload);
+      } else {
+        // Template / campaign sends — persist so "View replies" shows what was sent to the customer
+        const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
+        let displayText = '';
+        if (campaignId) {
+          const campaign = await RecoveryCampaign.findById(campaignId).lean();
+          const cname = (campaignName && String(campaignName).trim()) || 'Campaign';
+          const tpl =
+            (campaign && campaign.whatsappTemplateName) ||
+            (typeof sentAs === 'string' && sentAs !== 'template' ? sentAs : '');
+          displayText = tpl ? `[Campaign] ${cname} · ${tpl}` : `[Campaign] ${cname}`;
+        } else if (campaignName) {
+          displayText = `[Campaign] ${String(campaignName).trim()}${
+            sentAs && sentAs !== 'template' ? ` · ${sentAs}` : ''
+          }`;
+        } else {
+          displayText = `(WhatsApp template: ${sentAs})`;
+        }
+        await WhatsAppOutgoingMessage.create({
+          to: toNumber,
+          text: displayText,
+          messageId,
+          sentAt: new Date(),
+          sentBy: req.user?._id,
+          status: messageId ? 'sent' : 'sending',
+          statusUpdatedAt: new Date()
+        });
       }
 
       // Best-effort: update assignment with campaign meta if provided

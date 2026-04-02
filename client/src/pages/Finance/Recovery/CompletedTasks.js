@@ -19,6 +19,7 @@ import {
   Select,
   MenuItem,
   Alert,
+  Snackbar,
   IconButton,
   Dialog,
   DialogTitle,
@@ -30,12 +31,18 @@ import {
   Search as SearchIcon,
   ChatBubbleOutline as ChatIcon,
   Close as CloseIcon,
-  AttachFile as AttachFileIcon,
   InfoOutlined as FeedbackIcon
 } from '@mui/icons-material';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
-import { fetchCompletedRecoveryTasks, fetchRecoveryAssignmentStats, fetchWhatsAppIncomingMessages } from '../../../services/recoveryAssignmentService';
+import {
+  fetchCompletedRecoveryTasks,
+  fetchRecoveryAssignmentStats,
+  fetchWhatsAppIncomingMessages,
+  deleteRecoveryWhatsAppMessage
+} from '../../../services/recoveryAssignmentService';
+import { mergeCampaignStubIntoMessages } from '../../../utils/recoveryWhatsAppThreadUtils';
+import RecoveryWhatsAppMessageBubble from '../../../components/Recovery/RecoveryWhatsAppMessageBubble';
 
 const formatCurrency = (val) => {
   const n = Number(val);
@@ -137,7 +144,7 @@ const CompletedTasks = () => {
     setRepliesLoading(true);
     try {
       const res = await fetchWhatsAppIncomingMessages(row.mobileNumber);
-      setRepliesMessages(res?.data?.data || []);
+      setRepliesMessages(mergeCampaignStubIntoMessages(row, res?.data?.data || []));
     } catch {
       setRepliesMessages([]);
     } finally {
@@ -158,6 +165,48 @@ const CompletedTasks = () => {
   const handleCloseFeedback = () => {
     setFeedbackDialogOpen(false);
     setFeedbackRow(null);
+  };
+
+  const handleForwardMessage = async (m) => {
+    const parts = [];
+    if (m.text) parts.push(m.text);
+    if (m.mediaUrl) parts.push(m.mediaFilename ? `${m.mediaFilename}: ${m.mediaUrl}` : m.mediaUrl);
+    const str = parts.join('\n').trim();
+    try {
+      await navigator.clipboard.writeText(str || '(empty)');
+      setSnackbar({ open: true, message: 'Copied to clipboard', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Could not copy to clipboard', severity: 'error' });
+    }
+  };
+
+  const handleDeleteMessage = async (m) => {
+    if (m.direction !== 'out') return;
+    if (m.isCampaignStub) {
+      setSnackbar({ open: true, message: 'This campaign line is informational only.', severity: 'info' });
+      return;
+    }
+    const id = m._id && String(m._id);
+    if (!id || id.startsWith('stub-campaign')) return;
+    if (
+      !window.confirm(
+        "Remove this message from your team's chat history only? It will not be deleted on the customer's phone."
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteRecoveryWhatsAppMessage(id);
+      const res = await fetchWhatsAppIncomingMessages(repliesRow.mobileNumber);
+      setRepliesMessages(mergeCampaignStubIntoMessages(repliesRow, res?.data?.data || []));
+      setSnackbar({ open: true, message: 'Message deleted', severity: 'success' });
+    } catch (err) {
+      setSnackbar({
+        open: true,
+        message: err.response?.data?.message || 'Failed to delete message',
+        severity: 'error'
+      });
+    }
   };
 
   return (
@@ -326,60 +375,17 @@ const CompletedTasks = () => {
               <Typography variant="body2" color="text.secondary">No messages in this conversation.</Typography>
             </Box>
           ) : (
-            <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Box sx={{ flex: 1, height: 360, maxHeight: 360, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {repliesMessages.map((m, idx) => (
-                <Box
+                <RecoveryWhatsAppMessageBubble
                   key={m._id || m.messageId || idx}
-                  sx={{
-                    alignSelf: m.direction === 'out' ? 'flex-end' : 'flex-start',
-                    maxWidth: '80%',
-                    px: 1.5,
-                    py: 1,
-                    borderRadius: 2,
-                    borderTopRightRadius: m.direction === 'out' ? 0.5 : 2,
-                    borderTopLeftRadius: m.direction === 'in' ? 0.5 : 2,
-                    bgcolor: m.direction === 'out' ? '#DCF8C6' : 'white',
-                    boxShadow: '0 1px 1px rgba(0,0,0,0.1)'
-                  }}
-                >
-                  {m.mediaUrl && m.mediaType === 'image' ? (
-                    <Box sx={{ mb: m.text ? 0.75 : 0 }}>
-                      <Box
-                        component="img"
-                        src={m.mediaUrl}
-                        alt="media"
-                        sx={{ maxWidth: 220, maxHeight: 220, borderRadius: 1, cursor: 'pointer' }}
-                        onClick={() => window.open(m.mediaUrl, '_blank')}
-                      />
-                    </Box>
-                  ) : m.mediaUrl && m.mediaType === 'video' ? (
-                    <Box sx={{ mb: m.text ? 0.75 : 0 }}>
-                      <Box component="video" src={m.mediaUrl} controls sx={{ maxWidth: 260, maxHeight: 200, borderRadius: 1, display: 'block' }} />
-                    </Box>
-                  ) : m.mediaUrl && m.mediaType === 'audio' ? (
-                    <Box sx={{ mb: m.text ? 0.75 : 0 }}>
-                      <Box component="audio" src={m.mediaUrl} controls sx={{ maxWidth: 260, display: 'block' }} />
-                    </Box>
-                  ) : m.mediaUrl ? (
-                    <Box sx={{ mb: m.text ? 0.75 : 0, display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
-                      <AttachFileIcon fontSize="small" />
-                      <Typography
-                        component="a"
-                        href={m.mediaUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        variant="body2"
-                        sx={{ color: 'primary.main', textDecoration: 'underline' }}
-                      >
-                        {m.mediaFilename || 'Download attachment'}
-                      </Typography>
-                    </Box>
-                  ) : null}
-                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{m.text || (m.mediaUrl ? '' : '(media)')}</Typography>
-                  <Typography variant="caption" sx={{ display: 'block', textAlign: 'right', opacity: 0.7, mt: 0.25 }}>
-                    {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                  </Typography>
-                </Box>
+                  m={m}
+                  idx={idx}
+                  showReply={false}
+                  showReadReceipts
+                  onForward={handleForwardMessage}
+                  onDelete={handleDeleteMessage}
+                />
               ))}
             </Box>
           )}
@@ -406,6 +412,17 @@ const CompletedTasks = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snackbar.severity || 'info'} onClose={() => setSnackbar((s) => ({ ...s, open: false }))}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
