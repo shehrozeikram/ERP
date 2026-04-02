@@ -112,7 +112,7 @@ const requisitionEmailAttachmentUpload = multer({
 // @desc    Get all purchase orders with pagination and filters
 // @access  Private (Procurement and Admin)
 router.get('/purchase-orders', 
-  authorize('super_admin', 'admin', 'procurement_manager'), 
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     console.log('📦 GET /purchase-orders - User:', req.user?.role);
     
@@ -1711,7 +1711,7 @@ router.delete('/purchase-orders/:id',
 // @desc    Get all vendors (suppliers)
 // @access  Private (Procurement and Admin)
 router.get('/vendors', 
-  authorize('super_admin', 'admin', 'procurement_manager'), 
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { 
       page = 1, 

@@ -15,6 +15,7 @@ const AccountsPayable = require('../models/finance/AccountsPayable');
 const Banking = require('../models/finance/Banking');
 const RecurringJournal = require('../models/finance/RecurringJournal');
 const FinanceHelper = require('../utils/financeHelper');
+const VendorAdvance = require('../models/finance/VendorAdvance');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 
@@ -839,6 +840,107 @@ router.get('/accounts-payable/aging',
   })
 );
 
+// @route   GET /api/finance/accounts-payable/vendor-advances
+// @desc    Get vendor advance history (partial advances + applied amounts) per vendor
+// @access  Private (Finance and Admin)
+// IMPORTANT: Must be registered BEFORE /accounts-payable/:id
+// because Express will otherwise treat `vendor-advances` as the `:id` parameter.
+router.get('/accounts-payable/vendor-advances',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const {
+      vendorId,
+      page = 1,
+      limit = 50,
+      status,
+      search
+    } = req.query;
+
+    const filters = {};
+    if (vendorId) filters['vendor.vendorId'] = vendorId;
+    if (status) filters.status = status;
+
+    if (search) {
+      filters.$or = [
+        { reference: { $regex: search, $options: 'i' } },
+        { 'vendor.name': { $regex: search, $options: 'i' } },
+        { 'vendor.email': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const [rows, totalCount] = await Promise.all([
+      VendorAdvance.find(filters)
+        .sort({ paymentDate: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit, 10))
+        .lean(),
+      VendorAdvance.countDocuments(filters)
+    ]);
+
+    const poIds = [
+      ...new Set(
+        rows
+          .filter((a) => a.referenceType === 'purchase_order' && a.referenceId)
+          .map((a) => String(a.referenceId))
+      )
+    ];
+    const poMap = {};
+    if (poIds.length > 0) {
+      const poDocs = await PurchaseOrder.find({ _id: { $in: poIds } }).select('orderNumber').lean();
+      poDocs.forEach((p) => { poMap[String(p._id)] = p.orderNumber; });
+    }
+
+    const advances = rows.map((a) => {
+      const amount = Number(a.amount || 0);
+      const applied = Number(a.appliedAmount || 0);
+      const remainingAmount = Math.round((amount - applied) * 100) / 100;
+
+      const allocations = Array.isArray(a.allocations)
+        ? a.allocations
+            .filter((al) => al && (al.billNumber || al.billId))
+            .map((al) => ({
+              billId: al.billId || null,
+              billNumber: al.billNumber || '',
+              amount: Math.round((Number(al.amount) || 0) * 100) / 100,
+              appliedAt: al.appliedAt || null
+            }))
+            .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
+        : [];
+
+      return {
+        _id: a._id,
+        vendor: a.vendor,
+        amount,
+        appliedAmount: applied,
+        remainingAmount,
+        paymentMethod: a.paymentMethod,
+        reference: a.reference,
+        paymentDate: a.paymentDate,
+        status: a.status,
+        referenceType: a.referenceType,
+        referenceId: a.referenceId,
+        linkedPoNumber: a.referenceType === 'purchase_order' && a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
+        allocations
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        advances,
+        pagination: {
+          currentPage: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          totalCount,
+          totalPages: Math.ceil(totalCount / parseInt(limit, 10))
+        }
+      }
+    });
+  })
+);
+
 // @route   GET /api/finance/accounts-payable/:id
 // @desc    Get bill by ID (includes PO-linked docs: indent, quotations, comparative statement, PO, GRN)
 // @access  Private (Finance and Admin)
@@ -1011,6 +1113,104 @@ router.post('/accounts-payable/:id/apply-advance',
   })
 );
 
+// @route   GET /api/finance/accounts-payable/vendor-advances
+// @desc    Get vendor advance history (partial advances + applied amounts)
+// @access  Private (Finance and Admin)
+router.get('/accounts-payable/vendor-advances',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const {
+      vendorId,
+      page = 1,
+      limit = 50,
+      status,
+      search
+    } = req.query;
+
+    const filters = {};
+    if (vendorId) filters['vendor.vendorId'] = vendorId;
+    if (status) filters.status = status;
+
+    if (search) {
+      filters.$or = [
+        { reference: { $regex: search, $options: 'i' } },
+        { 'vendor.name': { $regex: search, $options: 'i' } },
+        { 'vendor.email': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const [rows, totalCount] = await Promise.all([
+      VendorAdvance.find(filters)
+        .sort({ paymentDate: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit, 10))
+        .lean(),
+      VendorAdvance.countDocuments(filters)
+    ]);
+
+    // Optional: resolve linked PO order numbers for `referenceType === 'purchase_order'`
+    const poIds = [
+      ...new Set(
+        rows
+          .filter((a) => a.referenceType === 'purchase_order' && a.referenceId)
+          .map((a) => String(a.referenceId))
+      )
+    ];
+    const poMap = {};
+    if (poIds.length > 0) {
+      const poDocs = await PurchaseOrder.find({ _id: { $in: poIds } }).select('orderNumber').lean();
+      poDocs.forEach((p) => { poMap[String(p._id)] = p.orderNumber; });
+    }
+
+    const advances = rows.map((a) => {
+      const amount = Number(a.amount || 0);
+      const applied = Number(a.appliedAmount || 0);
+      const remainingAmount = Math.round((amount - applied) * 100) / 100;
+      const allocations = Array.isArray(a.allocations)
+        ? a.allocations
+            .filter((al) => al && (al.billNumber || al.billId))
+            .map((al) => ({
+              billId: al.billId || null,
+              billNumber: al.billNumber || '',
+              amount: Math.round((Number(al.amount) || 0) * 100) / 100,
+              appliedAt: al.appliedAt || null
+            }))
+            .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
+        : [];
+      return {
+        _id: a._id,
+        vendor: a.vendor,
+        amount,
+        appliedAmount: applied,
+        remainingAmount,
+        paymentMethod: a.paymentMethod,
+        reference: a.reference,
+        paymentDate: a.paymentDate,
+        status: a.status,
+        referenceType: a.referenceType,
+        referenceId: a.referenceId,
+        linkedPoNumber: a.referenceType === 'purchase_order' && a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
+        allocations
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        advances,
+        pagination: {
+          currentPage: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          totalCount,
+          totalPages: Math.ceil(totalCount / parseInt(limit, 10))
+        }
+      }
+    });
+  })
+);
+
 // ================================
 // ACCOUNTS PAYABLE ROUTES
 // ================================
@@ -1089,7 +1289,8 @@ router.get('/accounts-payable',
               $subtract: [{ $subtract: ['$totalAmount', '$amountPaid'] }, '$advanceApplied']
             }
           },
-          totalPaid: { $sum: '$amountPaid' },
+          // "Paid" in AP dashboard means total settlement (cash/bank + advance applied).
+          totalPaid: { $sum: { $add: ['$amountPaid', '$advanceApplied'] } },
           totalOverdue: {
             $sum: {
               $cond: [
@@ -1122,7 +1323,11 @@ router.get('/accounts-payable',
       ...bill,
       vendorName: bill.vendor?.name || 'Unknown Vendor',
       vendorEmail: bill.vendor?.email || '',
+      // Keep both values explicit for UI/reporting:
+      // - paidAmount: cash/bank paid
+      // - settledAmount: cash/bank + advance applied
       paidAmount: bill.amountPaid || 0,
+      settledAmount: Math.round((((bill.amountPaid || 0) + (bill.advanceApplied || 0)) * 100)) / 100,
       advanceApplied: bill.advanceApplied || 0,
       outstandingAmount: Math.round(((bill.totalAmount || 0) - (bill.amountPaid || 0) - (bill.advanceApplied || 0)) * 100) / 100
     }));
@@ -1827,6 +2032,9 @@ router.get('/reports/trial-balance-v2',
   asyncHandler(async (req, res) => {
     const { asOfDate } = req.query;
     const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    // For date-only filters, include the full day so same-day posted entries
+    // (with non-midnight timestamps) are not accidentally excluded.
+    if (asOfDate) asOf.setHours(23, 59, 59, 999);
 
     // Aggregate all posted JE lines up to asOfDate, summing debit/credit per account
     const rows = await JournalEntry.aggregate([

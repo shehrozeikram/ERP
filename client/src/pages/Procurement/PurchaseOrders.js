@@ -461,6 +461,21 @@ const PurchaseOrders = () => {
     }
   };
 
+  const handleFinanceApprove = async (id) => {
+    try {
+      // Optional field in API; prompt keeps the flow unblocked without extra UI complexity.
+      const approvalComments = window.prompt('Finance approval comments (optional):', 'Approved by Finance') || '';
+      await api.put(`/procurement/purchase-orders/${id}/finance-approve`, {
+        approvalComments
+      });
+      setSuccess('Purchase order approved by Finance successfully');
+      loadPurchaseOrders();
+      loadStatistics();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to approve purchase order by Finance');
+    }
+  };
+
   const handleSendToPostGrnAudit = async (id) => {
     try {
       await api.post(`/procurement/store/po/${id}/send-to-audit`);
@@ -789,6 +804,13 @@ const PurchaseOrders = () => {
                       {order.status === 'Pending Approval' && (
                         <Tooltip title="Approve">
                           <IconButton size="small" color="success" onClick={() => handleApprove(order._id)}>
+                            <ApproveIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {order.status === 'Pending Finance' && (
+                        <Tooltip title="Finance Approve">
+                          <IconButton size="small" color="primary" onClick={() => handleFinanceApprove(order._id)}>
                             <ApproveIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>

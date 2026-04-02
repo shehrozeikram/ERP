@@ -126,28 +126,20 @@ async function run() {
   });
   if (!grn.data?.success) fail('GRN failed', grn.data);
   const grnNo = grn.data.data.receiveNumber;
+  const grnId = grn.data.data._id;
 
-  // Wait stock ready
-  for (let i = 0; i < 40; i += 1) {
-    const b = await api.get('/procurement/stock-balance', { params: { project: prj._id, item: invId, storeId: store._id } });
-    if ((Number(b.data?.data?.balance) || 0) >= sinQty) break;
-    // eslint-disable-next-line no-await-in-loop
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  const sin = await api.post('/procurement/goods-issue', {
-    issueDate: new Date().toISOString(), project: prj._id, store: store._id, issuingLocation: store.name || 'Main Store',
-    department: 'procurement', departmentName: 'Procurement', requestedBy: userId, requestedByName: 'E2E',
-    purpose: 'E2E', notes: 'E2E',
-    items: [{ inventoryItem: invId, qtyIssued: sinQty, quantity: sinQty, itemName: `E2E ADV Item ${stamp}`, itemCode: `E2E-ADV-${stamp}`, unit: 'bag' }]
+  // Procurement vendor bill from GRN (AP is not auto-created on PO approval in current flow)
+  const billCreate = await api.post('/procurement/vendor-bills', {
+    vendorId: ven._id,
+    grnIds: [grnId],
+    billDate: today,
+    paymentTerms: 'net_30',
+    vendorInvoiceNumber: `VINV-ADV-${stamp}`
   });
-  if (!sin.data?.success) fail('SIN failed', sin.data);
-  const sinNo = sin.data.data.issueNumber || sin.data.data.sinNumber;
+  if (billCreate.status !== 201 || !billCreate.data?.success) fail('Vendor bill creation failed', billCreate.data);
+  const bill = billCreate.data.data;
+  if (!bill?._id) fail('Vendor bill response missing id', billCreate.data);
 
-  // Apply advance to AP bill
-  const apList = await api.get('/finance/accounts-payable', { params: { search: poNo, limit: 20 } });
-  const bills = apList.data?.data?.bills || [];
-  const bill = bills.find((b) => String(b.billNumber || '').includes(poNo)) || bills[0];
-  if (!bill?._id) fail('AP bill not found', apList.data);
   const apply = await api.post(`/finance/accounts-payable/${bill._id}/apply-advance`, { amount: advanceAmt });
   if (!apply.data?.success) fail('Apply advance failed', apply.data);
   ok('Advance applied to bill', apply.data.data);
@@ -168,6 +160,22 @@ async function run() {
   const rem = Math.round(((billEnd.totalAmount || 0) - (billEnd.amountPaid || 0) - (billEnd.advanceApplied || 0)) * 100) / 100;
   if (Math.abs(rem) > 0.02) fail('Bill not fully settled', { remaining: rem, bill: billEnd.billNumber });
   ok('Bill fully settled with advance + payment');
+
+  // Wait stock ready, then SIN (matches “inventory issuance” after bill settlement in the advance workflow)
+  for (let i = 0; i < 40; i += 1) {
+    const b = await api.get('/procurement/stock-balance', { params: { project: prj._id, item: invId, storeId: store._id } });
+    if ((Number(b.data?.data?.balance) || 0) >= sinQty) break;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const sin = await api.post('/procurement/goods-issue', {
+    issueDate: new Date().toISOString(), project: prj._id, store: store._id, issuingLocation: store.name || 'Main Store',
+    department: 'procurement', departmentName: 'Procurement', requestedBy: userId, requestedByName: 'E2E',
+    purpose: 'E2E', notes: 'E2E',
+    items: [{ inventoryItem: invId, qtyIssued: sinQty, quantity: sinQty, itemName: `E2E ADV Item ${stamp}`, itemCode: `E2E-ADV-${stamp}`, unit: 'bag' }]
+  });
+  if (!sin.data?.success) fail('SIN failed', sin.data);
+  const sinNo = sin.data.data.issueNumber || sin.data.data.sinNumber;
 
   // Report health checks
   const asOf = new Date().toISOString().split('T')[0];

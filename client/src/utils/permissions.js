@@ -585,6 +585,7 @@ export const MODULES = {
         path: '/finance/accounts-payable',
         subItems: [
           { name: 'Vendor Bills',         path: '/finance/accounts-payable'     },
+          { name: 'Vendor Advance',       path: '/finance/vendor-advance'        },
           { name: 'Batch Payment',        path: '/finance/batch-payment'        },
           { name: 'Vendor Payments',      path: '/finance/vendor-payments'      },
           { name: 'Vendor Refunds',       path: '/finance/vendor-refunds'       },
@@ -1246,6 +1247,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/general-ledger': 'general_ledger',
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
+      '/finance/vendor-advance': 'accounts_payable',
       '/finance/banking': 'banking',
       '/finance/taxes': 'tax_management',
       '/finance/fixed-assets': 'fixed_assets',

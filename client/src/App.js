@@ -90,6 +90,7 @@ import AgedReceivables from './pages/Finance/AgedReceivables';
 import CustomerPayments from './pages/Finance/CustomerPayments';
 import CreditNotes from './pages/Finance/CreditNotes';
 import VendorPayments from './pages/Finance/VendorPayments';
+import VendorAdvance from './pages/Finance/VendorAdvance';
 import VendorRefunds from './pages/Finance/VendorRefunds';
 import BillToReceive from './pages/Finance/BillToReceive';
 import BilledNotReceived from './pages/Finance/BilledNotReceived';
@@ -1006,6 +1007,7 @@ function App() {
             <Route path="/finance/aged-receivables" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AgedReceivables /></ProtectedRoute>} />
             <Route path="/finance/customer-payments" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CustomerPayments /></ProtectedRoute>} />
             <Route path="/finance/credit-notes" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><CreditNotes /></ProtectedRoute>} />
+            <Route path="/finance/vendor-advance" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorAdvance /></ProtectedRoute>} />
             <Route path="/finance/vendor-payments" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorPayments /></ProtectedRoute>} />
             <Route path="/finance/vendor-refunds" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><VendorRefunds /></ProtectedRoute>} />
             <Route path="/finance/bill-to-receive" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BillToReceive /></ProtectedRoute>} />

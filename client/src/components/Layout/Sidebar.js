@@ -164,6 +164,7 @@ const Sidebar = () => {
       '/finance/general-ledger': 'general_ledger',
       '/finance/accounts-receivable': 'accounts_receivable',
       '/finance/accounts-payable': 'accounts_payable',
+      '/finance/vendor-advance': 'accounts_payable',
       '/finance/banking': 'banking',
       '/finance/taxes': 'tax_management',
       '/finance/fixed-assets': 'fixed_assets',

@@ -66,7 +66,76 @@ import ComparativeStatementView from '../../components/Procurement/ComparativeSt
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 
 const AccountsPayable = () => {
-  const getOutstanding = (bill) => Math.round((Number(bill?.outstandingAmount) || (Number(bill?.totalAmount) || 0) - (Number(bill?.paidAmount) || 0) - (Number(bill?.advanceApplied) || 0)) * 100) / 100;
+  const getPaidAmount = (bill) => {
+    // Backend responses are inconsistent: sometimes use `paidAmount`, sometimes `amountPaid`.
+    const paid = bill?.paidAmount ?? bill?.amountPaid ?? 0;
+    return Number(paid) || 0;
+  };
+  const getAdvanceAppliedAmount = (bill) => Number(bill?.advanceApplied || 0) || 0;
+  const getSettledAmount = (bill) => {
+    // Settlement on AP is cash/bank paid + vendor advance applied.
+    return Math.round((getPaidAmount(bill) + getAdvanceAppliedAmount(bill)) * 100) / 100;
+  };
+
+  const getOutstanding = (bill) => {
+    const total = Number(bill?.totalAmount || 0);
+    const adv = Number(bill?.advanceApplied || 0);
+    // Use `outstandingAmount` if the API provides it (even when it's `0`).
+    const outRaw = (bill?.outstandingAmount ?? (total - getPaidAmount(bill) - adv));
+    return Math.round((Number(outRaw) || 0) * 100) / 100;
+  };
+
+  const getCashPaidAmount = (bill) => {
+    const total = Number(bill?.totalAmount || 0);
+    const adv = Number(bill?.advanceApplied || 0);
+    const outstanding = getOutstanding(bill);
+    const cashPaid = total - adv - outstanding;
+    return Math.round((Number(cashPaid) || 0) * 100) / 100;
+  };
+
+  /**
+   * Per-GRN paid in Linked Documents: sum cash payments allocated to each GRN when present;
+   * spread any remaining settlement (e.g. vendor advance applied to the bill) across GRN
+   * lines by their bill portion so advance-only settlement still shows correct Paid / %.
+   */
+  const getLinkedGrnSettlementRows = (bill) => {
+    const linked = bill?.linkedGRNs || [];
+    if (!linked.length) return [];
+
+    const paidByGrn = {};
+    (bill?.payments || []).forEach((p) => {
+      (p?.allocations || []).forEach((a) => {
+        const key = String(a?.grnId || '');
+        if (!key) return;
+        paidByGrn[key] = (paidByGrn[key] || 0) + (Number(a?.amount) || 0);
+      });
+    });
+
+    const totalSettled = getSettledAmount(bill);
+    const rows = linked.map((ln) => {
+      const portion = Number(ln?.amount) || 0;
+      const key = String(ln?.grnId || '');
+      const fromAlloc = Math.min(portion, Number(paidByGrn[key] || 0));
+      return { ln, portion, fromAlloc };
+    });
+
+    const sumAlloc = rows.reduce((s, r) => s + r.fromAlloc, 0);
+    const remaining = Math.round((totalSettled - sumAlloc) * 100) / 100;
+    const sumCap = rows.reduce((s, r) => s + Math.max(0, r.portion - r.fromAlloc), 0);
+
+    return rows.map((r) => {
+      let paid = r.fromAlloc;
+      if (remaining > 0.01 && sumCap > 0) {
+        const cap = Math.max(0, r.portion - r.fromAlloc);
+        paid = Math.round((r.fromAlloc + (remaining * cap) / sumCap) * 100) / 100;
+        paid = Math.min(r.portion, paid);
+      }
+      const remainingByGrn = Math.max(0, Math.round((r.portion - paid) * 100) / 100);
+      const pct = r.portion > 0 ? Math.round((paid / r.portion) * 100) : 0;
+      return { ln: r.ln, portion: r.portion, paid, remainingByGrn, pct };
+    });
+  };
+
   const navigate = useNavigate();
   const theme = useTheme();
   
@@ -214,7 +283,10 @@ const AccountsPayable = () => {
       setBillViewTab(0);
       const response = await api.get(`/finance/accounts-payable/${bill._id}`);
       if (response.data.success) {
-        setSelectedBill(response.data.data);
+        const b = response.data.data;
+        setSelectedBill(b);
+        const o = getOutstanding(b);
+        setApplyAdvanceAmount(o > 0 ? String(o) : '');
         setViewDialogOpen(true);
       }
     } catch (error) {
@@ -481,6 +553,10 @@ const AccountsPayable = () => {
             </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="outlined" size="small" color="info"
+              onClick={() => navigate('/finance/vendor-advance')} sx={{ fontSize: 12 }}>
+              Vendor advance
+            </Button>
             <Button variant="outlined" size="small" color="primary"
               onClick={() => navigate('/finance/vendor-payments')} sx={{ fontSize: 12 }}>
               Payments
@@ -752,14 +828,7 @@ const AccountsPayable = () => {
                 {bills.map((bill) => {
                   const days = calculateAge(bill.billDate);
                   const outstanding = getOutstanding(bill);
-                  const paidByGrn = {};
-                  (bill?.payments || []).forEach((p) => {
-                    (p?.allocations || []).forEach((a) => {
-                      const key = String(a?.grnId || '');
-                      if (!key) return;
-                      paidByGrn[key] = (paidByGrn[key] || 0) + (Number(a?.amount) || 0);
-                    });
-                  });
+                  const grnSettlementRows = getLinkedGrnSettlementRows(bill);
                   return (
                     <React.Fragment key={bill._id}>
                       <TableRow hover>
@@ -786,7 +855,7 @@ const AccountsPayable = () => {
                         <TableCell><Typography variant="body2">{formatDate(bill.billDate)}</Typography></TableCell>
                         <TableCell><Typography variant="body2">{formatDate(bill.dueDate)}</Typography></TableCell>
                         <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(bill.totalAmount)}</Typography></TableCell>
-                        <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>{formatPKR(bill.paidAmount || 0)}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>{formatPKR(getSettledAmount(bill))}</Typography></TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" sx={{ fontWeight: 'bold', color: outstanding > 0 ? 'warning.main' : 'success.main' }}>
                             {formatPKR(outstanding)}
@@ -826,11 +895,8 @@ const AccountsPayable = () => {
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {bill.linkedGRNs.map((ln, idx) => {
-                                      const portion = Number(ln?.amount) || 0;
-                                      const paid = Math.min(portion, Number(paidByGrn[String(ln?.grnId)] || 0));
-                                      const remainingByGrn = Math.max(0, Math.round((portion - paid) * 100) / 100);
-                                      const pct = portion > 0 ? Math.round((paid / portion) * 100) : 0;
+                                    {grnSettlementRows.map((row, idx) => {
+                                      const { ln, portion, paid, remainingByGrn, pct } = row;
                                       return (
                                         <TableRow key={`${bill._id}-grn-${idx}`}>
                                           <TableCell>{ln?.grnNumber || '—'}</TableCell>
@@ -936,6 +1002,107 @@ const AccountsPayable = () => {
                   <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedBill.totalAmount)}</Typography>
                 </Grid>
               </Grid>
+
+              {/* GRN / non-PO bills: show settlement & apply advance (PO bills use Payment History tab) */}
+              {!(selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail) && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <HistoryIcon /> Payment &amp; advance
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
+                    <Grid container spacing={1}>
+                      <Grid item xs={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Bill Total</Typography>
+                        <Typography fontWeight={700}>{formatPKR(selectedBill?.totalAmount || 0)}</Typography>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Advance Applied</Typography>
+                        <Typography fontWeight={700} color="info.main">{formatPKR(selectedBill?.advanceApplied || 0)}</Typography>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Cash/Bank Paid</Typography>
+                        <Typography fontWeight={700} color="success.main">{formatPKR(getCashPaidAmount(selectedBill))}</Typography>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Outstanding</Typography>
+                        <Typography fontWeight={800} color="error.main">{formatPKR(getOutstanding(selectedBill))}</Typography>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                  {getOutstanding(selectedBill) > 0.01 && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
+                      <TextField
+                        size="small"
+                        label="Apply advance (PKR)"
+                        type="number"
+                        value={applyAdvanceAmount}
+                        onChange={(e) => setApplyAdvanceAmount(e.target.value)}
+                        inputProps={{ min: 0, step: 0.01 }}
+                        sx={{ minWidth: 200 }}
+                      />
+                      <Button
+                        variant="outlined"
+                        color="info"
+                        onClick={handleApplyAdvance}
+                        disabled={processingAdvance}
+                      >
+                        {processingAdvance ? 'Applying…' : 'Apply advance to bill'}
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        onClick={() => {
+                          setViewDialogOpen(false);
+                          handleOpenPayment(selectedBill);
+                        }}
+                      >
+                        Record bank/cash payment
+                      </Button>
+                    </Stack>
+                  )}
+                  {selectedBill.payments && selectedBill.payments.length > 0 ? (
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'grey.100' }}>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Date</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Method</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Reference</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }} align="right">Amount</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {selectedBill.payments.map((payment, index) => (
+                            <TableRow key={index}>
+                              <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                              <TableCell>{payment.paymentMethod?.replace('_', ' ')}</TableCell>
+                              <TableCell>{payment.reference || '—'}</TableCell>
+                              <TableCell align="right">{formatPKR(payment.amount)}</TableCell>
+                            </TableRow>
+                          ))}
+                          {(selectedBill?.advanceApplied || 0) > 0 && (
+                            <TableRow sx={{ bgcolor: 'info.50' }}>
+                              <TableCell>{formatDate(selectedBill?.updatedAt || selectedBill?.billDate)}</TableCell>
+                              <TableCell>advance adjustment</TableCell>
+                              <TableCell>Auto-applied to bill</TableCell>
+                              <TableCell align="right">{formatPKR(selectedBill.advanceApplied)}</TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  ) : (
+                    <>
+                      <Typography variant="body2" color="textSecondary">No cash/bank payments recorded yet</Typography>
+                      {(selectedBill?.advanceApplied || 0) > 0 && (
+                        <Typography variant="body2" sx={{ mt: 1 }} color="info.main">
+                          Advance adjustment applied: {formatPKR(selectedBill.advanceApplied)}
+                        </Typography>
+                      )}
+                    </>
+                  )}
+                </Box>
+              )}
 
               {/* PO-linked documents tabs */}
               {selectedBill.referenceType === 'purchase_order' && selectedBill.poDetail && (
@@ -1224,7 +1391,7 @@ const AccountsPayable = () => {
                           </Grid>
                           <Grid item xs={6} md={3}>
                             <Typography variant="caption" color="text.secondary">Cash/Bank Paid</Typography>
-                            <Typography fontWeight={700} color="success.main">{formatPKR(selectedBill?.paidAmount || 0)}</Typography>
+                        <Typography fontWeight={700} color="success.main">{formatPKR(getCashPaidAmount(selectedBill))}</Typography>
                           </Grid>
                           <Grid item xs={6} md={3}>
                             <Typography variant="caption" color="text.secondary">Outstanding</Typography>

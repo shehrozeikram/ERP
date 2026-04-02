@@ -754,6 +754,14 @@ const FinanceHelper = {
       adv.appliedAmount = Math.round(((Number(adv.appliedAmount) || 0) + applyAmount) * 100) / 100;
       const newRem = Math.round(((Number(adv.amount) || 0) - (Number(adv.appliedAmount) || 0)) * 100) / 100;
       adv.status = newRem <= 0.01 ? 'applied' : 'partially_applied';
+      // Keep a detailed allocation history for UI breakdown.
+      if (!Array.isArray(adv.allocations)) adv.allocations = [];
+      adv.allocations.push({
+        billId: bill._id,
+        billNumber: bill.billNumber,
+        amount: applyAmount,
+        appliedAt: new Date()
+      });
       await adv.save();
 
       adjustments.push({ advanceId: adv._id, reference: adv.reference, amount: applyAmount });

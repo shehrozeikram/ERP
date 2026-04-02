@@ -301,6 +301,7 @@ export default function FinanceDashboard() {
             path: '/finance/accounts-payable',
             sub: [
               { label: 'Vendor Bills',         path: '/finance/accounts-payable'    },
+              { label: 'Vendor Advance',       path: '/finance/vendor-advance'      },
               { label: 'Batch Payment',         path: '/finance/batch-payment'       },
               { label: 'Vendor Payments',       path: '/finance/vendor-payments'     },
               { label: 'Vendor Refunds',        path: '/finance/vendor-refunds'      },

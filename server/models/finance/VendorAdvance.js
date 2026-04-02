@@ -8,6 +8,16 @@ const vendorAdvanceSchema = new mongoose.Schema({
   },
   amount: { type: Number, required: true, min: 0 },
   appliedAmount: { type: Number, default: 0, min: 0 },
+  // Track how much of this advance was applied against which AP bills.
+  // This is used to display a proper “partial advance applied” history.
+  allocations: [
+    {
+      billId: { type: mongoose.Schema.Types.ObjectId, default: null },
+      billNumber: { type: String, default: '' },
+      amount: { type: Number, default: 0, min: 0 },
+      appliedAt: { type: Date, default: Date.now }
+    }
+  ],
   paymentMethod: {
     type: String,
     enum: ['cash', 'check', 'cheque', 'credit_card', 'bank_transfer', 'bank', 'ach', 'other'],
