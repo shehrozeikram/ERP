@@ -9,6 +9,32 @@ import {
   DoneAll as DoneAllIcon
 } from '@mui/icons-material';
 
+function toReadableTemplateText(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/\(.*?\)\s*$/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+function getBubbleText(m) {
+  const raw = String(m?.text || '').trim();
+  if (!raw) return '';
+  if (!raw.startsWith('[Campaign]')) return raw;
+  const campaignRaw = raw.replace(/^\[Campaign\]\s*/i, '').trim();
+  if (!campaignRaw) return 'Campaign message sent';
+  // If this is natural sentence text, keep it exactly as stored.
+  if (!/[_-]/.test(campaignRaw)) return campaignRaw;
+  const parts = campaignRaw.split('·').map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${toReadableTemplateText(parts[0])}: ${toReadableTemplateText(parts[1])}`;
+  }
+  return toReadableTemplateText(parts[0] || campaignRaw);
+}
+
 /**
  * Single bubble for recovery WhatsApp thread (My Tasks / Assignments / Completed).
  * Hover shows Reply / Forward / Delete like WhatsApp Web.
@@ -36,6 +62,7 @@ export default function RecoveryWhatsAppMessageBubble({
     : m.direction === 'in'
       ? "Customer messages can't be removed from this view"
       : 'Cannot delete';
+  const bubbleText = getBubbleText(m);
 
   return (
     <Box
@@ -83,27 +110,27 @@ export default function RecoveryWhatsAppMessageBubble({
               View image
             </Typography>
           </Box>
-          {m.text && (
+          {bubbleText && (
             <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>
-              {m.text}
+              {bubbleText}
             </Typography>
           )}
         </Box>
       ) : m.mediaUrl && m.mediaType === 'video' ? (
         <Box>
           <Box component="video" src={m.mediaUrl} controls sx={{ maxWidth: 260, maxHeight: 200, borderRadius: 1, display: 'block' }} />
-          {m.text && (
+          {bubbleText && (
             <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>
-              {m.text}
+              {bubbleText}
             </Typography>
           )}
         </Box>
       ) : m.mediaUrl && m.mediaType === 'audio' ? (
         <Box>
           <Box component="audio" src={m.mediaUrl} controls sx={{ maxWidth: 260, display: 'block' }} />
-          {m.text && (
+          {bubbleText && (
             <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.5 }}>
-              {m.text}
+              {bubbleText}
             </Typography>
           )}
         </Box>
@@ -121,16 +148,16 @@ export default function RecoveryWhatsAppMessageBubble({
             >
               {m.mediaFilename || 'Download attachment'}
             </Typography>
-            {m.text && (
+            {bubbleText && (
               <Typography variant="body2" sx={{ wordBreak: 'break-word', mt: 0.25 }}>
-                {m.text}
+                {bubbleText}
               </Typography>
             )}
           </Box>
         </Box>
       ) : (
         <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
-          {m.text || '(media)'}
+          {bubbleText || '(media)'}
         </Typography>
       )}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.25, mt: 0.25, flexWrap: 'wrap' }}>

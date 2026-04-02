@@ -356,6 +356,7 @@ const MyTasks = () => {
             campaignName: campaign.whatsappTemplateName
               ? `${campaign.whatsappTemplateName}${campaign.whatsappLanguageCode ? ` (${campaign.whatsappLanguageCode})` : ''}`
               : 'WhatsApp campaign',
+            campaignMessage: String(campaign.messagePreview || '').trim(),
             campaignId: campaign._id
           });
           successCount += 1;

@@ -74,7 +74,7 @@ const RecoveryCampaigns = () => {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
-  const [form, setForm] = useState({ whatsappTemplateName: '', whatsappLanguageCode: '' });
+  const [form, setForm] = useState({ whatsappTemplateName: '', whatsappLanguageCode: '', messagePreview: '' });
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -93,7 +93,7 @@ const RecoveryCampaigns = () => {
 
   const handleOpenAdd = () => {
     setEditingId(null);
-    setForm({ whatsappTemplateName: '', whatsappLanguageCode: '' });
+    setForm({ whatsappTemplateName: '', whatsappLanguageCode: '', messagePreview: '' });
     setDialogOpen(true);
   };
 
@@ -101,7 +101,8 @@ const RecoveryCampaigns = () => {
     setEditingId(c._id);
     setForm({
       whatsappTemplateName: c.whatsappTemplateName || '',
-      whatsappLanguageCode: c.whatsappLanguageCode || ''
+      whatsappLanguageCode: c.whatsappLanguageCode || '',
+      messagePreview: c.messagePreview || ''
     });
     setDialogOpen(true);
   };
@@ -121,13 +122,15 @@ const RecoveryCampaigns = () => {
       if (editingId) {
         await updateRecoveryCampaign(editingId, {
           whatsappTemplateName: form.whatsappTemplateName.trim(),
-          whatsappLanguageCode: form.whatsappLanguageCode?.trim() || ''
+          whatsappLanguageCode: form.whatsappLanguageCode?.trim() || '',
+          messagePreview: form.messagePreview?.trim() || ''
         });
         setSnackbar({ open: true, message: 'Campaign updated', severity: 'success' });
       } else {
         await createRecoveryCampaign({
           whatsappTemplateName: form.whatsappTemplateName.trim(),
-          whatsappLanguageCode: form.whatsappLanguageCode?.trim() || ''
+          whatsappLanguageCode: form.whatsappLanguageCode?.trim() || '',
+          messagePreview: form.messagePreview?.trim() || ''
         });
         setSnackbar({ open: true, message: 'Campaign created', severity: 'success' });
       }
@@ -184,6 +187,7 @@ const RecoveryCampaigns = () => {
                   <TableRow>
                     <TableCell><strong>Template name (Meta)</strong></TableCell>
                     <TableCell><strong>Language</strong></TableCell>
+                    <TableCell><strong>Message preview</strong></TableCell>
                     <TableCell><strong>Created by</strong></TableCell>
                     <TableCell><strong>Created</strong></TableCell>
                     <TableCell><strong>Status</strong></TableCell>
@@ -195,6 +199,11 @@ const RecoveryCampaigns = () => {
                     <TableRow key={c._id}>
                       <TableCell><Typography fontWeight={500}>{c.whatsappTemplateName || '—'}</Typography></TableCell>
                       <TableCell>{c.whatsappLanguageCode || '—'}</TableCell>
+                      <TableCell sx={{ maxWidth: 320 }}>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {String(c.messagePreview || '').trim() || '—'}
+                        </Typography>
+                      </TableCell>
                       <TableCell>{getCreatedByName(c)}</TableCell>
                       <TableCell>{formatDate(c.createdAt)}</TableCell>
                       <TableCell><Chip size="small" label={c.isActive !== false ? 'Active' : 'Inactive'} color={c.isActive !== false ? 'success' : 'default'} variant="outlined" /></TableCell>
@@ -240,6 +249,16 @@ const RecoveryCampaigns = () => {
               ))}
             </Select>
           </FormControl>
+          <TextField
+            fullWidth
+            label="Message preview shown in replies"
+            value={form.messagePreview}
+            onChange={(e) => setForm((f) => ({ ...f, messagePreview: e.target.value }))}
+            margin="normal"
+            multiline
+            minRows={3}
+            placeholder="Write the exact campaign message text you want visible in View replies."
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>

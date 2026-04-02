@@ -1181,7 +1181,7 @@ router.post(
   '/send-whatsapp',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { to, body, template, assignmentId, campaignName, campaignId, mediaType, mediaUrl, mediaId } = req.body;
+    const { to, body, template, assignmentId, campaignName, campaignMessage, campaignId, mediaType, mediaUrl, mediaId } = req.body;
     let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
     if (phone.startsWith('0')) phone = phone.slice(1);
     // Add Pakistan country code for 10-digit mobile numbers (e.g. 3xxxxxxxxx)
@@ -1331,15 +1331,25 @@ router.post(
         let displayText = '';
         if (campaignId) {
           const campaign = await RecoveryCampaign.findById(campaignId).lean();
-          const cname = (campaignName && String(campaignName).trim()) || 'Campaign';
-          const tpl =
-            (campaign && campaign.whatsappTemplateName) ||
-            (typeof sentAs === 'string' && sentAs !== 'template' ? sentAs : '');
-          displayText = tpl ? `[Campaign] ${cname} · ${tpl}` : `[Campaign] ${cname}`;
+          const preview =
+            (campaignMessage && String(campaignMessage).trim()) ||
+            (campaign && String(campaign.messagePreview || '').trim());
+          if (preview) {
+            displayText = `[Campaign] ${preview}`;
+          } else {
+            const cname = (campaignName && String(campaignName).trim()) || 'Campaign';
+            const tpl =
+              (campaign && campaign.whatsappTemplateName) ||
+              (typeof sentAs === 'string' && sentAs !== 'template' ? sentAs : '');
+            displayText = tpl ? `[Campaign] ${cname} · ${tpl}` : `[Campaign] ${cname}`;
+          }
         } else if (campaignName) {
-          displayText = `[Campaign] ${String(campaignName).trim()}${
-            sentAs && sentAs !== 'template' ? ` · ${sentAs}` : ''
-          }`;
+          const preview = campaignMessage && String(campaignMessage).trim();
+          displayText = preview
+            ? `[Campaign] ${preview}`
+            : `[Campaign] ${String(campaignName).trim()}${
+                sentAs && sentAs !== 'template' ? ` · ${sentAs}` : ''
+              }`;
         } else {
           displayText = `(WhatsApp template: ${sentAs})`;
         }

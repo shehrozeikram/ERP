@@ -16,6 +16,11 @@ const recoveryCampaignSchema = new mongoose.Schema(
       trim: true,
       default: ''
     },
+    messagePreview: {
+      type: String,
+      trim: true,
+      default: ''
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
