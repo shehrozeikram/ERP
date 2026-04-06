@@ -61,9 +61,11 @@ const isTokenExpiringSoon = (token) => {
 // Error detection utilities
 const isAuthError = (error) => error.response?.status === 401 || error.response?.status === 403;
 const isRateLimitError = (error) => error.response?.status === 429;
+const isTransientGatewayError = (error) =>
+  [502, 503, 504].includes(error.response?.status);
 const isNetworkError = (error) => 
   !error.response || 
-  ['ECONNABORTED', 'NETWORK_ERROR', 'ERR_NETWORK'].includes(error.code) ||
+  ['ECONNABORTED', 'NETWORK_ERROR', 'ERR_NETWORK', 'ETIMEDOUT'].includes(error.code) ||
   error.message?.includes('timeout') ||
   error.message?.includes('Network Error');
 
@@ -189,7 +191,10 @@ export const AuthProvider = ({ children }) => {
             if (isAuthError(error)) {
               localStorage.removeItem('token');
               dispatch({ type: 'LOGIN_FAILURE', payload: 'Session expired' });
-            } else if (isNetworkError(error) && retryCount < MAX_RETRIES) {
+            } else if (
+              (isNetworkError(error) || isTransientGatewayError(error)) &&
+              retryCount < MAX_RETRIES
+            ) {
               const delay = RETRY_DELAYS[retryCount] || 3000;
               retryCount++;
               setTimeout(() => isMounted && checkAuth(), delay);

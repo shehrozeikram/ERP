@@ -2,7 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { body, validationResult } = require('express-validator');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { authMiddleware, authorize } = require('../middleware/auth');
+const { authMiddleware, authorize, refreshAuthMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
 const User = require('../models/User');
 const Department = require('../models/hr/Department');
@@ -277,7 +277,7 @@ router.post('/login', [
 // @route   POST /api/auth/refresh-token
 // @desc    Refresh JWT token (issue new token if current one is valid)
 // @access  Private
-router.post('/refresh-token', authMiddleware, asyncHandler(async (req, res) => {
+router.post('/refresh-token', refreshAuthMiddleware, asyncHandler(async (req, res) => {
   try {
     // User is already authenticated via authMiddleware
     // Populate RBAC roles + legacy sub-roles before generating new token

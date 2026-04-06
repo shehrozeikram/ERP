@@ -33,6 +33,60 @@ const verifyToken = (token) => {
   }
 };
 
+/** Max seconds after access-token expiry during which POST /auth/refresh-token may still issue a new token (sliding session). */
+const REFRESH_GRACE_SEC = Math.max(
+  60,
+  parseInt(process.env.JWT_REFRESH_GRACE_SECONDS || String(7 * 24 * 60 * 60), 10)
+);
+
+/**
+ * Like authMiddleware but allows an *expired* JWT within REFRESH_GRACE_SEC (for refresh-token only).
+ * Prevents "logout mid long request" when the access JWT expires before the client gets a new one.
+ */
+const refreshAuthMiddleware = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) return sendError(res, 401, 'Access denied. No token provided.');
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      if (jwtError.name === 'TokenExpiredError') {
+        try {
+          decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+        } catch {
+          return sendError(res, 401, 'Invalid token.');
+        }
+        const now = Math.floor(Date.now() / 1000);
+        if (decoded.exp && now - decoded.exp > REFRESH_GRACE_SEC) {
+          return sendError(res, 401, 'Session expired. Please login again.');
+        }
+      } else {
+        return sendError(res, 401, 'Invalid token.');
+      }
+    }
+
+    const { user, error: dbError } = await fetchUser(decoded.userId);
+    if (dbError) {
+      if (isDbError(dbError)) {
+        console.error('⚠️ Database error in refresh auth middleware:', dbError.message);
+        return sendError(res, 503, 'Service temporarily unavailable. Please try again in a moment.');
+      }
+      throw dbError;
+    }
+
+    if (!user) return sendError(res, 401, 'Invalid token. User not found.');
+    if (!user.isActive) return sendError(res, 401, 'Account is deactivated. Please contact administrator.');
+
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('Refresh auth middleware error:', error);
+    return sendError(res, 500, 'Server error in authentication.');
+  }
+};
+
 const fetchUser = async (userId) => {
   try {
     const user = await User.findById(userId)
@@ -253,6 +307,7 @@ const authorize = (...roles) => {
 
 module.exports = {
   authMiddleware,
+  refreshAuthMiddleware,
   optionalAuth,
   authorize
 }; 

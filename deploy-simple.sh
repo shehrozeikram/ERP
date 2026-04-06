@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # 🚀 SGC ERP - Simple Deployment Script (Memory-Safe)
-# Builds locally and deploys to server without server-side build
+# Builds locally and deploys to server without server-side build.
+#
+# This single script also applies nginx (deploy/nginx-sgc-erp.conf via
+# scripts/nginx-production-setup.sh) so you do not run nginx steps separately.
 
 set -e
 
@@ -93,9 +96,14 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
     echo "📁 Copying build files to web root..."
     cp -r /var/www/sgc-erp/client/build/* /var/www/html/
     
-    # Reload nginx to serve new files
-    echo "🔄 Reloading nginx..."
-    systemctl reload nginx
+    # Nginx: install single vhost (removes duplicate server_name with default site)
+    if [ -f scripts/nginx-production-setup.sh ]; then
+        echo "🔄 Applying nginx config (scripts/nginx-production-setup.sh)..."
+        bash scripts/nginx-production-setup.sh
+    else
+        echo "🔄 Reloading nginx (no scripts/nginx-production-setup.sh yet)..."
+        systemctl reload nginx
+    fi
     
     # Start app
     echo "🚀 Starting application..."
