@@ -64,7 +64,15 @@ import {
   updatePaymentStatus,
   deletePayment
 } from '../../../services/tajRentalManagementService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getRentCalculation } from '../../../services/propertyInvoiceService';
+import {
+  createInvoice,
+  updateInvoice,
+  fetchInvoicesForProperty,
+  deleteInvoice,
+  deletePaymentFromInvoice,
+  getRentCalculation,
+  bulkCreateRentInvoices
+} from '../../../services/propertyInvoiceService';
 import { generateRentInvoicePDF as generateRentInvoicePDFUtil, outputPDF } from '../../../utils/invoicePDFGenerators';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
@@ -693,9 +701,7 @@ const RentalManagement = () => {
       setError('');
       setSuccess('');
       setBulkCreateDialogOpen(false);
-      // Clear any existing indicators from previous bulk create
       setPropertiesWithInvoicesCreated(new Set());
-      // Clear any existing timeout
       if (clearIndicatorsTimeoutRef.current) {
         clearTimeout(clearIndicatorsTimeoutRef.current);
         clearIndicatorsTimeoutRef.current = null;
@@ -705,12 +711,9 @@ const RentalManagement = () => {
       const periodTo = new Date(bulkCreateInvoiceData.periodTo);
       const invoiceDate = new Date(bulkCreateInvoiceData.invoiceDate);
       const dueDate = new Date(bulkCreateInvoiceData.dueDate);
-      const targetMonthStartMs = dayjs(bulkCreateInvoiceData.periodFrom).startOf('month').startOf('day').valueOf();
-      const targetMonthEndMs = dayjs(bulkCreateInvoiceData.periodFrom).endOf('month').endOf('day').valueOf();
 
-      // Use filtered properties (already filtered by backend based on search/filters)
       const propertiesToProcess = filteredProperties;
-      
+
       if (propertiesToProcess.length === 0) {
         setError('No properties found to create invoices for');
         setBulkCreating(false);
@@ -719,147 +722,34 @@ const RentalManagement = () => {
 
       setSuccess(`Creating invoices for ${propertiesToProcess.length} property(ies)...`);
 
-      let createdCount = 0;
-      let skippedCount = 0;
-      let errorCount = 0;
+      const propertyIds = propertiesToProcess.map((p) => p._id);
+      const res = await bulkCreateRentInvoices({
+        propertyIds,
+        periodFrom: periodFrom.toISOString(),
+        periodTo: periodTo.toISOString(),
+        dueDate: dueDate.toISOString(),
+        invoiceDate: invoiceDate.toISOString()
+      });
 
-      // Production is slower / more rate-limited; keep concurrency lower to avoid timeouts.
-      const batchSize = process.env.NODE_ENV === 'production' ? 5 : 10;
-      for (let i = 0; i < propertiesToProcess.length; i += batchSize) {
-        const batch = propertiesToProcess.slice(i, i + batchSize);
-        
-        await Promise.all(
-          batch.map(async (property) => {
-            try {
-              console.log(`[RENTAL-BULK] Processing: ${property.propertyName || property.propertyCode} (${property._id})`);
-              console.log(`[RENTAL-BULK]   Tenant from property:`, property.tenantName || '(empty)');
-              
-              // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
-              // Cache can be stale (e.g. after delete script or if property was expanded before delete),
-              // causing Shop 1 & 2 (or others) to be incorrectly skipped in production.
-              let invoices = [];
-              try {
-                const response = await fetchInvoicesForProperty(property._id);
-                invoices = response.data?.data || [];
-                console.log(`[RENTAL-BULK]   Found ${invoices.length} existing invoices`);
-                setPropertyInvoices(prev => ({
-                  ...prev,
-                  [property._id]: invoices
-                }));
-              } catch (err) {
-                console.error(`[RENTAL-BULK] Error loading invoices for property ${property._id}:`, err);
-              }
+      const summary = res?.data?.summary;
+      const results = res?.data?.results || [];
+      const createdIds = results.filter((r) => r.status === 'created').map((r) => String(r.propertyId));
 
-              // IMPORTANT: Backend duplicate logic is month-based (not exact day match).
-              // In production some invoices have slightly different day/time ranges, so we skip if ANY RENT invoice overlaps this month.
-              const invoiceExists = invoices.some((invoice) => {
-                if (!invoice?.chargeTypes?.includes('RENT')) return false;
-                const invFromMs = invoice.periodFrom ? dayjs(invoice.periodFrom).startOf('day').valueOf() : null;
-                const invToMs = invoice.periodTo ? dayjs(invoice.periodTo).endOf('day').valueOf() : null;
-                const startMs = invFromMs ?? invToMs;
-                const endMs = invToMs ?? invFromMs;
-                if (startMs === null || endMs === null) return false;
-                return startMs <= targetMonthEndMs && endMs >= targetMonthStartMs;
-              });
-
-              if (invoiceExists) {
-                console.log(`[RENTAL-BULK]   ⏭️ SKIPPED (invoice already exists for this month)`);
-                skippedCount++;
-                return;
-              }
-
-              // Fetch rent calculation (monthly rent + RENT-only arrears, same as individual create)
-              let monthlyRent = 0;
-              let arrears = 0;
-              let carryForwardArrears = 0;
-              console.log(`[RENTAL-BULK]   Fetching rent calculation...`);
-              const rentRes = await getRentCalculation(property._id);
-              const rentData = rentRes?.data?.data;
-              console.log(`[RENTAL-BULK]   Rent calculation response:`, rentData);
-              if (!rentData) {
-                throw new Error('Rent calculation failed (empty response)');
-              }
-              monthlyRent = rentData.monthlyRent || 0;
-              arrears = rentData.totalArrears || 0;
-              carryForwardArrears = rentData.carryForwardArrears || 0;
-              console.log(`[RENTAL-BULK]   Rent: ${monthlyRent}, Arrears: ${arrears}, CarryForward: ${carryForwardArrears}`);
-
-              const rentDescription = carryForwardArrears > 0 
-                ? 'Rental Charges (with Carry Forward Arrears)' 
-                : 'Rental Charges';
-
-              const charges = [{
-                type: 'RENT',
-                description: rentDescription,
-                amount: monthlyRent,
-                arrears: arrears,
-                total: monthlyRent + arrears
-              }];
-
-              // Create invoice (same payload as individual create)
-              try {
-                await createInvoice(property._id, {
-                  includeCAM: false,
-                  includeElectricity: false,
-                  includeRent: true,
-                  invoiceDate: invoiceDate,
-                  periodFrom: periodFrom,
-                  periodTo: periodTo,
-                  dueDate: dueDate,
-                  charges
-                });
-              } catch (err) {
-                const msg = String(err?.response?.data?.message || err?.message || '');
-                console.log(`[RENTAL-BULK]   ❌ Create invoice error:`, msg);
-                // If backend rejects as duplicate, treat as skipped (common in production due to month-based duplicate checks).
-                if (/already exists|duplicate/i.test(msg)) {
-                  console.log(`[RENTAL-BULK]   ⏭️ SKIPPED (backend duplicate check)`);
-                  skippedCount++;
-                  return;
-                }
-                throw err;
-              }
-
-              console.log(`[RENTAL-BULK]   ✅ Invoice created successfully`);
-              createdCount++;
-              
-              // Track this property as having invoice created (for visual indicator)
-              setPropertiesWithInvoicesCreated(prev => new Set([...prev, property._id]));
-              
-              try {
-                const invoiceResponse = await fetchInvoicesForProperty(property._id);
-                setPropertyInvoices(prev => ({
-                  ...prev,
-                  [property._id]: invoiceResponse.data?.data || []
-                }));
-              } catch (err) {
-                console.error(`Error refreshing invoices for property ${property._id}:`, err);
-              }
-            } catch (err) {
-              errorCount++;
-              console.error(`[RENTAL-BULK] ❌ FAILED for ${property.propertyName}:`, err?.response?.data?.message || err.message);
-            }
-          })
-        );
-
-        if (i + batchSize < propertiesToProcess.length) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-
-        setSuccess(`Creating invoices... ${Math.min(i + batch.length, propertiesToProcess.length)} of ${propertiesToProcess.length} processed`);
+      if (createdIds.length > 0) {
+        setPropertiesWithInvoicesCreated(new Set(createdIds));
       }
 
-      let resultMessage = `Successfully created ${createdCount} invoice(s)`;
-      if (skippedCount > 0) {
-        resultMessage += `, skipped ${skippedCount} (already exist)`;
+      await loadData();
+
+      let resultMessage = `Successfully created ${summary?.createdCount ?? 0} invoice(s)`;
+      if (summary?.skippedCount > 0) {
+        resultMessage += `, skipped ${summary.skippedCount} (already exist)`;
       }
-      if (errorCount > 0) {
-        resultMessage += `, ${errorCount} failed`;
+      if (summary?.failedCount > 0) {
+        resultMessage += `, ${summary.failedCount} failed`;
       }
       setSuccess(resultMessage);
 
-      // Clear visual indicators after 2 minutes (120000 ms)
-      // Clear any existing timeout first
       if (clearIndicatorsTimeoutRef.current) {
         clearTimeout(clearIndicatorsTimeoutRef.current);
       }
@@ -867,10 +757,9 @@ const RentalManagement = () => {
         setPropertiesWithInvoicesCreated(new Set());
         clearIndicatorsTimeoutRef.current = null;
       }, 120000);
-
     } catch (err) {
       console.error('Bulk create error:', err);
-      setError('Failed to create invoices. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Failed to create invoices. Please try again.');
     } finally {
       setBulkCreating(false);
     }
@@ -1967,7 +1856,7 @@ const RentalManagement = () => {
                               {property.propertyType} • {property.area?.value} {property.area?.unit}
                             </Typography>
                           </Box>
-                          {propertiesWithInvoicesCreated.has(property._id) && (
+                          {propertiesWithInvoicesCreated.has(String(property._id)) && (
                             <Tooltip title="Invoice created successfully">
                               <CheckCircleIcon sx={{ color: 'success.main', fontSize: 20 }} />
                             </Tooltip>

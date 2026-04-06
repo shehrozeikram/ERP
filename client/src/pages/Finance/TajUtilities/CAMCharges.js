@@ -58,7 +58,15 @@ import {
   addPaymentToPropertyCAM,
   deletePaymentFromCAMCharge
 } from '../../../services/camChargesService';
-import { createInvoice, updateInvoice, fetchInvoicesForProperty, deleteInvoice, deletePaymentFromInvoice, getCAMCalculation } from '../../../services/propertyInvoiceService';
+import {
+  createInvoice,
+  updateInvoice,
+  fetchInvoicesForProperty,
+  deleteInvoice,
+  deletePaymentFromInvoice,
+  getCAMCalculation,
+  bulkCreateCamInvoices
+} from '../../../services/propertyInvoiceService';
 import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import { generateCAMInvoicePDF as generateCAMInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
 import api from '../../../services/api';
@@ -614,23 +622,19 @@ const CAMCharges = () => {
       setError('');
       setSuccess('');
       setBulkCreateDialogOpen(false);
-      // Clear any existing indicators from previous bulk create
       setPropertiesWithInvoicesCreated(new Set());
-      // Clear any existing timeout
       if (clearIndicatorsTimeoutRef.current) {
         clearTimeout(clearIndicatorsTimeoutRef.current);
         clearIndicatorsTimeoutRef.current = null;
       }
 
-      // Use dates from dialog
       const periodFrom = new Date(bulkCreateInvoiceData.periodFrom);
       const periodTo = new Date(bulkCreateInvoiceData.periodTo);
       const invoiceDate = new Date(bulkCreateInvoiceData.invoiceDate);
       const dueDate = new Date(bulkCreateInvoiceData.dueDate);
 
-      // Get all active properties (or filtered properties)
       const propertiesToProcess = filteredProperties.length > 0 ? filteredProperties : properties;
-      
+
       if (propertiesToProcess.length === 0) {
         setError('No properties found to create invoices for');
         setBulkCreating(false);
@@ -639,130 +643,34 @@ const CAMCharges = () => {
 
       setSuccess(`Creating invoices for ${propertiesToProcess.length} property(ies)...`);
 
-      let createdCount = 0;
-      let skippedCount = 0;
-      let errorCount = 0;
+      const propertyIds = propertiesToProcess.map((p) => p._id);
+      const res = await bulkCreateCamInvoices({
+        propertyIds,
+        periodFrom: periodFrom.toISOString(),
+        periodTo: periodTo.toISOString(),
+        dueDate: dueDate.toISOString(),
+        invoiceDate: invoiceDate.toISOString()
+      });
 
-      // Process properties in batches
-      const batchSize = 10;
-      for (let i = 0; i < propertiesToProcess.length; i += batchSize) {
-        const batch = propertiesToProcess.slice(i, i + batchSize);
-        
-        await Promise.all(
-          batch.map(async (property) => {
-            try {
-              // Always fetch fresh invoice data during bulk create - do not use cached propertyInvoices.
-              // Cache can be stale and cause properties to be incorrectly skipped.
-              let invoices = [];
-              try {
-                const response = await fetchInvoicesForProperty(property._id);
-                invoices = response.data?.data || [];
-                setPropertyInvoices(prev => ({
-                  ...prev,
-                  [property._id]: invoices
-                }));
-              } catch (err) {
-                console.error(`Error loading invoices for property ${property._id}:`, err);
-              }
+      const summary = res?.data?.summary;
+      const results = res?.data?.results || [];
+      const createdIds = results.filter((r) => r.status === 'created').map((r) => String(r.propertyId));
 
-              // Only check for CAM invoices - RENT/ELECTRICITY invoices for same period must not skip CAM creation.
-              // Use month overlap (backend duplicate check is month-based).
-              const targetMonthStart = dayjs(bulkCreateInvoiceData.periodFrom).startOf('month');
-              const targetMonthEnd = dayjs(bulkCreateInvoiceData.periodFrom).endOf('month');
-              const camInvoiceExists = invoices.some((invoice) => {
-                if (!invoice?.chargeTypes?.includes('CAM')) return false;
-                const invFrom = invoice.periodFrom ? dayjs(invoice.periodFrom).startOf('day').valueOf() : null;
-                const invTo = invoice.periodTo ? dayjs(invoice.periodTo).endOf('day').valueOf() : null;
-                const start = invFrom ?? invTo;
-                const end = invTo ?? invFrom;
-                if (start == null || end == null) return false;
-                return start <= targetMonthEnd.valueOf() && end >= targetMonthStart.valueOf();
-              });
-
-              if (camInvoiceExists) {
-                skippedCount++;
-                return;
-              }
-
-              // Fetch CAM amount from charges slabs + CAM-only arrears (same as individual create)
-              let camAmount = 0;
-              let camArrears = 0;
-              let camDescription = 'CAM Charges';
-              try {
-                const camRes = await getCAMCalculation(property._id);
-                const camData = camRes?.data?.data;
-                if (camData) {
-                  camAmount = Number(camData.amount) || 0;
-                  camArrears = Number(camData.arrears) || 0;
-                  camDescription = camData.description || camDescription;
-                }
-              } catch (err) {
-                console.error(`Error fetching CAM calculation for property ${property._id}:`, err);
-              }
-
-              const charges = [{
-                type: 'CAM',
-                description: camDescription,
-                amount: camAmount,
-                arrears: camArrears,
-                total: camAmount + camArrears
-              }];
-
-              // Create invoice for this property (same payload as individual create)
-              await createInvoice(property._id, {
-                includeCAM: true,
-                includeElectricity: false,
-                includeRent: false,
-                invoiceDate: invoiceDate,
-                periodFrom: periodFrom,
-                periodTo: periodTo,
-                dueDate: dueDate,
-                charges
-              });
-
-              createdCount++;
-              
-              // Track this property as having invoice created (for visual indicator)
-              setPropertiesWithInvoicesCreated(prev => new Set([...prev, property._id]));
-              
-              // Refresh invoices for this property
-              try {
-                const invoiceResponse = await fetchInvoicesForProperty(property._id);
-                setPropertyInvoices(prev => ({
-                  ...prev,
-                  [property._id]: invoiceResponse.data?.data || []
-                }));
-              } catch (err) {
-                console.error(`Error refreshing invoices for property ${property._id}:`, err);
-              }
-            } catch (err) {
-              errorCount++;
-              console.error(`Error creating invoice for property ${property._id}:`, err);
-            }
-          })
-        );
-
-        // Small delay between batches
-        if (i + batchSize < propertiesToProcess.length) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-
-        // Update progress
-        setSuccess(`Creating invoices... ${Math.min(i + batch.length, propertiesToProcess.length)} of ${propertiesToProcess.length} processed`);
+      if (createdIds.length > 0) {
+        setPropertiesWithInvoicesCreated(new Set(createdIds));
       }
 
-      // Show results
-      let resultMessage = `Successfully created ${createdCount} invoice(s)`;
-      if (skippedCount > 0) {
-        resultMessage += `, skipped ${skippedCount} (already exist)`;
+      await loadProperties();
+
+      let resultMessage = `Successfully created ${summary?.createdCount ?? 0} invoice(s)`;
+      if (summary?.skippedCount > 0) {
+        resultMessage += `, skipped ${summary.skippedCount} (already exist)`;
       }
-      if (errorCount > 0) {
-        resultMessage += `, ${errorCount} failed`;
+      if (summary?.failedCount > 0) {
+        resultMessage += `, ${summary.failedCount} failed`;
       }
       setSuccess(resultMessage);
 
-      // Clear visual indicators after 2 minutes (120000 ms)
-      // Clear any existing timeout first
       if (clearIndicatorsTimeoutRef.current) {
         clearTimeout(clearIndicatorsTimeoutRef.current);
       }
@@ -770,10 +678,9 @@ const CAMCharges = () => {
         setPropertiesWithInvoicesCreated(new Set());
         clearIndicatorsTimeoutRef.current = null;
       }, 120000);
-
     } catch (err) {
       console.error('Bulk create error:', err);
-      setError('Failed to create invoices. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Failed to create invoices. Please try again.');
     } finally {
       setBulkCreating(false);
     }
@@ -2018,7 +1925,7 @@ const CAMCharges = () => {
                                 {property.plotNumber || '—'} / {property.rdaNumber || '—'}
                               </Typography>
                             </Box>
-                            {propertiesWithInvoicesCreated.has(property._id) && (
+                            {propertiesWithInvoicesCreated.has(String(property._id)) && (
                               <Tooltip title="Invoice created successfully">
                                 <CheckCircleIcon sx={{ color: 'success.main', fontSize: 20 }} />
                               </Tooltip>

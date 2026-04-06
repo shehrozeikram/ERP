@@ -280,7 +280,9 @@ if (NODE_ENV === 'production') {
         p.includes('/auth/refresh-token') ||
         p.includes('/auth/me') ||
         p.includes('/webhooks/whatsapp') ||
-        p.includes('/send-whatsapp')
+        p.includes('/send-whatsapp') ||
+        p.includes('/bulk-create-cam-invoices') ||
+        p.includes('/bulk-create-rent-invoices')
       );
     }
   });

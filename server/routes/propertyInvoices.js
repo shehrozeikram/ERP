@@ -530,8 +530,8 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
   }
 }));
 
-// Create invoice for a property
-router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, res) => {
+// Create invoice for a property (shared by POST /property/:id and Taj bulk-create endpoints)
+async function createPropertyInvoiceForProperty(req, res) {
   try {
     const property = await TajProperty.findById(req.params.propertyId)
       .populate('rentalAgreement');
@@ -1564,6 +1564,301 @@ router.post('/property/:propertyId', authMiddleware, asyncHandler(async (req, re
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+}
+
+router.post('/property/:propertyId', authMiddleware, asyncHandler(createPropertyInvoiceForProperty));
+
+/** Run createPropertyInvoiceForProperty and capture the first res.json (for Taj bulk endpoints). */
+function invokeCreatePropertyInvoice(mockReq) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const res = {
+      statusCode: 200,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        if (!settled) {
+          settled = true;
+          resolve({ statusCode: this.statusCode, body: payload });
+        }
+      }
+    };
+    Promise.resolve(createPropertyInvoiceForProperty(mockReq, res)).catch((err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+  });
+}
+
+function invoiceOverlapsBulkMonth(invoice, chargeType, monthStartMs, monthEndMs) {
+  if (!invoice?.chargeTypes?.includes(chargeType)) return false;
+  const invFromMs = invoice.periodFrom ? dayjs(invoice.periodFrom).startOf('day').valueOf() : null;
+  const invToMs = invoice.periodTo ? dayjs(invoice.periodTo).endOf('day').valueOf() : null;
+  const startMs = invFromMs ?? invToMs;
+  const endMs = invToMs ?? invFromMs;
+  if (startMs === null || endMs === null) return false;
+  return startMs <= monthEndMs && endMs >= monthStartMs;
+}
+
+async function buildCamChargesArray(property) {
+  const propertySize = property.areaValue ?? 0;
+  const areaUnit = property.areaUnit || 'Marla';
+  const zoneType = property.zoneType || 'Residential';
+  const camChargeInfo = await getCAMChargeForProperty(propertySize, areaUnit, zoneType);
+  const amount = camChargeInfo?.amount ?? 0;
+  const arrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
+  let description = 'CAM Charges';
+  if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
+    description = 'Commercial CAM Charges';
+  } else if (propertySize > 0) {
+    description = `CAM Charges (${propertySize} ${areaUnit})`;
+  }
+  if (arrears > 0) description += ' (with Carry Forward Arrears)';
+  return [
+    {
+      type: 'CAM',
+      description,
+      amount,
+      arrears,
+      total: Math.round((amount + arrears) * 100) / 100
+    }
+  ];
+}
+
+async function buildRentChargesArray(property) {
+  const rentCarryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['RENT']);
+  let monthlyRent = 0;
+  let arrearsFromPayment = 0;
+  if (property.rentalAgreement?.monthlyRent) {
+    monthlyRent = property.rentalAgreement.monthlyRent || 0;
+  } else if (property.categoryType === 'Personal Rent' && property.rentalPayments?.length > 0) {
+    const latestPayment = [...property.rentalPayments]
+      .sort((a, b) => new Date(b.paymentDate || b.createdAt || 0) - new Date(a.paymentDate || a.createdAt || 0))[0];
+    if (latestPayment) {
+      monthlyRent = latestPayment.amount || 0;
+      arrearsFromPayment = latestPayment.arrears || 0;
+    }
+  } else if (property.expectedRent) {
+    monthlyRent = property.expectedRent || 0;
+  }
+  const totalArrears = arrearsFromPayment + rentCarryForwardArrears;
+  const rentDescription =
+    rentCarryForwardArrears > 0 ? 'Rental Charges (with Carry Forward Arrears)' : 'Rental Charges';
+  return [
+    {
+      type: 'RENT',
+      description: rentDescription,
+      amount: monthlyRent,
+      arrears: totalArrears,
+      total: monthlyRent + totalArrears
+    }
+  ];
+}
+
+const BULK_MAX_PROPERTIES = 600;
+
+// @route   POST /api/taj-utilities/invoices/bulk-create-cam-invoices
+// @desc    Create CAM invoices for many properties in one request (server-side; not Recovery).
+// @access  Private
+router.post('/bulk-create-cam-invoices', authMiddleware, asyncHandler(async (req, res) => {
+  const { propertyIds, periodFrom, periodTo, dueDate, invoiceDate } = req.body;
+  if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
+    return res.status(400).json({ success: false, message: 'propertyIds must be a non-empty array' });
+  }
+  if (propertyIds.length > BULK_MAX_PROPERTIES) {
+    return res.status(400).json({ success: false, message: `At most ${BULK_MAX_PROPERTIES} properties per request` });
+  }
+  if (!periodFrom || !periodTo) {
+    return res.status(400).json({ success: false, message: 'periodFrom and periodTo are required' });
+  }
+  const periodFromD = new Date(periodFrom);
+  const periodToD = new Date(periodTo);
+  const targetMonthStartMs = dayjs(periodFrom).startOf('month').startOf('day').valueOf();
+  const targetMonthEndMs = dayjs(periodFrom).endOf('month').endOf('day').valueOf();
+  const invoiceDateD = invoiceDate ? new Date(invoiceDate) : new Date();
+  const dueDateD = dueDate ? new Date(dueDate) : periodToD;
+
+  const results = [];
+  let createdCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+
+  for (const rawId of propertyIds) {
+    const propertyId = String(rawId);
+    try {
+      const property = await TajProperty.findById(propertyId).lean();
+      if (!property) {
+        results.push({ propertyId, status: 'failed', message: 'Property not found' });
+        failedCount++;
+        continue;
+      }
+
+      const invoices = await PropertyInvoice.find({ property: propertyId })
+        .select('chargeTypes periodFrom periodTo')
+        .lean();
+      const exists = invoices.some((inv) =>
+        invoiceOverlapsBulkMonth(inv, 'CAM', targetMonthStartMs, targetMonthEndMs)
+      );
+      if (exists) {
+        results.push({ propertyId, status: 'skipped', message: 'CAM invoice already exists for this month' });
+        skippedCount++;
+        continue;
+      }
+
+      const charges = await buildCamChargesArray(property);
+      const mockReq = {
+        params: { propertyId },
+        body: {
+          includeCAM: true,
+          includeElectricity: false,
+          includeRent: false,
+          invoiceDate: invoiceDateD,
+          periodFrom: periodFromD,
+          periodTo: periodToD,
+          dueDate: dueDateD,
+          charges
+        },
+        user: req.user
+      };
+      const inv = await invokeCreatePropertyInvoice(mockReq);
+      if (inv.statusCode === 201 && inv.body?.success) {
+        createdCount++;
+        results.push({
+          propertyId,
+          status: 'created',
+          invoiceId: inv.body?.data?._id
+        });
+      } else if (inv.statusCode === 400 && /already exists/i.test(inv.body?.message || '')) {
+        skippedCount++;
+        results.push({ propertyId, status: 'skipped', message: inv.body?.message });
+      } else {
+        failedCount++;
+        results.push({
+          propertyId,
+          status: 'failed',
+          message: inv.body?.message || 'Create failed'
+        });
+      }
+    } catch (e) {
+      failedCount++;
+      results.push({ propertyId, status: 'failed', message: e.message });
+    }
+  }
+
+  res.json({
+    success: true,
+    summary: {
+      total: propertyIds.length,
+      createdCount,
+      skippedCount,
+      failedCount
+    },
+    results
+  });
+}));
+
+// @route   POST /api/taj-utilities/invoices/bulk-create-rent-invoices
+// @desc    Create rental (RENT) invoices for many properties in one request (server-side; not Recovery).
+// @access  Private
+router.post('/bulk-create-rent-invoices', authMiddleware, asyncHandler(async (req, res) => {
+  const { propertyIds, periodFrom, periodTo, dueDate, invoiceDate } = req.body;
+  if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
+    return res.status(400).json({ success: false, message: 'propertyIds must be a non-empty array' });
+  }
+  if (propertyIds.length > BULK_MAX_PROPERTIES) {
+    return res.status(400).json({ success: false, message: `At most ${BULK_MAX_PROPERTIES} properties per request` });
+  }
+  if (!periodFrom || !periodTo) {
+    return res.status(400).json({ success: false, message: 'periodFrom and periodTo are required' });
+  }
+  const periodFromD = new Date(periodFrom);
+  const periodToD = new Date(periodTo);
+  const targetMonthStartMs = dayjs(periodFrom).startOf('month').startOf('day').valueOf();
+  const targetMonthEndMs = dayjs(periodFrom).endOf('month').endOf('day').valueOf();
+  const invoiceDateD = invoiceDate ? new Date(invoiceDate) : new Date();
+  const dueDateD = dueDate ? new Date(dueDate) : periodToD;
+
+  const results = [];
+  let createdCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+
+  for (const rawId of propertyIds) {
+    const propertyId = String(rawId);
+    try {
+      const property = await TajProperty.findById(propertyId).populate('rentalAgreement').lean();
+      if (!property) {
+        results.push({ propertyId, status: 'failed', message: 'Property not found' });
+        failedCount++;
+        continue;
+      }
+
+      const invoices = await PropertyInvoice.find({ property: propertyId })
+        .select('chargeTypes periodFrom periodTo')
+        .lean();
+      const exists = invoices.some((inv) =>
+        invoiceOverlapsBulkMonth(inv, 'RENT', targetMonthStartMs, targetMonthEndMs)
+      );
+      if (exists) {
+        results.push({ propertyId, status: 'skipped', message: 'Rental invoice already exists for this month' });
+        skippedCount++;
+        continue;
+      }
+
+      const charges = await buildRentChargesArray(property);
+      const mockReq = {
+        params: { propertyId },
+        body: {
+          includeCAM: false,
+          includeElectricity: false,
+          includeRent: true,
+          invoiceDate: invoiceDateD,
+          periodFrom: periodFromD,
+          periodTo: periodToD,
+          dueDate: dueDateD,
+          charges
+        },
+        user: req.user
+      };
+      const inv = await invokeCreatePropertyInvoice(mockReq);
+      if (inv.statusCode === 201 && inv.body?.success) {
+        createdCount++;
+        results.push({
+          propertyId,
+          status: 'created',
+          invoiceId: inv.body?.data?._id
+        });
+      } else if (inv.statusCode === 400 && /already exists/i.test(inv.body?.message || '')) {
+        skippedCount++;
+        results.push({ propertyId, status: 'skipped', message: inv.body?.message });
+      } else {
+        failedCount++;
+        results.push({
+          propertyId,
+          status: 'failed',
+          message: inv.body?.message || 'Create failed'
+        });
+      }
+    } catch (e) {
+      failedCount++;
+      results.push({ propertyId, status: 'failed', message: e.message });
+    }
+  }
+
+  res.json({
+    success: true,
+    summary: {
+      total: propertyIds.length,
+      createdCount,
+      skippedCount,
+      failedCount
+    },
+    results
+  });
 }));
 
 // Create open invoice (without property) - for ground booking, billboard, events, etc.
