@@ -1186,7 +1186,9 @@ async function executeRecoveryWhatsAppSend(payload, user) {
     campaignId,
     mediaType,
     mediaUrl,
-    mediaId
+    mediaId,
+    replyToText,
+    replyToMessageId
   } = payload || {};
   let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
   if (phone.startsWith('0')) phone = phone.slice(1);
@@ -1315,6 +1317,12 @@ async function executeRecoveryWhatsAppSend(payload, user) {
         status: messageId ? 'sent' : 'sending',
         statusUpdatedAt: new Date()
       };
+      if (replyToText != null && String(replyToText).trim()) {
+        createPayload.replyToText = String(replyToText).trim().slice(0, 2000);
+      }
+      if (replyToMessageId != null && String(replyToMessageId).trim()) {
+        createPayload.replyToMessageId = String(replyToMessageId).trim().slice(0, 128);
+      }
       if (sentAs !== 'text') {
         if (mediaUrl) createPayload.mediaUrl = String(mediaUrl).trim();
         createPayload.mediaType = String(sentAs);

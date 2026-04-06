@@ -7,6 +7,9 @@ const whatsAppOutgoingMessageSchema = new mongoose.Schema(
     mediaUrl: { type: String, trim: true },
     mediaType: { type: String, trim: true },
     messageId: { type: String, trim: true, index: true },
+    /** Snippet of the message being replied to (ERP "View replies" only; not sent as WhatsApp body). */
+    replyToText: { type: String, trim: true },
+    replyToMessageId: { type: String, trim: true },
     sentAt: { type: Date, default: Date.now },
     sentBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     // WhatsApp delivery status: sent → delivered → read

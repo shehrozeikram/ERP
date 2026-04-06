@@ -20,6 +20,23 @@ function toReadableTemplateText(raw) {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
+/** Split stored message into quoted preview (WhatsApp-style) and main body. */
+export function parseQuotedReply(m) {
+  const rt = m?.replyToText;
+  if (rt != null && String(rt).trim()) {
+    return {
+      quoted: String(rt).trim(),
+      bodyText: String(m?.text || '').trim()
+    };
+  }
+  const raw = String(m?.text || '').trim();
+  const legacy = /^Replying to:\s*"([\s\S]*?)"\s*\n([\s\S]*)$/i.exec(raw);
+  if (legacy) {
+    return { quoted: legacy[1].trim(), bodyText: legacy[2].trim() };
+  }
+  return { quoted: null, bodyText: raw };
+}
+
 function getBubbleText(m) {
   const raw = String(m?.text || '').trim();
   if (!raw) return '';
@@ -52,6 +69,8 @@ export default function RecoveryWhatsAppMessageBubble({
     Boolean(m?.isCampaignStub) ||
     (typeof m?.text === 'string' && m.text.trim().startsWith('[Campaign]'));
   const isOutgoing = m.direction === 'out';
+  const { quoted, bodyText } = parseQuotedReply(m);
+  const bubbleText = getBubbleText({ ...m, text: bodyText });
   const canDelete =
     isOutgoing &&
     !m?.isCampaignStub &&
@@ -62,8 +81,6 @@ export default function RecoveryWhatsAppMessageBubble({
     : m.direction === 'in'
       ? "Customer messages can't be removed from this view"
       : 'Cannot delete';
-  const bubbleText = getBubbleText(m);
-
   return (
     <Box
       sx={{
@@ -83,6 +100,37 @@ export default function RecoveryWhatsAppMessageBubble({
         <Typography variant="caption" sx={{ display: 'block', color: 'success.dark', fontWeight: 700, mb: 0.5 }}>
           Campaign
         </Typography>
+      )}
+      {quoted && (
+        <Box
+          sx={{
+            mb: 1,
+            pl: 1,
+            borderLeft: '3px solid',
+            borderColor: m.direction === 'out' ? 'rgba(11, 20, 26, 0.28)' : '#8696a0',
+            bgcolor: m.direction === 'out' ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.04)',
+            borderRadius: '0 6px 6px 0',
+            py: 0.5,
+            pr: 0.75,
+            maxWidth: '100%'
+          }}
+        >
+          <Typography
+            variant="body2"
+            sx={{
+              wordBreak: 'break-word',
+              color: 'text.secondary',
+              fontSize: '0.8125rem',
+              lineHeight: 1.35,
+              display: '-webkit-box',
+              WebkitLineClamp: 4,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }}
+          >
+            {quoted}
+          </Typography>
+        </Box>
       )}
       {m.mediaUrl && m.mediaType === 'image' ? (
         <Box>
@@ -157,7 +205,7 @@ export default function RecoveryWhatsAppMessageBubble({
         </Box>
       ) : (
         <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
-          {bubbleText || '(media)'}
+          {bubbleText || (quoted ? '' : '(media)')}
         </Typography>
       )}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.25, mt: 0.25, flexWrap: 'wrap' }}>

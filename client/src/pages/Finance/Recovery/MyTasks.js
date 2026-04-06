@@ -30,7 +30,6 @@ import {
   SvgIcon
 } from '@mui/material';
 import { TaskAlt as TaskIcon, Search as SearchIcon, Call as CallIcon, ChatBubbleOutline as ChatIcon, Close as CloseIcon, AttachFile as AttachFileIcon, Send as SendIcon, Mic as MicIcon, Stop as StopIcon, InfoOutlined as FeedbackIcon } from '@mui/icons-material';
-import { Reply as ReplyIcon } from '@mui/icons-material';
 import { useSearchParams } from 'react-router-dom';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
@@ -522,12 +521,21 @@ const MyTasks = () => {
         mediaUrl = uploadRes.data?.data?.url || null;
         mediaType = uploadRes.data?.data?.mediaType || replyAttachment.mediaType;
       }
-      const quotedPrefix = replyToMessage
-        ? `Replying to: "${String(replyToMessage?.text || '(media)').slice(0, 120)}"\n`
-        : '';
+      const replySnippet = replyToMessage
+        ? String(
+            replyToMessage.text?.trim() ||
+              (replyToMessage.mediaUrl ? '(media)' : '')
+          ).slice(0, 500)
+        : null;
       await sendRecoveryWhatsApp({
         to: toNumber,
-        body: `${quotedPrefix}${text}`.trim(),
+        body: text,
+        ...(replySnippet && {
+          replyToText: replySnippet,
+          ...(replyToMessage._id || replyToMessage.messageId
+            ? { replyToMessageId: String(replyToMessage._id || replyToMessage.messageId) }
+            : {})
+        }),
         // Always pass mediaUrl (local URL for chat display) + mediaId (for Meta delivery)
         ...(mediaType && (mediaId || mediaUrl) && {
           mediaType,
@@ -1135,13 +1143,29 @@ const MyTasks = () => {
               />
               {/* Attachment preview */}
               {replyToMessage && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, p: 1, bgcolor: '#e8f5e9', borderRadius: 2, border: '1px solid', borderColor: '#b7dfbb' }}>
-                  <ReplyIcon sx={{ color: '#2e7d32', fontSize: 18 }} />
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography variant="caption" sx={{ color: '#2e7d32', fontWeight: 700 }}>Replying to</Typography>
-                    <Typography variant="body2" noWrap>{replyToMessage?.text || '(media)'}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 1, mb: 1 }}>
+                  <Box
+                    sx={{
+                      flex: 1,
+                      minWidth: 0,
+                      pl: 1,
+                      py: 0.75,
+                      borderLeft: '3px solid',
+                      borderColor: 'rgba(11, 20, 26, 0.28)',
+                      bgcolor: 'rgba(0,0,0,0.05)',
+                      borderRadius: '0 8px 8px 0'
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 0.25 }}>
+                      Replying to
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary', wordBreak: 'break-word', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {replyToMessage?.text?.trim() || (replyToMessage?.mediaUrl ? '(media)' : '—')}
+                    </Typography>
                   </Box>
-                  <IconButton size="small" onClick={() => setReplyToMessage(null)} title="Cancel reply"><CloseIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" onClick={() => setReplyToMessage(null)} title="Cancel reply" sx={{ alignSelf: 'flex-start' }}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
                 </Box>
               )}
               {replyAttachment && !isRecording && (
