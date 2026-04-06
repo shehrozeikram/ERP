@@ -113,24 +113,34 @@ const Inventory = () => {
     notes: ''
   });
 
-  const loadCoaAccounts = useCallback(async () => {
-    if (coaAccounts.length > 0) return;
+  /** Load chart of accounts + inventory categories independently (procurement may lack finance write APIs; COA GET is allowed for GL pickers). */
+  const loadFinanceDropdowns = useCallback(async () => {
+    setCoaLoading(true);
+    let categories = [];
     try {
-      setCoaLoading(true);
-      const [coaRes, catRes] = await Promise.all([
-        api.get('/finance/accounts', { params: { limit: 5000, isActive: true } }),
-        api.get('/inventory-categories').catch(() => ({ data: { data: [] } }))
+      const [coaSettled, catSettled] = await Promise.allSettled([
+        api.get('/finance/accounts', { params: { page: 1, limit: 5000 } }),
+        api.get('/inventory-categories', { params: { isActive: 'true' } })
       ]);
-      const list = coaRes.data?.data?.accounts || coaRes.data?.data || [];
-      setCoaAccounts(Array.isArray(list) ? list : []);
-      const cats = catRes.data?.data;
-      setInvCategories(Array.isArray(cats) ? cats : []);
-    } catch {
-      // silently ignore – finance module may not be accessible for this role
+
+      if (coaSettled.status === 'fulfilled') {
+        const r = coaSettled.value;
+        const list = r.data?.data?.accounts || r.data?.data || [];
+        setCoaAccounts(Array.isArray(list) ? list : []);
+      }
+
+      if (catSettled.status === 'fulfilled') {
+        const cats = catSettled.value.data?.data;
+        categories = Array.isArray(cats) ? cats : [];
+        setInvCategories(categories);
+      } else {
+        setInvCategories([]);
+      }
     } finally {
       setCoaLoading(false);
     }
-  }, [coaAccounts.length]);
+    return { categories };
+  }, []);
 
   // Load data on component mount
   useEffect(() => {
@@ -186,7 +196,7 @@ const Inventory = () => {
     }
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     setFormData({
       name: '',
       description: '',
@@ -209,10 +219,15 @@ const Inventory = () => {
     setFormTab(0);
     setFinanceItemType('inventory');
     setFormDialog({ open: true, mode: 'create', data: null });
-    loadCoaAccounts();
+    const { categories } = await loadFinanceDropdowns();
+    const general = categories.find((c) => c.name === 'General');
+    const pick = general || categories[0];
+    if (pick) {
+      setFormData((fd) => ({ ...fd, inventoryCategory: String(pick._id) }));
+    }
   };
 
-  const handleEdit = (item) => {
+  const handleEdit = async (item) => {
     setFormData({
       name: item.name,
       description: item.description || '',
@@ -235,7 +250,7 @@ const Inventory = () => {
     setFormTab(0);
     setFinanceItemType('inventory');
     setFormDialog({ open: true, mode: 'edit', data: item });
-    loadCoaAccounts();
+    await loadFinanceDropdowns();
   };
 
   const handleView = (item) => {
@@ -652,7 +667,7 @@ const Inventory = () => {
                 value={formData.inventoryCategory}
                 onChange={(e) => setFormData({ ...formData, inventoryCategory: e.target.value })}
                 helperText="Links item to GL accounts — required for auto journal entries on GRN/SIN"
-                onClick={loadCoaAccounts}
+                onClick={loadFinanceDropdowns}
               >
                 <MenuItem value=""><em>None</em></MenuItem>
                 {invCategories.map((cat) => (

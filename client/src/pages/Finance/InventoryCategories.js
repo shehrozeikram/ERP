@@ -62,8 +62,8 @@ export default function InventoryCategories() {
     setLoading(true);
     try {
       const [catRes, accRes] = await Promise.all([
-        api.get('/inventory-categories?isActive=all'),
-        api.get('/finance/accounts?limit=200')
+        api.get('/inventory-categories', { params: { isActive: 'all' } }),
+        api.get('/finance/accounts', { params: { page: 1, limit: 5000 } })
       ]);
       setCategories(catRes.data.data || []);
       setAccounts(accRes.data.data?.accounts || []);

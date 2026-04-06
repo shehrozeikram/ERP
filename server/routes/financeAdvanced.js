@@ -67,8 +67,9 @@ router.get('/accounts/detail-types',
 // @route   GET /api/finance/accounts
 // @desc    Get all accounts with filtering and pagination
 // @access  Private (Finance and Admin)
+// procurement_manager: read-only list for inventory item GL linking (same CoA as finance; no write access on other routes)
 router.get('/accounts', 
-  authorize('super_admin', 'admin', 'finance_manager'), 
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     const { 

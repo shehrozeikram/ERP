@@ -12,6 +12,7 @@ const Supplier = require('../models/hr/Supplier');
 const FinanceHelper = require('../utils/financeHelper');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const Inventory = require('../models/procurement/Inventory');
+const InventoryCategory = require('../models/procurement/InventoryCategory');
 const GoodsReceive = require('../models/procurement/GoodsReceive');
 const GoodsIssue = require('../models/procurement/GoodsIssue');
 const StockTransaction = require('../models/procurement/StockTransaction');
@@ -2079,7 +2080,15 @@ router.post('/inventory', [
     newItemCode = `INV-${String(invCount + 1).padStart(5, '0')}`;
   }
 
-  const normalizedBody = normalizeInventoryObjectIdFields(req.body);
+  let normalizedBody = normalizeInventoryObjectIdFields(req.body);
+  if (!normalizedBody.inventoryCategory) {
+    let def = await InventoryCategory.findOne({ name: 'General', isActive: true }).select('_id').lean();
+    if (!def) {
+      def = await InventoryCategory.findOne({ isActive: true }).sort({ name: 1 }).select('_id').lean();
+    }
+    if (def) normalizedBody.inventoryCategory = def._id;
+  }
+
   const item = new Inventory({
     ...normalizedBody,
     itemCode: newItemCode,
@@ -2090,8 +2099,14 @@ router.post('/inventory', [
   await item.save();
 
   const populatedItem = await Inventory.findById(item._id)
-    .populate('supplier', 'name')
-    .populate('createdBy', 'firstName lastName');
+    .populate('supplier', 'name contactPerson')
+    .populate('createdBy', 'firstName lastName')
+    .populate('inventoryCategory', 'name stockValuationAccount stockInputAccount stockOutputAccount purchaseAccount salesAccount')
+    .populate('inventoryAccount', 'accountNumber name type')
+    .populate('grniAccount', 'accountNumber name type')
+    .populate('cogsAccount', 'accountNumber name type')
+    .populate('salesAccount', 'accountNumber name type')
+    .populate('purchaseAccount', 'accountNumber name type');
 
   res.status(201).json({
     success: true,
@@ -2131,8 +2146,14 @@ router.put('/inventory/:id', [
   await item.save();
 
   const updatedItem = await Inventory.findById(item._id)
-    .populate('supplier', 'name')
-    .populate('createdBy', 'firstName lastName');
+    .populate('supplier', 'name contactPerson')
+    .populate('createdBy', 'firstName lastName')
+    .populate('inventoryCategory', 'name stockValuationAccount stockInputAccount stockOutputAccount purchaseAccount salesAccount')
+    .populate('inventoryAccount', 'accountNumber name type')
+    .populate('grniAccount', 'accountNumber name type')
+    .populate('cogsAccount', 'accountNumber name type')
+    .populate('salesAccount', 'accountNumber name type')
+    .populate('purchaseAccount', 'accountNumber name type');
 
   res.json({
     success: true,
