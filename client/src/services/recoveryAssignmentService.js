@@ -20,6 +20,10 @@ export const updateRecoveryAssignmentFeedback = (id, data) =>
 export const sendRecoveryWhatsApp = (payload) =>
   api.post(`${base}/send-whatsapp`, payload);
 
+/** Bulk campaign sends — one HTTP request per chunk (server sends to Meta sequentially). Long timeout for nginx (e.g. 300s). */
+export const sendRecoveryWhatsAppBatch = (payload) =>
+  api.post(`${base}/send-whatsapp-batch`, payload, { timeout: 300000 });
+
 export const uploadWhatsAppMedia = (file) => {
   const formData = new FormData();
   formData.append('file', file);

@@ -259,21 +259,29 @@ if (NODE_ENV === 'production') {
     legacyHeaders: false
   });
 
-  // General rate limiter - increased limit for better UX
+  // General rate limiter — **per public IP**. Everyone behind the same office NAT shares one bucket.
+  // Bulk Recovery WhatsApp (many POST /send-whatsapp) + normal use can hit 429 for *all* users on that IP.
+  const rateLimitMax = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 2500;
+
   const generalLimiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 200, // Increased to 200 requests per windowMs
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutes
+    max: Number.isFinite(rateLimitMax) && rateLimitMax > 0 ? rateLimitMax : 2500,
     message: 'Too many requests from this IP, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
-    // Skip rate limiting for file upload endpoints, login, and refresh-token (they have their own limiters or are safe)
+    // Use originalUrl — under app.use('/api/', ...) req.path is often '/auth/...' not '/api/auth/...'
     skip: (req) => {
-      return req.path.includes('/upload-image') ||
-             req.path.includes('/upload-file') ||
-             req.path.includes('/api/auth/login') ||
-             req.path.includes('/api/auth/refresh-token') ||
-             req.path.includes('/api/webhooks/whatsapp') ||
-             req.method === 'OPTIONS';
+      if (req.method === 'OPTIONS') return true;
+      const p = String(req.originalUrl || req.url || '').split('?')[0];
+      return (
+        p.includes('/upload-image') ||
+        p.includes('/upload-file') ||
+        p.includes('/auth/login') ||
+        p.includes('/auth/refresh-token') ||
+        p.includes('/auth/me') ||
+        p.includes('/webhooks/whatsapp') ||
+        p.includes('/send-whatsapp')
+      );
     }
   });
 
@@ -289,7 +297,7 @@ if (NODE_ENV === 'production') {
   console.log('🔒 Rate limiting enabled for production');
   console.log('🔐 Login rate limiting: 20 attempts per 15 minutes per IP');
   console.log('📤 File upload rate limiting: 50 uploads per 15 minutes');
-  console.log('📊 General API rate limiting: 200 requests per 15 minutes');
+  console.log(`📊 General API rate limiting: ${rateLimitMax} requests per window (per IP; set RATE_LIMIT_MAX_REQUESTS to tune)`);
 } else {
   console.log('🔓 Rate limiting disabled for development');
 }

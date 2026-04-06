@@ -1171,6 +1171,221 @@ router.post(
   })
 );
 
+/**
+ * Core WhatsApp send (single recipient). Used by /send-whatsapp and /send-whatsapp-batch.
+ * @returns {Promise<{ ok: true, data, sentAs, messageId, toNumber } | { ok: false, message, statusCode, toNumber }>}
+ */
+async function executeRecoveryWhatsAppSend(payload, user) {
+  const {
+    to,
+    body: textBody,
+    template,
+    assignmentId,
+    campaignName,
+    campaignMessage,
+    campaignId,
+    mediaType,
+    mediaUrl,
+    mediaId
+  } = payload || {};
+  let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
+  if (phone.startsWith('0')) phone = phone.slice(1);
+  if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
+  else if (phone.length === 10) phone = '92' + phone;
+  const toNumber = phone;
+  const token = WHATSAPP_ACCESS_TOKEN;
+  if (!token) {
+    return { ok: false, message: 'WhatsApp access token not configured (WHATSAPP_ACCESS_TOKEN)', statusCode: 500, toNumber };
+  }
+  const graphUrl = `https://graph.facebook.com/v24.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const messageBody = textBody != null ? String(textBody).trim() : '';
+
+  const sendPayload = (graphBody) =>
+    axios.post(graphUrl, graphBody, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+  const tajDiscountPayload = {
+    messaging_product: 'whatsapp',
+    to: toNumber,
+    type: 'template',
+    template: {
+      name: 'taj_discount_on_installments',
+      language: { code: 'en' },
+      components: [
+        {
+          type: 'header',
+          parameters: [
+            {
+              type: 'image',
+              image: {
+                link: 'https://itihaasbuilders.com/images/marketing/image.jpeg'
+              }
+            }
+          ]
+        }
+      ]
+    }
+  };
+
+  const helloWorldPayload = {
+    messaging_product: 'whatsapp',
+    to: toNumber,
+    type: 'template',
+    template: { name: 'hello_world', language: { code: 'en_US' } }
+  };
+
+  const textPayload = {
+    messaging_product: 'whatsapp',
+    to: toNumber,
+    type: 'text',
+    text: { body: messageBody }
+  };
+
+  try {
+    let graphBody;
+    let sentAs = 'template';
+
+    if (campaignId) {
+      const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
+      const campaign = await RecoveryCampaign.findById(campaignId).lean();
+      if (campaign && campaign.whatsappTemplateName) {
+        const langCode = (campaign.whatsappLanguageCode || '').trim() || 'en';
+        const tplName = campaign.whatsappTemplateName;
+        const tpl = { name: tplName, language: { code: langCode } };
+        if (tplName === 'taj_discount_on_installments') {
+          tpl.components = [
+            {
+              type: 'header',
+              parameters: [{ type: 'image', image: { link: 'https://itihaasbuilders.com/images/marketing/image.jpeg' } }]
+            }
+          ];
+        }
+        graphBody = {
+          messaging_product: 'whatsapp',
+          to: toNumber,
+          type: 'template',
+          template: tpl
+        };
+        sentAs = tplName;
+      }
+    }
+
+    if (!graphBody && mediaType && (mediaId || mediaUrl)) {
+      const mediaTypeLower = String(mediaType).toLowerCase();
+      const mediaRef = mediaId ? { id: String(mediaId) } : { link: String(mediaUrl).trim() };
+      const payloads = {
+        image: { messaging_product: 'whatsapp', to: toNumber, type: 'image', image: { ...mediaRef, ...(messageBody && { caption: messageBody }) } },
+        document: { messaging_product: 'whatsapp', to: toNumber, type: 'document', document: { ...mediaRef, ...(messageBody && { caption: messageBody }) } },
+        audio: { messaging_product: 'whatsapp', to: toNumber, type: 'audio', audio: { ...mediaRef } },
+        video: { messaging_product: 'whatsapp', to: toNumber, type: 'video', video: { ...mediaRef, ...(messageBody && { caption: messageBody }) } }
+      };
+      graphBody = payloads[mediaTypeLower] || payloads.document;
+      sentAs = mediaTypeLower;
+    }
+
+    if (!graphBody) {
+      if (template === 'taj_discount_on_installments') {
+        graphBody = tajDiscountPayload;
+        sentAs = 'taj_discount_on_installments';
+      } else if (messageBody) {
+        graphBody = textPayload;
+        sentAs = 'text';
+      } else {
+        graphBody = helloWorldPayload;
+      }
+    }
+
+    const apiRes = await sendPayload(graphBody);
+    const data = apiRes.data;
+    const messageId = data?.messages?.[0]?.id || null;
+    console.log('[WhatsApp] Sent to', toNumber, 'messageId:', messageId, 'sentAs:', sentAs);
+
+    if (sentAs === 'text' || ['image', 'document', 'audio', 'video'].includes(sentAs)) {
+      const displayText = messageBody || (sentAs === 'text' ? '' : `(${sentAs})`);
+      const createPayload = {
+        to: toNumber,
+        text: displayText,
+        messageId,
+        sentAt: new Date(),
+        sentBy: user?._id,
+        status: messageId ? 'sent' : 'sending',
+        statusUpdatedAt: new Date()
+      };
+      if (sentAs !== 'text') {
+        if (mediaUrl) createPayload.mediaUrl = String(mediaUrl).trim();
+        createPayload.mediaType = String(sentAs);
+      }
+      await WhatsAppOutgoingMessage.create(createPayload);
+    } else {
+      const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
+      let displayText = '';
+      if (campaignId) {
+        const campaign = await RecoveryCampaign.findById(campaignId).lean();
+        const preview =
+          (campaignMessage && String(campaignMessage).trim()) ||
+          (campaign && String(campaign.messagePreview || '').trim());
+        if (preview) {
+          displayText = `[Campaign] ${preview}`;
+        } else {
+          const cname = (campaignName && String(campaignName).trim()) || 'Campaign';
+          const tpl =
+            (campaign && campaign.whatsappTemplateName) ||
+            (typeof sentAs === 'string' && sentAs !== 'template' ? sentAs : '');
+          displayText = tpl ? `[Campaign] ${cname} · ${tpl}` : `[Campaign] ${cname}`;
+        }
+      } else if (campaignName) {
+        const preview = campaignMessage && String(campaignMessage).trim();
+        displayText = preview
+          ? `[Campaign] ${preview}`
+          : `[Campaign] ${String(campaignName).trim()}${sentAs && sentAs !== 'template' ? ` · ${sentAs}` : ''}`;
+      } else {
+        displayText = `(WhatsApp template: ${sentAs})`;
+      }
+      await WhatsAppOutgoingMessage.create({
+        to: toNumber,
+        text: displayText,
+        messageId,
+        sentAt: new Date(),
+        sentBy: user?._id,
+        status: messageId ? 'sent' : 'sending',
+        statusUpdatedAt: new Date()
+      });
+    }
+
+    if (assignmentId && campaignName) {
+      try {
+        await RecoveryAssignment.findByIdAndUpdate(
+          assignmentId,
+          {
+            lastCampaignSentAt: new Date(),
+            lastCampaignName: String(campaignName).trim()
+          },
+          { new: false }
+        );
+      } catch (e) {
+        console.warn('Failed to update assignment campaign info', e.message);
+      }
+    }
+
+    return { ok: true, data, sentAs, messageId, toNumber };
+  } catch (err) {
+    const errData = err.response?.data?.error;
+    const msg = errData?.message || err.response?.data?.message || err.message;
+    const code = errData?.code ? ` (code ${errData.code})` : '';
+    console.error('[WhatsApp] Send failed to', toNumber, err.response?.data || err.message);
+    return {
+      ok: false,
+      message: `${msg || 'WhatsApp API error'}${code}`,
+      statusCode: err.response?.status || 500,
+      toNumber
+    };
+  }
+}
+
 // @route   POST /api/finance/recovery-assignments/send-whatsapp
 // @desc    Send WhatsApp via Graph API.
 //          If campaignId is provided and that campaign has whatsappTemplateName, use that Meta template dynamically.
@@ -1181,213 +1396,54 @@ router.post(
   '/send-whatsapp',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const { to, body, template, assignmentId, campaignName, campaignMessage, campaignId, mediaType, mediaUrl, mediaId } = req.body;
-    let phone = (to && String(to).replace(/\D/g, '')) || '923214554035';
-    if (phone.startsWith('0')) phone = phone.slice(1);
-    // Add Pakistan country code for 10-digit mobile numbers (e.g. 3xxxxxxxxx)
-    if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
-    else if (phone.length === 10) phone = '92' + phone;
-    const toNumber = phone;
-    const token = WHATSAPP_ACCESS_TOKEN;
-    if (!token) {
-      return res.status(500).json({ success: false, message: 'WhatsApp access token not configured (WHATSAPP_ACCESS_TOKEN)' });
+    const result = await executeRecoveryWhatsAppSend(req.body, req.user);
+    if (!result.ok) {
+      return res.status(result.statusCode || 500).json({ success: false, message: result.message });
     }
-    const url = `https://graph.facebook.com/v24.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
-    const messageBody = body != null ? String(body).trim() : '';
+    res.json({ success: true, data: result.data, sentAs: result.sentAs, messageId: result.messageId });
+  })
+);
 
-    const sendPayload = (payload) =>
-      axios.post(url, payload, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+// @route   POST /api/finance/recovery-assignments/send-whatsapp-batch
+// @desc    Send many campaign (or reply) messages in one HTTP request — processes sequentially with a short delay (Meta / rate limits).
+// @access  Private
+router.post(
+  '/send-whatsapp-batch',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: 'Provide a non-empty items array' });
+    }
+    const maxPerRequest = Math.min(
+      Math.max(parseInt(process.env.RECOVERY_WHATSAPP_BATCH_MAX, 10) || 100, 1),
+      200
+    );
+    if (items.length > maxPerRequest) {
+      return res.status(400).json({
+        success: false,
+        message: `At most ${maxPerRequest} recipients per batch request (client sends multiple batches automatically; max cap 200, tune RECOVERY_WHATSAPP_BATCH_MAX)`
       });
-
-    const tajDiscountPayload = {
-      messaging_product: 'whatsapp',
-      to: toNumber,
-      type: 'template',
-      template: {
-        name: 'taj_discount_on_installments',
-        language: { code: 'en' },
-        components: [
-          {
-            type: 'header',
-            parameters: [
-              {
-                type: 'image',
-                image: {
-                  link: 'https://itihaasbuilders.com/images/marketing/image.jpeg'
-                }
-              }
-            ]
-          }
-        ]
-      }
-    };
-
-    const helloWorldPayload = {
-      messaging_product: 'whatsapp',
-      to: toNumber,
-      type: 'template',
-      template: { name: 'hello_world', language: { code: 'en_US' } }
-    };
-
-    const textPayload = {
-      messaging_product: 'whatsapp',
-      to: toNumber,
-      type: 'text',
-      text: { body: messageBody }
-    };
-
-    try {
-      let payload;
-      let sentAs = 'template';
-
-      // 1) If a RecoveryCampaign with whatsappTemplateName is provided, use that Meta template dynamically
-      if (campaignId) {
-        const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
-        const campaign = await RecoveryCampaign.findById(campaignId).lean();
-        if (campaign && campaign.whatsappTemplateName) {
-          const langCode = (campaign.whatsappLanguageCode || '').trim() || 'en';
-          const tplName = campaign.whatsappTemplateName;
-          const template = { name: tplName, language: { code: langCode } };
-          // taj_discount_on_installments has a required header IMAGE
-          if (tplName === 'taj_discount_on_installments') {
-            template.components = [
-              {
-                type: 'header',
-                parameters: [
-                  { type: 'image', image: { link: 'https://itihaasbuilders.com/images/marketing/image.jpeg' } }
-                ]
-              }
-            ];
-          }
-          payload = {
-            messaging_product: 'whatsapp',
-            to: toNumber,
-            type: 'template',
-            template
-          };
-          sentAs = tplName;
-        }
-      }
-
-      // 2) Media message (image, document, audio, video)
-      // Prefer mediaId (uploaded to Meta) over mediaUrl (public link fallback)
-      if (!payload && mediaType && (mediaId || mediaUrl)) {
-        const mediaTypeLower = String(mediaType).toLowerCase();
-        // Use { id } when we have a Meta media_id, otherwise fall back to { link }
-        const mediaRef = mediaId ? { id: String(mediaId) } : { link: String(mediaUrl).trim() };
-        const payloads = {
-          image: { messaging_product: 'whatsapp', to: toNumber, type: 'image', image: { ...mediaRef, ...(messageBody && { caption: messageBody }) } },
-          document: { messaging_product: 'whatsapp', to: toNumber, type: 'document', document: { ...mediaRef, ...(messageBody && { caption: messageBody }) } },
-          audio: { messaging_product: 'whatsapp', to: toNumber, type: 'audio', audio: { ...mediaRef } },
-          video: { messaging_product: 'whatsapp', to: toNumber, type: 'video', video: { ...mediaRef, ...(messageBody && { caption: messageBody }) } }
-        };
-        payload = payloads[mediaTypeLower] || payloads.document;
-        sentAs = mediaTypeLower;
-      }
-
-      // 3) Fallback to explicit template / text / hello_world
-      if (!payload) {
-        if (template === 'taj_discount_on_installments') {
-          payload = tajDiscountPayload;
-          sentAs = 'taj_discount_on_installments';
-        } else if (messageBody) {
-          payload = textPayload;
-          sentAs = 'text';
-        } else {
-          payload = helloWorldPayload;
-        }
-      }
-
-      const apiRes = await sendPayload(payload);
-      const data = apiRes.data;
-      const messageId = data?.messages?.[0]?.id || null;
-      console.log('[WhatsApp] Sent to', toNumber, 'messageId:', messageId, 'sentAs:', sentAs);
-
-      if (sentAs === 'text' || ['image', 'document', 'audio', 'video'].includes(sentAs)) {
-        const displayText = messageBody || (sentAs === 'text' ? '' : `(${sentAs})`);
-        const createPayload = {
-          to: toNumber,
-          text: displayText,
-          messageId,
-          sentAt: new Date(),
-          sentBy: req.user?._id,
-          // messageId present means Meta accepted it → mark as 'sent' (single tick)
-          // Webhook will advance to 'delivered' then 'read' as Meta sends status events
-          status: messageId ? 'sent' : 'sending',
-          statusUpdatedAt: new Date()
-        };
-        if (sentAs !== 'text') {
-          if (mediaUrl) createPayload.mediaUrl = String(mediaUrl).trim();
-          createPayload.mediaType = String(sentAs);
-        }
-        await WhatsAppOutgoingMessage.create(createPayload);
-      } else {
-        // Template / campaign sends — persist so "View replies" shows what was sent to the customer
-        const RecoveryCampaign = require('../models/finance/RecoveryCampaign');
-        let displayText = '';
-        if (campaignId) {
-          const campaign = await RecoveryCampaign.findById(campaignId).lean();
-          const preview =
-            (campaignMessage && String(campaignMessage).trim()) ||
-            (campaign && String(campaign.messagePreview || '').trim());
-          if (preview) {
-            displayText = `[Campaign] ${preview}`;
-          } else {
-            const cname = (campaignName && String(campaignName).trim()) || 'Campaign';
-            const tpl =
-              (campaign && campaign.whatsappTemplateName) ||
-              (typeof sentAs === 'string' && sentAs !== 'template' ? sentAs : '');
-            displayText = tpl ? `[Campaign] ${cname} · ${tpl}` : `[Campaign] ${cname}`;
-          }
-        } else if (campaignName) {
-          const preview = campaignMessage && String(campaignMessage).trim();
-          displayText = preview
-            ? `[Campaign] ${preview}`
-            : `[Campaign] ${String(campaignName).trim()}${
-                sentAs && sentAs !== 'template' ? ` · ${sentAs}` : ''
-              }`;
-        } else {
-          displayText = `(WhatsApp template: ${sentAs})`;
-        }
-        await WhatsAppOutgoingMessage.create({
-          to: toNumber,
-          text: displayText,
-          messageId,
-          sentAt: new Date(),
-          sentBy: req.user?._id,
-          status: messageId ? 'sent' : 'sending',
-          statusUpdatedAt: new Date()
-        });
-      }
-
-      // Best-effort: update assignment with campaign meta if provided
-      if (assignmentId && campaignName) {
-        try {
-          await RecoveryAssignment.findByIdAndUpdate(
-            assignmentId,
-            {
-              lastCampaignSentAt: new Date(),
-              lastCampaignName: String(campaignName).trim()
-            },
-            { new: false }
-          );
-        } catch (e) {
-          console.warn('Failed to update assignment campaign info', e.message);
-        }
-      }
-
-      res.json({ success: true, data, sentAs, messageId });
-    } catch (err) {
-      const errData = err.response?.data?.error;
-      const msg = errData?.message || err.response?.data?.message || err.message;
-      const code = errData?.code ? ` (code ${errData.code})` : '';
-      console.error('[WhatsApp] Send failed to', toNumber, err.response?.data || err.message);
-      res.status(err.response?.status || 500).json({ success: false, message: `${msg || 'WhatsApp API error'}${code}` });
     }
+    const delayMs = Math.max(0, parseInt(process.env.RECOVERY_WHATSAPP_BATCH_DELAY_MS, 10) || 250);
+    const results = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const result = await executeRecoveryWhatsAppSend(items[i], req.user);
+      if (result.ok) {
+        results.push({ ok: true, to: result.toNumber, messageId: result.messageId, sentAs: result.sentAs });
+      } else {
+        results.push({ ok: false, to: result.toNumber, message: result.message });
+      }
+      if (i < items.length - 1 && delayMs > 0) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    const successCount = results.filter((r) => r.ok).length;
+    res.json({
+      success: true,
+      results,
+      summary: { total: items.length, successCount, failedCount: items.length - successCount }
+    });
   })
 );
 

@@ -39,6 +39,7 @@ import {
   fetchRecoveryAssignmentStats,
   updateRecoveryAssignmentFeedback,
   sendRecoveryWhatsApp,
+  sendRecoveryWhatsAppBatch,
   uploadWhatsAppMedia,
   fetchWhatsAppIncomingMessages,
   fetchWhatsAppNumbersWithMessages,
@@ -341,40 +342,59 @@ const MyTasks = () => {
       if (!campaign?._id) {
         throw new Error('Please select a campaign');
       }
-      let successCount = 0;
-      let failedCount = 0;
+      const campaignNameLabel = campaign.whatsappTemplateName
+        ? `${campaign.whatsappTemplateName}${campaign.whatsappLanguageCode ? ` (${campaign.whatsappLanguageCode})` : ''}`
+        : 'WhatsApp campaign';
+      const campaignMessagePreview = String(campaign.messagePreview || '').trim();
+
+      const items = [];
+      let invalidPhoneCount = 0;
       for (const row of selectedRows) {
         const num = normalizeWhatsAppNumber(row.mobileNumber);
         if (!num) {
-          failedCount += 1;
+          invalidPhoneCount += 1;
           continue;
         }
+        items.push({
+          to: num,
+          assignmentId: row._id,
+          campaignName: campaignNameLabel,
+          campaignMessage: campaignMessagePreview,
+          campaignId: campaign._id
+        });
+      }
+
+      if (items.length === 0) {
+        throw new Error('No valid mobile numbers for selected people');
+      }
+
+      const BATCH_SIZE = 100;
+      let successCount = 0;
+      let apiFailedCount = 0;
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const chunk = items.slice(i, i + BATCH_SIZE);
         try {
-          await sendRecoveryWhatsApp({
-            to: num,
-            assignmentId: row._id,
-            campaignName: campaign.whatsappTemplateName
-              ? `${campaign.whatsappTemplateName}${campaign.whatsappLanguageCode ? ` (${campaign.whatsappLanguageCode})` : ''}`
-              : 'WhatsApp campaign',
-            campaignMessage: String(campaign.messagePreview || '').trim(),
-            campaignId: campaign._id
-          });
-          successCount += 1;
+          const res = await sendRecoveryWhatsAppBatch({ items: chunk });
+          const summary = res?.data?.summary;
+          successCount += summary?.successCount ?? 0;
+          apiFailedCount += summary?.failedCount ?? 0;
         } catch {
-          failedCount += 1;
+          apiFailedCount += chunk.length;
         }
       }
+
+      const totalFailed = invalidPhoneCount + apiFailedCount;
       await loadMyTasks();
-      if (successCount > 0 && failedCount === 0) {
+      if (successCount > 0 && totalFailed === 0) {
         setSnackbar({
           open: true,
           message: `Campaign sent to ${successCount} ${successCount === 1 ? 'person' : 'people'}.`,
           severity: 'success'
         });
-      } else if (successCount > 0 && failedCount > 0) {
+      } else if (successCount > 0 && totalFailed > 0) {
         setSnackbar({
           open: true,
-          message: `Sent to ${successCount}, failed for ${failedCount}.`,
+          message: `Sent to ${successCount}, failed for ${totalFailed}.`,
           severity: 'warning'
         });
       } else {
