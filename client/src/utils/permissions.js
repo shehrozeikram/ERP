@@ -773,6 +773,7 @@ export const MODULES = {
         subItems: [
           { name: 'Store Dashboard', path: '/procurement/store' },
           { name: 'Store Management', path: '/procurement/store/manage' },
+          { name: 'Item catalog', path: '/procurement/store/item-catalog' },
           { name: 'Quality Assurance', path: '/procurement/store/quality-assurance' },
           { name: 'Inventory', path: '/procurement/store/inventory' },
           { name: 'GRN (Goods Received Note)', path: '/procurement/store/goods-receive' },
@@ -1296,6 +1297,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/procurement/vendors': 'vendors',
       '/procurement/store': 'store',
       '/procurement/store/manage': 'store_management',
+      '/procurement/store/item-catalog': 'inventory',
       '/procurement/store/quality-assurance': 'quality_assurance',
       '/procurement/store/inventory': 'inventory',
       '/procurement/store/goods-receive': 'goods_receive',

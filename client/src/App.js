@@ -122,6 +122,7 @@ import VendorBills from './pages/Procurement/VendorBills';
 import StoreDashboard from './pages/Procurement/Store/StoreDashboard';
 import QualityAssurance from './pages/Procurement/Store/QualityAssurance';
 import StoreManagement from './pages/Procurement/Store/StoreManagement';
+import StoreItemCatalog from './pages/Procurement/Store/StoreItemCatalog';
 import SalesDashboard from './pages/Sales/SalesDashboard';
 import SalesOrders from './pages/Sales/SalesOrders';
 import SalesCustomers from './pages/Sales/SalesCustomers';
@@ -1299,6 +1300,10 @@ function App() {
             <Route 
               path="/procurement/store/manage" 
               element={<ProtectedRoute><StoreManagement /></ProtectedRoute>} 
+            />
+            <Route
+              path="/procurement/store/item-catalog"
+              element={<ProtectedRoute><StoreItemCatalog /></ProtectedRoute>}
             />
             {/* Legacy routes - redirect to new paths */}
             <Route 

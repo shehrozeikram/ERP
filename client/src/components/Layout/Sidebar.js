@@ -236,6 +236,7 @@ const Sidebar = () => {
       '/procurement/store/goods-issue': 'goods_issue',
       '/procurement/store/cost-center': 'cost_center',
       '/procurement/store/manage': 'store_management',
+      '/procurement/store/item-catalog': 'inventory',
       '/procurement/reports': 'procurement_reports',
       
       // Sales Module
