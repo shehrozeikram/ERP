@@ -10,7 +10,14 @@ const router = express.Router();
 router.get('/', asyncHandler(async (req, res) => {
   const { isActive = 'true', search } = req.query;
   const query = {};
-  if (isActive !== 'all') query.isActive = isActive === 'true';
+  if (isActive !== 'all') {
+    // $ne: false matches true, null, and legacy docs with no isActive field (Mongoose default only applies on save)
+    if (isActive === 'true' || isActive === true) {
+      query.isActive = { $ne: false };
+    } else {
+      query.isActive = false;
+    }
+  }
   if (search) query.name = { $regex: search, $options: 'i' };
 
   const categories = await InventoryCategory.find(query)

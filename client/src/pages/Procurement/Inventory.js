@@ -113,6 +113,13 @@ const Inventory = () => {
     notes: ''
   });
 
+  const normalizeCategoryList = (res) => {
+    const payload = res?.data;
+    if (Array.isArray(payload?.data)) return payload.data;
+    if (Array.isArray(payload)) return payload;
+    return [];
+  };
+
   /** Load chart of accounts + inventory categories independently (procurement may lack finance write APIs; COA GET is allowed for GL pickers). */
   const loadFinanceDropdowns = useCallback(async () => {
     setCoaLoading(true);
@@ -130,10 +137,15 @@ const Inventory = () => {
       }
 
       if (catSettled.status === 'fulfilled') {
-        const cats = catSettled.value.data?.data;
-        categories = Array.isArray(cats) ? cats : [];
+        const raw = normalizeCategoryList(catSettled.value);
+        categories = raw.filter((c) => c && c.isActive !== false);
         setInvCategories(categories);
       } else {
+        console.warn(
+          'Inventory: failed to load finance categories',
+          catSettled.reason?.response?.status,
+          catSettled.reason?.message
+        );
         setInvCategories([]);
       }
     } finally {
@@ -141,6 +153,10 @@ const Inventory = () => {
     }
     return { categories };
   }, []);
+
+  useEffect(() => {
+    loadFinanceDropdowns();
+  }, [loadFinanceDropdowns]);
 
   // Load data on component mount
   useEffect(() => {
