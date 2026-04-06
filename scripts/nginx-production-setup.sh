@@ -3,7 +3,7 @@
 #   cd /var/www/sgc-erp && git pull && sudo bash scripts/nginx-production-setup.sh
 #
 # - Backs up current nginx site configs
-# - Removes sites-enabled/default if present (fixes "conflicting server name" with tovus.net)
+# - Removes every enabled site except sgc-erp (default, *.bak*, etc.) — fixes duplicate server_name
 # - Installs deploy/nginx-sgc-erp.conf → /etc/nginx/sites-available/sgc-erp
 # - nginx -t && reload (aborts if test fails — nothing broken)
 
@@ -27,17 +27,23 @@ mkdir -p "$BACKUP_ROOT"
 echo "Backup directory: $BACKUP_ROOT"
 
 [ -f /etc/nginx/sites-available/sgc-erp ] && cp -a /etc/nginx/sites-available/sgc-erp "$BACKUP_ROOT/sgc-erp.sites-available.bak"
-[ -f /etc/nginx/sites-enabled/default ] && cp -a /etc/nginx/sites-enabled/default "$BACKUP_ROOT/default.sites-enabled.bak" 2>/dev/null || true
-
-# Duplicate server_name: default site + sgc-erp both listing tovus.net
-if [ -L /etc/nginx/sites-enabled/default ] || [ -f /etc/nginx/sites-enabled/default ]; then
-  echo "Removing /etc/nginx/sites-enabled/default (stock site duplicates app hostnames)."
-  rm -f /etc/nginx/sites-enabled/default
-fi
 
 cp "$CONF_SRC" /etc/nginx/sites-available/sgc-erp
 chmod 644 /etc/nginx/sites-available/sgc-erp
 ln -sf /etc/nginx/sites-available/sgc-erp /etc/nginx/sites-enabled/sgc-erp
+
+# Only one active vhost for this app: remove default, sgc-erp.bak.*, and any other duplicate enables
+shopt -s nullglob
+for path in /etc/nginx/sites-enabled/*; do
+  name=$(basename "$path")
+  if [ "$name" = "sgc-erp" ]; then
+    continue
+  fi
+  echo "Removing duplicate enabled site: $name (backup in $BACKUP_ROOT)"
+  cp -a "$path" "$BACKUP_ROOT/sites-enabled.$name.removed" 2>/dev/null || true
+  rm -f "$path"
+done
+shopt -u nullglob
 
 if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
   echo "NOTE: If nginx -t fails on ssl_dhparam, run: sudo openssl dhparam -dsaparam -out /etc/letsencrypt/ssl-dhparams.pem 2048"
