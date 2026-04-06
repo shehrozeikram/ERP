@@ -127,7 +127,10 @@ const Inventory = () => {
     try {
       const [coaSettled, catSettled] = await Promise.allSettled([
         api.get('/finance/accounts', { params: { page: 1, limit: 5000 } }),
-        api.get('/inventory-categories', { params: { isActive: 'true' } })
+        api.get('/inventory-categories', {
+          params: { isActive: 'true', _t: Date.now() },
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+        })
       ]);
 
       if (coaSettled.status === 'fulfilled') {

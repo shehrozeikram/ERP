@@ -6,6 +6,13 @@ const Inventory = require('../models/procurement/Inventory');
 
 const router = express.Router();
 
+function noStoreJson(res, payload) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.json(payload);
+}
+
 // ─── GET all categories ──────────────────────────────────────────────────────
 router.get('/', asyncHandler(async (req, res) => {
   const { isActive = 'true', search } = req.query;
@@ -29,7 +36,7 @@ router.get('/', asyncHandler(async (req, res) => {
     .populate('createdBy', 'firstName lastName')
     .sort({ name: 1 });
 
-  res.json({ success: true, data: categories });
+  noStoreJson(res, { success: true, data: categories });
 }));
 
 // ─── GET single category ─────────────────────────────────────────────────────
@@ -41,7 +48,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     .populate('purchaseAccount',       'accountNumber name type')
     .populate('salesAccount',          'accountNumber name type');
   if (!cat) return res.status(404).json({ success: false, message: 'Category not found' });
-  res.json({ success: true, data: cat });
+  noStoreJson(res, { success: true, data: cat });
 }));
 
 // ─── CREATE category ─────────────────────────────────────────────────────────

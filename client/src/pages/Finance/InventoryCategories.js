@@ -62,7 +62,10 @@ export default function InventoryCategories() {
     setLoading(true);
     try {
       const [catRes, accRes] = await Promise.all([
-        api.get('/inventory-categories', { params: { isActive: 'all' } }),
+        api.get('/inventory-categories', {
+          params: { isActive: 'all', _t: Date.now() },
+          headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' }
+        }),
         api.get('/finance/accounts', { params: { page: 1, limit: 5000 } })
       ]);
       setCategories(catRes.data.data || []);
