@@ -126,7 +126,8 @@ const getWaterChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneT
       '2K': 3000
     };
 
-    if (zoneType && zoneType.toLowerCase() === 'commercial') {
+    const normalizedZoneType = String(zoneType || '').trim().toLowerCase();
+    if (normalizedZoneType === 'commercial') {
       const commercialAmount = activeSlabs?.commercialWaterCharges ?? 0;
       return { amount: commercialAmount, slab: { type: 'commercial', commercialWaterCharges: commercialAmount } };
     }
@@ -135,18 +136,22 @@ const getWaterChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneT
       return { amount: 0, slab: null };
     }
 
-    const unitLower = (areaUnit || '').toLowerCase();
-    let sizeToMatch = '';
-    if (unitLower.includes('kanal')) {
-      sizeToMatch = `${propertySize}K`;
-    } else {
-      sizeToMatch = `${propertySize}M`;
-    }
+    const allWaterMissingOrZero = activeSlabs.slabs.every(
+      (s) =>
+        s?.waterCharges === undefined ||
+        s?.waterCharges === null ||
+        s?.waterCharges === '' ||
+        Number(s?.waterCharges) === 0
+    );
+
+    const unitLower = String(areaUnit || '').toLowerCase();
+    const expectedSuffix = unitLower.includes('kanal') ? 'K' : 'M';
+    const normalizedSize = String(propertySize).trim();
+    const sizeToMatch = `${normalizedSize}${expectedSuffix}`.toUpperCase().trim();
 
     const matchingSlab = activeSlabs.slabs.find((slab) => {
-      const slabSize = slab.size?.toUpperCase().trim();
-      const matchSize = sizeToMatch.toUpperCase().trim();
-      return slabSize === matchSize;
+      const slabSize = String(slab.size || '').toUpperCase().trim();
+      return slabSize === sizeToMatch;
     });
 
     if (matchingSlab) {
@@ -156,7 +161,7 @@ const getWaterChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneT
         matchingSlab.waterCharges !== ''
           ? Number(matchingSlab.waterCharges)
           : null;
-      const fallbackAmount = defaultWaterBySize[matchSize] ?? 0;
+      const fallbackAmount = defaultWaterBySize[sizeToMatch] ?? 0;
       const shouldUseFallback = explicitAmount === null || (allWaterMissingOrZero && explicitAmount === 0);
       return { amount: shouldUseFallback ? fallbackAmount : explicitAmount, slab: matchingSlab };
     }
@@ -164,7 +169,10 @@ const getWaterChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneT
     const numericSize = parseFloat(propertySize);
     if (!isNaN(numericSize)) {
       const numericMatch = activeSlabs.slabs.find((slab) => {
-        const slabSizeStr = slab.size?.replace(/[^0-9.]/g, '');
+        const slabKey = String(slab.size || '').toUpperCase().trim();
+        // Prevent wrong unit mapping, e.g. 1 Marla matching 1K slab.
+        if (!slabKey.endsWith(expectedSuffix)) return false;
+        const slabSizeStr = slabKey.replace(/[^0-9.]/g, '');
         const slabSizeNum = parseFloat(slabSizeStr);
         return !isNaN(slabSizeNum) && slabSizeNum === numericSize;
       });
