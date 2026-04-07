@@ -215,14 +215,18 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null, perio
       }
 
       if (prevInv) {
-        const adjustedBalance = getAdjustedBalanceForInvoice(prevInv);
+        // Multi-meter carry forward should come from immediate previous same-meter invoice only.
+        // In strictMeterMatch mode, use stored previous invoice balance directly (no extra surcharge inflation).
+        const carryForwardBase = strictMeterMatch
+          ? (prevInv.balance || 0)
+          : getAdjustedBalanceForInvoice(prevInv);
         const hasOnlyElectricity = prevInv.chargeTypes?.length === 1 && prevInv.chargeTypes[0] === 'ELECTRICITY';
         if (hasOnlyElectricity) {
-          previousArrears = adjustedBalance;
+          previousArrears = carryForwardBase;
         } else {
           const electricityTotal = (prevInv.charges || []).reduce((s, c) => s + (c.amount || 0) + (c.arrears || 0), 0);
           const invTotal = prevInv.grandTotal || 0;
-          if (invTotal > 0) previousArrears = adjustedBalance * (electricityTotal / invTotal);
+          if (invTotal > 0) previousArrears = carryForwardBase * (electricityTotal / invTotal);
         }
         previousArrears = Math.round(previousArrears * 100) / 100;
       }
