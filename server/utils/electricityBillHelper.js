@@ -139,9 +139,11 @@ const getAdjustedBalanceForInvoice = (inv) => {
  * @param {String} propertyKey - Property identifier (address, plotNo, or owner)
  * @param {String|ObjectId} propertyId - Property ID (optional, for checking PropertyInvoice records)
  * @param {String|Date} periodFrom - Optional. When creating invoice for periodFrom, arrears = previous month's balance only.
+ * @param {Boolean} strictMeterMatch - When true, only match previous invoice whose populated electricityBill.meterNo
+ * exactly equals the requested meter (used for multi-meter invoice flow).
  * @returns {Promise<{prvReading: Number, previousArrears: Number}>}
  */
-const getPreviousReading = async (meterNo, propertyKey, propertyId = null, periodFrom = null) => {
+const getPreviousReading = async (meterNo, propertyKey, propertyId = null, periodFrom = null, strictMeterMatch = false) => {
   try {
     // Try to find last bill by meter number first (must match exactly)
     let lastBill = null;
@@ -197,7 +199,14 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null, perio
       let prevInv = null;
       for (const inv of previousInvoices) {
         const invMeterNo = inv.electricityBill?.meterNo || '';
-        if (meterNo && invMeterNo && String(invMeterNo) !== String(meterNo)) continue;
+        if (meterNo) {
+          if (strictMeterMatch) {
+            // Multi-meter mode: never fallback to an invoice without meter mapping.
+            if (!invMeterNo || String(invMeterNo) !== String(meterNo)) continue;
+          } else if (invMeterNo && String(invMeterNo) !== String(meterNo)) {
+            continue;
+          }
+        }
         const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
         if (electricityCharges.length > 0) {
           prevInv = inv;
