@@ -626,6 +626,7 @@ async function createPropertyInvoiceForProperty(req, res) {
     let useProvidedCAM = false;
     let useProvidedWater = false;
     let usedProvidedElectricity = false;
+    let electricityArrearsAlreadyApplied = false;
 
     // Get CAM Charge
     if (includeCAM === true) {
@@ -930,6 +931,7 @@ async function createPropertyInvoiceForProperty(req, res) {
           arrears: arrearsToUse,
           total: (electricityChargeFromRequest.amount || 0) + arrearsToUse
         });
+        electricityArrearsAlreadyApplied = true;
         
         hasReadings = false; // Mark that we didn't recalculate from readings
       } else {
@@ -1026,6 +1028,7 @@ async function createPropertyInvoiceForProperty(req, res) {
               arrears: previousArrears,
               total: calculatedCharges.withSurcharge + previousArrears
             });
+            electricityArrearsAlreadyApplied = true;
           } else {
             // For additional meters, store data to create separate invoices
             // Note: Carry forward arrears only added to first meter to avoid duplication
@@ -1121,6 +1124,7 @@ async function createPropertyInvoiceForProperty(req, res) {
             arrears: totalElectricityArrears,
             total: (electricityCharge.amount || 0) + totalElectricityArrears
           });
+          electricityArrearsAlreadyApplied = true;
         }
       } else if (conditions.length > 0) {
         // Fallback to existing bill
@@ -1172,6 +1176,7 @@ async function createPropertyInvoiceForProperty(req, res) {
             arrears: totalElectricityArrears,
             total: (electricityBill.withSurcharge || electricityBill.totalBill || 0) + totalElectricityArrears
           });
+          electricityArrearsAlreadyApplied = true;
           }
         }
       }
@@ -1367,7 +1372,7 @@ async function createPropertyInvoiceForProperty(req, res) {
     for (const chargeType of chargeTypesInInvoice) {
       if (chargeType === 'CAM' && useProvidedCAM) continue;
       if (chargeType === 'WATER' && useProvidedWater) continue;
-      if (chargeType === 'ELECTRICITY' && usedProvidedElectricity) continue;
+      if (chargeType === 'ELECTRICITY' && (usedProvidedElectricity || electricityArrearsAlreadyApplied)) continue;
       if (rentArrearsAlreadyApplied(chargeType)) continue;
       const overdueForType = await calculateOverdueArrears(property._id, new Date(), [chargeType]);
       if (overdueForType > 0) {
@@ -1514,8 +1519,8 @@ async function createPropertyInvoiceForProperty(req, res) {
       const firstInvoiceData = {
         property: property._id,
         invoiceNumber: firstInvoiceNumber,
-        invoiceDate: new Date(),
-        dueDate: periodTo ? new Date(periodTo) : now.add(30, 'day').toDate(),
+        invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
+        dueDate: dueDate ? new Date(dueDate) : (periodTo ? dayjs(periodTo).add(15, 'day').toDate() : now.add(30, 'day').toDate()),
         periodFrom: periodFrom ? new Date(periodFrom) : undefined,
         periodTo: periodTo ? new Date(periodTo) : undefined,
         chargeTypes: charges.map(c => c.type),
@@ -1553,8 +1558,8 @@ async function createPropertyInvoiceForProperty(req, res) {
         const meterInvoiceData = {
           property: property._id,
           invoiceNumber: meterInvoiceNumber,
-          invoiceDate: new Date(),
-          dueDate: periodTo ? dayjs(periodTo).add(15, 'day').toDate() : now.add(30, 'day').toDate(),
+          invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
+          dueDate: dueDate ? new Date(dueDate) : (periodTo ? dayjs(periodTo).add(15, 'day').toDate() : now.add(30, 'day').toDate()),
           periodFrom: periodFrom ? new Date(periodFrom) : undefined,
           periodTo: periodTo ? new Date(periodTo) : undefined,
           chargeTypes: ['ELECTRICITY'],
