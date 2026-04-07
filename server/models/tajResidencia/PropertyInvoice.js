@@ -60,6 +60,10 @@ const propertyInvoiceSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'CAMCharge'
   },
+  waterCharge: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'WaterCharge'
+  },
   electricityBill: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Electricity'

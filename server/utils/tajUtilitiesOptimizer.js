@@ -287,6 +287,7 @@ module.exports = {
   // Cache keys constants
   CACHE_KEYS: {
     CAM_CHARGES_OVERVIEW: 'taj_utilities_cam_charges_overview',
+    WATER_CHARGES_OVERVIEW: 'taj_utilities_water_charges_overview',
     ELECTRICITY_OVERVIEW: 'taj_utilities_electricity_overview',
     PROPERTIES_LIST: 'taj_utilities_properties_list',
     RESIDENTS_LIST: 'taj_utilities_residents_list',

@@ -44,13 +44,14 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
   const transactions = ledger.transactions || [];
 
   const camInvoices = invoices.filter(inv => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM');
+  const waterInvoices = invoices.filter(inv => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'WATER');
   const electricityInvoices = invoices.filter(inv => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY');
   const rentInvoices = invoices.filter(inv => inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'RENT');
   const otherInvoices = invoices.filter(inv => {
     const types = inv.chargeTypes || [];
     if (types.length === 0) return true;
     if (types.length > 1) return true;
-    return !['CAM', 'ELECTRICITY', 'RENT'].includes(types[0]);
+    return !['CAM', 'WATER', 'ELECTRICITY', 'RENT'].includes(types[0]);
   });
 
   const contactStr = [resident.contactNumber, resident.email].filter(Boolean).join(' • ') || '—';
@@ -209,6 +210,7 @@ export const generateResidentLedgerPDF = (ledger, options = {}) => {
   };
 
   addInvoiceTable('CAM Charges', camInvoices);
+  addInvoiceTable('Water Bills', waterInvoices);
   addInvoiceTable('Electricity Bill', electricityInvoices);
   addInvoiceTable('Rental Management', rentInvoices);
   if (otherInvoices.length > 0) {

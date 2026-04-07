@@ -43,6 +43,7 @@ import { fetchSectors } from '../../../services/tajSectorsService';
 import {
   generateElectricityInvoicePDF,
   generateCAMInvoicePDF,
+  generateWaterInvoicePDF,
   generateRentInvoicePDF,
   generateGeneralInvoicePDF,
   outputPDF
@@ -267,18 +268,23 @@ const Invoices = () => {
     // Determine invoice type based on charge types
     const isElectricity = chargeTypes.includes('ELECTRICITY');
     const isCAM = chargeTypes.includes('CAM');
+    const isWater = chargeTypes.includes('WATER');
     const isRent = chargeTypes.includes('RENT');
     
     // Route to specific detailed PDF generation for single-type invoices
     // For mixed invoices, use the general format below
-    const isSingleType = (isElectricity && !isCAM && !isRent) || 
-                         (isCAM && !isElectricity && !isRent) || 
-                         (isRent && !isElectricity && !isCAM);
+    const isSingleType =
+      (isElectricity && !isCAM && !isWater && !isRent) ||
+      (isCAM && !isElectricity && !isWater && !isRent) ||
+      (isWater && !isElectricity && !isCAM && !isRent) ||
+      (isRent && !isElectricity && !isCAM && !isWater);
     
     if (isSingleType && isElectricity) {
       return await generateElectricityInvoicePDF(invoice, property, options);
     } else if (isSingleType && isCAM) {
       return await generateCAMInvoicePDF(invoice, property, options);
+    } else if (isSingleType && isWater) {
+      return await generateWaterInvoicePDF(invoice, property, options);
     } else if (isSingleType && isRent) {
       return await generateRentInvoicePDF(invoice, property, options);
     }
@@ -385,11 +391,13 @@ const Invoices = () => {
       pdf.setTextColor(178, 34, 34);
       
       let title = 'INVOICE DETAILS';
-      if (isElectricity && !isCAM && !isRent) {
+      if (isElectricity && !isCAM && !isWater && !isRent) {
         title = 'ELECTRICITY CHARGES DETAILS';
-      } else if (isCAM && !isElectricity && !isRent) {
+      } else if (isCAM && !isElectricity && !isWater && !isRent) {
         title = 'CAM CHARGES DETAILS';
-      } else if (isRent && !isElectricity && !isCAM) {
+      } else if (isWater && !isElectricity && !isCAM && !isRent) {
+        title = 'WATER CHARGES DETAILS';
+      } else if (isRent && !isElectricity && !isCAM && !isWater) {
         title = 'RENT CHARGES DETAILS';
       }
       
@@ -426,6 +434,13 @@ const Invoices = () => {
         const camCharge = charges.find(c => c.type === 'CAM');
         if (camCharge) {
           rows.push(['CAM Charges', formatMoney(camCharge.amount || 0)]);
+        }
+      }
+
+      if (isWater) {
+        const waterCharge = charges.find(c => c.type === 'WATER');
+        if (waterCharge) {
+          rows.push(['Water Charges', formatMoney(waterCharge.amount || 0)]);
         }
       }
       
@@ -525,11 +540,13 @@ const Invoices = () => {
       pdf.setTextColor(178, 34, 34);
       
       let invoiceTitle = 'Invoice of Charges';
-      if (isElectricity && !isCAM && !isRent) {
+      if (isElectricity && !isCAM && !isWater && !isRent) {
         invoiceTitle = 'Invoice of Electricity Charges';
-      } else if (isCAM && !isElectricity && !isRent) {
+      } else if (isCAM && !isElectricity && !isWater && !isRent) {
         invoiceTitle = 'Invoice of CAM Charges';
-      } else if (isRent && !isElectricity && !isCAM) {
+      } else if (isWater && !isElectricity && !isCAM && !isRent) {
+        invoiceTitle = 'Invoice of Water Charges';
+      } else if (isRent && !isElectricity && !isCAM && !isWater) {
         invoiceTitle = 'Invoice of Rent Charges';
       } else {
         invoiceTitle = 'Invoice of Charges';
@@ -697,6 +714,7 @@ const Invoices = () => {
       switch (type) {
         case 'ELECTRICITY': return 'Electricity';
         case 'CAM': return 'CAM';
+        case 'WATER': return 'Water';
         case 'RENT': return 'Rent';
         default: return type;
       }
@@ -796,6 +814,7 @@ const Invoices = () => {
               <MenuItem value="all">All Types</MenuItem>
               <MenuItem value="ELECTRICITY">Electricity</MenuItem>
               <MenuItem value="CAM">CAM</MenuItem>
+              <MenuItem value="WATER">Water</MenuItem>
               <MenuItem value="RENT">Rent</MenuItem>
               <MenuItem value="OPEN_INVOICE">Open Invoice</MenuItem>
             </Select>

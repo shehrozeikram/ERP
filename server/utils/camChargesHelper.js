@@ -21,6 +21,13 @@ const getCAMChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneTyp
     if (!activeSlabs || !activeSlabs.slabs || activeSlabs.slabs.length === 0) {
       return { amount: 0, slab: null };
     }
+    const allWaterMissingOrZero = activeSlabs.slabs.every(
+      (s) =>
+        s?.waterCharges === undefined ||
+        s?.waterCharges === null ||
+        s?.waterCharges === '' ||
+        Number(s?.waterCharges) === 0
+    );
 
     // Convert property size to string format matching slabs (e.g., "3.5M", "4M")
     let sizeToMatch = '';
@@ -101,8 +108,91 @@ const numberToWords = (num) => {
   return result;
 };
 
+/**
+ * Fixed monthly water charge from Charges Slab (same size keys as CAM: e.g. 3.5M, 5M; Kanal: 1K, 1.6K, 2K).
+ */
+const getWaterChargeForProperty = async (propertySize, areaUnit = 'Marla', zoneType = 'Residential') => {
+  try {
+    const activeSlabs = await ChargesSlab.getActiveSlabs();
+    const defaultWaterBySize = {
+      '3.5M': 700,
+      '4M': 800,
+      '5M': 1000,
+      '8M': 1200,
+      '10M': 1500,
+      '14M': 2000,
+      '1K': 3000,
+      '1.6K': 3000,
+      '2K': 3000
+    };
+
+    if (zoneType && zoneType.toLowerCase() === 'commercial') {
+      const commercialAmount = activeSlabs?.commercialWaterCharges ?? 0;
+      return { amount: commercialAmount, slab: { type: 'commercial', commercialWaterCharges: commercialAmount } };
+    }
+
+    if (!activeSlabs || !activeSlabs.slabs || activeSlabs.slabs.length === 0) {
+      return { amount: 0, slab: null };
+    }
+
+    const unitLower = (areaUnit || '').toLowerCase();
+    let sizeToMatch = '';
+    if (unitLower.includes('kanal')) {
+      sizeToMatch = `${propertySize}K`;
+    } else {
+      sizeToMatch = `${propertySize}M`;
+    }
+
+    const matchingSlab = activeSlabs.slabs.find((slab) => {
+      const slabSize = slab.size?.toUpperCase().trim();
+      const matchSize = sizeToMatch.toUpperCase().trim();
+      return slabSize === matchSize;
+    });
+
+    if (matchingSlab) {
+      const explicitAmount =
+        matchingSlab.waterCharges !== undefined &&
+        matchingSlab.waterCharges !== null &&
+        matchingSlab.waterCharges !== ''
+          ? Number(matchingSlab.waterCharges)
+          : null;
+      const fallbackAmount = defaultWaterBySize[matchSize] ?? 0;
+      const shouldUseFallback = explicitAmount === null || (allWaterMissingOrZero && explicitAmount === 0);
+      return { amount: shouldUseFallback ? fallbackAmount : explicitAmount, slab: matchingSlab };
+    }
+
+    const numericSize = parseFloat(propertySize);
+    if (!isNaN(numericSize)) {
+      const numericMatch = activeSlabs.slabs.find((slab) => {
+        const slabSizeStr = slab.size?.replace(/[^0-9.]/g, '');
+        const slabSizeNum = parseFloat(slabSizeStr);
+        return !isNaN(slabSizeNum) && slabSizeNum === numericSize;
+      });
+
+      if (numericMatch) {
+        const explicitAmount =
+          numericMatch.waterCharges !== undefined &&
+          numericMatch.waterCharges !== null &&
+          numericMatch.waterCharges !== ''
+            ? Number(numericMatch.waterCharges)
+            : null;
+        const slabKey = String(numericMatch.size || '').toUpperCase().trim();
+        const fallbackAmount = defaultWaterBySize[slabKey] ?? 0;
+        const shouldUseFallback = explicitAmount === null || (allWaterMissingOrZero && explicitAmount === 0);
+        return { amount: shouldUseFallback ? fallbackAmount : explicitAmount, slab: numericMatch };
+      }
+    }
+
+    return { amount: 0, slab: null };
+  } catch (error) {
+    console.error('Error getting water charge for property:', error);
+    return { amount: 0, slab: null };
+  }
+};
+
 module.exports = {
   getCAMChargeForProperty,
+  getWaterChargeForProperty,
   numberToWords
 };
 

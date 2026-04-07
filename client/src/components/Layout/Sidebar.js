@@ -201,6 +201,7 @@ const Sidebar = () => {
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/dashboard': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
+      '/finance/taj-utilities-charges/water-bills': 'taj_water_bills',
       '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
       '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',

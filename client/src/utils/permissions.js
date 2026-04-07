@@ -259,6 +259,7 @@ export const SUBMODULES = {
     'aged_receivables',
     'taj_utilities_charges',
     'taj_cam_charges',
+    'taj_water_bills',
     'taj_electricity_bills',
     'taj_rental_agreements',
     'taj_rental_management',
@@ -670,6 +671,10 @@ export const MODULES = {
             path: '/finance/taj-utilities-charges/cam-charges'
           },
           {
+            name: 'Water Bills',
+            path: '/finance/taj-utilities-charges/water-bills'
+          },
+          {
             name: 'Electricity Bills',
             path: '/finance/taj-utilities-charges/electricity-bills'
           },
@@ -1060,6 +1065,7 @@ export const getModuleMenuItems = (userRole) => {
       '/finance/taj-utilities-charges',
       '/finance/taj-utilities-charges/dashboard',
       '/finance/taj-utilities-charges/cam-charges',
+      '/finance/taj-utilities-charges/water-bills',
       '/finance/taj-utilities-charges/electricity-bills',
       '/finance/taj-utilities-charges/rental-agreements',
       '/finance/taj-utilities-charges/rental-management',
@@ -1270,6 +1276,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/finance/taj-utilities-charges': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/dashboard': 'taj_utilities_charges',
       '/finance/taj-utilities-charges/cam-charges': 'taj_cam_charges',
+      '/finance/taj-utilities-charges/water-bills': 'taj_water_bills',
       '/finance/taj-utilities-charges/electricity-bills': 'taj_electricity_bills',
       '/finance/taj-utilities-charges/rental-agreements': 'taj_rental_agreements',
       '/finance/taj-utilities-charges/rental-management': 'taj_rental_management',
@@ -1543,6 +1550,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
           '/finance/taj-utilities-charges',
           '/finance/taj-utilities-charges/dashboard',
           '/finance/taj-utilities-charges/cam-charges',
+          '/finance/taj-utilities-charges/water-bills',
           '/finance/taj-utilities-charges/electricity-bills',
           '/finance/taj-utilities-charges/rental-agreements',
           '/finance/taj-utilities-charges/rental-management',

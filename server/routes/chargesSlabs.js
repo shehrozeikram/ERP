@@ -58,7 +58,9 @@ router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
 router.post('/', authMiddleware, [
   body('slabs').isArray({ min: 1 }).withMessage('At least one slab is required'),
   body('slabs.*.size').notEmpty().withMessage('Size is required'),
-  body('slabs.*.camCharges').isNumeric().withMessage('CAM Charges must be numeric').isFloat({ min: 0 }).withMessage('CAM Charges cannot be negative')
+  body('slabs.*.camCharges').isNumeric().withMessage('CAM Charges must be numeric').isFloat({ min: 0 }).withMessage('CAM Charges cannot be negative'),
+  body('slabs.*.waterCharges').optional().isNumeric().withMessage('Water Charges must be numeric').isFloat({ min: 0 }).withMessage('Water Charges cannot be negative'),
+  body('commercialWaterCharges').optional().isNumeric().isFloat({ min: 0 })
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -95,7 +97,9 @@ router.post('/', authMiddleware, [
 router.put('/:id', authMiddleware, [
   body('slabs').optional().isArray({ min: 1 }).withMessage('At least one slab is required'),
   body('slabs.*.size').optional().notEmpty().withMessage('Size is required'),
-  body('slabs.*.camCharges').optional().isNumeric().withMessage('CAM Charges must be numeric').isFloat({ min: 0 }).withMessage('CAM Charges cannot be negative')
+  body('slabs.*.camCharges').optional().isNumeric().withMessage('CAM Charges must be numeric').isFloat({ min: 0 }).withMessage('CAM Charges cannot be negative'),
+  body('slabs.*.waterCharges').optional().isNumeric().withMessage('Water Charges must be numeric').isFloat({ min: 0 }).withMessage('Water Charges cannot be negative'),
+  body('commercialWaterCharges').optional().isNumeric().isFloat({ min: 0 })
 ], asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {

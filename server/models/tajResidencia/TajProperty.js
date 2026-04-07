@@ -235,6 +235,11 @@ rentalAgreement: {
       type: Boolean,
       default: false
     },
+    /** Monthly fixed water utility billing (Taj Utilities — Water Bills submodule) */
+    hasWaterCharges: {
+      type: Boolean,
+      default: false
+    },
     // Legacy single meter fields (kept for backward compatibility)
     electricityWaterConsumer: {
       type: String,

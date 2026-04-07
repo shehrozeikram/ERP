@@ -49,6 +49,7 @@ import TajPropertyDetail from './pages/Finance/TajUtilities/TajPropertyDetail';
 import RentalManagementDetailFinance from './pages/Finance/TajUtilities/RentalManagementDetail';
 import TajUtilitiesDashboard from './pages/Finance/TajUtilities/Dashboard';
 import CAMCharges from './pages/Finance/TajUtilities/CAMCharges';
+import WaterBills from './pages/Finance/TajUtilities/WaterBills';
 import Electricity from './pages/Finance/TajUtilities/Electricity';
 import ChargesSlabs from './pages/Finance/TajUtilities/ChargesSlabs';
 import Invoices from './pages/Finance/TajUtilities/Invoices';
@@ -1043,6 +1044,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
                   <CAMCharges />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/taj-utilities-charges/water-bills"
+              element={
+                <ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "tcm_manager"]}>
+                  <WaterBills />
                 </ProtectedRoute>
               }
             />

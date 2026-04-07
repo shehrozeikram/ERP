@@ -4,12 +4,13 @@ const router = express.Router();
 const PropertyInvoice = require('../models/tajResidencia/PropertyInvoice');
 const TajProperty = require('../models/tajResidencia/TajProperty');
 const CAMCharge = require('../models/tajResidencia/CAMCharge');
+const WaterCharge = require('../models/tajResidencia/WaterCharge');
 const Electricity = require('../models/tajResidencia/Electricity');
 const TajRentalAgreement = require('../models/tajResidencia/TajRentalAgreement');
 const TajTransaction = require('../models/tajResidencia/TajTransaction');
 const TajResident = require('../models/tajResidencia/TajResident');
 const { authMiddleware } = require('../middleware/auth');
-const { numberToWords, getCAMChargeForProperty } = require('../utils/camChargesHelper');
+const { numberToWords, getCAMChargeForProperty, getWaterChargeForProperty } = require('../utils/camChargesHelper');
 const FinanceHelper = require('../utils/financeHelper');
 const { getPreviousReading, getElectricitySlabForUnits, calculateElectricityCharges, getEffectiveArrearsForInvoice } = require('../utils/electricityBillHelper');
 const dayjs = require('dayjs');
@@ -38,6 +39,8 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuf
     'ELC': 'INV-ELC',
     'RENT': 'INV-REN',
     'REN': 'INV-REN',
+    'WATER': 'INV-WTR',
+    'WTR': 'INV-WTR',
     'MIXED': 'INV-MIX',
     'MIX': 'INV-MIX'
   };
@@ -166,7 +169,7 @@ const updateInvoiceFields = (invoice, { charges, subtotal, totalArrears, grandTo
 };
 
 // Helper: Populate invoice references
-const populateInvoiceReferences = async (invoice, { camCharge, electricityBill }) => {
+const populateInvoiceReferences = async (invoice, { camCharge, waterCharge, electricityBill }) => {
   await invoice.populate({
     path: 'property',
     populate: {
@@ -175,7 +178,36 @@ const populateInvoiceReferences = async (invoice, { camCharge, electricityBill }
     }
   });
   if (camCharge) await invoice.populate('camCharge');
+  if (waterCharge) await invoice.populate('waterCharge');
   if (electricityBill) await invoice.populate('electricityBill');
+};
+
+// Ensure a consistent waterCharge payload shape for WATER invoices.
+// Some invoices can have WATER in charges but no linked waterCharge reference.
+const normalizeWaterChargePayload = (invoiceObj) => {
+  if (!invoiceObj || typeof invoiceObj !== 'object') return invoiceObj;
+
+  const hasWaterType = Array.isArray(invoiceObj.chargeTypes) && invoiceObj.chargeTypes.includes('WATER');
+  const hasLinkedWaterCharge = !!invoiceObj.waterCharge;
+
+  if (!hasLinkedWaterCharge) {
+    const waterLine = Array.isArray(invoiceObj.charges)
+      ? invoiceObj.charges.find((c) => String(c?.type || '').toUpperCase() === 'WATER')
+      : null;
+
+    if (hasWaterType && waterLine) {
+      invoiceObj.waterCharge = {
+        invoiceNumber: invoiceObj.invoiceNumber || null,
+        amount: Number(waterLine.amount) || 0,
+        arrears: Number(waterLine.arrears) || 0
+      };
+      return invoiceObj;
+    }
+
+    invoiceObj.waterCharge = null;
+  }
+
+  return invoiceObj;
 };
 
 // Helper: Create new invoice (always creates new, never updates existing)
@@ -408,6 +440,41 @@ router.get('/property/:propertyId/cam-calculation', authMiddleware, asyncHandler
   }
 }));
 
+// Get Water calculation for property (slab amount + overdue arrears)
+router.get('/property/:propertyId/water-calculation', authMiddleware, asyncHandler(async (req, res) => {
+  try {
+    const property = await TajProperty.findById(req.params.propertyId).lean();
+    if (!property) {
+      return res.status(404).json({ success: false, message: 'Property not found' });
+    }
+    if (!property.hasWaterCharges) {
+      return res.status(400).json({
+        success: false,
+        message: 'Water charges are not enabled for this property'
+      });
+    }
+    const propertySize = property.areaValue ?? 0;
+    const areaUnit = property.areaUnit || 'Marla';
+    const zoneType = property.zoneType || 'Residential';
+    const waterChargeInfo = await getWaterChargeForProperty(propertySize, areaUnit, zoneType);
+    const amount = waterChargeInfo?.amount ?? 0;
+    const arrears = await calculateOverdueArrears(property._id, new Date(), ['WATER']);
+    let description = 'Water Charges';
+    if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
+      description = 'Commercial Water Charges';
+    } else if (propertySize > 0) {
+      description = `Water Charges (${propertySize} ${areaUnit})`;
+    }
+    if (arrears > 0) description += ' (with Carry Forward Arrears)';
+    res.json({
+      success: true,
+      data: { amount, arrears, total: Math.round((amount + arrears) * 100) / 100, description }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+}));
+
 // Get previous reading and calculate charges for property
 router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyncHandler(async (req, res) => {
   try {
@@ -539,7 +606,7 @@ async function createPropertyInvoiceForProperty(req, res) {
       return res.status(404).json({ success: false, message: 'Property not found' });
     }
 
-    const { periodFrom, periodTo, dueDate, invoiceDate, includeCAM, includeElectricity, includeRent, charges: requestCharges, calculationData } = req.body;
+    const { periodFrom, periodTo, dueDate, invoiceDate, includeCAM, includeWater, includeElectricity, includeRent, charges: requestCharges, calculationData } = req.body;
 
     // Find latest charges/bills
     const propertyKey = property.address || property.plotNumber || property.ownerName;
@@ -550,12 +617,14 @@ async function createPropertyInvoiceForProperty(req, res) {
 
     const charges = [];
     let camCharge = null;
+    let waterCharge = null;
     let electricityBill = null;
     let rentPayment = null;
     let rentChargeAdded = false; // Track if rent charge was calculated from agreement
     let rentCarryForwardArrears = 0; // Carry forward arrears from previous invoices
     const meterBillsData = []; // Store data for additional meters
     let useProvidedCAM = false;
+    let useProvidedWater = false;
     let usedProvidedElectricity = false;
 
     // Get CAM Charge
@@ -648,6 +717,105 @@ async function createPropertyInvoiceForProperty(req, res) {
             amount: camAmount,
             arrears: carryForwardArrears,
             total: camAmount + carryForwardArrears
+          });
+        }
+      }
+    }
+
+    // Get Water charge (fixed slab; property must have water billing enabled)
+    if (includeWater === true) {
+      if (!property.hasWaterCharges) {
+        return res.status(400).json({
+          success: false,
+          message: 'Water charges are not enabled for this property. Enable "Water charges" on the property first.'
+        });
+      }
+      const hasProvidedCharges = requestCharges && Array.isArray(requestCharges) && requestCharges.length > 0;
+      const waterChargeFromRequest = hasProvidedCharges ? requestCharges.find(c => String(c?.type || '').toUpperCase() === 'WATER') : null;
+      useProvidedWater = !!waterChargeFromRequest;
+
+      if (useProvidedWater) {
+        const wAmount = Number(waterChargeFromRequest.amount) || 0;
+        const wArrears = Number(waterChargeFromRequest.arrears) || 0;
+        const providedTotal = (waterChargeFromRequest.total !== undefined && waterChargeFromRequest.total !== null && waterChargeFromRequest.total !== '')
+          ? Number(waterChargeFromRequest.total)
+          : null;
+        const wTotal = (typeof providedTotal === 'number' && providedTotal > 0) ? providedTotal : (wAmount + wArrears);
+        charges.push({
+          type: 'WATER',
+          description: waterChargeFromRequest.description || 'Water Charges',
+          amount: wAmount,
+          arrears: wArrears,
+          total: wTotal
+        });
+      } else {
+        let carryForwardArrears = 0;
+        const previousWaterInvoices = await PropertyInvoice.find({
+          property: property._id,
+          chargeTypes: { $in: ['WATER'] },
+          paymentStatus: { $in: ['unpaid', 'partial_paid'] },
+          balance: { $gt: 0 }
+        })
+          .select('charges grandTotal totalPaid balance')
+          .sort({ invoiceDate: 1 })
+          .lean();
+
+        previousWaterInvoices.forEach(inv => {
+          const invW = inv.charges?.find(c => c.type === 'WATER');
+          if (invW) {
+            const hasOnlyWater = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'WATER';
+            if (hasOnlyWater) {
+              carryForwardArrears += (inv.balance || 0);
+            } else {
+              const wPart = (invW.amount || 0) + (invW.arrears || 0);
+              const invoiceTotal = inv.grandTotal || 0;
+              if (invoiceTotal > 0) {
+                carryForwardArrears += (inv.balance || 0) * (wPart / invoiceTotal);
+              }
+            }
+          }
+        });
+        carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
+
+        if (conditions.length > 0) {
+          waterCharge = await WaterCharge.findOne({ $or: conditions })
+            .sort({ createdAt: -1 })
+            .lean();
+        }
+
+        if (waterCharge) {
+          const wAmount = waterCharge.amount || 0;
+          const existingArrears = waterCharge.arrears || 0;
+          const totalArrears = existingArrears + carryForwardArrears;
+          charges.push({
+            type: 'WATER',
+            description: carryForwardArrears > 0 ? 'Water Charges (with Carry Forward Arrears)' : 'Water Charges',
+            amount: wAmount,
+            arrears: totalArrears,
+            total: wAmount + totalArrears
+          });
+        } else {
+          const propertySize = property.areaValue || 0;
+          const areaUnit = property.areaUnit || 'Marla';
+          const zoneType = property.zoneType || 'Residential';
+          let wAmount = 0;
+          let wDescription = 'Water Charges';
+          if (zoneType === 'Commercial') {
+            const wInfo = await getWaterChargeForProperty(0, areaUnit, zoneType);
+            wAmount = wInfo.amount || 0;
+            wDescription = 'Commercial Water Charges';
+          } else if (propertySize > 0) {
+            const wInfo = await getWaterChargeForProperty(propertySize, areaUnit, zoneType);
+            wAmount = wInfo.amount || 0;
+            wDescription = `Water Charges (${propertySize} ${areaUnit})`;
+          }
+          if (carryForwardArrears > 0) wDescription += ` + Carry Forward Arrears`;
+          charges.push({
+            type: 'WATER',
+            description: wDescription,
+            amount: wAmount,
+            arrears: carryForwardArrears,
+            total: wAmount + carryForwardArrears
           });
         }
       }
@@ -1148,7 +1316,7 @@ async function createPropertyInvoiceForProperty(req, res) {
     if (charges.length === 0 && !hasManualChargesRequest && property.categoryType !== 'Personal Rent') {
       return res.status(400).json({ 
         success: false, 
-        message: 'No charges found for this property. Please ensure CAM charges, Electricity bills, or Rent payments exist, or provide charges manually.' 
+        message: 'No charges found for this property. Please ensure CAM, Water, Electricity, or Rent charges exist, or provide charges manually.' 
       });
     }
     
@@ -1180,6 +1348,14 @@ async function createPropertyInvoiceForProperty(req, res) {
           arrears: 0,
           total: 0
         });
+      } else if (includeWater) {
+        charges.push({
+          type: 'WATER',
+          description: 'Water Charges',
+          amount: 0,
+          arrears: 0,
+          total: 0
+        });
       }
     }
 
@@ -1190,6 +1366,7 @@ async function createPropertyInvoiceForProperty(req, res) {
     const chargeTypesInInvoice = [...new Set(charges.map((c) => c.type))];
     for (const chargeType of chargeTypesInInvoice) {
       if (chargeType === 'CAM' && useProvidedCAM) continue;
+      if (chargeType === 'WATER' && useProvidedWater) continue;
       if (chargeType === 'ELECTRICITY' && usedProvidedElectricity) continue;
       if (rentArrearsAlreadyApplied(chargeType)) continue;
       const overdueForType = await calculateOverdueArrears(property._id, new Date(), [chargeType]);
@@ -1213,6 +1390,8 @@ async function createPropertyInvoiceForProperty(req, res) {
       const chargeType = charges[0].type;
       if (chargeType === 'CAM') {
         invoiceType = 'CAM';
+      } else if (chargeType === 'WATER') {
+        invoiceType = 'WATER';
       } else if (chargeType === 'ELECTRICITY') {
         invoiceType = 'ELECTRICITY';
       } else if (chargeType === 'RENT') {
@@ -1341,6 +1520,7 @@ async function createPropertyInvoiceForProperty(req, res) {
         periodTo: periodTo ? new Date(periodTo) : undefined,
         chargeTypes: charges.map(c => c.type),
         camCharge: camCharge?._id,
+        waterCharge: waterCharge?._id,
         electricityBill: electricityBill?._id,
         rentPayment: rentPayment?._id,
         charges,
@@ -1360,7 +1540,7 @@ async function createPropertyInvoiceForProperty(req, res) {
         firstInvoiceData, firstInvoiceNumber, property._id, req.user.id, periodFrom, periodTo, property.srNo, invoiceType
       );
       
-      await populateInvoiceReferences(firstInvoice, { camCharge, electricityBill });
+      await populateInvoiceReferences(firstInvoice, { camCharge, waterCharge, electricityBill });
       createdInvoices.push(firstInvoice.toObject());
       
       // Create invoices for additional meters
@@ -1504,6 +1684,12 @@ async function createPropertyInvoiceForProperty(req, res) {
           // The chargeTypes filter above already ensures it's a CAM invoice
         }
       }
+
+      if (chargeTypesArray.includes('WATER')) {
+        if (waterCharge) {
+          duplicateQuery.waterCharge = waterCharge._id;
+        }
+      }
       
       // For RENT charges, match the rentPayment reference if available
       if (chargeTypesArray.includes('RENT') && rentPayment) {
@@ -1529,6 +1715,7 @@ async function createPropertyInvoiceForProperty(req, res) {
       periodTo: periodTo ? new Date(periodTo) : undefined,
       chargeTypes: charges.map(c => c.type),
       camCharge: camCharge?._id,
+      waterCharge: waterCharge?._id,
       electricityBill: electricityBill?._id,
       rentPayment: rentPayment?._id,
       charges,
@@ -1548,7 +1735,7 @@ async function createPropertyInvoiceForProperty(req, res) {
       invoiceData, invoiceNumber, property._id, req.user.id, periodFrom, periodTo, property.srNo, invoiceType
     );
     
-    await populateInvoiceReferences(invoice, { camCharge, electricityBill });
+    await populateInvoiceReferences(invoice, { camCharge, waterCharge, electricityBill });
     
     const invoiceObj = invoice.toObject();
     
@@ -1621,6 +1808,34 @@ async function buildCamChargesArray(property) {
   return [
     {
       type: 'CAM',
+      description,
+      amount,
+      arrears,
+      total: Math.round((amount + arrears) * 100) / 100
+    }
+  ];
+}
+
+async function buildWaterChargesArray(property) {
+  if (!property.hasWaterCharges) {
+    return [];
+  }
+  const propertySize = property.areaValue ?? 0;
+  const areaUnit = property.areaUnit || 'Marla';
+  const zoneType = property.zoneType || 'Residential';
+  const waterChargeInfo = await getWaterChargeForProperty(propertySize, areaUnit, zoneType);
+  const amount = waterChargeInfo?.amount ?? 0;
+  const arrears = await calculateOverdueArrears(property._id, new Date(), ['WATER']);
+  let description = 'Water Charges';
+  if (zoneType && String(zoneType).toLowerCase() === 'commercial') {
+    description = 'Commercial Water Charges';
+  } else if (propertySize > 0) {
+    description = `Water Charges (${propertySize} ${areaUnit})`;
+  }
+  if (arrears > 0) description += ' (with Carry Forward Arrears)';
+  return [
+    {
+      type: 'WATER',
       description,
       amount,
       arrears,
@@ -1714,6 +1929,118 @@ router.post('/bulk-create-cam-invoices', authMiddleware, asyncHandler(async (req
         params: { propertyId },
         body: {
           includeCAM: true,
+          includeElectricity: false,
+          includeRent: false,
+          invoiceDate: invoiceDateD,
+          periodFrom: periodFromD,
+          periodTo: periodToD,
+          dueDate: dueDateD,
+          charges
+        },
+        user: req.user
+      };
+      const inv = await invokeCreatePropertyInvoice(mockReq);
+      if (inv.statusCode === 201 && inv.body?.success) {
+        createdCount++;
+        results.push({
+          propertyId,
+          status: 'created',
+          invoiceId: inv.body?.data?._id
+        });
+      } else if (inv.statusCode === 400 && /already exists/i.test(inv.body?.message || '')) {
+        skippedCount++;
+        results.push({ propertyId, status: 'skipped', message: inv.body?.message });
+      } else {
+        failedCount++;
+        results.push({
+          propertyId,
+          status: 'failed',
+          message: inv.body?.message || 'Create failed'
+        });
+      }
+    } catch (e) {
+      failedCount++;
+      results.push({ propertyId, status: 'failed', message: e.message });
+    }
+  }
+
+  res.json({
+    success: true,
+    summary: {
+      total: propertyIds.length,
+      createdCount,
+      skippedCount,
+      failedCount
+    },
+    results
+  });
+}));
+
+// @route   POST /api/taj-utilities/invoices/bulk-create-water-invoices
+// @desc    Create Water invoices for many properties in one request
+// @access  Private
+router.post('/bulk-create-water-invoices', authMiddleware, asyncHandler(async (req, res) => {
+  const { propertyIds, periodFrom, periodTo, dueDate, invoiceDate } = req.body;
+  if (!Array.isArray(propertyIds) || propertyIds.length === 0) {
+    return res.status(400).json({ success: false, message: 'propertyIds must be a non-empty array' });
+  }
+  if (propertyIds.length > BULK_MAX_PROPERTIES) {
+    return res.status(400).json({ success: false, message: `At most ${BULK_MAX_PROPERTIES} properties per request` });
+  }
+  if (!periodFrom || !periodTo) {
+    return res.status(400).json({ success: false, message: 'periodFrom and periodTo are required' });
+  }
+  const periodFromD = new Date(periodFrom);
+  const periodToD = new Date(periodTo);
+  const targetMonthStartMs = dayjs(periodFrom).startOf('month').startOf('day').valueOf();
+  const targetMonthEndMs = dayjs(periodFrom).endOf('month').endOf('day').valueOf();
+  const invoiceDateD = invoiceDate ? new Date(invoiceDate) : new Date();
+  const dueDateD = dueDate ? new Date(dueDate) : periodToD;
+
+  const results = [];
+  let createdCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+
+  for (const rawId of propertyIds) {
+    const propertyId = String(rawId);
+    try {
+      const property = await TajProperty.findById(propertyId).lean();
+      if (!property) {
+        results.push({ propertyId, status: 'failed', message: 'Property not found' });
+        failedCount++;
+        continue;
+      }
+      if (!property.hasWaterCharges) {
+        results.push({ propertyId, status: 'skipped', message: 'Water charges not enabled for property' });
+        skippedCount++;
+        continue;
+      }
+
+      const invoices = await PropertyInvoice.find({ property: propertyId })
+        .select('chargeTypes periodFrom periodTo')
+        .lean();
+      const exists = invoices.some((inv) =>
+        invoiceOverlapsBulkMonth(inv, 'WATER', targetMonthStartMs, targetMonthEndMs)
+      );
+      if (exists) {
+        results.push({ propertyId, status: 'skipped', message: 'Water invoice already exists for this month' });
+        skippedCount++;
+        continue;
+      }
+
+      const charges = await buildWaterChargesArray(property);
+      if (!charges.length || (charges[0].amount || 0) <= 0) {
+        results.push({ propertyId, status: 'failed', message: 'No water slab amount for property' });
+        failedCount++;
+        continue;
+      }
+
+      const mockReq = {
+        params: { propertyId },
+        body: {
+          includeCAM: false,
+          includeWater: true,
           includeElectricity: false,
           includeRent: false,
           invoiceDate: invoiceDateD,
@@ -2297,6 +2624,7 @@ router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
         }
       })
       .populate('camCharge')
+      .populate('waterCharge')
       .populate('electricityBill')
       .populate('createdBy', 'firstName lastName')
       .populate('updatedBy', 'firstName lastName');
@@ -2305,7 +2633,8 @@ router.get('/:id', authMiddleware, asyncHandler(async (req, res) => {
       return res.status(404).json({ success: false, message: 'Invoice not found' });
     }
 
-    res.json({ success: true, data: invoice });
+    const invoiceObj = normalizeWaterChargePayload(invoice.toObject());
+    res.json({ success: true, data: invoiceObj });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -2324,7 +2653,7 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
     
     // OPTIMIZATION: Select only needed fields and use lean
     const invoices = await PropertyInvoice.find({ property: req.params.propertyId })
-      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge electricityBill rentPayment property createdAt updatedAt calculationData')
+      .select('_id invoiceNumber invoiceDate periodFrom periodTo dueDate chargeTypes charges subtotal totalArrears grandTotal amountInWords payments totalPaid balance status paymentStatus camCharge waterCharge electricityBill rentPayment property createdAt updatedAt calculationData')
       .populate({
         path: 'property',
         select: 'propertyName plotNumber address ownerName tenantName resident sector areaValue areaUnit meters floor electricityWaterMeterNo',
@@ -2334,6 +2663,7 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
         }
       })
       .populate('camCharge', 'invoiceNumber amount arrears')
+      .populate('waterCharge', 'invoiceNumber amount arrears')
       .populate('electricityBill', 'invoiceNumber meterNo prvReading curReading unitsConsumed unitsConsumedForDays iescoSlabs iescoUnitPrice electricityCost fcSurcharge gst electricityDuty fixedCharges totalBill withSurcharge receivedAmount arrears fromDate toDate dueDate month address')
       .populate('payments.recordedBy', 'firstName lastName')
       .sort({ invoiceDate: -1 })
@@ -2402,7 +2732,7 @@ router.get('/property/:propertyId', authMiddleware, asyncHandler(async (req, res
         });
       }
       
-      return invoiceObj;
+      return normalizeWaterChargePayload(invoiceObj);
     });
 
     // Add effectiveArrears for electricity invoices (adjusted balance from previous invoices, includes surcharge when overdue)
@@ -2546,6 +2876,12 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
         // If camCharge is null, the chargeTypes filter above already ensures it's a CAM invoice
         // So we'll still catch duplicates for the same property and month
       }
+
+      if (chargeTypesArray.includes('WATER')) {
+        if (invoice.waterCharge) {
+          duplicateQuery.waterCharge = invoice.waterCharge;
+        }
+      }
       
       // For RENT charges, match the rentPayment reference if available
       if (chargeTypesArray.includes('RENT') && invoice.rentPayment) {
@@ -2606,12 +2942,15 @@ router.put('/:id', authMiddleware, asyncHandler(async (req, res) => {
       }
     });
     await invoice.populate('camCharge');
+    await invoice.populate('waterCharge');
     await invoice.populate('electricityBill');
+
+    const updatedInvoiceObj = normalizeWaterChargePayload(invoice.toObject());
 
     res.json({
       success: true,
       message: 'Invoice updated successfully',
-      data: invoice
+      data: updatedInvoiceObj
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

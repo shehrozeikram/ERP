@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import {
   ReceiptLong as ReceiptIcon,
+  Opacity as WaterIcon,
   FlashOn as ElectricityIcon,
   Business as PropertyIcon,
   People as PeopleIcon,
@@ -113,6 +114,7 @@ const Dashboard = () => {
   const [error, setError] = useState('');
   const [stats, setStats] = useState({
     cam: { totalProperties: 0, totalAmount: 0, totalArrears: 0 },
+    water: { totalProperties: 0, totalAmount: 0, totalArrears: 0 },
     electricity: { totalProperties: 0, totalAmount: 0, totalArrears: 0 },
     properties: 0,
     residents: 0,
@@ -130,6 +132,7 @@ const Dashboard = () => {
 
       const [
         camRes,
+        waterRes,
         electricityRes,
         invoicesRes,
         propertiesRes,
@@ -138,6 +141,7 @@ const Dashboard = () => {
         suspenseRes
       ] = await Promise.all([
         api.get('/taj-utilities/cam-charges/current-overview', { params: { page: 1, limit: 1 } }),
+        api.get('/taj-utilities/water-charges/current-overview', { params: { page: 1, limit: 1 } }),
         api.get('/taj-utilities/electricity/current-overview', { params: { page: 1, limit: 1 } }),
         fetchAllInvoices({ page: 1, limit: 1 }),
         fetchTajProperties({ page: 1, limit: 1 }),
@@ -147,6 +151,7 @@ const Dashboard = () => {
       ]);
 
       const camData = camRes.data?.data || {};
+      const waterData = waterRes.data?.data || {};
       const elecData = electricityRes.data?.data || {};
       const invPagination = invoicesRes.data?.pagination || {};
       const propData = propertiesRes.data?.data;
@@ -174,6 +179,11 @@ const Dashboard = () => {
           totalProperties: camData.totalProperties ?? 0,
           totalAmount: camData.totalAmountAllPages ?? camData.totalAmount ?? 0,
           totalArrears: camData.totalArrearsAllPages ?? camData.totalArrears ?? 0
+        },
+        water: {
+          totalProperties: waterData.totalProperties ?? 0,
+          totalAmount: waterData.totalAmountAllPages ?? waterData.totalAmount ?? 0,
+          totalArrears: waterData.totalArrearsAllPages ?? waterData.totalArrears ?? 0
         },
         electricity: {
           totalProperties: elecData.totalProperties ?? 0,
@@ -208,7 +218,7 @@ const Dashboard = () => {
             Taj Utilities & Charges — Dashboard
           </Typography>
           <Typography color="text.secondary">
-            Overview of CAM, Electricity, Rentals, Invoices, and more.
+            Overview of CAM, Water, Electricity, Rentals, Invoices, and more.
           </Typography>
         </Box>
         <Button
@@ -274,12 +284,12 @@ const Dashboard = () => {
         </Grid>
       </Grid>
 
-      {/* CAM & Electricity */}
+      {/* CAM, Water & Electricity */}
       <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-        CAM & Electricity
+        CAM, Water & Electricity
       </Typography>
       <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
           <StatCard
             title="CAM Charges — Properties"
             value={stats.cam.totalProperties}
@@ -290,7 +300,18 @@ const Dashboard = () => {
             href="/finance/taj-utilities-charges/cam-charges"
           />
         </Grid>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
+          <StatCard
+            title="Water Bills — Properties"
+            value={stats.water.totalProperties}
+            subValue={`Amount: ${formatCurrency(stats.water.totalAmount)} • Arrears: ${formatCurrency(stats.water.totalArrears)}`}
+            icon={WaterIcon}
+            color="info"
+            loading={loading}
+            href="/finance/taj-utilities-charges/water-bills"
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
           <StatCard
             title="Electricity — Properties"
             value={stats.electricity.totalProperties}

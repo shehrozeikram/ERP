@@ -19,12 +19,22 @@ const chargesSlabSchema = new mongoose.Schema({
       type: Number,
       required: [true, 'CAM Charges is required'],
       min: [0, 'CAM Charges cannot be negative']
+    },
+    waterCharges: {
+      type: Number,
+      default: 0,
+      min: [0, 'Water Charges cannot be negative']
     }
   }],
   commercialCamCharges: {
     type: Number,
     default: 2000,
     min: [0, 'Commercial CAM Charges cannot be negative']
+  },
+  commercialWaterCharges: {
+    type: Number,
+    default: 3000,
+    min: [0, 'Commercial Water Charges cannot be negative']
   },
   // Audit fields
   createdBy: {

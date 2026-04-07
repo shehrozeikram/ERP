@@ -602,6 +602,227 @@ export const generateCAMInvoicePDF = async (invoice, propertyParam = null, optio
   outputPDF(pdf, `CAM_Invoice_${sanitizedName || property._id}.pdf`, options);
 };
 
+/** Same layout as CAM invoice; line items use WATER charge type and water billing copy. */
+export const generateWaterInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
+  let property = invoice?.property || propertyParam;
+
+  if (!property || !invoice) return;
+
+  property = await ensurePropertyWithSize(property, invoice);
+  if (!property) return;
+
+  const waterCharge = invoice.charges?.find(c => c.type === 'WATER');
+  const waterAmount = waterCharge?.amount || 0;
+  const arrears = waterCharge?.arrears || invoice.totalArrears || 0;
+  const _totalPaid = invoice.totalPaid || 0;
+  const _grandTotal = invoice.grandTotal || (waterAmount + arrears);
+
+  const pdf = new jsPDF('landscape', 'mm', 'a4');
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const panelWidth = pageWidth / 3;
+  const marginX = 6;
+  const topMargin = 10;
+  const contentWidth = panelWidth - 2 * marginX;
+
+  const formatDate = (value, pattern = 'DD-MMM-YY') => value ? dayjs(value).format(pattern) : '—';
+  const formatFullDate = (value) => value ? dayjs(value).format('MMMM D, YYYY') : '—';
+  const formatMoney = (value) => (Number(value) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0 });
+
+  const periodFromRaw = invoice?.periodFrom || null;
+  const periodToRaw = invoice?.periodTo || null;
+  const periodFrom = formatDate(periodFromRaw);
+  const periodTo = formatDate(periodToRaw);
+  const invoiceNumber = invoice?.invoiceNumber || '—';
+  const invoicingDate = formatFullDate(invoice?.invoiceDate || invoice?.createdAt);
+  const computedDueDate = invoice?.dueDate || (periodToRaw ? dayjs(periodToRaw).add(30, 'day').toDate() : null);
+  const dueDate = formatFullDate(computedDueDate);
+  const monthLabel = (periodToRaw ? dayjs(periodToRaw) : invoice?.invoiceDate ? dayjs(invoice.invoiceDate) : dayjs()).format('MMM-YY').toUpperCase();
+
+  const residentName = property.tenantName || property.ownerName || '—';
+  const residentId = property.resident?.residentId || property.residentId || '—';
+  const propertyAddress = property.address || [property.plotNumber ? `Plot No ${property.plotNumber}` : '', property.street].filter(Boolean).join(', ') || '—';
+  const propertySector = property.sector || '—';
+
+  const sourceProperty = (property.areaValue !== undefined && property.areaValue !== null && property.areaValue !== '')
+    ? property : (invoice?.property?.areaValue !== undefined && invoice?.property?.areaValue !== null && invoice?.property?.areaValue !== '' ? invoice.property : property);
+  let propertySize = '—';
+  const areaValue = sourceProperty.areaValue;
+  const areaUnit = sourceProperty.areaUnit;
+  if (areaValue !== undefined && areaValue !== null && areaValue !== '') {
+    const valueStr = String(areaValue).trim();
+    const unitStr = areaUnit ? String(areaUnit).trim() : '';
+    propertySize = valueStr ? `${valueStr}${unitStr ? ' ' + unitStr : ''}`.trim() : '—';
+  }
+
+  const totalPaidWater = invoice?.totalPaid || 0;
+  const payableWithinDue = (invoice?.grandTotal || (waterAmount + arrears)) - totalPaidWater;
+  const lateSurcharge = Math.max(Math.round(waterAmount * 0.1), 0);
+  const payableAfterDue = waterAmount + arrears + lateSurcharge - totalPaidWater;
+
+  const payableAmount = payableWithinDue;
+
+  const GRACE_PERIOD_DAYS = 6;
+  const invoiceDueDate = computedDueDate ? new Date(computedDueDate) : null;
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
+  const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
+  const isUnpaid =
+    invoice.paymentStatus === 'unpaid' ||
+    invoice.paymentStatus === 'partial_paid' ||
+    (invoice.balance || 0) > 0;
+  const balanceWater = (isOverdue && isUnpaid) ? payableAfterDue : payableWithinDue;
+
+  pdf.setDrawColor(170);
+  pdf.setLineWidth(0.3);
+  if (pdf.setLineDash) pdf.setLineDash([1, 2], 0);
+  [panelWidth, panelWidth * 2].forEach((xPos) => {
+    pdf.line(xPos, topMargin - 5, xPos, pageHeight - 15);
+  });
+  if (pdf.setLineDash) pdf.setLineDash([], 0);
+
+  const drawInlineField = (label, value, startX, startY, labelWidth = 34) => {
+    const valueWidth = contentWidth - labelWidth;
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(7);
+    pdf.text(label, startX, startY);
+    pdf.setFont('helvetica', 'normal');
+    const lines = pdf.splitTextToSize(String(value || '—'), valueWidth);
+    lines.forEach((line, idx) => {
+      pdf.text(line, startX + labelWidth, startY + idx * 4.5);
+    });
+    return startY + lines.length * 4.5 + 1.5;
+  };
+
+  const drawWaterDetails = (startX, startY) => {
+    const width = contentWidth;
+    let y = startY;
+    pdf.setFillColor(242, 242, 242);
+    pdf.rect(startX, y, width, 7, 'F');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(8);
+    pdf.setTextColor(178, 34, 34);
+    pdf.text('WATER CHARGES DETAILS', startX + width / 2, y + 4.5, { align: 'center' });
+    pdf.setTextColor(0, 0, 0);
+    y += 13;
+
+    const rows = [
+      ['Water Charges', formatMoney(waterAmount)],
+      ['Charges for the Month', formatMoney(waterAmount)],
+      ['Arrears', formatMoney(arrears)],
+      ['Payable', formatMoney(payableAmount)],
+      ['Payable After Due Date', formatMoney(payableAfterDue)],
+      ['Paid Amount', totalPaidWater > 0 ? formatMoney(totalPaidWater) : '-'],
+      ['Remaining Balance', formatMoney(balanceWater)]
+    ];
+
+    rows.forEach((row) => {
+      const isBoldRow = row[0] === 'Payable After Due Date' || row[0] === 'Paid Amount' || row[0] === 'Remaining Balance';
+      pdf.setDrawColor(210);
+      pdf.rect(startX, y - 5, width, 7);
+      pdf.setFont('helvetica', isBoldRow ? 'bold' : 'normal');
+      pdf.setFontSize(7);
+      pdf.text(row[0], startX + 2, y - 1);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(row[1], startX + width - 2, y - 1, { align: 'right' });
+      y += 7;
+    });
+    return y + 2;
+  };
+
+  const footnotes = [
+    '1. Monthly fixed water charges are levied as per management-approved slabs for your plot size.',
+    '2. Please make your cheque/bank draft/cash deposit on our specified deposit slip at any Allied Bank Ltd. branch in Pakistan to Account Title: Taj Residencia, Allied Bank Limited, The Centaurus Mall Branch, Islamabad (0917). Bank Account No.: PK68ABPA0010035700420129.',
+    '3. Please deposit your dues before the due date to avoid Late Payment Surcharge.',
+    '4. Please share proof of payment to TAJ Official WhatsApp No.: 0345 77 88 442.'
+  ];
+
+  const drawPanel = async (copyLabel, columnIndex) => {
+    const startX = columnIndex * panelWidth + marginX;
+    let cursorY = topMargin - 3;
+
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(copyLabel, startX, cursorY);
+    pdf.setFontSize(10);
+    pdf.setTextColor(178, 34, 34);
+    pdf.text('Taj Residencia', startX + contentWidth / 2, cursorY, { align: 'center' });
+    pdf.setTextColor(0, 0, 0);
+
+    const logoWidth = 20;
+    const logoHeight = 20;
+    const logoX = startX + contentWidth - logoWidth - 1;
+    const logoY = cursorY - 5;
+    await addLogoToPDF(pdf, logoX, logoY, logoWidth, logoHeight);
+
+    cursorY += 7;
+
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(9);
+    pdf.setTextColor(178, 34, 34);
+    pdf.text('Invoice of Water Charges', startX + contentWidth / 2, cursorY, { align: 'center' });
+    pdf.setTextColor(0, 0, 0);
+    cursorY += 6;
+
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    const monthPrefix = 'For The Month Of ';
+    const monthValue = monthLabel;
+    const prefixWidth = pdf.getTextWidth(monthPrefix);
+    const totalWidth = pdf.getTextWidth(monthPrefix + monthValue);
+    const centerX = startX + contentWidth / 2;
+    pdf.text(monthPrefix, centerX - totalWidth / 2, cursorY);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(monthValue, centerX - totalWidth / 2 + prefixWidth, cursorY);
+    cursorY += 6;
+
+    const inlineRows = [
+      ['Resident ID', residentId],
+      ['Residents Name', residentName],
+      ['Address', propertyAddress],
+      ['Sector', propertySector],
+      ['Size', propertySize],
+      ['Period From', periodFrom],
+      ['Period To', periodTo],
+      ['Invoice No.', invoiceNumber],
+      ['Invoicing Date', invoicingDate],
+      ['Due Date', dueDate]
+    ];
+
+    inlineRows.forEach(([label, value]) => {
+      cursorY = drawInlineField(label, value, startX, cursorY);
+    });
+
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(6.5);
+    pdf.text('(In Rupees)', startX + contentWidth, cursorY, { align: 'right' });
+    cursorY += 4;
+
+    cursorY = drawWaterDetails(startX, cursorY);
+
+    let footY = cursorY + 2;
+    pdf.setFont('helvetica', 'italic');
+    pdf.setFontSize(5.2);
+    footnotes.forEach((line) => {
+      const wrapped = pdf.splitTextToSize(line, contentWidth);
+      wrapped.forEach((wrappedLine) => {
+        pdf.text(wrappedLine, startX, footY);
+        footY += 3.2;
+      });
+    });
+  };
+
+  for (let index = 0; index < 3; index++) {
+    const copy = ['Bank Copy', 'Office Copy', 'Client Copy'][index];
+    await drawPanel(copy, index);
+  }
+
+  const sanitizedName = (property.propertyName || property.plotNumber || property.srNo || 'water-property')
+    .toString().replace(/[^a-z0-9-_ ]/gi, '').trim().replace(/\s+/g, '_');
+  outputPDF(pdf, `Water_Invoice_${sanitizedName || property._id}.pdf`, options);
+};
+
 // Generate Rent Invoice PDF
 export const generateRentInvoicePDF = async (invoice, propertyParam = null, options = {}) => {
   let property = invoice?.property || propertyParam;

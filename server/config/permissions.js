@@ -94,6 +94,7 @@ const SUBMODULES = {
     'recovery_my_tasks',
     'taj_utilities_charges',
     'taj_cam_charges',
+    'taj_water_bills',
     'taj_electricity_bills',
     'taj_rental_agreements',
     'taj_rental_management',
@@ -599,6 +600,7 @@ const getUserAllowedSubmodules = async (userId, module) => {
       return allSubmodules.filter(submodule => 
         submodule === 'taj_utilities_charges' ||
         submodule === 'taj_cam_charges' ||
+        submodule === 'taj_water_bills' ||
         submodule === 'taj_electricity_bills' ||
         submodule === 'taj_rental_agreements' || 
         submodule === 'taj_rental_management' ||
@@ -717,6 +719,7 @@ const checkSubRoleAccess = async (userId, module, submodule, action) => {
       const allowedSubmodules = [
         'taj_utilities_charges',
         'taj_cam_charges',
+        'taj_water_bills',
         'taj_electricity_bills',
         'taj_rental_agreements',
         'taj_rental_management',

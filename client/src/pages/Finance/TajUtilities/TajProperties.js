@@ -113,6 +113,7 @@ const defaultForm = {
   notes: '',
   familyStatus: '',
   hasElectricityWater: false,
+  hasWaterCharges: false,
   meters: []
 };
 
@@ -375,6 +376,7 @@ const TajProperties = () => {
         notes: property.notes || '',
         familyStatus: property.familyStatus || '',
         hasElectricityWater: property.hasElectricityWater || false,
+        hasWaterCharges: property.hasWaterCharges || false,
         meters: meters.map(m => ({
           ...m,
           dateOfOccupation: m.dateOfOccupation ? dayjs(m.dateOfOccupation).format('YYYY-MM-DD') : ''
@@ -1742,6 +1744,19 @@ const TajProperties = () => {
                   />
                 }
                 label="Electricity"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.hasWaterCharges || false}
+                    onChange={handleInputChange}
+                    name="hasWaterCharges"
+                  />
+                }
+                label="Water charges (monthly fixed utility billing)"
               />
             </Grid>
 

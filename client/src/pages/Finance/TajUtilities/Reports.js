@@ -73,6 +73,7 @@ const TajUtilitiesReports = () => {
   const CHARGE_TYPE_OPTIONS = [
     { value: 'all', label: 'All' },
     { value: 'CAM', label: 'CAM Charges' },
+    { value: 'WATER', label: 'Water Bills' },
     { value: 'ELECTRICITY', label: 'Electricity Bills' },
     { value: 'RENT', label: 'Rental Management' },
     { value: 'OPEN_INVOICE', label: 'Open Invoices' },
@@ -585,6 +586,9 @@ const TajUtilitiesReports = () => {
                 const camInvoices = invoices.filter(inv =>
                   inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM'
                 );
+                const waterInvoices = invoices.filter(inv =>
+                  inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'WATER'
+                );
                 const electricityInvoices = invoices.filter(inv =>
                   inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'ELECTRICITY'
                 );
@@ -595,7 +599,7 @@ const TajUtilitiesReports = () => {
                   const types = inv.chargeTypes || [];
                   if (types.length === 0) return true;
                   if (types.length > 1) return true;
-                  return !['CAM', 'ELECTRICITY', 'RENT'].includes(types[0]);
+                  return !['CAM', 'WATER', 'ELECTRICITY', 'RENT'].includes(types[0]);
                 });
 
                 const ledgerTable = (title, list) => {
@@ -674,6 +678,12 @@ const TajUtilitiesReports = () => {
                       Electricity Bill
                     </Typography>
                     {ledgerTable('Electricity', electricityInvoices)}
+
+                    {/* Water Bills */}
+                    <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1, mt: 2 }}>
+                      Water Bills
+                    </Typography>
+                    {ledgerTable('Water', waterInvoices)}
 
                     {/* Rental Management */}
                     <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1, mt: 2 }}>

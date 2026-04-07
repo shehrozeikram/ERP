@@ -15,6 +15,10 @@ export const createInvoice = (propertyId, data) => {
 export const bulkCreateCamInvoices = (data) =>
   api.post(`${base}/bulk-create-cam-invoices`, data, { timeout: 600000 });
 
+/** Taj Utilities — bulk Water invoice creation (single HTTP request; server creates all). */
+export const bulkCreateWaterInvoices = (data) =>
+  api.post(`${base}/bulk-create-water-invoices`, data, { timeout: 600000 });
+
 /** Taj Utilities — bulk rental (RENT) invoice creation (single HTTP request; server creates all). */
 export const bulkCreateRentInvoices = (data) =>
   api.post(`${base}/bulk-create-rent-invoices`, data, { timeout: 600000 });
@@ -84,9 +88,13 @@ export const getRentCalculation = (propertyId) =>
 export const getCAMCalculation = (propertyId) =>
   api.get(`${base}/property/${propertyId}/cam-calculation`);
 
+export const getWaterCalculation = (propertyId) =>
+  api.get(`${base}/property/${propertyId}/water-calculation`);
+
 const propertyInvoiceService = {
   createInvoice,
   bulkCreateCamInvoices,
+  bulkCreateWaterInvoices,
   bulkCreateRentInvoices,
   fetchInvoice,
   fetchInvoicesForProperty,
@@ -97,7 +105,8 @@ const propertyInvoiceService = {
   deletePaymentFromInvoice,
   getElectricityCalculation,
   getRentCalculation,
-  getCAMCalculation
+  getCAMCalculation,
+  getWaterCalculation
 };
 
 export default propertyInvoiceService;
