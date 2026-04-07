@@ -1276,8 +1276,8 @@ const Electricity = () => {
     };
 
     // Calculate amounts
-    const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
-    const arrears = electricityCharge?.arrears || electricityBill.arrears || 0;
+    const totalBill = electricityCharge?.amount ?? electricityBill.totalBill ?? electricityBill.amount ?? 0;
+    const arrears = electricityCharge?.arrears ?? electricityBill.arrears ?? 0;
     const amountReceived = electricityBill.receivedAmount || 0;
     const payableWithinDueDate = totalBill + arrears - amountReceived;
     const latePaymentSurcharge = Math.max(Math.round(payableWithinDueDate * 0.1), 0);

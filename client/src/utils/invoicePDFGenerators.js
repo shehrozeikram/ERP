@@ -141,21 +141,23 @@ export const generateElectricityInvoicePDF = async (invoice, propertyParam = nul
   const dueDate = formatFullDate(invoice.dueDate || electricityBill.dueDate);
   
   const unitsConsumed = calcData.unitsConsumed !== undefined ? calcData.unitsConsumed : (electricityBill.unitsConsumed !== undefined ? electricityBill.unitsConsumed : 0);
-  const totalBill = electricityCharge?.amount || electricityBill.totalBill || electricityBill.amount || 0;
+  const totalBill = electricityCharge?.amount ?? electricityBill.totalBill ?? electricityBill.amount ?? 0;
   
   // Arrears: prefer values that come from the invoice itself so both
   // Invoices page and Electricity Bills page behave the same.
-  // 1) effectiveArrears (if backend pre-calculated adjusted arrears)
-  // 2) invoice.totalArrears (module + overdue arrears from previous invoices)
-  // 3) electricityCharge.arrears (per-charge arrears fallback)
-  // 4) calcData.previousArrears (legacy calculation fallback)
+  // For meter-specific electricity invoices, prefer the electricity charge line first.
+  // This keeps PDF in sync with the exact invoice row that was created/edited.
+  // 1) electricityCharge.arrears (per-charge, meter-specific)
+  // 2) invoice.totalArrears
+  // 3) effectiveArrears (legacy/fallback)
+  // 4) calcData.previousArrears
   let arrears = 0;
-  if (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null) {
-    arrears = invoice.effectiveArrears;
+  if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
+    arrears = electricityCharge.arrears;
   } else if (invoice.totalArrears !== undefined && invoice.totalArrears !== null) {
     arrears = invoice.totalArrears;
-  } else if (electricityCharge?.arrears !== undefined && electricityCharge.arrears !== null) {
-    arrears = electricityCharge.arrears;
+  } else if (invoice.effectiveArrears !== undefined && invoice.effectiveArrears !== null) {
+    arrears = invoice.effectiveArrears;
   } else if (calcData.previousArrears !== undefined && calcData.previousArrears !== null) {
     arrears = calcData.previousArrears;
   }
