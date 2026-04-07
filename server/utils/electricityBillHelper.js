@@ -215,11 +215,11 @@ const getPreviousReading = async (meterNo, propertyKey, propertyId = null, perio
       }
 
       if (prevInv) {
-        // Multi-meter carry forward should come from immediate previous same-meter invoice only.
-        // In strictMeterMatch mode, use stored previous invoice balance directly (no extra surcharge inflation).
-        const carryForwardBase = strictMeterMatch
-          ? (prevInv.balance || 0)
-          : getAdjustedBalanceForInvoice(prevInv);
+        // Carry forward from immediate previous invoice only.
+        // For multi-meter strict mode:
+        // - within due+grace: use previous "payable" (balance)
+        // - after due+grace: use previous "payable after due date" (adjusted balance with surcharge)
+        const carryForwardBase = getAdjustedBalanceForInvoice(prevInv);
         const hasOnlyElectricity = prevInv.chargeTypes?.length === 1 && prevInv.chargeTypes[0] === 'ELECTRICITY';
         if (hasOnlyElectricity) {
           previousArrears = carryForwardBase;
@@ -312,7 +312,11 @@ const getEffectiveArrearsForInvoice = async (invoice) => {
     let prevInv = null;
     for (const inv of previousInvoices) {
       const invMeterNo = inv.electricityBill?.meterNo || '';
-      if (meterNo && invMeterNo && String(invMeterNo) !== String(meterNo)) continue;
+      if (meterNo) {
+        // Keep meter-specific arrears isolated for multi-meter PDFs:
+        // do not fallback to records without a meter mapping when current invoice is meter-bound.
+        if (!invMeterNo || String(invMeterNo) !== String(meterNo)) continue;
+      }
       const electricityCharges = inv.charges?.filter(c => c.type === 'ELECTRICITY') || [];
       if (electricityCharges.length === 0) continue;
       prevInv = inv;
