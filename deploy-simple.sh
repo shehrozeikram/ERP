@@ -66,7 +66,7 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         echo "✅ Environment file backed up"
     fi
     
-    # Stop app
+    # Stop app (safe restart path)
     pm2 stop sgc-erp-backend 2>/dev/null || true
     
     # Pull latest code
@@ -105,10 +105,18 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         systemctl reload nginx
     fi
     
-    # Start app
+    # Start app (deterministic: recreate the target process to avoid stale workers)
     echo "🚀 Starting application..."
-    pm2 start ecosystem.config.js --env production
+    pm2 delete sgc-erp-backend 2>/dev/null || true
+    pm2 start ecosystem.config.js --env production --only sgc-erp-backend
     pm2 save
+
+    # Deployment diagnostics (helps confirm correct code is running)
+    echo "🧾 Deployed commit:"
+    git log -1 --oneline
+    echo "🔍 Checking critical production fixes in source..."
+    rg -n "strictMeterMatch|electricityArrearsAlreadyApplied|dueDate: dueDate \\?" \
+      server/routes/propertyInvoices.js server/utils/electricityBillHelper.js || true
     
     # Quick health check
     sleep 5
@@ -123,7 +131,8 @@ ssh $SERVER_USER@$SERVER_IP << 'ENDSSH'
         if [ -f "$BACKUP_ENV" ]; then
             cp -f "$BACKUP_ENV" .env
         fi
-        pm2 start ecosystem.config.js --env production
+        pm2 delete sgc-erp-backend 2>/dev/null || true
+        pm2 start ecosystem.config.js --env production --only sgc-erp-backend
         pm2 save
         echo "✅ Rollback completed"
         exit 1
