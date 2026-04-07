@@ -505,14 +505,7 @@ router.get('/property/:propertyId/electricity-calculation', authMiddleware, asyn
     const propertyKey = property.address || property.plotNumber || property.ownerName;
     
     // Get previous reading (pass periodFrom so arrears = only immediately previous invoice's balance)
-    const isMultiMeterProperty = activeMeters.length > 1;
-    const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(
-      meterNo,
-      propertyKey,
-      req.params.propertyId,
-      requestedPeriodFrom,
-      isMultiMeterProperty
-    );
+    const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, req.params.propertyId, requestedPeriodFrom);
     
     // PRIORITY: Use requested previous reading if provided (manual override), otherwise use auto-fetched one
     const prvReading = requestedPreviousReading !== undefined 
@@ -867,13 +860,7 @@ async function createPropertyInvoiceForProperty(req, res) {
         const propertyKey = property.address || property.plotNumber || property.ownerName;
         
         // Get previous reading and arrears (arrears = only immediately previous invoice's balance)
-        const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(
-          meterNo,
-          propertyKey,
-          property._id,
-          periodFrom,
-          metersToProcess.length > 1
-        );
+        const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, property._id, periodFrom);
         // Use provided arrears if present; otherwise fall back to getPreviousReading (avoids storing 0 when carry-forward exists)
         const arrearsToUse = (electricityChargeFromRequest.arrears != null && electricityChargeFromRequest.arrears > 0)
           ? electricityChargeFromRequest.arrears
@@ -986,13 +973,7 @@ async function createPropertyInvoiceForProperty(req, res) {
           }
           
           // Get previous reading for this meter (arrears = only immediately previous invoice's balance)
-            const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(
-              meterNo,
-              propertyKey,
-              property._id,
-              periodFrom,
-              metersToProcess.length > 1
-            );
+            const { prvReading: autoPrvReading, previousArrears } = await getPreviousReading(meterNo, propertyKey, property._id, periodFrom);
             
             // PRIORITY: Use prvReading from payload if provided (manually adjusted), otherwise use auto-fetched one
             const prvReading = prvReadingFromPayload !== undefined ? prvReadingFromPayload : autoPrvReading;
