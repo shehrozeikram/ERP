@@ -47,6 +47,7 @@ import {
   deleteRecoveryWhatsAppMessage
 } from '../../../services/recoveryAssignmentService';
 import { mergeCampaignStubIntoMessages } from '../../../utils/recoveryWhatsAppThreadUtils';
+import { scheduleIdleWork } from '../../../utils/scheduleIdleWork';
 import RecoveryWhatsAppMessageBubble from '../../../components/Recovery/RecoveryWhatsAppMessageBubble';
 import { fetchRecoveryCampaigns } from '../../../services/recoveryCampaignService';
 import { fetchRecoveryTasks } from '../../../services/recoveryTaskService';
@@ -254,7 +255,10 @@ const MyTasks = () => {
   }, [loadStats]);
 
   useEffect(() => {
-    loadNumbersWithMessages();
+    const cancel = scheduleIdleWork(() => {
+      loadNumbersWithMessages().catch(() => {});
+    });
+    return cancel;
   }, [loadNumbersWithMessages]);
 
   // Load time-bound tasks for the current recovery member (used as a filter)

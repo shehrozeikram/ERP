@@ -51,6 +51,7 @@ import {
 import { mergeCampaignStubIntoMessages } from '../../../utils/recoveryWhatsAppThreadUtils';
 import RecoveryWhatsAppMessageBubble from '../../../components/Recovery/RecoveryWhatsAppMessageBubble';
 import { fetchRecoveryMembers } from '../../../services/recoveryMemberService';
+import { scheduleIdleWork } from '../../../utils/scheduleIdleWork';
 
 const formatCurrency = (val) => {
   const n = Number(val);
@@ -426,9 +427,12 @@ const RecoveryAssignments = () => {
   }, [loadAssignments]);
 
   useEffect(() => {
-    // Run stats and numbers-with-messages in parallel (assignments loads first for main content)
-    Promise.all([loadStats(), loadNumbersWithMessages(), loadMembers()]).catch(() => {});
-  }, [loadStats, loadNumbersWithMessages, loadMembers]);
+    Promise.all([loadStats(), loadMembers()]).catch(() => {});
+    const cancel = scheduleIdleWork(() => {
+      loadNumbersWithMessages().catch(() => {});
+    });
+    return cancel;
+  }, [loadStats, loadMembers, loadNumbersWithMessages]);
 
   // Periodically refresh unread counters so new incoming messages update the badges
   useEffect(() => {

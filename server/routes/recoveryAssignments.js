@@ -845,10 +845,17 @@ function normalizePhoneForLookup(phone) {
   return p || '';
 }
 
+function variantsForRecoveryPhone(phone) {
+  return [
+    phone,
+    phone.length > 2 ? `0${phone.slice(2)}` : '',
+    String(phone).replace(/^92/, '')
+  ].filter(Boolean);
+}
+
 /**
  * Unread = incoming WA messages after ConversationRead.readAt for this user (or all if never read).
- * IMPORTANT: Do not scan distinct('from') across the entire WhatsApp collection — production can have
- * tens of thousands of senders and N sequential countDocuments() calls time out (unread filter failure).
+ * Uses one $aggregate + $facet per chunk of phones instead of N countDocuments() round-trips (critical for production).
  *
  * @param {mongoose.Types.ObjectId|string} userId
  * @param {string[]|null} candidateNormalizedPhones - normalized phones to check; if null/empty, uses mobiles from RecoveryAssignment only
@@ -875,24 +882,33 @@ async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormaliz
     .lean();
   const readMap = new Map(readDocs.map((r) => [r.phone, r.readAt ? new Date(r.readAt) : null]));
 
-  const CHUNK = 40;
+  const CHUNK = 50;
   for (let i = 0; i < candidates.length; i += CHUNK) {
     const chunk = candidates.slice(i, i + CHUNK);
-    await Promise.all(
-      chunk.map(async (phone) => {
-        const readAt = readMap.get(phone) || null;
-        const variants = [
-          phone,
-          phone.length > 2 ? `0${phone.slice(2)}` : '',
-          String(phone).replace(/^92/, '')
-        ].filter(Boolean);
-        const count = await WhatsAppIncomingMessage.countDocuments({
-          from: { $in: variants },
-          receivedAt: readAt ? { $gt: readAt } : { $exists: true }
-        });
-        map.set(phone, count);
-      })
-    );
+    const variantSet = new Set();
+    chunk.forEach((phone) => {
+      variantsForRecoveryPhone(phone).forEach((v) => variantSet.add(v));
+    });
+    const variantArr = [...variantSet];
+    if (variantArr.length === 0) continue;
+
+    const facetStage = {};
+    chunk.forEach((phone, idx) => {
+      const readAt = readMap.get(phone) || null;
+      const variants = variantsForRecoveryPhone(phone);
+      const match = readAt
+        ? { from: { $in: variants }, receivedAt: { $gt: readAt } }
+        : { from: { $in: variants }, receivedAt: { $exists: true } };
+      facetStage[`p${idx}`] = [{ $match: match }, { $count: 'c' }];
+    });
+
+    const pipeline = [{ $match: { from: { $in: variantArr } } }, { $facet: facetStage }];
+    const [row] = await WhatsAppIncomingMessage.aggregate(pipeline);
+
+    chunk.forEach((phone, idx) => {
+      const c = row?.[`p${idx}`]?.[0]?.c ?? 0;
+      map.set(phone, c);
+    });
   }
   return map;
 }

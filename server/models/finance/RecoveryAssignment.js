@@ -30,5 +30,11 @@ const recoveryAssignmentSchema = new mongoose.Schema(
 
 recoveryAssignmentSchema.index({ orderCode: 1, customerName: 1 });
 recoveryAssignmentSchema.index({ status: 1, sector: 1 });
+// Default Recovery Assignments list sorts by currentlyDue (see GET /recovery-assignments); without this,
+// large collections do in-memory / collection scans and often hit gateway timeouts in production.
+recoveryAssignmentSchema.index({ currentlyDue: -1, sortOrder: 1, orderCode: 1 });
+recoveryAssignmentSchema.index({ currentlyDue: 1, sortOrder: 1, orderCode: 1 });
+// Unread filter loads all rows sorted by sortOrder then orderCode before slicing in memory.
+recoveryAssignmentSchema.index({ sortOrder: 1, orderCode: 1 });
 
 module.exports = mongoose.model('RecoveryAssignment', recoveryAssignmentSchema);
