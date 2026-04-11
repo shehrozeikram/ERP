@@ -258,31 +258,10 @@ router.get(
       let total;
 
       if (unreadOnly) {
-        // Build set of phone numbers that have unread incoming WhatsApp messages for this user
-        const userId = req.user?._id;
-        const rawNumbers = await WhatsAppIncomingMessage.distinct('from');
-        const normalizedNumbers = [...new Set(rawNumbers.map(normalizePhoneForLookup).filter(Boolean))];
-
-        if (normalizedNumbers.length === 0) {
-          return res.json({
-            success: true,
-            data: [],
-            pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total: 0 }
-          });
-        }
-
-        const readDocs = await ConversationRead.find({ userId, phone: { $in: normalizedNumbers } }).lean();
-        const readMap = Object.fromEntries(readDocs.map((r) => [r.phone, r.readAt]));
-
-        const unreadSet = new Set();
-        for (const phone of normalizedNumbers) {
-          const readAt = readMap[phone] ? new Date(readMap[phone]) : null;
-          const count = await WhatsAppIncomingMessage.countDocuments({
-            from: { $in: [phone, '0' + phone.slice(2), phone.replace(/^92/, '')] },
-            receivedAt: readAt ? { $gt: readAt } : { $exists: true }
-          });
-          if (count > 0) unreadSet.add(phone);
-        }
+        const userId = req.user?._id || req.user?.id;
+        const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
+        const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
+        const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
 
         if (unreadSet.size === 0) {
           return res.json({
@@ -407,31 +386,10 @@ router.get(
     let total;
 
     if (unreadOnly) {
-      // Build set of phone numbers that have unread incoming WhatsApp messages for this user
-      const userId = req.user?._id;
-      const rawNumbers = await WhatsAppIncomingMessage.distinct('from');
-      const normalizedNumbers = [...new Set(rawNumbers.map(normalizePhoneForLookup).filter(Boolean))];
-
-      if (normalizedNumbers.length === 0) {
-        return res.json({
-          success: true,
-          data: [],
-          pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total: 0 }
-        });
-      }
-
-      const readDocs = await ConversationRead.find({ userId, phone: { $in: normalizedNumbers } }).lean();
-      const readMap = Object.fromEntries(readDocs.map((r) => [r.phone, r.readAt]));
-
-      const unreadSet = new Set();
-      for (const phone of normalizedNumbers) {
-        const readAt = readMap[phone] ? new Date(readMap[phone]) : null;
-        const count = await WhatsAppIncomingMessage.countDocuments({
-          from: { $in: [phone, '0' + phone.slice(2), phone.replace(/^92/, '')] },
-          receivedAt: readAt ? { $gt: readAt } : { $exists: true }
-        });
-        if (count > 0) unreadSet.add(phone);
-      }
+      const userId = req.user?._id || req.user?.id;
+      const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
+      const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
+      const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
 
       if (unreadSet.size === 0) {
         return res.json({
@@ -561,31 +519,10 @@ router.get(
     const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
 
     if (unreadOnly) {
-      // Build set of phone numbers that have unread incoming WhatsApp messages for this user
-      const userId = req.user?._id;
-      const rawNumbers = await WhatsAppIncomingMessage.distinct('from');
-      const normalizedNumbers = [...new Set(rawNumbers.map(normalizePhoneForLookup).filter(Boolean))];
-
-      if (normalizedNumbers.length === 0) {
-        return res.json({
-          success: true,
-          data: [],
-          pagination: { page: pageNum, limit: limitNum, total: 0 }
-        });
-      }
-
-      const readDocs = await ConversationRead.find({ userId, phone: { $in: normalizedNumbers } }).lean();
-      const readMap = Object.fromEntries(readDocs.map((r) => [r.phone, r.readAt]));
-
-      const unreadSet = new Set();
-      for (const phone of normalizedNumbers) {
-        const readAt = readMap[phone] ? new Date(readMap[phone]) : null;
-        const count = await WhatsAppIncomingMessage.countDocuments({
-          from: { $in: [phone, '0' + phone.slice(2), phone.replace(/^92/, '')] },
-          receivedAt: readAt ? { $gt: readAt } : { $exists: true }
-        });
-        if (count > 0) unreadSet.add(phone);
-      }
+      const userId = req.user?._id || req.user?.id;
+      const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
+      const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
+      const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
 
       if (unreadSet.size === 0) {
         return res.json({
@@ -908,6 +845,67 @@ function normalizePhoneForLookup(phone) {
   return p || '';
 }
 
+/**
+ * Unread = incoming WA messages after ConversationRead.readAt for this user (or all if never read).
+ * IMPORTANT: Do not scan distinct('from') across the entire WhatsApp collection — production can have
+ * tens of thousands of senders and N sequential countDocuments() calls time out (unread filter failure).
+ *
+ * @param {mongoose.Types.ObjectId|string} userId
+ * @param {string[]|null} candidateNormalizedPhones - normalized phones to check; if null/empty, uses mobiles from RecoveryAssignment only
+ * @returns {Promise<Map<string, number>>} normalized phone -> unread message count
+ */
+async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormalizedPhones) {
+  const map = new Map();
+  if (userId == null) return map;
+  const uidStr = String(userId);
+  if (!mongoose.Types.ObjectId.isValid(uidStr)) return map;
+  const uid = new mongoose.Types.ObjectId(uidStr);
+
+  let candidates = [...new Set((candidateNormalizedPhones || []).map((p) => normalizePhoneForLookup(p)).filter(Boolean))];
+  if (candidates.length === 0) {
+    const raw = await RecoveryAssignment.distinct('mobileNumber', {
+      mobileNumber: { $exists: true, $nin: [null, ''] }
+    });
+    candidates = [...new Set(raw.map(normalizePhoneForLookup).filter(Boolean))];
+  }
+  if (candidates.length === 0) return map;
+
+  const readDocs = await ConversationRead.find({ userId: uid, phone: { $in: candidates } })
+    .select('phone readAt')
+    .lean();
+  const readMap = new Map(readDocs.map((r) => [r.phone, r.readAt ? new Date(r.readAt) : null]));
+
+  const CHUNK = 40;
+  for (let i = 0; i < candidates.length; i += CHUNK) {
+    const chunk = candidates.slice(i, i + CHUNK);
+    await Promise.all(
+      chunk.map(async (phone) => {
+        const readAt = readMap.get(phone) || null;
+        const variants = [
+          phone,
+          phone.length > 2 ? `0${phone.slice(2)}` : '',
+          String(phone).replace(/^92/, '')
+        ].filter(Boolean);
+        const count = await WhatsAppIncomingMessage.countDocuments({
+          from: { $in: variants },
+          receivedAt: readAt ? { $gt: readAt } : { $exists: true }
+        });
+        map.set(phone, count);
+      })
+    );
+  }
+  return map;
+}
+
+async function getUnreadNormalizedPhoneSetForUser(userId, candidateNormalizedPhones) {
+  const counts = await getUnreadMessageCountsByNormalizedPhone(userId, candidateNormalizedPhones);
+  const set = new Set();
+  for (const [phone, n] of counts) {
+    if (n > 0) set.add(phone);
+  }
+  return set;
+}
+
 // @route   GET /api/finance/recovery-assignments/whatsapp-incoming/numbers-with-messages
 // @desc    Return phone numbers that have messages and their unread counts per user
 // @access  Private
@@ -915,21 +913,11 @@ router.get(
   '/whatsapp-incoming/numbers-with-messages',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const userId = req.user?._id;
-    const rawNumbers = await WhatsAppIncomingMessage.distinct('from');
-    const numbers = [...new Set(rawNumbers.map(normalizePhoneForLookup).filter(Boolean))];
+    const userId = req.user?._id || req.user?.id;
+    const countsMap = await getUnreadMessageCountsByNormalizedPhone(userId, null);
+    const numbers = [...countsMap.keys()];
     const unreadCounts = {};
-    if (numbers.length === 0) {
-      return res.json({ success: true, data: { numbers: [], unreadCounts: {} } });
-    }
-    const readDocs = await ConversationRead.find({ userId, phone: { $in: numbers } }).lean();
-    const readMap = Object.fromEntries(readDocs.map((r) => [r.phone, r.readAt]));
-    for (const phone of numbers) {
-      const readAt = readMap[phone] ? new Date(readMap[phone]) : null;
-      const count = await WhatsAppIncomingMessage.countDocuments({
-        from: { $in: [phone, '0' + phone.slice(2), phone.replace(/^92/, '')] },
-        receivedAt: readAt ? { $gt: readAt } : { $exists: true }
-      });
+    for (const [phone, count] of countsMap) {
       if (count > 0) unreadCounts[phone] = count;
     }
     res.json({ success: true, data: { numbers, unreadCounts } });

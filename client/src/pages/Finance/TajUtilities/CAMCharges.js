@@ -69,6 +69,7 @@ import {
 } from '../../../services/propertyInvoiceService';
 import { fetchPropertyById } from '../../../services/tajPropertiesService';
 import { generateCAMInvoicePDF as generateCAMInvoicePDFUtil } from '../../../utils/invoicePDFGenerators';
+import { getAdjustedGrandTotal as getInvoiceAdjustedGrandTotal } from '../../../utils/invoiceGracePeriodUtils';
 import api from '../../../services/api';
 import pakistanBanks from '../../../constants/pakistanBanks';
 
@@ -868,45 +869,6 @@ const CAMCharges = () => {
       default:
         return { color: 'error', label: 'Unpaid', iconColor: 'error.main' };
     }
-  };
-
-  // Helper function to calculate adjusted grandTotal for overdue unpaid invoices
-  const getAdjustedGrandTotal = (invoice) => {
-    if (!invoice) return 0;
-    
-    // Check if invoice is overdue (after due date + 4-day grace period ends) and unpaid/partially paid
-    const GRACE_PERIOD_DAYS = 6;
-    const invoiceDueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const dueStart = invoiceDueDate ? new Date(invoiceDueDate) : null; if (dueStart) dueStart.setHours(0, 0, 0, 0);
-    const dueWithGrace = dueStart ? new Date(dueStart) : null; if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
-    const isOverdue = dueWithGrace && todayStart > dueWithGrace;
-    const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || (invoice.balance || 0) > 0;
-    
-    // If not overdue or already paid, return original grandTotal
-    if (!isOverdue || !isUnpaid) {
-      return invoice.grandTotal || 0;
-    }
-    
-    // Calculate late payment surcharge (10% of charges for the month)
-    let chargesForMonth = invoice.subtotal || 0;
-    
-    // If invoice has charges array, sum up the amount (not arrears) for each charge
-    if (invoice.charges && Array.isArray(invoice.charges) && invoice.charges.length > 0) {
-      const totalChargesAmount = invoice.charges.reduce((sum, charge) => sum + (charge.amount || 0), 0);
-      if (totalChargesAmount > 0) {
-        chargesForMonth = totalChargesAmount;
-      }
-    }
-    
-    // Calculate late payment surcharge
-    const latePaymentSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
-    
-    // Calculate original grandTotal (without surcharge)
-    const originalGrandTotal = invoice.grandTotal || (chargesForMonth + (invoice.totalArrears || 0));
-    
-    // Return adjusted grandTotal (original + surcharge)
-    return originalGrandTotal + latePaymentSurcharge;
   };
 
   const handleOpenPaymentDialog = (property) => {
@@ -2009,6 +1971,7 @@ const CAMCharges = () => {
                                       <TableCell>Period</TableCell>
                                       <TableCell>Due Date</TableCell>
                                       <TableCell align="right">Amount</TableCell>
+                                      <TableCell align="right">Arrears</TableCell>
                                       <TableCell align="right">Paid</TableCell>
                                       <TableCell align="right">Balance</TableCell>
                                       <TableCell>Status</TableCell>
@@ -2048,9 +2011,15 @@ const CAMCharges = () => {
                                         <TableCell>
                                           {invoice.dueDate ? dayjs(invoice.dueDate).format('MMM D, YYYY') : 'N/A'}
                                         </TableCell>
-                                        <TableCell align="right">{formatCurrency(getAdjustedGrandTotal(invoice))}</TableCell>
+                                        <TableCell align="right">{formatCurrency(getInvoiceAdjustedGrandTotal(invoice))}</TableCell>
+                                        <TableCell align="right">
+                                          {formatCurrency((invoice.charges || []).reduce((sum, charge) => {
+                                            if (String(charge?.type || '').toUpperCase() !== 'CAM') return sum;
+                                            return sum + (Number(charge?.arrears) || 0);
+                                          }, 0))}
+                                        </TableCell>
                                         <TableCell align="right">{formatCurrency(invoice.totalPaid || 0)}</TableCell>
-                                        <TableCell align="right">{formatCurrency(getAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0))}</TableCell>
+                                        <TableCell align="right">{formatCurrency(getInvoiceAdjustedGrandTotal(invoice) - (invoice.totalPaid || 0))}</TableCell>
                         <TableCell>
                           {(() => {
                                             const { color, label } = getPaymentStatusConfig(invoice.paymentStatus || 'unpaid');
@@ -2107,7 +2076,7 @@ const CAMCharges = () => {
                                         </TableCell>
                                       </TableRow>
                                       <TableRow>
-                                        <TableCell colSpan={10} sx={{ py: 0, border: 0 }}>
+                                        <TableCell colSpan={11} sx={{ py: 0, border: 0 }}>
                                           <Collapse in={expandedInvoices.has(invoice._id)} timeout="auto" unmountOnExit>
                                             <Box sx={{ py: 2, px: 3, bgcolor: 'grey.50' }}>
                                               <Typography variant="subtitle2" gutterBottom sx={{ mb: 2 }}>

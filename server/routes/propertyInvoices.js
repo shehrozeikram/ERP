@@ -89,7 +89,7 @@ const calculateOverdueArrears = async (propertyId, currentDate = new Date(), cha
 
     // Fetch only the single most-recent unpaid invoice (by dueDate descending).
     const lastInvoice = await PropertyInvoice.findOne(query)
-      .select('charges chargeTypes subtotal balance dueDate')
+      .select('charges chargeTypes subtotal totalArrears grandTotal balance dueDate')
       .sort({ dueDate: -1 })
       .lean();
 
@@ -97,9 +97,30 @@ const calculateOverdueArrears = async (propertyId, currentDate = new Date(), cha
 
     // Base charges for the month (amounts only, excluding previously carried arrears).
     const baseChargesTotal = (lastInvoice.charges || []).reduce((sum, c) => sum + (c.amount || 0), 0) || lastInvoice.subtotal || 0;
-    // 10% late surcharge on the base charges only (not on the full balance, to avoid compounding).
-    const lateSurcharge = Math.max(Math.round(baseChargesTotal * 0.1), 0);
-    const overdueAmount = (lastInvoice.balance || 0) + lateSurcharge;
+    const baseBalance = Math.max(0, Number(lastInvoice.balance || 0));
+
+    // Carry-forward rule:
+    // - within due+grace => use payable (balance)
+    // - after due+grace and unpaid => use payable-after-due
+    // Important: if surcharge is already reflected in invoice balance/grandTotal, do not add it again.
+    const GRACE_PERIOD_DAYS = 6;
+    const todayStart = new Date(currentDate);
+    todayStart.setHours(0, 0, 0, 0);
+    const dueStart = lastInvoice.dueDate ? new Date(lastInvoice.dueDate) : null;
+    if (dueStart) dueStart.setHours(0, 0, 0, 0);
+    const dueWithGrace = dueStart ? new Date(dueStart) : null;
+    if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+    const isOverdue = !!(dueWithGrace && todayStart > dueWithGrace);
+    const isUnpaid = baseBalance > 0;
+
+    let overdueAmount = baseBalance;
+    if (isOverdue && isUnpaid) {
+      const lateSurcharge = Math.max(Math.round(baseChargesTotal * 0.1), 0);
+      const originalGrandTotal = Number(lastInvoice.subtotal || 0) + Number(lastInvoice.totalArrears || 0);
+      const grandTotal = Number(lastInvoice.grandTotal || 0);
+      const surchargeAlreadyIncluded = grandTotal > originalGrandTotal;
+      overdueAmount = surchargeAlreadyIncluded ? baseBalance : (baseBalance + lateSurcharge);
+    }
 
     // Arrears = balance of the last invoice + late surcharge.
     if (!filterTypes) {
@@ -657,34 +678,15 @@ async function createPropertyInvoiceForProperty(req, res) {
           total: camTotal
         });
       } else {
-        // Calculate carry forward of CAM Charges arrears from previous unpaid invoices
+        // Future CAM invoices: carry forward only from the latest relevant invoice
+        // (no cumulative sum of all historical unpaid invoices).
         let carryForwardArrears = 0;
-        const previousCAMInvoices = await PropertyInvoice.find({
-          property: property._id,
-          chargeTypes: { $in: ['CAM'] },
-          paymentStatus: { $in: ['unpaid', 'partial_paid'] },
-          balance: { $gt: 0 }
-        })
-          .select('charges grandTotal totalPaid balance')
-          .sort({ invoiceDate: 1 })
-          .lean();
-
-        previousCAMInvoices.forEach(inv => {
-          const invCam = inv.charges?.find(c => c.type === 'CAM');
-          if (invCam) {
-            const hasOnlyCAM = inv.chargeTypes?.length === 1 && inv.chargeTypes[0] === 'CAM';
-            if (hasOnlyCAM) {
-              carryForwardArrears += (inv.balance || 0);
-            } else {
-              const camTotal = (invCam.amount || 0) + (invCam.arrears || 0);
-              const invoiceTotal = inv.grandTotal || 0;
-              if (invoiceTotal > 0) {
-                carryForwardArrears += (inv.balance || 0) * (camTotal / invoiceTotal);
-              }
-            }
-          }
-        });
-        carryForwardArrears = Math.round(carryForwardArrears * 100) / 100;
+        try {
+          carryForwardArrears = await calculateOverdueArrears(property._id, new Date(), ['CAM']);
+        } catch (err) {
+          console.error(`[CAM-INVOICE] calculateOverdueArrears failed for ${property._id}:`, err.message);
+          carryForwardArrears = 0;
+        }
 
         if (conditions.length > 0) {
           camCharge = await CAMCharge.findOne({ $or: conditions })

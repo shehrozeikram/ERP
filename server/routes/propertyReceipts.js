@@ -7,6 +7,92 @@ const { authMiddleware } = require('../middleware/auth');
 const asyncHandler = require('../middleware/errorHandler').asyncHandler;
 const dayjs = require('dayjs');
 
+const GRACE_PERIOD_DAYS = 6;
+
+// CAM-only helper: derive payable carry-forward from previous invoice.
+// If overdue after due+grace and still unpaid, use payable-after-due-date.
+const getInvoicePayableForCarryForward = (invoice) => {
+  if (!invoice) return 0;
+  const totalPaid = Number(invoice.totalPaid || 0);
+  const basePayable = Math.max(0, Number(invoice.grandTotal || 0) - totalPaid);
+  if (basePayable <= 0) return 0;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const dueStart = invoice.dueDate ? new Date(invoice.dueDate) : null;
+  if (dueStart) dueStart.setHours(0, 0, 0, 0);
+  const dueWithGrace = dueStart ? new Date(dueStart) : null;
+  if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
+
+  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || basePayable > 0;
+  if (!isOverdue || !isUnpaid) return Math.round(basePayable * 100) / 100;
+
+  const chargesForMonth = (invoice.charges || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || Number(invoice.subtotal || 0);
+  const lateSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+  return Math.round((basePayable + lateSurcharge) * 100) / 100;
+};
+
+// Recalculate future CAM invoices only (do not touch other modules).
+const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
+  if (!propertyId || !anchorDate) return;
+
+  const allCamInvoices = await PropertyInvoice.find({
+    property: propertyId,
+    chargeTypes: { $in: ['CAM'] },
+    status: { $ne: 'Cancelled' }
+  })
+    .sort({ invoiceDate: 1, createdAt: 1 })
+    .select('invoiceDate createdAt chargeTypes charges subtotal totalArrears grandTotal totalPaid balance dueDate paymentStatus status')
+    .lean();
+
+  if (!allCamInvoices.length) return;
+
+  const anchorMs = new Date(anchorDate).getTime();
+  for (let i = 1; i < allCamInvoices.length; i++) {
+    const previous = allCamInvoices[i - 1];
+    const current = allCamInvoices[i];
+    const currentMs = new Date(current.invoiceDate || current.createdAt || 0).getTime();
+    if (!(currentMs > anchorMs)) continue;
+    if (!['unpaid', 'partial_paid'].includes(current.paymentStatus)) continue;
+
+    const carryForward = getInvoicePayableForCarryForward(previous);
+    const updatedCharges = (current.charges || []).map((ch) => {
+      if (String(ch.type || '').toUpperCase() !== 'CAM') return ch;
+      const amount = Number(ch.amount) || 0;
+      return {
+        ...ch,
+        arrears: carryForward,
+        total: Math.round((amount + carryForward) * 100) / 100
+      };
+    });
+
+    const subtotal = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.amount) || 0), 0) * 100) / 100;
+    const totalArrears = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.arrears) || 0), 0) * 100) / 100;
+    const grandTotal = Math.round((subtotal + totalArrears) * 100) / 100;
+
+    const invoiceDoc = await PropertyInvoice.findById(current._id);
+    if (!invoiceDoc) continue;
+    invoiceDoc.charges = updatedCharges;
+    invoiceDoc.subtotal = subtotal;
+    invoiceDoc.totalArrears = totalArrears;
+    invoiceDoc.grandTotal = grandTotal;
+    await invoiceDoc.save();
+
+    // Keep in-memory chain aligned with persisted update for next iteration.
+    allCamInvoices[i] = {
+      ...current,
+      charges: updatedCharges,
+      subtotal,
+      totalArrears,
+      grandTotal,
+      totalPaid: invoiceDoc.totalPaid,
+      paymentStatus: invoiceDoc.paymentStatus,
+      dueDate: invoiceDoc.dueDate
+    };
+  }
+};
+
 // Generate receipt number
 const generateReceiptNumber = () => {
   const year = dayjs().year();
@@ -97,6 +183,7 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
     await receipt.save();
 
     // Update invoices with payments
+    const camRecalcAnchors = [];
     for (const alloc of receipt.allocations) {
       const invoice = await PropertyInvoice.findById(alloc.invoice);
       if (invoice) {
@@ -110,6 +197,19 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
           recordedBy: req.user.id
         });
         await invoice.save(); // Pre-save hook handles calculations
+        if (Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.includes('CAM')) {
+          camRecalcAnchors.push(invoice.invoiceDate || invoice.createdAt || new Date());
+        }
+      }
+    }
+
+    if (camRecalcAnchors.length > 0) {
+      const earliestCamAnchor = camRecalcAnchors.reduce((min, d) => {
+        const ms = new Date(d).getTime();
+        return Number.isFinite(ms) && ms < min ? ms : min;
+      }, Number.MAX_SAFE_INTEGER);
+      if (Number.isFinite(earliestCamAnchor)) {
+        await recalculateFutureCamInvoices(property, new Date(earliestCamAnchor));
       }
     }
 
@@ -179,6 +279,7 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
 
     if (receipt.status === 'Posted') {
       // Remove payments from invoices
+      const camRecalcAnchors = [];
       for (const alloc of receipt.allocations) {
         const invoice = await PropertyInvoice.findById(alloc.invoice);
         if (invoice) {
@@ -186,6 +287,18 @@ router.delete('/:id', authMiddleware, asyncHandler(async (req, res) => {
             p => p.receiptId?.toString() !== receipt._id.toString()
           );
           await invoice.save();
+          if (Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.includes('CAM')) {
+            camRecalcAnchors.push(invoice.invoiceDate || invoice.createdAt || new Date());
+          }
+        }
+      }
+      if (camRecalcAnchors.length > 0) {
+        const earliestCamAnchor = camRecalcAnchors.reduce((min, d) => {
+          const ms = new Date(d).getTime();
+          return Number.isFinite(ms) && ms < min ? ms : min;
+        }, Number.MAX_SAFE_INTEGER);
+        if (Number.isFinite(earliestCamAnchor)) {
+          await recalculateFutureCamInvoices(receipt.property, new Date(earliestCamAnchor));
         }
       }
     }

@@ -14,6 +14,84 @@ const {
   CACHE_KEYS
 } = require('../utils/tajUtilitiesOptimizer');
 
+const GRACE_PERIOD_DAYS = 6;
+
+const getInvoicePayableForCarryForward = (invoice) => {
+  if (!invoice) return 0;
+  const totalPaid = Number(invoice.totalPaid || 0);
+  const basePayable = Math.max(0, Number(invoice.grandTotal || 0) - totalPaid);
+  if (basePayable <= 0) return 0;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const dueStart = invoice.dueDate ? new Date(invoice.dueDate) : null;
+  if (dueStart) dueStart.setHours(0, 0, 0, 0);
+  const dueWithGrace = dueStart ? new Date(dueStart) : null;
+  if (dueWithGrace) dueWithGrace.setDate(dueWithGrace.getDate() + GRACE_PERIOD_DAYS);
+  const isOverdue = dueWithGrace && todayStart > dueWithGrace;
+  const isUnpaid = invoice.paymentStatus === 'unpaid' || invoice.paymentStatus === 'partial_paid' || basePayable > 0;
+
+  if (!isOverdue || !isUnpaid) return Math.round(basePayable * 100) / 100;
+
+  const chargesForMonth = (invoice.charges || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0) || Number(invoice.subtotal || 0);
+  const lateSurcharge = Math.max(Math.round(chargesForMonth * 0.1), 0);
+  return Math.round((basePayable + lateSurcharge) * 100) / 100;
+};
+
+const recalculateFutureCamInvoices = async (propertyId, anchorDate) => {
+  if (!propertyId || !anchorDate) return;
+
+  const allCamInvoices = await PropertyInvoice.find({
+    property: propertyId,
+    chargeTypes: { $in: ['CAM'] },
+    status: { $ne: 'Cancelled' }
+  })
+    .sort({ invoiceDate: 1, createdAt: 1 })
+    .select('invoiceDate createdAt paymentStatus charges subtotal totalArrears grandTotal totalPaid dueDate')
+    .lean();
+
+  if (!allCamInvoices.length) return;
+
+  const anchorMs = new Date(anchorDate).getTime();
+  for (let i = 1; i < allCamInvoices.length; i++) {
+    const previous = allCamInvoices[i - 1];
+    const current = allCamInvoices[i];
+    const currentMs = new Date(current.invoiceDate || current.createdAt || 0).getTime();
+    if (!(currentMs > anchorMs)) continue;
+    if (!['unpaid', 'partial_paid'].includes(current.paymentStatus)) continue;
+
+    const carryForward = getInvoicePayableForCarryForward(previous);
+    const updatedCharges = (current.charges || []).map((ch) => {
+      if (String(ch.type || '').toUpperCase() !== 'CAM') return ch;
+      const amount = Number(ch.amount) || 0;
+      return { ...ch, arrears: carryForward, total: Math.round((amount + carryForward) * 100) / 100 };
+    });
+
+    const subtotal = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.amount) || 0), 0) * 100) / 100;
+    const totalArrears = Math.round(updatedCharges.reduce((sum, ch) => sum + (Number(ch.arrears) || 0), 0) * 100) / 100;
+    const grandTotal = Math.round((subtotal + totalArrears) * 100) / 100;
+
+    const currentDoc = await PropertyInvoice.findById(current._id);
+    if (!currentDoc) continue;
+    currentDoc.charges = updatedCharges;
+    currentDoc.subtotal = subtotal;
+    currentDoc.totalArrears = totalArrears;
+    currentDoc.grandTotal = grandTotal;
+    await currentDoc.save();
+
+    allCamInvoices[i] = {
+      ...current,
+      charges: updatedCharges,
+      subtotal,
+      totalArrears,
+      grandTotal,
+      totalPaid: currentDoc.totalPaid,
+      paymentStatus: currentDoc.paymentStatus,
+      dueDate: currentDoc.dueDate
+    };
+  }
+};
+
 // Get all residents
 router.get('/', authMiddleware, asyncHandler(async (req, res) => {
   // Extract pagination parameters
@@ -1657,6 +1735,11 @@ router.post(
           invoice.payments.push(paymentEntry);
           invoice.markModified('payments'); // Ensure Mongoose detects the array change (fixes TCM open invoice balance not updating)
           await invoice.save(); // This will trigger pre-save hook to update totalPaid, balance, and status
+
+          // CAM-only: when an older CAM invoice is paid, refresh carry-forward arrears on future CAM invoices.
+          if (invoice.property && Array.isArray(invoice.chargeTypes) && invoice.chargeTypes.includes('CAM')) {
+            await recalculateFutureCamInvoices(invoice.property, invoice.invoiceDate || invoice.createdAt || new Date());
+          }
 
           // Invalidate invoice caches so Resident Details and Invoices pages show updated status
           clearCached(CACHE_KEYS.INVOICES_OVERVIEW);
