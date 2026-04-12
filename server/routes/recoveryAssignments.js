@@ -271,38 +271,15 @@ router.get(
 
       if (unreadOnly) {
         const userId = resolveAuthUserObjectId(req);
-        const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
-        const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
-        const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
-
-        if (unreadSet.size === 0) {
-          return res.json({
-            success: true,
-            data: [],
-            pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total: 0 }
-          });
-        }
-
-        const allAssignments = await RecoveryAssignment.find(query)
-          .sort({ sortOrder: 1, orderCode: 1 })
-          .lean();
-
-        const filtered = allAssignments.filter((r) =>
-          unreadSet.has(normalizePhoneForLookup(r.mobileNumber))
-        );
-
-        if (sortByDue) {
-          filtered.sort((a, b) => {
-            const da = Number(a.currentlyDue) || 0;
-            const db = Number(b.currentlyDue) || 0;
-            const diff = (da - db) * dueDir;
-            if (diff !== 0) return diff;
-            return String(a.orderCode || '').localeCompare(String(b.orderCode || ''));
-          });
-        }
-
-        total = filtered.length;
-        records = filtered.slice(skip, skip + limitNum);
+        const paginated = await queryRecoveryAssignmentsUnreadPaginated({
+          query,
+          userId,
+          dueSortObj,
+          skip,
+          limitNum
+        });
+        records = paginated.records;
+        total = paginated.total;
       } else {
         [records, total] = await Promise.all([
           RecoveryAssignment.find(query).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
@@ -399,38 +376,15 @@ router.get(
 
     if (unreadOnly) {
       const userId = resolveAuthUserObjectId(req);
-      const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
-      const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
-      const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
-
-      if (unreadSet.size === 0) {
-        return res.json({
-          success: true,
-          data: [],
-          pagination: { page: parseInt(page, 10) || 1, limit: limitNum, total: 0 }
-        });
-      }
-
-      const allAssignments = await RecoveryAssignment.find(query)
-        .sort({ sortOrder: 1, orderCode: 1 })
-        .lean();
-
-      const filtered = allAssignments.filter((r) =>
-        unreadSet.has(normalizePhoneForLookup(r.mobileNumber))
-      );
-
-      if (sortByDue) {
-        filtered.sort((a, b) => {
-          const da = Number(a.currentlyDue) || 0;
-          const db = Number(b.currentlyDue) || 0;
-          const diff = (da - db) * dueDir;
-          if (diff !== 0) return diff;
-          return String(a.orderCode || '').localeCompare(String(b.orderCode || ''));
-        });
-      }
-
-      total = filtered.length;
-      records = filtered.slice(skip, skip + limitNum);
+      const paginated = await queryRecoveryAssignmentsUnreadPaginated({
+        query,
+        userId,
+        dueSortObj,
+        skip,
+        limitNum
+      });
+      records = paginated.records;
+      total = paginated.total;
     } else {
       [records, total] = await Promise.all([
         RecoveryAssignment.find(query).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
@@ -532,39 +486,15 @@ router.get(
 
     if (unreadOnly) {
       const userId = resolveAuthUserObjectId(req);
-      const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
-      const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
-      const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
-
-      if (unreadSet.size === 0) {
-        return res.json({
-          success: true,
-          data: [],
-          pagination: { page: pageNum, limit: limitNum, total: 0 }
-        });
-      }
-
-      // Load all assignments matching filters, then filter by unreadSet using normalized mobile numbers
-      const allAssignments = await RecoveryAssignment.find(query)
-        .sort({ sortOrder: 1, orderCode: 1 })
-        .lean();
-
-      const filtered = allAssignments.filter((r) =>
-        unreadSet.has(normalizePhoneForLookup(r.mobileNumber))
-      );
-
-      if (sortByDue) {
-        filtered.sort((a, b) => {
-          const da = Number(a.currentlyDue) || 0;
-          const db = Number(b.currentlyDue) || 0;
-          const diff = (da - db) * dueDir;
-          if (diff !== 0) return diff;
-          return String(a.orderCode || '').localeCompare(String(b.orderCode || ''));
-        });
-      }
-
-      total = filtered.length;
-      records = filtered.slice(skip, skip + limitNum);
+      const paginated = await queryRecoveryAssignmentsUnreadPaginated({
+        query,
+        userId,
+        dueSortObj,
+        skip,
+        limitNum
+      });
+      records = paginated.records;
+      total = paginated.total;
     } else {
       [records, total] = await Promise.all([
         RecoveryAssignment.find(query).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
@@ -851,16 +781,140 @@ router.get(
 /**
  * Unread = incoming WA messages after ConversationRead.readAt for this user (or all if never read).
  *
- * Important: do NOT loop every assignment mobile (can be 10k+). Work from WhatsAppIncomingMessage senders
- * only — typically hundreds — then count unread per canonical number. This avoids production timeouts.
+ * Assignment lists (unread filter): `getUnreadCanonicalSetForCandidates` matches only assignment phones
+ * via chunked `$match` on `from` variants — no full-table scan on WhatsApp messages.
  *
- * @param {mongoose.Types.ObjectId|string|null} userId
- * @param {string[]|null} candidateNormalizedPhones - if null, return sparse map of all senders with unread > 0; if array, same counts restricted to those keys (0 filled in)
- * @returns {Promise<Map<string, number>>} normalized phone -> unread message count
+ * `getUnreadCountsFromMessagesSide` (used for numbers-with-messages sidebar) still aggregates all senders;
+ * keep that endpoint in mind if it ever needs the same optimization.
  */
 const UNREAD_FROM_MESSAGES_PARALLEL = 25;
 
+/** Chunk size for matching WA senders to assignment phones only (avoids full-collection scans). */
+const UNREAD_CANDIDATE_CHUNK = 350;
+const UNREAD_CANDIDATE_CHUNK_PARALLEL = 4;
+
 const unreadSparseInflight = new Map();
+
+/**
+ * Unread phones among given canonical numbers only: scans WhatsApp rows whose `from` matches
+ * variants of those candidates (not the entire incoming-message collection).
+ */
+async function getUnreadCanonicalSetForCandidates(userId, candidateNormalizedPhones) {
+  if (userId == null) return new Set();
+  const uidStr = String(userId);
+  if (!mongoose.Types.ObjectId.isValid(uidStr)) return new Set();
+  const uid = new mongoose.Types.ObjectId(uidStr);
+
+  const candidates = [
+    ...new Set((candidateNormalizedPhones || []).map((p) => normalizePhoneForLookup(p)).filter(Boolean))
+  ];
+  if (candidates.length === 0) return new Set();
+
+  const readDocs = await ConversationRead.find({ userId: uid }).select('phone readAt').lean();
+  const readMap = new Map(readDocs.map((r) => [r.phone, r.readAt ? new Date(r.readAt) : null]));
+
+  const processChunk = async (chunk) => {
+    const variantSet = new Set();
+    for (const c of chunk) {
+      for (const v of variantsForRecoveryPhone(c)) variantSet.add(v);
+    }
+    const variants = [...variantSet];
+    if (variants.length === 0) return new Set();
+
+    let byFrom;
+    try {
+      byFrom = await WhatsAppIncomingMessage.aggregate([
+        { $match: { from: { $in: variants } } },
+        { $group: { _id: '$from', lastAt: { $max: '$receivedAt' } } }
+      ])
+        .option({ maxTimeMS: 90000 })
+        .allowDiskUse(true);
+    } catch (err) {
+      console.error('[recovery] unread candidate-chunk aggregate failed', err.message);
+      return new Set();
+    }
+
+    const lastByCanon = new Map();
+    for (const row of byFrom) {
+      const raw = row._id;
+      if (raw == null || raw === '') continue;
+      const canon = normalizePhoneForLookup(String(raw));
+      if (!canon) continue;
+      const t = row.lastAt ? new Date(row.lastAt) : null;
+      if (!t || isNaN(t.getTime())) continue;
+      const prev = lastByCanon.get(canon);
+      if (!prev || t > prev) lastByCanon.set(canon, t);
+    }
+
+    const out = new Set();
+    for (const c of chunk) {
+      const lastAt = lastByCanon.get(c);
+      if (!lastAt) continue;
+      const readAt = readMap.get(c) || null;
+      if (readAt && lastAt <= readAt) continue;
+      out.add(c);
+    }
+    return out;
+  };
+
+  const chunks = [];
+  for (let i = 0; i < candidates.length; i += UNREAD_CANDIDATE_CHUNK) {
+    chunks.push(candidates.slice(i, i + UNREAD_CANDIDATE_CHUNK));
+  }
+
+  const unreadCanon = new Set();
+  for (let i = 0; i < chunks.length; i += UNREAD_CANDIDATE_CHUNK_PARALLEL) {
+    const batch = chunks.slice(i, i + UNREAD_CANDIDATE_CHUNK_PARALLEL);
+    const results = await Promise.all(batch.map(processChunk));
+    for (const s of results) {
+      for (const c of s) unreadCanon.add(c);
+    }
+  }
+  return unreadCanon;
+}
+
+/** AND `mobileNumber` with existing query using exact raw strings from assignments (handles mixed formats). */
+function mergeQueryWithMobileRawIn(baseQuery, rawMobileList) {
+  const inList = [...new Set((rawMobileList || []).map((x) => String(x)).filter((s) => s !== ''))];
+  const mobileClause = { mobileNumber: { $in: inList } };
+  if (inList.length === 0) return { ...baseQuery, _id: { $exists: false } };
+  if (!baseQuery || Object.keys(baseQuery).length === 0) return mobileClause;
+  return { ...baseQuery, ...mobileClause };
+}
+
+async function queryRecoveryAssignmentsUnreadPaginated({ query, userId, dueSortObj, skip, limitNum }) {
+  const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
+  const canonToRaws = new Map();
+  for (const raw of assignmentPhones) {
+    if (raw === null || raw === undefined) continue;
+    const str = typeof raw === 'number' ? String(Math.trunc(raw)) : String(raw);
+    if (!str.trim()) continue;
+    const c = normalizePhoneForLookup(str);
+    if (!c) continue;
+    if (!canonToRaws.has(c)) canonToRaws.set(c, new Set());
+    canonToRaws.get(c).add(str);
+  }
+
+  const candidates = [...canonToRaws.keys()];
+  const unreadSet = await getUnreadCanonicalSetForCandidates(userId, candidates);
+
+  if (unreadSet.size === 0) {
+    return { records: [], total: 0 };
+  }
+
+  const matchedRaw = [];
+  for (const c of unreadSet) {
+    const s = canonToRaws.get(c);
+    if (s) matchedRaw.push(...s);
+  }
+  const narrowQuery = mergeQueryWithMobileRawIn(query, matchedRaw);
+
+  const [records, total] = await Promise.all([
+    RecoveryAssignment.find(narrowQuery).sort(dueSortObj).skip(skip).limit(limitNum).lean(),
+    RecoveryAssignment.countDocuments(narrowQuery)
+  ]);
+  return { records, total };
+}
 
 async function getUnreadCountsFromMessagesSide(userId) {
   if (userId == null) return new Map();
@@ -949,9 +1003,7 @@ async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormaliz
 }
 
 async function getUnreadNormalizedPhoneSetForUser(userId, candidateNormalizedPhones) {
-  const sparse = await getUnreadCountsFromMessagesSide(userId);
-  const candidates = [...new Set((candidateNormalizedPhones || []).map((p) => normalizePhoneForLookup(p)).filter(Boolean))];
-  return new Set(candidates.filter((c) => (sparse.get(c) || 0) > 0));
+  return getUnreadCanonicalSetForCandidates(userId, candidateNormalizedPhones);
 }
 
 // @route   GET /api/finance/recovery-assignments/whatsapp-incoming/numbers-with-messages
