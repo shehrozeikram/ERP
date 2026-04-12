@@ -18,8 +18,20 @@ const Employee = require('../models/hr/Employee');
 const WhatsAppIncomingMessage = require('../models/finance/WhatsAppIncomingMessage');
 const WhatsAppOutgoingMessage = require('../models/finance/WhatsAppOutgoingMessage');
 const ConversationRead = require('../models/finance/ConversationRead');
+const {
+  normalizePhoneForLookup,
+  variantsForRecoveryPhone
+} = require('../utils/recoveryWhatsAppPhone');
 
 const router = express.Router();
+
+function resolveAuthUserObjectId(req) {
+  const raw = req.user?._id ?? req.user?.id;
+  if (raw == null) return null;
+  const s = String(raw);
+  if (!mongoose.Types.ObjectId.isValid(s)) return null;
+  return new mongoose.Types.ObjectId(s);
+}
 
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
@@ -258,7 +270,7 @@ router.get(
       let total;
 
       if (unreadOnly) {
-        const userId = req.user?._id || req.user?.id;
+        const userId = resolveAuthUserObjectId(req);
         const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
         const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
         const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
@@ -386,7 +398,7 @@ router.get(
     let total;
 
     if (unreadOnly) {
-      const userId = req.user?._id || req.user?.id;
+      const userId = resolveAuthUserObjectId(req);
       const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
       const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
       const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
@@ -519,7 +531,7 @@ router.get(
     const dueSortObj = sortByDue ? { currentlyDue: dueDir, sortOrder: 1, orderCode: 1 } : { sortOrder: 1, orderCode: 1 };
 
     if (unreadOnly) {
-      const userId = req.user?._id || req.user?.id;
+      const userId = resolveAuthUserObjectId(req);
       const assignmentPhones = await RecoveryAssignment.distinct('mobileNumber', query);
       const candidates = [...new Set(assignmentPhones.map(normalizePhoneForLookup).filter(Boolean))];
       const unreadSet = await getUnreadNormalizedPhoneSetForUser(userId, candidates);
@@ -836,31 +848,19 @@ router.get(
   })
 );
 
-function normalizePhoneForLookup(phone) {
-  if (!phone) return '';
-  let p = String(phone).replace(/\D/g, '').trim();
-  if (p.startsWith('0')) p = p.slice(1);
-  if (p.length === 10 && p.startsWith('3')) p = '92' + p;
-  else if (p.length === 10) p = '92' + p;
-  return p || '';
-}
-
-function variantsForRecoveryPhone(phone) {
-  return [
-    phone,
-    phone.length > 2 ? `0${phone.slice(2)}` : '',
-    String(phone).replace(/^92/, '')
-  ].filter(Boolean);
-}
-
 /**
  * Unread = incoming WA messages after ConversationRead.readAt for this user (or all if never read).
- * Uses one $aggregate + $facet per chunk of phones instead of N countDocuments() round-trips (critical for production).
+ * Uses simple indexed countDocuments for typical list sizes; for very large candidate sets uses small
+ * $facet batches (MongoDB before 4.4 allowed at most 16 facet branches; old code used 50 and could fail).
  *
- * @param {mongoose.Types.ObjectId|string} userId
+ * @param {mongoose.Types.ObjectId|string|null} userId
  * @param {string[]|null} candidateNormalizedPhones - normalized phones to check; if null/empty, uses mobiles from RecoveryAssignment only
  * @returns {Promise<Map<string, number>>} normalized phone -> unread message count
  */
+const UNREAD_COUNT_SIMPLE_MAX = 500;
+const UNREAD_COUNT_PARALLEL = 25;
+const UNREAD_FACET_CHUNK = 12;
+
 async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormalizedPhones) {
   const map = new Map();
   if (userId == null) return map;
@@ -882,9 +882,27 @@ async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormaliz
     .lean();
   const readMap = new Map(readDocs.map((r) => [r.phone, r.readAt ? new Date(r.readAt) : null]));
 
-  const CHUNK = 50;
-  for (let i = 0; i < candidates.length; i += CHUNK) {
-    const chunk = candidates.slice(i, i + CHUNK);
+  const countUnreadForPhone = async (phone) => {
+    const readAt = readMap.get(phone) || null;
+    const variants = variantsForRecoveryPhone(phone);
+    const filter = readAt
+      ? { from: { $in: variants }, receivedAt: { $gt: readAt } }
+      : { from: { $in: variants } };
+    const n = await WhatsAppIncomingMessage.countDocuments(filter);
+    return [phone, n];
+  };
+
+  if (candidates.length <= UNREAD_COUNT_SIMPLE_MAX) {
+    for (let i = 0; i < candidates.length; i += UNREAD_COUNT_PARALLEL) {
+      const slice = candidates.slice(i, i + UNREAD_COUNT_PARALLEL);
+      const pairs = await Promise.all(slice.map(countUnreadForPhone));
+      pairs.forEach(([phone, n]) => map.set(phone, n));
+    }
+    return map;
+  }
+
+  for (let i = 0; i < candidates.length; i += UNREAD_FACET_CHUNK) {
+    const chunk = candidates.slice(i, i + UNREAD_FACET_CHUNK);
     const variantSet = new Set();
     chunk.forEach((phone) => {
       variantsForRecoveryPhone(phone).forEach((v) => variantSet.add(v));
@@ -898,15 +916,24 @@ async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormaliz
       const variants = variantsForRecoveryPhone(phone);
       const match = readAt
         ? { from: { $in: variants }, receivedAt: { $gt: readAt } }
-        : { from: { $in: variants }, receivedAt: { $exists: true } };
+        : { from: { $in: variants } };
       facetStage[`p${idx}`] = [{ $match: match }, { $count: 'c' }];
     });
 
     const pipeline = [{ $match: { from: { $in: variantArr } } }, { $facet: facetStage }];
-    const [row] = await WhatsAppIncomingMessage.aggregate(pipeline);
+    let row = {};
+    try {
+      const agg = await WhatsAppIncomingMessage.aggregate(pipeline).option({ maxTimeMS: 120000 });
+      row = agg[0] || {};
+    } catch (err) {
+      console.error('[recovery] unread $facet failed, using countDocuments for chunk', err.message);
+      const pairs = await Promise.all(chunk.map(countUnreadForPhone));
+      pairs.forEach(([phone, n]) => map.set(phone, n));
+      continue;
+    }
 
     chunk.forEach((phone, idx) => {
-      const c = row?.[`p${idx}`]?.[0]?.c ?? 0;
+      const c = row[`p${idx}`]?.[0]?.c ?? 0;
       map.set(phone, c);
     });
   }
@@ -929,7 +956,7 @@ router.get(
   '/whatsapp-incoming/numbers-with-messages',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const userId = req.user?._id || req.user?.id;
+    const userId = resolveAuthUserObjectId(req);
     const countsMap = await getUnreadMessageCountsByNormalizedPhone(userId, null);
     const numbers = [...countsMap.keys()];
     const unreadCounts = {};
@@ -955,7 +982,10 @@ router.post(
     if (phone.length === 10 && phone.startsWith('3')) phone = '92' + phone;
     else if (phone.length === 10) phone = '92' + phone;
 
-    const userId = req.user._id;
+    const userId = resolveAuthUserObjectId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Invalid user session' });
+    }
     await ConversationRead.findOneAndUpdate(
       { userId, phone },
       { readAt: new Date() },

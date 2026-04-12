@@ -13,6 +13,7 @@ const axios = require('axios');
 const router = express.Router();
 const WhatsAppIncomingMessage = require('../models/finance/WhatsAppIncomingMessage');
 const WhatsAppOutgoingMessage = require('../models/finance/WhatsAppOutgoingMessage');
+const { normalizeWhatsAppIncomingFrom } = require('../utils/recoveryWhatsAppPhone');
 
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'sgc_whatsapp_verify_2025';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
@@ -186,8 +187,9 @@ router.post('/', async (req, res) => {
     }
 
     try {
+      const fromNormalized = normalizeWhatsAppIncomingFrom(from);
       await WhatsAppIncomingMessage.create({
-        from,
+        from: fromNormalized || String(from || '').replace(/\D/g, '') || from,
         messageId: id,
         type,
         text,
