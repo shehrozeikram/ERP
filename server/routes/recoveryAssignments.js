@@ -850,103 +850,108 @@ router.get(
 
 /**
  * Unread = incoming WA messages after ConversationRead.readAt for this user (or all if never read).
- * Uses simple indexed countDocuments for typical list sizes; for very large candidate sets uses small
- * $facet batches (MongoDB before 4.4 allowed at most 16 facet branches; old code used 50 and could fail).
+ *
+ * Important: do NOT loop every assignment mobile (can be 10k+). Work from WhatsAppIncomingMessage senders
+ * only — typically hundreds — then count unread per canonical number. This avoids production timeouts.
  *
  * @param {mongoose.Types.ObjectId|string|null} userId
- * @param {string[]|null} candidateNormalizedPhones - normalized phones to check; if null/empty, uses mobiles from RecoveryAssignment only
+ * @param {string[]|null} candidateNormalizedPhones - if null, return sparse map of all senders with unread > 0; if array, same counts restricted to those keys (0 filled in)
  * @returns {Promise<Map<string, number>>} normalized phone -> unread message count
  */
-const UNREAD_COUNT_SIMPLE_MAX = 500;
-const UNREAD_COUNT_PARALLEL = 25;
-const UNREAD_FACET_CHUNK = 12;
+const UNREAD_FROM_MESSAGES_PARALLEL = 25;
 
-async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormalizedPhones) {
-  const map = new Map();
-  if (userId == null) return map;
+const unreadSparseInflight = new Map();
+
+async function getUnreadCountsFromMessagesSide(userId) {
+  if (userId == null) return new Map();
   const uidStr = String(userId);
-  if (!mongoose.Types.ObjectId.isValid(uidStr)) return map;
+  if (!mongoose.Types.ObjectId.isValid(uidStr)) return new Map();
   const uid = new mongoose.Types.ObjectId(uidStr);
+  const inflightKey = uidStr;
 
-  let candidates = [...new Set((candidateNormalizedPhones || []).map((p) => normalizePhoneForLookup(p)).filter(Boolean))];
-  if (candidates.length === 0) {
-    const raw = await RecoveryAssignment.distinct('mobileNumber', {
-      mobileNumber: { $exists: true, $nin: [null, ''] }
-    });
-    candidates = [...new Set(raw.map(normalizePhoneForLookup).filter(Boolean))];
+  if (unreadSparseInflight.has(inflightKey)) {
+    return unreadSparseInflight.get(inflightKey);
   }
-  if (candidates.length === 0) return map;
 
-  const readDocs = await ConversationRead.find({ userId: uid, phone: { $in: candidates } })
-    .select('phone readAt')
-    .lean();
-  const readMap = new Map(readDocs.map((r) => [r.phone, r.readAt ? new Date(r.readAt) : null]));
+  const promise = (async () => {
+    const map = new Map();
 
-  const countUnreadForPhone = async (phone) => {
-    const readAt = readMap.get(phone) || null;
-    const variants = variantsForRecoveryPhone(phone);
-    const filter = readAt
-      ? { from: { $in: variants }, receivedAt: { $gt: readAt } }
-      : { from: { $in: variants } };
-    const n = await WhatsAppIncomingMessage.countDocuments(filter);
-    return [phone, n];
-  };
+    const readDocs = await ConversationRead.find({ userId: uid }).select('phone readAt').lean();
+    const readMap = new Map(readDocs.map((r) => [r.phone, r.readAt ? new Date(r.readAt) : null]));
 
-  if (candidates.length <= UNREAD_COUNT_SIMPLE_MAX) {
-    for (let i = 0; i < candidates.length; i += UNREAD_COUNT_PARALLEL) {
-      const slice = candidates.slice(i, i + UNREAD_COUNT_PARALLEL);
-      const pairs = await Promise.all(slice.map(countUnreadForPhone));
-      pairs.forEach(([phone, n]) => map.set(phone, n));
+    let byFrom;
+    try {
+      byFrom = await WhatsAppIncomingMessage.aggregate([{ $group: { _id: '$from', lastAt: { $max: '$receivedAt' } } }])
+        .option({ maxTimeMS: 120000 })
+        .allowDiskUse(true);
+    } catch (err) {
+      console.error('[recovery] unread $group by from failed', err.message);
+      return map;
+    }
+
+    const lastByCanon = new Map();
+    for (const row of byFrom) {
+      const raw = row._id;
+      if (raw == null || raw === '') continue;
+      const canon = normalizePhoneForLookup(String(raw));
+      if (!canon) continue;
+      const t = row.lastAt ? new Date(row.lastAt) : null;
+      if (!t || isNaN(t.getTime())) continue;
+      const prev = lastByCanon.get(canon);
+      if (!prev || t > prev) lastByCanon.set(canon, t);
+    }
+
+    const toCount = [];
+    for (const [canon, lastAt] of lastByCanon) {
+      const readAt = readMap.get(canon) || null;
+      if (readAt && lastAt <= readAt) continue;
+      toCount.push(canon);
+    }
+
+    for (let i = 0; i < toCount.length; i += UNREAD_FROM_MESSAGES_PARALLEL) {
+      const slice = toCount.slice(i, i + UNREAD_FROM_MESSAGES_PARALLEL);
+      await Promise.all(
+        slice.map(async (canon) => {
+          const readAt = readMap.get(canon) || null;
+          const variants = variantsForRecoveryPhone(canon);
+          const filter = readAt
+            ? { from: { $in: variants }, receivedAt: { $gt: readAt } }
+            : { from: { $in: variants } };
+          const n = await WhatsAppIncomingMessage.countDocuments(filter);
+          if (n > 0) map.set(canon, n);
+        })
+      );
     }
     return map;
+  })();
+
+  unreadSparseInflight.set(inflightKey, promise);
+  try {
+    return await promise;
+  } finally {
+    unreadSparseInflight.delete(inflightKey);
+  }
+}
+
+async function getUnreadMessageCountsByNormalizedPhone(userId, candidateNormalizedPhones) {
+  const sparse = await getUnreadCountsFromMessagesSide(userId);
+
+  if (candidateNormalizedPhones == null) {
+    return sparse;
   }
 
-  for (let i = 0; i < candidates.length; i += UNREAD_FACET_CHUNK) {
-    const chunk = candidates.slice(i, i + UNREAD_FACET_CHUNK);
-    const variantSet = new Set();
-    chunk.forEach((phone) => {
-      variantsForRecoveryPhone(phone).forEach((v) => variantSet.add(v));
-    });
-    const variantArr = [...variantSet];
-    if (variantArr.length === 0) continue;
-
-    const facetStage = {};
-    chunk.forEach((phone, idx) => {
-      const readAt = readMap.get(phone) || null;
-      const variants = variantsForRecoveryPhone(phone);
-      const match = readAt
-        ? { from: { $in: variants }, receivedAt: { $gt: readAt } }
-        : { from: { $in: variants } };
-      facetStage[`p${idx}`] = [{ $match: match }, { $count: 'c' }];
-    });
-
-    const pipeline = [{ $match: { from: { $in: variantArr } } }, { $facet: facetStage }];
-    let row = {};
-    try {
-      const agg = await WhatsAppIncomingMessage.aggregate(pipeline).option({ maxTimeMS: 120000 });
-      row = agg[0] || {};
-    } catch (err) {
-      console.error('[recovery] unread $facet failed, using countDocuments for chunk', err.message);
-      const pairs = await Promise.all(chunk.map(countUnreadForPhone));
-      pairs.forEach(([phone, n]) => map.set(phone, n));
-      continue;
-    }
-
-    chunk.forEach((phone, idx) => {
-      const c = row[`p${idx}`]?.[0]?.c ?? 0;
-      map.set(phone, c);
-    });
+  const candidates = [...new Set(candidateNormalizedPhones.map((p) => normalizePhoneForLookup(p)).filter(Boolean))];
+  const map = new Map();
+  for (const c of candidates) {
+    map.set(c, sparse.get(c) || 0);
   }
   return map;
 }
 
 async function getUnreadNormalizedPhoneSetForUser(userId, candidateNormalizedPhones) {
-  const counts = await getUnreadMessageCountsByNormalizedPhone(userId, candidateNormalizedPhones);
-  const set = new Set();
-  for (const [phone, n] of counts) {
-    if (n > 0) set.add(phone);
-  }
-  return set;
+  const sparse = await getUnreadCountsFromMessagesSide(userId);
+  const candidates = [...new Set((candidateNormalizedPhones || []).map((p) => normalizePhoneForLookup(p)).filter(Boolean))];
+  return new Set(candidates.filter((c) => (sparse.get(c) || 0) > 0));
 }
 
 // @route   GET /api/finance/recovery-assignments/whatsapp-incoming/numbers-with-messages
