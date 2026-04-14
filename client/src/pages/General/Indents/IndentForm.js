@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -23,15 +23,15 @@ import {
   TableRow,
   Stack,
   IconButton,
-  Divider
+  Divider,
+  Chip
 } from '@mui/material';
 import {
   Save as SaveIcon,
   Cancel as CancelIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  Send as SendIcon,
-  Print as PrintIcon
+  Send as SendIcon
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useData } from '../../../contexts/DataContext';
@@ -59,6 +59,10 @@ const IndentForm = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { departments, fetchDepartments } = useData();
+  const fetchDepartmentsRef = useRef(fetchDepartments);
+  const departmentsRef = useRef(departments);
+  fetchDepartmentsRef.current = fetchDepartments;
+  departmentsRef.current = departments;
   const isEdit = !!id;
   const hasRunCreateLoad = useRef(false);
 
@@ -80,6 +84,12 @@ const IndentForm = () => {
   const indentNoDebounceRef = useRef(null);
   const itemOptionsReqSeq = useRef(0);
   const lastLoadedCategoryRef = useRef('');
+  const approverSearchDebounceRef = useRef(null);
+
+  const [indentMeta, setIndentMeta] = useState({ status: null, approvalChain: [] });
+  const [approverSlots, setApproverSlots] = useState([null, null, null]);
+  const [approverSearchOptions, setApproverSearchOptions] = useState([]);
+  const [approverSearchLoading, setApproverSearchLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -130,35 +140,46 @@ const IndentForm = () => {
     }
   }, [user, isEdit]);
 
+  const loadDepartmentsForIndent = useCallback(async () => {
+    setDepartmentsLoading(true);
+    try {
+      const res = await api.get('/indents/departments');
+      const list = Array.isArray(res.data?.data) ? res.data.data : [];
+      if (list.length > 0) {
+        setDepartmentOptions(list);
+        return list;
+      }
+    } catch {
+      // fallback below
+    } finally {
+      setDepartmentsLoading(false);
+    }
+    const fallback = await fetchDepartmentsRef.current(true);
+    const out = Array.isArray(fallback) ? fallback : [];
+    setDepartmentOptions(out);
+    return out;
+  }, []);
+
   // Load indent data if editing, or run next-number/next-erp-ref + departments once for create
   useEffect(() => {
     const loadData = async () => {
-      const loadDepartmentsForIndent = async () => {
-        setDepartmentsLoading(true);
-        try {
-          const res = await api.get('/indents/departments');
-          const list = Array.isArray(res.data?.data) ? res.data.data : [];
-          if (list.length > 0) {
-            setDepartmentOptions(list);
-            return list;
-          }
-        } catch {
-          // fallback below
-        } finally {
-          setDepartmentsLoading(false);
-        }
-        const fallback = await fetchDepartments(true);
-        const out = Array.isArray(fallback) ? fallback : [];
-        setDepartmentOptions(out);
-        return out;
-      };
-
       if (isEdit) {
         try {
           setLoadingData(true);
           const response = await indentService.getIndentById(id);
           const indent = response.data;
           
+          setIndentMeta({
+            status: indent.status || null,
+            approvalChain: Array.isArray(indent.approvalChain) ? indent.approvalChain : []
+          });
+          const draftApprovers = (indent.draftApproverIds || []).slice(0, 3);
+          const slots = [0, 1, 2].map((i) => {
+            const u = draftApprovers[i];
+            return u && typeof u === 'object' && u._id ? u : null;
+          });
+          setApproverSlots(slots);
+
           setFormData({
             title: indent.title || '',
             erpRef: indent.erpRef || '',
@@ -189,7 +210,7 @@ const IndentForm = () => {
         } finally {
           setLoadingData(false);
         }
-        if (departments.length === 0) {
+        if (departmentsRef.current.length === 0) {
           await loadDepartmentsForIndent();
         }
         return;
@@ -214,13 +235,13 @@ const IndentForm = () => {
         // If API fails, backend will generate on save
       }
 
-      if (departments.length === 0) {
+      if (departmentsRef.current.length === 0) {
         await loadDepartmentsForIndent();
       }
     };
 
     loadData();
-  }, [id, isEdit]);
+  }, [id, isEdit, loadDepartmentsForIndent]);
 
   useEffect(() => {
     if (Array.isArray(departments) && departments.length > 0) {
@@ -283,7 +304,7 @@ const IndentForm = () => {
     }
   };
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       setCategoriesLoading(true);
       const res = await api.get('/items/categories');
@@ -300,9 +321,9 @@ const IndentForm = () => {
     } finally {
       setCategoriesLoading(false);
     }
-  };
+  }, [isEdit]);
 
-  const fetchItemsForCategory = async (category) => {
+  const fetchItemsForCategory = useCallback(async (category) => {
     if (!category) return;
     const seq = ++itemOptionsReqSeq.current;
     lastLoadedCategoryRef.current = category;
@@ -316,7 +337,7 @@ const IndentForm = () => {
     } finally {
       if (seq === itemOptionsReqSeq.current) setItemOptionsLoading(false);
     }
-  };
+  }, []);
 
   const fetchItemOptions = async (q) => {
     const seq = ++itemOptionsReqSeq.current;
@@ -390,11 +411,50 @@ const IndentForm = () => {
     if (formData.category) {
       fetchItemsForCategory(formData.category);
     }
-  }, [formData.category]);
+  }, [formData.category, fetchItemsForCategory]);
 
   useEffect(() => {
     fetchCategories();
+  }, [fetchCategories]);
+
+  const loadApproverOptions = async (q) => {
+    try {
+      setApproverSearchLoading(true);
+      const res = await api.get('/indents/approver-candidates', {
+        params: { search: q || '', limit: 50 }
+      });
+      setApproverSearchOptions(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch {
+      setApproverSearchOptions([]);
+    } finally {
+      setApproverSearchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadApproverOptions('');
   }, []);
+
+  const approverLabel = (u) => {
+    if (!u) return '';
+    const n = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return n || u.email || u.employeeId || '';
+  };
+
+  const handleApproverSearchInput = (value) => {
+    if (approverSearchDebounceRef.current) clearTimeout(approverSearchDebounceRef.current);
+    approverSearchDebounceRef.current = setTimeout(() => {
+      loadApproverOptions(value);
+    }, 300);
+  };
+
+  const handleApproverSlotChange = (index, user) => {
+    setApproverSlots((prev) => {
+      const next = [...prev];
+      next[index] = user;
+      return next;
+    });
+  };
 
   const validateForm = () => {
     if (!formData.title?.trim()) {
@@ -468,9 +528,23 @@ const IndentForm = () => {
       return;
     }
 
+    if (submitForApproval) {
+      const ids = approverSlots.map((u) => u?._id).filter(Boolean);
+      if (ids.length !== 3) {
+        setError('Submitting for approval requires exactly three approvers (Head of Department, GM/PD, SVP/AVP).');
+        return;
+      }
+      if (new Set(ids.map(String)).size !== 3) {
+        setError('The three approvers must be different people.');
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setError('');
+
+      const draftApproverIds = approverSlots.map((u) => u?._id).filter(Boolean);
 
       const indentData = {
         title: formData.title.trim(),
@@ -491,7 +565,8 @@ const IndentForm = () => {
         })),
         justification: formData.justification.trim(),
         signatures: formData.signatures,
-        status: submitForApproval ? 'Submitted' : 'Draft'
+        status: 'Draft',
+        draftApproverIds
       };
       
       // Include indentNumber if the user has provided one; backend auto-generates if omitted
@@ -501,14 +576,18 @@ const IndentForm = () => {
       // For new indents, if ERP Ref is empty backend auto-generates it
 
       let response;
+      let savedId;
       if (isEdit) {
         response = await indentService.updateIndent(id, indentData);
+        savedId = id;
       } else {
         response = await indentService.createIndent(indentData);
+        savedId = response.data?._id;
       }
 
-      if (submitForApproval && response.data?._id) {
-        await indentService.submitIndent(response.data._id);
+      if (submitForApproval && savedId) {
+        const approverIds = approverSlots.map((u) => u._id);
+        await indentService.submitIndent(savedId, { approverIds });
       }
 
       setSnackbar({
@@ -957,11 +1036,14 @@ const IndentForm = () => {
 
         <Divider sx={{ my: 3 }} />
 
-        {/* Signatures Section */}
+        {/* Approvals: requester + dynamic approvers / status */}
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
           Approvals
         </Typography>
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Choose three distinct approvers before submitting. When each person approves in the system, their name and date appear here automatically.
+        </Typography>
+        <Grid container spacing={2} sx={{ mb: 2 }}>
           <Grid item xs={12} sm={6} md={3}>
             <TextField
               fullWidth
@@ -971,34 +1053,90 @@ const IndentForm = () => {
               size="small"
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              fullWidth
-              label="Head of Department"
-              value={formData.signatures.headOfDepartment.name}
-              onChange={(e) => handleSignatureChange('headOfDepartment', 'name', e.target.value)}
-              size="small"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              fullWidth
-              label="Approved by GM/PD"
-              value={formData.signatures.gmPd.name}
-              onChange={(e) => handleSignatureChange('gmPd', 'name', e.target.value)}
-              size="small"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              fullWidth
-              label="SVP/AVP Approval"
-              value={formData.signatures.svpAvp.name}
-              onChange={(e) => handleSignatureChange('svpAvp', 'name', e.target.value)}
-              size="small"
-            />
-          </Grid>
         </Grid>
+
+        {isEdit && indentMeta.status && indentMeta.status !== 'Draft' && (indentMeta.approvalChain || []).length > 0 ? (
+          <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                  <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {['Head of Department', 'Approved by GM/PD', 'SVP/AVP Approval'].map((label, idx) => {
+                  const step = indentMeta.approvalChain[idx];
+                  const approver = step?.approver;
+                  const name = approver ? approverLabel(approver) : '—';
+                  const st = step?.status || 'pending';
+                  return (
+                    <TableRow key={label}>
+                      <TableCell>{label}</TableCell>
+                      <TableCell>{name}</TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={st === 'pending' ? 'Pending' : st === 'approved' ? 'Approved' : 'Rejected'}
+                          color={st === 'approved' ? 'success' : st === 'rejected' ? 'error' : 'default'}
+                          variant={st === 'pending' ? 'outlined' : 'filled'}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {step?.actedAt ? dayjs(step.actedAt).format('DD-MMM-YYYY HH:mm') : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : isEdit && indentMeta.status && indentMeta.status !== 'Draft' ? (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            This indent was submitted before multi-step approvers were enabled. Users with admin or HR manager roles can approve or reject it from the indent list or detail page.
+          </Alert>
+        ) : (
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            {[
+              'Head of Department approver',
+              'GM/PD approver',
+              'SVP/AVP approver'
+            ].map((label, index) => (
+              <Grid item xs={12} sm={6} md={4} key={label}>
+                <Autocomplete
+                  options={approverSearchOptions}
+                  loading={approverSearchLoading}
+                  getOptionLabel={(option) => approverLabel(option)}
+                  isOptionEqualToValue={(a, b) => !!a && !!b && a._id === b._id}
+                  value={approverSlots[index]}
+                  onChange={(_, v) => handleApproverSlotChange(index, v)}
+                  onInputChange={(_, input, reason) => {
+                    if (reason === 'input') handleApproverSearchInput(input);
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label={label}
+                      size="small"
+                      placeholder="Search user…"
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {approverSearchLoading ? <CircularProgress color="inherit" size={16} /> : null}
+                            {params.InputProps.endAdornment}
+                          </>
+                        )
+                      }}
+                    />
+                  )}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        )}
 
         {/* Distribution Section */}
         <Box sx={{ mt: 4, pt: 2, borderTop: '1px solid #ccc' }}>
@@ -1031,18 +1169,27 @@ const IndentForm = () => {
           >
             {loading ? 'Saving...' : isEdit ? 'Update' : 'Save Draft'}
           </Button>
-          {isEdit && (
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={<SendIcon />}
-              onClick={() => handleSubmit(true)}
-              disabled={loading || !!erpRefError || erpRefChecking || !!indentNoError || indentNoChecking}
-              title={indentNoError || erpRefError || ''}
-            >
-              {loading ? 'Submitting...' : 'Submit for Approval'}
-            </Button>
-          )}
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<SendIcon />}
+            onClick={() => handleSubmit(true)}
+            disabled={
+              loading ||
+              !!erpRefError ||
+              erpRefChecking ||
+              !!indentNoError ||
+              indentNoChecking ||
+              (isEdit && indentMeta.status && indentMeta.status !== 'Draft')
+            }
+            title={
+              isEdit && indentMeta.status && indentMeta.status !== 'Draft'
+                ? 'Only draft indents can be submitted from this form'
+                : indentNoError || erpRefError || ''
+            }
+          >
+            {loading ? 'Submitting...' : 'Submit for Approval'}
+          </Button>
         </Stack>
       </Paper>
 

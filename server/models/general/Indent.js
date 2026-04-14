@@ -126,7 +126,31 @@ const indentSchema = new mongoose.Schema({
     type: Date
   },
   
-  // Approval
+  // Approval (legacy: single approver on indent.approvedBy; new: parallel chain — all must approve)
+  approvalChain: [{
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    actedAt: {
+      type: Date
+    },
+    comment: {
+      type: String,
+      trim: true
+    }
+  }],
+  // Draft only: chosen approvers before submit (max 3), persisted so user can save and return
+  draftApproverIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

@@ -7,7 +7,8 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
-  Category as CategoryIcon, CheckCircle as SeedIcon
+  Category as CategoryIcon, CheckCircle as SeedIcon,
+  PublishedWithChanges as ApplyStdIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 
@@ -57,6 +58,7 @@ export default function InventoryCategories() {
   const [form, setForm]             = useState(emptyForm);
   const [saving, setSaving]         = useState(false);
   const [seeding, setSeeding]       = useState(false);
+  const [applyingStd, setApplyingStd] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,6 +149,30 @@ export default function InventoryCategories() {
     finally { setSeeding(false); }
   };
 
+  const handleApplyStandardAccounts = async () => {
+    const ok = window.confirm(
+      'Apply standard chart accounts to ALL inventory categories (1100 Inventory, 2100 GRNI, 5000 COGS, purchase & sales defaults)?\n\n' +
+      'Items without a finance category link will be mapped from their legacy type to a category.\n' +
+      'Item-level account overrides will be cleared so posting uses category defaults.\n\nContinue?'
+    );
+    if (!ok) return;
+    setApplyingStd(true);
+    try {
+      const res = await api.post('/inventory-categories/apply-standard-accounts', {});
+      const d = res.data?.data;
+      const extra = d?.linkNote ? ` ${d.linkNote}` : '';
+      setSuccess(
+        `Applied standard accounts. Categories updated: ${d?.categoriesModified ?? 0}. ` +
+        `Items linked: ${d?.itemsLinked ?? 0}. Overrides cleared: ${d?.itemAccountOverridesCleared ?? 0}.${extra}`
+      );
+      load();
+    } catch (e) {
+      setError(e.response?.data?.message || 'Apply standard accounts failed');
+    } finally {
+      setApplyingStd(false);
+    }
+  };
+
   const accLabel = (a) => a ? `${a.accountNumber} – ${a.name}` : '—';
 
   return (
@@ -161,9 +187,18 @@ export default function InventoryCategories() {
             </Typography>
           </Box>
         </Box>
-        <Stack direction="row" gap={1}>
+        <Stack direction="row" gap={1} flexWrap="wrap">
           <Button variant="outlined" startIcon={seeding ? <CircularProgress size={16} /> : <SeedIcon />} onClick={handleSeedDefaults} disabled={seeding}>
             Seed Defaults
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={applyingStd ? <CircularProgress size={16} /> : <ApplyStdIcon />}
+            onClick={handleApplyStandardAccounts}
+            disabled={applyingStd || seeding}
+          >
+            Apply standard accounts (all)
           </Button>
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New Category

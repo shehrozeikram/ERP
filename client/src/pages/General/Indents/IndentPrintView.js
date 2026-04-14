@@ -6,7 +6,6 @@ import {
   Button,
   CircularProgress,
   Alert,
-  Stack,
   Grid
 } from '@mui/material';
 import {
@@ -66,6 +65,24 @@ const IndentPrintView = () => {
       </Box>
     );
   }
+
+  const approvalNameFromChain = (index) => {
+    const step = indent.approvalChain?.[index];
+    if (step?.approver) {
+      const n = [step.approver.firstName, step.approver.lastName].filter(Boolean).join(' ').trim();
+      if (n) return n;
+      if (step.approver.email) return step.approver.email;
+    }
+    const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
+    return indent.signatures?.[keys[index]]?.name || '';
+  };
+
+  const approvalDateFromChain = (index) => {
+    const step = indent.approvalChain?.[index];
+    if (step?.actedAt && step?.status === 'approved') return step.actedAt;
+    const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
+    return indent.signatures?.[keys[index]]?.date;
+  };
 
   return (
     <>
@@ -314,8 +331,13 @@ const IndentPrintView = () => {
                   Head of Department:
                 </Typography>
                 <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {indent.signatures?.headOfDepartment?.name || '___________'}
+                  {approvalNameFromChain(0) || '___________'}
                 </Box>
+                {approvalDateFromChain(0) && (
+                  <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
+                    {formatDate(approvalDateFromChain(0))}
+                  </Typography>
+                )}
               </Box>
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
@@ -324,11 +346,11 @@ const IndentPrintView = () => {
                   Approved by GM/PD:
                 </Typography>
                 <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {indent.signatures?.gmPd?.name || '___________'}
+                  {approvalNameFromChain(1) || '___________'}
                 </Box>
-                {indent.signatures?.gmPd?.date && (
+                {approvalDateFromChain(1) && (
                   <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
-                    {formatDate(indent.signatures.gmPd.date)}
+                    {formatDate(approvalDateFromChain(1))}
                   </Typography>
                 )}
               </Box>
@@ -339,8 +361,13 @@ const IndentPrintView = () => {
                   SVP/AVP Approval:
                 </Typography>
                 <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {indent.signatures?.svpAvp?.name || '___________'}
+                  {approvalNameFromChain(2) || '___________'}
                 </Box>
+                {approvalDateFromChain(2) && (
+                  <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
+                    {formatDate(approvalDateFromChain(2))}
+                  </Typography>
+                )}
               </Box>
             </Grid>
           </Grid>

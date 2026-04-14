@@ -26,7 +26,8 @@ import {
   DialogActions,
   TextField,
   Avatar,
-  Tooltip
+  Tooltip,
+  Autocomplete
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -45,6 +46,12 @@ import indentService from '../../../services/indentService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
 
+const approverDisplayName = (u) => {
+  if (!u) return '';
+  const n = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+  return n || u.email || u.employeeId || '';
+};
+
 const IndentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -57,6 +64,10 @@ const IndentDetail = () => {
   const [commentText, setCommentText] = useState('');
   const [linkedPOs, setLinkedPOs] = useState([]);
   const [loadingPOs, setLoadingPOs] = useState(false);
+  const [submitDialogOpen, setSubmitDialogOpen] = useState(false);
+  const [submitSlots, setSubmitSlots] = useState([null, null, null]);
+  const [approverSearchOptions, setApproverSearchOptions] = useState([]);
+  const [approverSearchLoading, setApproverSearchLoading] = useState(false);
 
   // Load indent data
   const loadIndent = useCallback(async () => {
@@ -88,6 +99,24 @@ const IndentDetail = () => {
     loadIndent();
     loadLinkedPOs();
   }, [loadIndent, loadLinkedPOs]);
+
+  const loadApproverOptions = async (q) => {
+    try {
+      setApproverSearchLoading(true);
+      const res = await api.get('/indents/approver-candidates', {
+        params: { search: q || '', limit: 50 }
+      });
+      setApproverSearchOptions(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch {
+      setApproverSearchOptions([]);
+    } finally {
+      setApproverSearchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (submitDialogOpen) loadApproverOptions('');
+  }, [submitDialogOpen]);
 
   // Handle actions
   const handleApprove = async () => {
@@ -129,15 +158,54 @@ const IndentDetail = () => {
     }
   };
 
+  const runSubmitWithApprovers = async (approverIds) => {
+    await indentService.submitIndent(id, { approverIds });
+    setSnackbar({
+      open: true,
+      message: 'Indent submitted for approval successfully',
+      severity: 'success'
+    });
+    setSubmitDialogOpen(false);
+    loadIndent();
+  };
+
   const handleSubmit = async () => {
-    try {
-      await indentService.submitIndent(id);
+    const draft = indent?.draftApproverIds || [];
+    const ids = draft
+      .map((x) => (typeof x === 'object' && x?._id ? x._id : x))
+      .filter(Boolean);
+    if (ids.length === 3 && new Set(ids.map(String)).size === 3) {
+      try {
+        await runSubmitWithApprovers(ids);
+      } catch (error) {
+        setSnackbar({
+          open: true,
+          message: error.response?.data?.message || 'Error submitting indent',
+          severity: 'error'
+        });
+      }
+      return;
+    }
+    const prefilled = [0, 1, 2].map((i) => {
+      const u = draft[i];
+      return u && typeof u === 'object' && u._id ? u : null;
+    });
+    setSubmitSlots(prefilled);
+    setSubmitDialogOpen(true);
+  };
+
+  const handleConfirmSubmitDialog = async () => {
+    const approverIds = submitSlots.map((u) => u?._id).filter(Boolean);
+    if (approverIds.length !== 3 || new Set(approverIds.map(String)).size !== 3) {
       setSnackbar({
         open: true,
-        message: 'Indent submitted for approval successfully',
-        severity: 'success'
+        message: 'Select three different approvers.',
+        severity: 'error'
       });
-      loadIndent();
+      return;
+    }
+    try {
+      await runSubmitWithApprovers(approverIds);
     } catch (error) {
       setSnackbar({
         open: true,
@@ -200,8 +268,22 @@ const IndentDetail = () => {
 
   // Check permissions
   const canEdit = indent?.status === 'Draft' && indent?.requestedBy?._id === user?.id;
-  const canApproveReject = ['super_admin', 'admin', 'hr_manager'].includes(user?.role) &&
-                           ['Submitted', 'Under Review'].includes(indent?.status);
+  const chain = indent?.approvalChain || [];
+  const hasChain = chain.length > 0;
+  const uid = user?.id ? String(user.id) : '';
+  const userPendingInChain =
+    hasChain &&
+    chain.some((s) => {
+      const aid = s.approver?._id != null ? String(s.approver._id) : String(s.approver || '');
+      return aid === uid && s.status === 'pending';
+    });
+  const canApproveRejectChain =
+    hasChain && userPendingInChain && ['Submitted', 'Under Review'].includes(indent?.status);
+  const canApproveRejectLegacy =
+    !hasChain &&
+    ['super_admin', 'admin', 'hr_manager'].includes(user?.role) &&
+    ['Submitted', 'Under Review'].includes(indent?.status);
+  const canApproveReject = canApproveRejectChain || canApproveRejectLegacy;
   const canSubmit = indent?.status === 'Draft' && indent?.requestedBy?._id === user?.id;
 
   if (loading) {
@@ -408,6 +490,53 @@ const IndentDetail = () => {
             </CardContent>
           </Card>
 
+          {(indent.approvalChain || []).length > 0 && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+                  Approver progress
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Step</strong></TableCell>
+                        <TableCell><strong>Approver</strong></TableCell>
+                        <TableCell><strong>Status</strong></TableCell>
+                        <TableCell><strong>When</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {['Head of Department', 'GM/PD', 'SVP/AVP'].map((label, idx) => {
+                        const step = indent.approvalChain[idx];
+                        const st = step?.status || '—';
+                        return (
+                          <TableRow key={label}>
+                            <TableCell>{label}</TableCell>
+                            <TableCell>
+                              {step?.approver ? approverDisplayName(step.approver) : '—'}
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={st === 'pending' ? 'Pending' : st === 'approved' ? 'Approved' : st === 'rejected' ? 'Rejected' : st}
+                                color={st === 'approved' ? 'success' : st === 'rejected' ? 'error' : 'default'}
+                                variant={st === 'pending' ? 'outlined' : 'filled'}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {step?.actedAt ? dayjs(step.actedAt).format('DD-MMM-YYYY HH:mm') : '—'}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Items */}
           <Card>
             <CardContent>
@@ -608,6 +737,62 @@ const IndentDetail = () => {
           )}
         </Grid>
       </Grid>
+
+      <Dialog open={submitDialogOpen} onClose={() => setSubmitDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Select three approvers</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 0.5 }}>
+            Each person will need to approve in the system before this indent is fully approved.
+          </Typography>
+          <Stack spacing={2}>
+            {['Head of Department', 'GM/PD', 'SVP/AVP'].map((label, index) => (
+              <Autocomplete
+                key={label}
+                options={approverSearchOptions}
+                loading={approverSearchLoading}
+                getOptionLabel={(option) => approverDisplayName(option)}
+                isOptionEqualToValue={(a, b) => !!a && !!b && a._id === b._id}
+                value={submitSlots[index]}
+                onChange={(_, v) => {
+                  setSubmitSlots((prev) => {
+                    const next = [...prev];
+                    next[index] = v;
+                    return next;
+                  });
+                }}
+                onInputChange={(_, input, reason) => {
+                  if (reason === 'input') {
+                    loadApproverOptions(input);
+                  }
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label={label}
+                    size="small"
+                    placeholder="Search user…"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {approverSearchLoading ? <CircularProgress color="inherit" size={16} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      )
+                    }}
+                  />
+                )}
+              />
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSubmitDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleConfirmSubmitDialog} variant="contained">
+            Submit
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Comment Dialog */}
       <Dialog open={commentDialogOpen} onClose={() => setCommentDialogOpen(false)} maxWidth="sm" fullWidth>

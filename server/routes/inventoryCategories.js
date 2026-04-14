@@ -3,6 +3,10 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize } = require('../middleware/auth');
 const InventoryCategory = require('../models/procurement/InventoryCategory');
 const Inventory = require('../models/procurement/Inventory');
+const {
+  applyStandardInventoryAccountMappings,
+  resolveStandardInventoryAccountIds
+} = require('../utils/inventoryStandardAccountMap');
 
 const router = express.Router();
 
@@ -131,19 +135,12 @@ router.delete('/:id',
 router.post('/seed/defaults',
   authorize('super_admin'),
   asyncHandler(async (req, res) => {
-    const Account = require('../models/finance/Account');
-
-    // Look up standard accounts by number
-    const getAcc = async (num) => {
-      const a = await Account.findOne({ accountNumber: num });
-      return a?._id;
-    };
-
-    const inv  = await getAcc('1100');
-    const grni = await getAcc('2100');
-    const cogs = await getAcc('5000');
-    const exp  = await getAcc('5001');
-    const rev  = await getAcc('4000');
+    const ids = await resolveStandardInventoryAccountIds();
+    const inv = ids.stockValuationAccount;
+    const grni = ids.stockInputAccount;
+    const cogs = ids.stockOutputAccount;
+    const exp = ids.purchaseAccount;
+    const rev = ids.salesAccount;
 
     const defaults = [
       { name: 'General',          description: 'Default category for all items' },
@@ -176,6 +173,38 @@ router.post('/seed/defaults',
     }
 
     res.json({ success: true, message: 'Default categories seeded', results });
+  })
+);
+
+// ─── Apply standard chart accounts to ALL categories + align inventory items ──
+// Perpetual inventory: same 1100 / 2100 / 5000 pool for every category unless you edit manually after.
+router.post('/apply-standard-accounts',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const linkInventoryItems = req.body.linkInventoryItems !== false;
+    const clearItemOverrides = req.body.clearItemOverrides !== false;
+
+    try {
+      const data = await applyStandardInventoryAccountMappings({
+        linkInventoryItems,
+        clearItemOverrides
+      });
+      res.json({
+        success: true,
+        message: 'Standard inventory accounts applied across categories (and items where requested).',
+        data
+      });
+    } catch (e) {
+      if (e.message === 'MISSING_ACCOUNTS') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'One or more standard accounts are missing from the chart. Create them or run POST /api/finance/accounts/ensure-defaults, then retry.',
+          missingRoles: e.missingRoles
+        });
+      }
+      throw e;
+    }
   })
 );
 

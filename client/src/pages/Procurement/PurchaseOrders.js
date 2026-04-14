@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -31,7 +31,9 @@ import {
   Stack,
   Divider,
   Tabs,
-  Tab
+  Tab,
+  Autocomplete,
+  Popper
 } from '@mui/material';
 import {
   ShoppingCart as ShoppingCartIcon,
@@ -55,6 +57,28 @@ import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
+
+const PO_APPROVAL_AUTHORITY_FIELDS = [
+  { key: 'preparedBy', label: 'Prepared By' },
+  { key: 'verifiedBy', label: 'Verified By (Procurement Committee)' },
+  { key: 'authorisedRep', label: 'Authorised Rep.' },
+  { key: 'financeRep', label: 'Finance Rep.' },
+  { key: 'managerProcurement', label: 'Manager Procurement' }
+];
+
+const WidePopper = (props) => {
+  const { style, ...rest } = props;
+  return (
+    <Popper
+      {...rest}
+      placement="bottom-start"
+      style={{
+        width: typeof window !== 'undefined' && window.innerWidth < 900 ? 'calc(100vw - 32px)' : 720,
+        ...style
+      }}
+    />
+  );
+};
 
 const PurchaseOrders = () => {
   const navigate = useNavigate();
@@ -91,6 +115,42 @@ const PurchaseOrders = () => {
     financeRep: '',
     managerProcurement: ''
   });
+
+  const authoritySearchDebounceRef = useRef(null);
+  const [authoritySearchOptions, setAuthoritySearchOptions] = useState([]);
+  const [authoritySearchLoading, setAuthoritySearchLoading] = useState(false);
+
+  const loadAuthorityApproverOptions = useCallback(async (q) => {
+    try {
+      setAuthoritySearchLoading(true);
+      const res = await api.get('/indents/approver-candidates', {
+        params: { search: q || '', limit: 50 }
+      });
+      setAuthoritySearchOptions(Array.isArray(res.data?.data) ? res.data.data : []);
+    } catch {
+      setAuthoritySearchOptions([]);
+    } finally {
+      setAuthoritySearchLoading(false);
+    }
+  }, []);
+
+  const approverLabel = (u) => {
+    if (!u) return '';
+    const n = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return n || u.email || u.employeeId || '';
+  };
+
+  const handleAuthoritySearchInput = (value) => {
+    if (authoritySearchDebounceRef.current) clearTimeout(authoritySearchDebounceRef.current);
+    authoritySearchDebounceRef.current = setTimeout(() => {
+      loadAuthorityApproverOptions(value);
+    }, 300);
+  };
+
+  useEffect(() => {
+    if (!formDialog.open) return;
+    loadAuthorityApproverOptions('');
+  }, [formDialog.open, loadAuthorityApproverOptions]);
   
   // Observation answers when resubmitting to audit
   const [observationAnswers, setObservationAnswers] = useState({});
@@ -1202,23 +1262,71 @@ const PurchaseOrders = () => {
 
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>Approval authorities</Typography>
+              <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 0.5 }}>Approval authorities</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Search active users (same directory as indents) or type a name/designation. Saved values are stored as text for print.
+              </Typography>
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={4}>
-                  <TextField fullWidth size="small" label="Prepared By" value={approvalAuthority.preparedBy} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, preparedBy: e.target.value }))} placeholder="Name / Designation" />
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <TextField fullWidth size="small" label="Verified By (Procurement Committee)" value={approvalAuthority.verifiedBy} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, verifiedBy: e.target.value }))} placeholder="Name / Designation" />
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <TextField fullWidth size="small" label="Authorised Rep." value={approvalAuthority.authorisedRep} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, authorisedRep: e.target.value }))} placeholder="Name / Designation" />
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <TextField fullWidth size="small" label="Finance Rep." value={approvalAuthority.financeRep} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, financeRep: e.target.value }))} placeholder="Name / Designation" />
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <TextField fullWidth size="small" label="Manager Procurement" value={approvalAuthority.managerProcurement} onChange={(e) => setApprovalAuthority(prev => ({ ...prev, managerProcurement: e.target.value }))} placeholder="Name / Designation" />
-                </Grid>
+                {PO_APPROVAL_AUTHORITY_FIELDS.map(({ key, label }) => (
+                  <Grid item xs={12} sm={6} md={4} key={key}>
+                    <Autocomplete
+                      freeSolo
+                      options={authoritySearchOptions}
+                      loading={authoritySearchLoading}
+                      value={approvalAuthority[key]}
+                      onChange={(_, newValue) => {
+                        if (newValue == null) {
+                          setApprovalAuthority((prev) => ({ ...prev, [key]: '' }));
+                        } else if (typeof newValue === 'string') {
+                          setApprovalAuthority((prev) => ({ ...prev, [key]: newValue }));
+                        } else {
+                          setApprovalAuthority((prev) => ({ ...prev, [key]: approverLabel(newValue) }));
+                        }
+                      }}
+                      onInputChange={(_, input, reason) => {
+                        if (reason === 'input') {
+                          handleAuthoritySearchInput(input);
+                          setApprovalAuthority((prev) => ({ ...prev, [key]: input }));
+                        }
+                        if (reason === 'clear') {
+                          setApprovalAuthority((prev) => ({ ...prev, [key]: '' }));
+                          loadAuthorityApproverOptions('');
+                        }
+                      }}
+                      getOptionLabel={(option) =>
+                        typeof option === 'string' ? option : approverLabel(option)
+                      }
+                      filterOptions={(opts) => opts}
+                      isOptionEqualToValue={(a, b) => {
+                        if (a && b && typeof a === 'object' && typeof b === 'object') {
+                          return a._id === b._id;
+                        }
+                        if (typeof a === 'string' && typeof b === 'string') return a === b;
+                        return false;
+                      }}
+                      PopperComponent={WidePopper}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label={label}
+                          size="small"
+                          placeholder="Search user or type name…"
+                          InputProps={{
+                            ...params.InputProps,
+                            endAdornment: (
+                              <>
+                                {authoritySearchLoading ? (
+                                  <CircularProgress color="inherit" size={16} />
+                                ) : null}
+                                {params.InputProps.endAdornment}
+                              </>
+                            )
+                          }}
+                        />
+                      )}
+                    />
+                  </Grid>
+                ))}
               </Grid>
             </Grid>
           </Grid>

@@ -438,10 +438,18 @@ const IndentsList = () => {
     return dayjs(date).format('DD-MMM-YYYY');
   };
 
-  // Check if user can approve/reject
+  // Check if user can approve/reject (designated approver or legacy admin role)
   const canApproveReject = (indent) => {
-    return ['super_admin', 'admin', 'hr_manager'].includes(user?.role) &&
-           ['Submitted', 'Under Review'].includes(indent.status);
+    if (!['Submitted', 'Under Review'].includes(indent.status)) return false;
+    const chain = indent.approvalChain || [];
+    const uid = user?.id != null ? String(user.id) : '';
+    if (chain.length > 0) {
+      return chain.some((s) => {
+        const aid = s.approver?._id != null ? String(s.approver._id) : String(s.approver || '');
+        return aid === uid && s.status === 'pending';
+      });
+    }
+    return ['super_admin', 'admin', 'hr_manager'].includes(user?.role);
   };
 
   if (loading && indents.length === 0) {

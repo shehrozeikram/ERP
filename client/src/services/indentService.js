@@ -37,9 +37,9 @@ const indentService = {
     return response.data;
   },
 
-  // Submit indent for approval
-  submitIndent: async (id) => {
-    const response = await api.post(`/indents/${id}/submit`);
+  // Submit indent for approval (optional body: { approverIds: [id1, id2, id3] })
+  submitIndent: async (id, body = {}) => {
+    const response = await api.post(`/indents/${id}/submit`, body);
     return response.data;
   },
 

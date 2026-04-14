@@ -11,6 +11,20 @@ const Quotation = require('../models/procurement/Quotation');
 
 const router = express.Router();
 
+const APPROVAL_SIGNATURE_KEYS = ['headOfDepartment', 'gmPd', 'svpAvp'];
+const LEGACY_APPROVER_ROLES = ['super_admin', 'admin', 'hr_manager'];
+
+function syncSignatureSlotFromApprover(indent, chainIndex, approverUser) {
+  if (!indent.signatures) indent.signatures = {};
+  const key = APPROVAL_SIGNATURE_KEYS[chainIndex];
+  if (!key || !approverUser) return;
+  const name = [approverUser.firstName, approverUser.lastName].filter(Boolean).join(' ').trim();
+  indent.signatures[key] = {
+    name: name || approverUser.email || '—',
+    date: new Date()
+  };
+}
+
 // ==================== INDENT ROUTES ====================
 
 // @route   GET /api/indents
@@ -71,6 +85,8 @@ router.get('/',
       .populate('department', 'name code')
       .populate('requestedBy', 'firstName lastName email employeeId')
       .populate('approvedBy', 'firstName lastName email')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId')
+      .populate('draftApproverIds', 'firstName lastName email employeeId')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
       .sort({ createdAt: -1 })
@@ -272,6 +288,46 @@ router.get('/dashboard',
   })
 );
 
+// @route   GET /api/indents/approver-candidates
+// @desc    Active users for indent approver pickers (any authenticated user)
+// @access  Private
+router.get('/approver-candidates',
+  authMiddleware,
+  [
+    query('search').optional().trim(),
+    query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be 1–100')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const raw = String(req.query.search || '').trim();
+    const escapeRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filter = { isActive: true };
+    if (raw) {
+      const rx = new RegExp(escapeRx(raw), 'i');
+      filter.$or = [
+        { firstName: rx },
+        { lastName: rx },
+        { email: rx },
+        { employeeId: rx }
+      ];
+    }
+    const users = await User.find(filter)
+      .select('firstName lastName email employeeId')
+      .sort({ firstName: 1, lastName: 1 })
+      .limit(limit)
+      .lean();
+
+    res.json({
+      success: true,
+      data: users
+    });
+  })
+);
+
 // @route   GET /api/indents/:id
 // @desc    Get single indent by ID
 // @access  Private
@@ -282,6 +338,8 @@ router.get('/:id',
       .populate('department', 'name code')
       .populate('requestedBy', 'firstName lastName email employeeId department')
       .populate('approvedBy', 'firstName lastName email')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId')
+      .populate('draftApproverIds', 'firstName lastName email employeeId')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
       .populate('comments.user', 'firstName lastName email');
@@ -337,6 +395,20 @@ router.post('/',
       createdBy: req.user.id,
       status: req.body.status || 'Draft'
     };
+
+    delete indentData.approvalChain;
+    if (Array.isArray(indentData.draftApproverIds)) {
+      const uniq = [...new Set(indentData.draftApproverIds.map(String).filter(Boolean))];
+      if (uniq.length > 3) {
+        return res.status(400).json({
+          success: false,
+          message: 'At most three draft approvers are allowed.'
+        });
+      }
+      indentData.draftApproverIds = uniq;
+    } else {
+      delete indentData.draftApproverIds;
+    }
     
     // Allow manual indentNumber if provided; otherwise auto-generate in pre-save middleware
     if (indentData.indentNumber !== undefined) {
@@ -456,9 +528,27 @@ router.put('/:id',
       }
     }
 
-    // Update fields (now also allowing indentNumber updates)
+    if (req.body.draftApproverIds !== undefined) {
+      if (indent.status !== 'Draft') {
+        return res.status(400).json({
+          success: false,
+          message: 'Approvers can only be changed while the indent is in Draft.'
+        });
+      }
+      const arr = Array.isArray(req.body.draftApproverIds) ? req.body.draftApproverIds : [];
+      const uniq = [...new Set(arr.map(String).filter(Boolean))];
+      if (uniq.length > 3) {
+        return res.status(400).json({
+          success: false,
+          message: 'At most three draft approvers are allowed.'
+        });
+      }
+      indent.draftApproverIds = uniq;
+    }
+
+    // Update fields (now also allowing indentNumber updates); never take approvalChain from client
     Object.keys(req.body).forEach(key => {
-      if (key !== '_id' && key !== 'createdAt' && key !== 'updatedAt') {
+      if (key !== '_id' && key !== 'createdAt' && key !== 'updatedAt' && key !== 'approvalChain' && key !== 'draftApproverIds') {
         indent[key] = req.body[key];
       }
     });
@@ -624,12 +714,52 @@ router.post('/:id/submit',
       });
     }
 
+    const fromBody = Array.isArray(req.body?.approverIds) ? req.body.approverIds.map(String).filter(Boolean) : [];
+    const fromDraft = (indent.draftApproverIds || []).map((id) => id.toString());
+    const merged = fromBody.length ? fromBody : fromDraft;
+    const unique = [...new Set(merged)];
+
+    if (unique.length !== 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Exactly three distinct approvers are required. Choose Head of Department, GM/PD, and SVP/AVP approvers.'
+      });
+    }
+
+    const requesterId = indent.requestedBy.toString();
+    if (unique.includes(requesterId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot assign yourself as an approver.'
+      });
+    }
+
+    const approverUsers = await User.find({
+      _id: { $in: unique },
+      isActive: true
+    })
+      .select('_id firstName lastName email')
+      .lean();
+
+    if (approverUsers.length !== 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'All three approvers must be valid active users.'
+      });
+    }
+
+    indent.approvalChain = unique.map((id) => ({
+      approver: id,
+      status: 'pending'
+    }));
+    indent.draftApproverIds = [];
     indent.status = 'Submitted';
     indent.updatedBy = req.user.id;
     await indent.save();
 
     await indent.populate('department', 'name code');
     await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('approvalChain.approver', 'firstName lastName email employeeId');
 
     res.json({
       success: true,
@@ -658,6 +788,57 @@ router.post('/:id/approve',
       return res.status(400).json({
         success: false,
         message: 'Only submitted or under review indents can be approved'
+      });
+    }
+
+    const userId = req.user._id.toString();
+    const chain = indent.approvalChain || [];
+
+    if (chain.length > 0) {
+      const stepIndex = chain.findIndex(
+        (step) => step.approver.toString() === userId && step.status === 'pending'
+      );
+      if (stepIndex === -1) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not a pending approver for this indent.'
+        });
+      }
+
+      const actingUser = await User.findById(req.user._id).select('firstName lastName email').lean();
+      indent.approvalChain[stepIndex].status = 'approved';
+      indent.approvalChain[stepIndex].actedAt = new Date();
+      syncSignatureSlotFromApprover(indent, stepIndex, actingUser);
+
+      const allApproved = indent.approvalChain.every((s) => s.status === 'approved');
+      if (allApproved) {
+        indent.status = 'Approved';
+        indent.approvedBy = req.user._id;
+        indent.approvedDate = new Date();
+        indent.storeRoutingStatus = 'pending_store_check';
+      }
+
+      indent.updatedBy = req.user.id;
+      await indent.save();
+
+      await indent.populate('department', 'name code');
+      await indent.populate('requestedBy', 'firstName lastName email');
+      await indent.populate('approvedBy', 'firstName lastName email');
+      await indent.populate('approvalChain.approver', 'firstName lastName email employeeId');
+
+      return res.json({
+        success: true,
+        message: allApproved
+          ? 'Indent approved successfully (all approvers completed)'
+          : 'Your approval has been recorded.',
+        data: indent
+      });
+    }
+
+    if (!LEGACY_APPROVER_ROLES.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to approve this indent.'
       });
     }
 
@@ -771,6 +952,46 @@ router.post('/:id/reject',
       return res.status(400).json({
         success: false,
         message: 'Only submitted or under review indents can be rejected'
+      });
+    }
+
+    const userId = req.user._id.toString();
+    const chain = indent.approvalChain || [];
+
+    if (chain.length > 0) {
+      const stepIndex = chain.findIndex(
+        (step) => step.approver.toString() === userId && step.status === 'pending'
+      );
+      if (stepIndex === -1) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not a pending approver for this indent.'
+        });
+      }
+
+      indent.approvalChain[stepIndex].status = 'rejected';
+      indent.approvalChain[stepIndex].actedAt = new Date();
+      indent.approvalChain[stepIndex].comment = req.body.rejectionReason;
+      indent.status = 'Rejected';
+      indent.rejectionReason = req.body.rejectionReason;
+      indent.updatedBy = req.user.id;
+      await indent.save();
+
+      await indent.populate('department', 'name code');
+      await indent.populate('requestedBy', 'firstName lastName email');
+      await indent.populate('approvalChain.approver', 'firstName lastName email employeeId');
+
+      return res.json({
+        success: true,
+        message: 'Indent rejected successfully',
+        data: indent
+      });
+    }
+
+    if (!LEGACY_APPROVER_ROLES.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to reject this indent.'
       });
     }
 
