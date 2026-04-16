@@ -50,6 +50,25 @@ const generateInvoiceNumber = (propertySrNo, year, month, type = 'GEN', meterSuf
   return `${prefix}-${year}-${paddedMonth}-${paddedIndex}${suffix}`;
 };
 
+// Open invoices use category-based numbers, e.g. INV-OTH-2026-04-0001
+const getOpenInvoiceCategoryPrefix = (chargeType = '') => {
+  const normalized = String(chargeType || '').toUpperCase().trim();
+  const map = {
+    CAM: 'CMC',
+    CMC: 'CMC',
+    ELECTRICITY: 'ELC',
+    ELC: 'ELC',
+    RENT: 'REN',
+    REN: 'REN',
+    WATER: 'WTR',
+    WTR: 'WTR',
+    OTHER: 'OTH'
+  };
+  if (map[normalized]) return map[normalized];
+  const cleaned = normalized.replace(/[^A-Z]/g, '');
+  return cleaned ? cleaned.slice(0, 3).padEnd(3, 'X') : 'OTH';
+};
+
 /**
  * Calculate overdue arrears from previous unpaid invoices for a specific property.
  * Each property's arrears are calculated independently — only invoices belonging to
@@ -2240,18 +2259,20 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
     const totalArrears = charges.reduce((sum, charge) => sum + (charge.arrears || 0), 0);
     const grandTotal = subtotal + totalArrears;
 
+    const firstChargeType = Array.isArray(charges) && charges.length > 0 ? charges[0]?.type : '';
+    const categoryPrefix = getOpenInvoiceCategoryPrefix(firstChargeType);
+    const now = dayjs();
+    const currentYear = now.year();
+    const currentMonth = now.month() + 1;
+
     // Generate invoice number if not provided or empty
-    let finalInvoiceNumber = invoiceNumber;
+    let finalInvoiceNumber = invoiceNumber ? String(invoiceNumber).trim() : '';
     if (!finalInvoiceNumber || finalInvoiceNumber.trim() === '') {
-      const now = dayjs();
-      const currentYear = now.year();
-      const currentMonth = now.month() + 1;
-      
       // Find the last open invoice (property: null) for the current month/year
-      // Format: INV-YYYY-MM-XXXX (GEN type uses prefix 'INV' from generateInvoiceNumber)
+      // Format: INV-<CATEGORY>-YYYY-MM-XXXX (e.g. INV-OTH-2026-04-0001)
       const lastInvoice = await PropertyInvoice.findOne({
         property: null,
-        invoiceNumber: { $regex: `^INV-${currentYear}-${String(currentMonth).padStart(2, '0')}-` }
+        invoiceNumber: { $regex: `^INV-${categoryPrefix}-${currentYear}-${String(currentMonth).padStart(2, '0')}-` }
       })
         .sort({ invoiceNumber: -1 })
         .select('invoiceNumber')
@@ -2260,31 +2281,32 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       let nextIndex = 1;
       if (lastInvoice && lastInvoice.invoiceNumber) {
         // Extract the index from the last invoice number
-        // Format: INV-YYYY-MM-XXXX (4 parts) or INV-GEN-YYYY-MM-XXXX (5 parts)
+        // Format: INV-<CATEGORY>-YYYY-MM-XXXX
         const parts = lastInvoice.invoiceNumber.split('-');
-        const indexPart = parts.length >= 5 ? parts[4] : parts[3];
+        const indexPart = parts[5 - 1];
         const lastIndex = parseInt(indexPart, 10);
         if (!isNaN(lastIndex)) {
           nextIndex = lastIndex + 1;
         }
       }
-      
-      finalInvoiceNumber = generateInvoiceNumber(
-        nextIndex,
-        currentYear,
-        currentMonth,
-        'GEN'
-      );
+
+      finalInvoiceNumber = `INV-${categoryPrefix}-${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(nextIndex).padStart(4, '0')}`;
     }
 
     // Check for duplicate invoice number (fallback safety check)
     const existingInvoice = await PropertyInvoice.findOne({ invoiceNumber: finalInvoiceNumber });
     if (existingInvoice) {
       // If duplicate exists, find the highest index and increment
-      const now = dayjs();
-      const currentYear = now.year();
-      const currentMonth = now.month() + 1;
-      const basePattern = `INV-${currentYear}-${String(currentMonth).padStart(2, '0')}-`;
+      const providedParts = finalInvoiceNumber.split('-');
+      const derivedPrefix =
+        providedParts.length >= 5 && providedParts[0] === 'INV'
+          ? providedParts[1]
+          : categoryPrefix;
+      const yearForIncrement =
+        providedParts.length >= 5 ? parseInt(providedParts[2], 10) || currentYear : currentYear;
+      const monthForIncrement =
+        providedParts.length >= 5 ? parseInt(providedParts[3], 10) || currentMonth : currentMonth;
+      const basePattern = `INV-${derivedPrefix}-${yearForIncrement}-${String(monthForIncrement).padStart(2, '0')}-`;
       
       const allInvoices = await PropertyInvoice.find({
         invoiceNumber: { $regex: `^${basePattern}` }
@@ -2295,19 +2317,14 @@ router.post('/', authMiddleware, asyncHandler(async (req, res) => {
       let maxIndex = 0;
       allInvoices.forEach(inv => {
         const parts = inv.invoiceNumber.split('-');
-        const indexPart = parts.length >= 5 ? parts[4] : parts[3];
+        const indexPart = parts.length >= 5 ? parts[4] : null;
         const index = parseInt(indexPart, 10);
         if (!isNaN(index) && index > maxIndex) {
           maxIndex = index;
         }
       });
-      
-      finalInvoiceNumber = generateInvoiceNumber(
-        maxIndex + 1,
-        currentYear,
-        currentMonth,
-        'GEN'
-      );
+
+      finalInvoiceNumber = `INV-${derivedPrefix}-${yearForIncrement}-${String(monthForIncrement).padStart(2, '0')}-${String(maxIndex + 1).padStart(4, '0')}`;
     }
 
     const invoiceData = {

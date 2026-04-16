@@ -36,7 +36,8 @@ import {
   Visibility as ViewIcon,
   Download as DownloadIcon,
   Add as AddIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { fetchAllInvoices, deleteInvoice } from '../../../services/propertyInvoiceService';
@@ -408,6 +409,16 @@ const OpenInvoices = () => {
                                   }}
                                 >
                                   <DownloadIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Edit Invoice">
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => handleEditInvoice(null, invoice)}
+                                  disabled={loading}
+                                >
+                                  <EditIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title="Delete Invoice">

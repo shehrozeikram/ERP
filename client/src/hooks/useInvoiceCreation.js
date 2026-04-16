@@ -303,9 +303,9 @@ export const useInvoiceCreation = (options = {}) => {
         const invoiceResponse = await fetchInvoicesForProperty(invoiceProperty._id);
         setPropertyInvoices(prev => ({ ...prev, [invoiceProperty._id]: invoiceResponse.data?.data || [] }));
       } else {
-        // Open invoice (no property) - let backend auto-generate invoice number with increment
+        // Open invoice (no property) - preserve category prefix from client invoice number
         const response = await createInvoice(null, {
-          invoiceNumber: '', // Empty string to let backend auto-generate with increment
+          invoiceNumber: invoiceData.invoiceNumber || '',
           invoiceDate: invoiceData.invoiceDate ? (invoiceData.invoiceDate instanceof Date ? invoiceData.invoiceDate : new Date(invoiceData.invoiceDate)) : new Date(),
           periodFrom: invoiceData.periodFrom,
           periodTo: invoiceData.periodTo,
