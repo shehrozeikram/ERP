@@ -86,6 +86,14 @@ const procurementService = {
     const response = await api.put(`/procurement/requisitions/${id}/assign`, data);
     return response.data;
   },
+  getAssignmentManagers: async () => {
+    const response = await api.get('/procurement/requisitions/assignment-managers');
+    return response.data;
+  },
+  updateAssignmentManagers: async (userIds = []) => {
+    const response = await api.put('/procurement/requisitions/assignment-managers', { userIds });
+    return response.data;
+  },
 
   // Vendors
   getVendors: async (params = {}) => {

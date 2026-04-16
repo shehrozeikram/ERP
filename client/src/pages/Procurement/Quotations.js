@@ -28,7 +28,8 @@ import {
   ListSubheader,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Autocomplete
 } from '@mui/material';
 import {
   Description as QuotationIcon,
@@ -757,45 +758,25 @@ const Quotations = () => {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField
-              select
+            <Autocomplete
               fullWidth
-              label="Vendor"
-              value={formData.vendor}
-              onChange={(e) => setFormData({ ...formData, vendor: e.target.value })}
-              required
-              SelectProps={{
-                MenuProps: {
-                  PaperProps: { sx: { maxHeight: 360 } }
-                }
+              options={vendors}
+              value={vendors.find((v) => String(v._id) === String(formData.vendor || '')) || null}
+              onChange={(_, selectedVendor) => {
+                setFormData({ ...formData, vendor: selectedVendor ? String(selectedVendor._id) : '' });
               }}
-            >
-              {vendorsByCategory.map(({ category, list }, catIdx) => (
-                <React.Fragment key={category}>
-                  <ListSubheader
-                    disableSticky
-                    sx={{
-                      fontWeight: 600,
-                      fontSize: '0.8rem',
-                      bgcolor: 'action.hover',
-                      color: 'text.secondary',
-                      lineHeight: 1.5,
-                      py: 0.75,
-                      ...(catIdx > 0
-                        ? { borderTop: (theme) => `1px solid ${theme.palette.divider}` }
-                        : {})
-                    }}
-                  >
-                    {category}
-                  </ListSubheader>
-                  {list.map((v) => (
-                    <MenuItem key={v._id} value={v._id} sx={{ pl: 3 }}>
-                      {v.name}
-                    </MenuItem>
-                  ))}
-                </React.Fragment>
-              ))}
-            </TextField>
+              groupBy={(option) => (option.vendorCategory || '').trim() || 'Uncategorized'}
+              getOptionLabel={(option) => option?.name || ''}
+              isOptionEqualToValue={(option, value) => String(option?._id) === String(value?._id)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Vendor"
+                  required
+                />
+              )}
+              ListboxProps={{ style: { maxHeight: 360 } }}
+            />
             <Grid container spacing={2}>
               <Grid item xs={6}>
                 <TextField

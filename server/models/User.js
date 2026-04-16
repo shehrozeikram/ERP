@@ -107,6 +107,10 @@ const userSchema = new mongoose.Schema({
   profileImage: {
     type: String
   },
+  canAssignProcurementTasks: {
+    type: Boolean,
+    default: false
+  },
   /** Uploaded image path for PDFs / forms (e.g. `/uploads/digital-signatures/...`) */
   digitalSignature: {
     type: String,
@@ -235,6 +239,7 @@ userSchema.methods.getProfile = function() {
     isActive: this.isActive,
     isEmailVerified: this.isEmailVerified,
     profileImage: this.profileImage,
+    canAssignProcurementTasks: this.canAssignProcurementTasks,
     digitalSignature: this.digitalSignature,
     lastLogin: this.lastLogin,
     permissions: this.permissions,

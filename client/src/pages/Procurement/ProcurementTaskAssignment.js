@@ -6,11 +6,14 @@ import {
   Card,
   CardContent,
   Chip,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
+  FormControlLabel,
   Grid,
   MenuItem,
   Stack,
@@ -56,6 +59,25 @@ const ProcurementTaskAssignment = () => {
     note: '',
     submitting: false
   });
+  const [assignmentManagers, setAssignmentManagers] = useState([]);
+  const [selectedManagerIds, setSelectedManagerIds] = useState([]);
+  const [managersLoading, setManagersLoading] = useState(false);
+  const [managersSaving, setManagersSaving] = useState(false);
+
+  const canConfigureAssignmentManagers = useMemo(() => {
+    if (!user) return false;
+    if (user.role === 'super_admin' || user.role === 'admin') return true;
+    const accepted = ['gm procurement', 'general manager procurement'];
+    const roleRefName = String(user?.roleRef?.name || user?.roleRef?.displayName || '').toLowerCase();
+    if (accepted.includes(roleRefName)) return true;
+    if (Array.isArray(user?.roles)) {
+      return user.roles.some((roleDoc) => {
+        const roleName = String(roleDoc?.name || roleDoc?.displayName || '').toLowerCase();
+        return accepted.includes(roleName);
+      });
+    }
+    return false;
+  }, [user]);
 
   const loadData = useCallback(async () => {
     try {
@@ -90,6 +112,27 @@ const ProcurementTaskAssignment = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const loadAssignmentManagers = useCallback(async () => {
+    if (!canConfigureAssignmentManagers) return;
+    try {
+      setManagersLoading(true);
+      const response = await procurementService.getAssignmentManagers();
+      const users = response?.data || [];
+      setAssignmentManagers(users);
+      setSelectedManagerIds(
+        users.filter((u) => u.canAssignProcurementTasks).map((u) => u._id)
+      );
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to load assignment rights');
+    } finally {
+      setManagersLoading(false);
+    }
+  }, [canConfigureAssignmentManagers]);
+
+  useEffect(() => {
+    loadAssignmentManagers();
+  }, [loadAssignmentManagers]);
 
   const stats = useMemo(() => {
     const total = tasks.length;
@@ -133,6 +176,21 @@ const ProcurementTaskAssignment = () => {
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to assign task');
       setAssignDialog((prev) => ({ ...prev, submitting: false }));
+    }
+  };
+
+  const handleSaveAssignmentManagers = async () => {
+    try {
+      setManagersSaving(true);
+      const response = await procurementService.updateAssignmentManagers(selectedManagerIds);
+      if (response?.success) {
+        setSuccess(response.message || 'Assignment rights updated successfully.');
+        await Promise.all([loadData(), loadAssignmentManagers()]);
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to save assignment rights');
+    } finally {
+      setManagersSaving(false);
     }
   };
 
@@ -184,6 +242,80 @@ const ProcurementTaskAssignment = () => {
           <StatCard title="My Tasks" value={stats.myTasks} subtitle="Assigned to you" color="info.main" />
         </Grid>
       </Grid>
+
+      {canConfigureAssignmentManagers && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              justifyContent="space-between"
+              alignItems={{ xs: 'flex-start', md: 'center' }}
+              spacing={1.5}
+              sx={{ mb: 1 }}
+            >
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Assignment Rights Control
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Choose which procurement users can assign and reassign requisition tasks.
+                </Typography>
+              </Box>
+              <Button
+                variant="contained"
+                onClick={handleSaveAssignmentManagers}
+                disabled={managersLoading || managersSaving}
+              >
+                {managersSaving ? 'Saving...' : 'Save Rights'}
+              </Button>
+            </Stack>
+            <Divider sx={{ my: 1.5 }} />
+            {managersLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress size={22} />
+              </Box>
+            ) : assignmentManagers.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No procurement users found.
+              </Typography>
+            ) : (
+              <Grid container spacing={1}>
+                {assignmentManagers.map((managerUser) => {
+                  const checked = selectedManagerIds.includes(managerUser._id);
+                  return (
+                    <Grid item xs={12} md={6} lg={4} key={managerUser._id}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedManagerIds((prev) => [...new Set([...prev, managerUser._id])]);
+                              } else {
+                                setSelectedManagerIds((prev) => prev.filter((id) => id !== managerUser._id));
+                              }
+                            }}
+                          />
+                        }
+                        label={
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {`${managerUser.firstName || ''} ${managerUser.lastName || ''}`.trim() || managerUser.email}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {managerUser.position || managerUser.role || 'Procurement user'}
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent>

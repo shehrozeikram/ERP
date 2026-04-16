@@ -28,6 +28,34 @@ console.log('✅ Procurement routes loaded successfully');
 const router = express.Router();
 
 const PROCUREMENT_MODULE_KEY = 'procurement';
+const PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES = ['gm procurement', 'general manager procurement'];
+
+const normalizeRoleLabel = (value) => String(value || '').trim().toLowerCase();
+
+const userHasRoleName = (user, acceptedRoleNames = []) => {
+  const accepted = acceptedRoleNames.map(normalizeRoleLabel);
+  if (!user || accepted.length === 0) return false;
+
+  const directRole = normalizeRoleLabel(user.role);
+  if (accepted.includes(directRole)) return true;
+
+  const collectRoleNames = (roleDoc) => ([
+    normalizeRoleLabel(roleDoc?.name),
+    normalizeRoleLabel(roleDoc?.displayName)
+  ].filter(Boolean));
+
+  const roleRefNames = collectRoleNames(user.roleRef || {});
+  if (roleRefNames.some((name) => accepted.includes(name))) return true;
+
+  if (Array.isArray(user.roles)) {
+    for (const roleDoc of user.roles) {
+      const names = collectRoleNames(roleDoc);
+      if (names.some((name) => accepted.includes(name))) return true;
+    }
+  }
+
+  return false;
+};
 
 const hasProcurementModuleAccess = (roleDoc) => {
   if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
@@ -40,12 +68,15 @@ const hasProcurementAccess = (user) => {
 
   if (hasProcurementModuleAccess(user.roleRef)) return true;
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasProcurementModuleAccess(roleDoc))) return true;
+  if (userHasRoleName(user, PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES)) return true;
   return false;
 };
 
 const canManageProcurementAssignments = (user) => {
   if (!user) return false;
   if (['super_admin', 'admin', 'procurement_manager'].includes(user.role)) return true;
+  if (userHasRoleName(user, PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES)) return true;
+  if (user.canAssignProcurementTasks === true) return true;
 
   const canManageByPermission = (roleDoc) => {
     if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
@@ -57,6 +88,13 @@ const canManageProcurementAssignments = (user) => {
 
   if (canManageByPermission(user.roleRef)) return true;
   if (Array.isArray(user.roles) && user.roles.some((roleDoc) => canManageByPermission(roleDoc))) return true;
+  return false;
+};
+
+const canConfigureProcurementAssignmentManagers = (user) => {
+  if (!user) return false;
+  if (['super_admin', 'admin'].includes(user.role)) return true;
+  if (userHasRoleName(user, PROCUREMENT_ASSIGNMENT_MANAGER_ROLE_NAMES)) return true;
   return false;
 };
 
@@ -3667,8 +3705,15 @@ router.post('/requisitions/send-email',
 // @desc    Get all requisitions (indents) with pagination and filters
 // @access  Private (Procurement and Admin)
 router.get('/requisitions', 
-  authorize('super_admin', 'admin', 'procurement_manager'), 
+  authMiddleware,
   asyncHandler(async (req, res) => {
+    if (!hasProcurementAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to view procurement requisitions.'
+      });
+    }
+
     const { 
       page = 1, 
       limit = 10, 
@@ -3677,7 +3722,8 @@ router.get('/requisitions',
       department,
       assignmentStatus,
       assignee,
-      mineOnly
+      mineOnly,
+      forRequisition
     } = req.query;
 
     const filter = { isActive: true };
@@ -3702,15 +3748,19 @@ router.get('/requisitions',
       filter['procurementAssignment.assignedTo'] = assignee;
     }
 
-    // Exclude indents pending store stock check (only show those moved to procurement)
-    filter.$and = [
-      {
-        $or: [
-          { storeRoutingStatus: { $ne: 'pending_store_check' } },
-          { storeRoutingStatus: null }
-        ]
-      }
-    ];
+    const isForRequisition = String(forRequisition).toLowerCase() === 'true';
+
+    // Procurement requisitions screen should only show indents that Store explicitly moved to Procurement.
+    filter.$and = isForRequisition
+      ? [{ storeRoutingStatus: 'moved_to_procurement' }]
+      : [
+          {
+            $or: [
+              { storeRoutingStatus: { $ne: 'pending_store_check' } },
+              { storeRoutingStatus: null }
+            ]
+          }
+        ];
 
     if (search) {
       filter.$and.push({
@@ -3729,13 +3779,17 @@ router.get('/requisitions',
 
     const skip = (page - 1) * limit;
 
+    const sortSpec = isForRequisition
+      ? { movedToProcurementAt: -1, createdAt: -1 }
+      : { createdAt: -1 };
+
     const indents = await Indent.find(filter)
       .populate('department', 'name code')
       .populate('requestedBy', 'firstName lastName email employeeId')
       .populate('approvedBy', 'firstName lastName email')
       .populate('procurementAssignment.assignedTo', 'firstName lastName email department position role')
       .populate('procurementAssignment.assignedBy', 'firstName lastName email')
-      .sort({ createdAt: -1 })
+      .sort(sortSpec)
       .skip(skip)
       .limit(parseInt(limit));
 
@@ -3761,8 +3815,15 @@ router.get('/requisitions',
 // @desc    Get active procurement users available for assignment
 // @access  Private (Procurement and Admin)
 router.get('/requisitions/assignees',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authMiddleware,
   asyncHandler(async (req, res) => {
+    if (!canManageProcurementAssignments(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to manage requisition assignments.'
+      });
+    }
+
     const users = await User.find({
       isActive: true,
       department: { $regex: '^procurement$', $options: 'i' }
@@ -3796,7 +3857,7 @@ router.get('/requisitions/assignees',
 // @desc    Assign procurement requisition to a procurement user
 // @access  Private (Assignment manager only)
 router.put('/requisitions/:id/assign',
-  authorize('super_admin', 'admin', 'procurement_manager'),
+  authMiddleware,
   [
     body('assigneeId').isMongoId().withMessage('Valid assignee ID is required'),
     body('note').optional().trim()
@@ -3880,6 +3941,107 @@ router.put('/requisitions/:id/assign',
       success: true,
       message: 'Requisition assigned successfully.',
       data: updated
+    });
+  })
+);
+
+// @route   GET /api/procurement/requisitions/assignment-managers
+// @desc    Get procurement users and their assignment-manager rights
+// @access  Private (Super Admin / Admin / GM Procurement)
+router.get('/requisitions/assignment-managers',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (!canConfigureProcurementAssignmentManagers(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to configure assignment managers.'
+      });
+    }
+
+    const users = await User.find({
+      isActive: true,
+      department: { $regex: '^procurement$', $options: 'i' }
+    })
+      .select('firstName lastName email employeeId role roleRef roles department position canAssignProcurementTasks')
+      .populate('roleRef', 'name displayName permissions isActive')
+      .populate('roles', 'name displayName permissions isActive')
+      .lean();
+
+    const procurementUsers = users
+      .filter((user) => hasProcurementAccess(user))
+      .map((user) => ({
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        employeeId: user.employeeId,
+        role: user.role,
+        department: user.department,
+        position: user.position,
+        canAssignProcurementTasks: Boolean(user.canAssignProcurementTasks)
+      }));
+
+    res.json({
+      success: true,
+      data: procurementUsers
+    });
+  })
+);
+
+// @route   PUT /api/procurement/requisitions/assignment-managers
+// @desc    Set which procurement users can assign requisition tasks
+// @access  Private (Super Admin / Admin / GM Procurement)
+router.put('/requisitions/assignment-managers',
+  authMiddleware,
+  asyncHandler(async (req, res) => {
+    if (!canConfigureProcurementAssignmentManagers(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to configure assignment managers.'
+      });
+    }
+
+    const incomingIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+    const normalizedIds = [...new Set(incomingIds.map((id) => String(id)).filter((id) => mongoose.Types.ObjectId.isValid(id)))];
+
+    const eligibleUsers = await User.find({
+      _id: { $in: normalizedIds },
+      isActive: true,
+      department: { $regex: '^procurement$', $options: 'i' }
+    })
+      .select('_id role roleRef roles')
+      .populate('roleRef', 'name displayName permissions isActive')
+      .populate('roles', 'name displayName permissions isActive');
+
+    const eligibleIds = new Set(
+      eligibleUsers
+        .filter((user) => hasProcurementAccess(user))
+        .map((user) => String(user._id))
+    );
+
+    const usersToGrant = [...eligibleIds];
+
+    await User.updateMany(
+      {
+        isActive: true,
+        department: { $regex: '^procurement$', $options: 'i' }
+      },
+      { $set: { canAssignProcurementTasks: false } }
+    );
+
+    if (usersToGrant.length > 0) {
+      await User.updateMany(
+        { _id: { $in: usersToGrant } },
+        { $set: { canAssignProcurementTasks: true } }
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'Procurement assignment managers updated successfully',
+      data: {
+        userIds: usersToGrant
+      }
     });
   })
 );
