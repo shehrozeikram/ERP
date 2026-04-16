@@ -452,6 +452,27 @@ const IndentsList = () => {
     return ['super_admin', 'admin', 'hr_manager'].includes(user?.role);
   };
 
+  const getApprovalGateBadge = (indent) => {
+    if (!indent || !['Submitted', 'Under Review'].includes(indent.status)) return null;
+    const chain = Array.isArray(indent.approvalChain) ? indent.approvalChain : [];
+    if (!chain.length) return null;
+
+    const firstStep = chain[0];
+    const approverName = firstStep?.approver
+      ? [firstStep.approver.firstName, firstStep.approver.lastName].filter(Boolean).join(' ').trim() || firstStep.approver.email || 'Assigned approver'
+      : 'Assigned approver';
+
+    if (firstStep?.status === 'pending') {
+      return {
+        label: 'Waiting for HoD Approval',
+        tooltip: `Waiting for HoD: ${approverName}`
+      };
+    }
+
+    const hasPending = chain.some((s) => s?.status === 'pending');
+    return hasPending ? { label: 'Approval Pending', tooltip: 'Waiting for next approver in chain' } : null;
+  };
+
   if (loading && indents.length === 0) {
     return (
       <Box sx={{ p: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
@@ -461,7 +482,19 @@ const IndentsList = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box
+      sx={{
+        p: 3,
+        '@keyframes waitingApprovalHeartbeat': {
+          '0%': { transform: 'scale(1)' },
+          '14%': { transform: 'scale(1.12)' },
+          '28%': { transform: 'scale(1)' },
+          '42%': { transform: 'scale(1.12)' },
+          '70%': { transform: 'scale(1)' },
+          '100%': { transform: 'scale(1)' }
+        }
+      }}
+    >
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
         <Typography variant="h4" fontWeight={700}>
           Indents Management
@@ -685,11 +718,36 @@ const IndentsList = () => {
                       {item.requestedBy?.firstName} {item.requestedBy?.lastName}
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={item.status} 
-                        size="small" 
-                        color={getStatusColor(item.status)}
-                      />
+                      {(() => {
+                        const approvalGateBadge = getApprovalGateBadge(item);
+                        return (
+                      <Stack direction="column" spacing={0.5} alignItems="flex-start">
+                        <Chip
+                          label={item.status}
+                          size="small"
+                          color={getStatusColor(item.status)}
+                        />
+                        {approvalGateBadge && (
+                          <Tooltip title={approvalGateBadge.tooltip}>
+                            <Chip
+                              label={approvalGateBadge.label}
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                              sx={
+                                approvalGateBadge.label === 'Waiting for HoD Approval'
+                                  ? {
+                                      animation: 'waitingApprovalHeartbeat 1.6s ease-in-out infinite',
+                                      transformOrigin: 'center'
+                                    }
+                                  : undefined
+                              }
+                            />
+                          </Tooltip>
+                        )}
+                      </Stack>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Chip 

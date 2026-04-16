@@ -109,7 +109,9 @@ import BankStatementImport from './pages/Finance/BankStatementImport';
 import FinanceSetup from './pages/Finance/FinanceSetup';
 import PurchaseReturns from './pages/Procurement/PurchaseReturns';
 import ProcurementDashboard from './pages/Procurement/ProcurementDashboard';
+import ProcurementReports from './pages/Procurement/ProcurementReports';
 import Requisitions from './pages/Procurement/Requisitions';
+import ProcurementTaskAssignment from './pages/Procurement/ProcurementTaskAssignment';
 import RequisitionPrintView from './pages/Procurement/RequisitionPrintView';
 import Quotations from './pages/Procurement/Quotations';
 import PurchaseOrders from './pages/Procurement/PurchaseOrders';
@@ -1261,6 +1263,10 @@ function App() {
               path="/procurement/requisitions" 
               element={<ProtectedRoute><Requisitions /></ProtectedRoute>} 
             />
+            <Route
+              path="/procurement/task-assignment"
+              element={<ProtectedRoute><ProcurementTaskAssignment /></ProtectedRoute>}
+            />
             <Route 
               path="/procurement/quotations" 
               element={<ProtectedRoute><Quotations /></ProtectedRoute>} 
@@ -1276,6 +1282,10 @@ function App() {
             <Route 
               path="/procurement/vendors" 
               element={<ProtectedRoute><Vendors /></ProtectedRoute>} 
+            />
+            <Route
+              path="/procurement/reports"
+              element={<ProtectedRoute><ProcurementReports /></ProtectedRoute>}
             />
             <Route
               path="/procurement/vendor-bills"

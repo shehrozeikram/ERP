@@ -507,7 +507,7 @@ const IndentDetail = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {['Head of Department', 'GM/PD', 'SVP/AVP'].map((label, idx) => {
+                      {['Head of Department'].map((label, idx) => {
                         const step = indent.approvalChain[idx];
                         const st = step?.status || '—';
                         return (

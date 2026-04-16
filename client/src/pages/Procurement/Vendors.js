@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -27,7 +27,12 @@ import {
   TextField,
   MenuItem,
   Tooltip,
-  CircularProgress
+  CircularProgress,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import {
   Store as StoreIcon,
@@ -38,13 +43,31 @@ import {
   Search as SearchIcon,
   Refresh as RefreshIcon,
   CheckCircle as ActiveIcon,
-  Cancel as InactiveIcon
+  Cancel as InactiveIcon,
+  ExpandMore as ExpandMoreIcon,
+  Category as CategoryIcon,
+  TableRows as TableRowsIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
+/** Ellipsis in table cells; full value on hover via `title` */
+const ellipsisCell = (maxWidth) => ({
+  maxWidth,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  verticalAlign: 'middle'
+});
+
+/** Max widths (px) — generous so names/emails stay readable but layout stays even */
+const VENDOR_TABLE = {
+  name: 260,
+  contact: 200,
+  email: 300,
+  category: 200
+};
+
 const Vendors = () => {
-  const navigate = useNavigate();
   const theme = useTheme();
   
   // State management
@@ -58,8 +81,12 @@ const Vendors = () => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [viewLayout, setViewLayout] = useState('categories'); // 'categories' | 'table'
   
   // Dialog states
   const [formDialog, setFormDialog] = useState({ open: false, mode: 'create', data: null });
@@ -75,14 +102,22 @@ const Vendors = () => {
     address: '',
     paymentTerms: 'Cash',
     status: 'Active',
-    notes: ''
+    notes: '',
+    vendorCategory: '',
+    ntnCnic: '',
+    payeeName: ''
   });
 
-  // Load data on component mount
-  useEffect(() => {
-    loadVendors();
-    loadStatistics();
-  }, [page, rowsPerPage, search, statusFilter]);
+  const loadCategoryOptions = useCallback(async () => {
+    try {
+      const res = await api.get('/procurement/vendors/categories');
+      if (res.data.success) {
+        setCategoryOptions(res.data.data.categories || []);
+      }
+    } catch (err) {
+      console.error('Error loading vendor categories:', err);
+    }
+  }, []);
 
   const loadVendors = useCallback(async () => {
     try {
@@ -90,8 +125,9 @@ const Vendors = () => {
       const params = {
         page: page + 1,
         limit: rowsPerPage,
-        search,
-        status: statusFilter
+        search: searchDebounced,
+        status: statusFilter,
+        ...(categoryFilter ? { category: categoryFilter } : {})
       };
 
       const response = await api.get('/procurement/vendors', { params });
@@ -106,9 +142,14 @@ const Vendors = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, statusFilter]);
+  }, [page, rowsPerPage, searchDebounced, statusFilter, categoryFilter]);
 
-  const loadStatistics = async () => {
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(searchInput.trim()), 450);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
+  const loadStatistics = useCallback(async () => {
     try {
       const response = await api.get('/procurement/vendors/statistics');
       if (response.data.success) {
@@ -117,7 +158,23 @@ const Vendors = () => {
     } catch (err) {
       console.error('Error loading statistics:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadVendors();
+    loadStatistics();
+    loadCategoryOptions();
+  }, [loadVendors, loadStatistics, loadCategoryOptions]);
+
+  const vendorsByCategory = useMemo(() => {
+    const map = new Map();
+    for (const v of vendors) {
+      const key = (v.vendorCategory || '').trim() || 'Uncategorized';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(v);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [vendors]);
 
   const handleCreate = () => {
     setFormData({
@@ -128,7 +185,10 @@ const Vendors = () => {
       address: '',
       paymentTerms: 'Cash',
       status: 'Active',
-      notes: ''
+      notes: '',
+      vendorCategory: '',
+      ntnCnic: '',
+      payeeName: ''
     });
     setFormDialog({ open: true, mode: 'create', data: null });
   };
@@ -142,7 +202,10 @@ const Vendors = () => {
       address: vendor.address,
       paymentTerms: vendor.paymentTerms,
       status: vendor.status,
-      notes: vendor.notes || ''
+      notes: vendor.notes || '',
+      vendorCategory: vendor.vendorCategory || '',
+      ntnCnic: vendor.ntnCnic || '',
+      payeeName: vendor.payeeName || ''
     });
     setFormDialog({ open: true, mode: 'edit', data: vendor });
   };
@@ -162,6 +225,7 @@ const Vendors = () => {
       setDeleteDialog({ open: false, id: null });
       loadVendors();
       loadStatistics();
+      loadCategoryOptions();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete vendor');
     }
@@ -182,6 +246,7 @@ const Vendors = () => {
       setFormDialog({ open: false, mode: 'create', data: null });
       loadVendors();
       loadStatistics();
+      loadCategoryOptions();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save vendor');
     } finally {
@@ -211,6 +276,13 @@ const Vendors = () => {
       icon: <InactiveIcon />,
       color: theme.palette.error.main,
       bgColor: alpha(theme.palette.error.main, 0.1)
+    },
+    {
+      title: 'AVL categories',
+      value: statistics?.categoryBreakdown?.length ?? 0,
+      icon: <CategoryIcon />,
+      color: theme.palette.info.main,
+      bgColor: alpha(theme.palette.info.main, 0.1)
     }
   ];
 
@@ -228,7 +300,7 @@ const Vendors = () => {
                 Vendors
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Manage vendor relationships and information
+                Approved vendor list (AVL) grouped by procurement category
               </Typography>
             </Box>
           </Box>
@@ -239,6 +311,7 @@ const Vendors = () => {
               onClick={() => {
                 loadVendors();
                 loadStatistics();
+                loadCategoryOptions();
               }}
             >
               Refresh
@@ -269,7 +342,7 @@ const Vendors = () => {
       {/* Stats Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {stats.map((stat, index) => (
-          <Grid item xs={12} sm={6} md={4} key={index}>
+          <Grid item xs={12} sm={6} md={3} key={index}>
             <Card>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -294,124 +367,261 @@ const Vendors = () => {
       {/* Filters and Search */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <TextField
               fullWidth
               size="small"
-              placeholder="Search vendors..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, email, phone, category, address…"
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                setPage(0);
+              }}
+              helperText="Searches your full vendor list; results paginate below."
+              FormHelperTextProps={{ sx: { mt: 0.5 } }}
               InputProps={{
                 startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
               }}
             />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={2}>
             <TextField
               fullWidth
               select
               size="small"
               label="Status"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(0);
+              }}
             >
               <MenuItem value="">All Statuses</MenuItem>
               <MenuItem value="Active">Active</MenuItem>
               <MenuItem value="Inactive">Inactive</MenuItem>
             </TextField>
           </Grid>
+          <Grid item xs={12} md={3}>
+            <TextField
+              fullWidth
+              select
+              size="small"
+              label="Category"
+              value={categoryFilter}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setPage(0);
+              }}
+            >
+              <MenuItem value="">All categories</MenuItem>
+              {categoryOptions.map((c) => (
+                <MenuItem key={c} value={c}>{c}</MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid item xs={12} md={3} sx={{ display: 'flex', justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={viewLayout}
+              onChange={(e, v) => {
+                if (!v) return;
+                setViewLayout(v);
+                setPage(0);
+              }}
+            >
+              <ToggleButton value="categories">
+                <CategoryIcon sx={{ mr: 0.5 }} fontSize="small" />
+                By category
+              </ToggleButton>
+              <ToggleButton value="table">
+                <TableRowsIcon sx={{ mr: 0.5 }} fontSize="small" />
+                Table
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Grid>
         </Grid>
       </Paper>
 
-      {/* Vendors Table */}
-      <Paper>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell><strong>ID</strong></TableCell>
-                <TableCell><strong>Name</strong></TableCell>
-                <TableCell><strong>Contact Person</strong></TableCell>
-                <TableCell><strong>Phone</strong></TableCell>
-                <TableCell><strong>Email</strong></TableCell>
-                <TableCell><strong>Payment Terms</strong></TableCell>
-                <TableCell><strong>Status</strong></TableCell>
-                <TableCell align="center"><strong>Actions</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    <CircularProgress />
-                  </TableCell>
-                </TableRow>
-              ) : vendors.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    <Typography variant="body2" color="textSecondary">
-                      No vendors found
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                vendors.map((vendor) => (
-                  <TableRow key={vendor._id} hover>
-                    <TableCell>{vendor.supplierId}</TableCell>
-                    <TableCell>{vendor.name}</TableCell>
-                    <TableCell>{vendor.contactPerson}</TableCell>
-                    <TableCell>{vendor.phone}</TableCell>
-                    <TableCell>{vendor.email}</TableCell>
-                    <TableCell>{vendor.paymentTerms}</TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={vendor.status} 
-                        color={vendor.status === 'Active' ? 'success' : 'error'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Tooltip title="View">
-                        <IconButton size="small" onClick={() => handleView(vendor)}>
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => handleEdit(vendor)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => handleDelete(vendor._id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination
-          component="div"
-          count={totalItems}
-          page={page}
-          onPageChange={(e, newPage) => setPage(newPage)}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={(e) => {
-            setRowsPerPage(parseInt(e.target.value, 10));
-            setPage(0);
-          }}
-          rowsPerPageOptions={[5, 10, 25, 50]}
-        />
+      {/* Vendors: grouped by AVL category or flat table — both use server-side pagination */}
+      <Paper sx={{ p: viewLayout === 'categories' ? 1 : 0 }}>
+        {loading ? (
+          <Box sx={{ py: 6, display: 'flex', justifyContent: 'center' }}>
+            <CircularProgress />
+          </Box>
+        ) : vendors.length === 0 ? (
+          <Box sx={{ py: 6, textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary">
+              No vendors found
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            {viewLayout === 'categories' ? (
+              <Box sx={{ px: 1, pb: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1, pb: 1 }}>
+                  Up to {rowsPerPage} vendors per page (sorted by name). Sections show only vendors on this page.
+                </Typography>
+                {vendorsByCategory.map(([category, list]) => (
+                  <Accordion key={category} defaultExpanded disableGutters>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                      <Typography sx={{ fontWeight: 600 }}>{category}</Typography>
+                      <Chip label={list.length} size="small" sx={{ ml: 2 }} />
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ pt: 0 }}>
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell><strong>ID</strong></TableCell>
+                              <TableCell><strong>Name</strong></TableCell>
+                              <TableCell><strong>Contact</strong></TableCell>
+                              <TableCell><strong>Phone</strong></TableCell>
+                              <TableCell><strong>Email</strong></TableCell>
+                              <TableCell><strong>NTN / CNIC</strong></TableCell>
+                              <TableCell><strong>Payee</strong></TableCell>
+                              <TableCell><strong>Status</strong></TableCell>
+                              <TableCell align="center"><strong>Actions</strong></TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {list.map((vendor) => (
+                              <TableRow key={vendor._id} hover>
+                                <TableCell>{vendor.supplierId}</TableCell>
+                                <TableCell sx={ellipsisCell(VENDOR_TABLE.name)} title={vendor.name}>
+                                  {vendor.name}
+                                </TableCell>
+                                <TableCell sx={ellipsisCell(VENDOR_TABLE.contact)} title={vendor.contactPerson}>
+                                  {vendor.contactPerson}
+                                </TableCell>
+                                <TableCell>{vendor.phone}</TableCell>
+                                <TableCell sx={ellipsisCell(VENDOR_TABLE.email)} title={vendor.email}>
+                                  {vendor.email}
+                                </TableCell>
+                                <TableCell sx={ellipsisCell(140)} title={vendor.ntnCnic || ''}>
+                                  {vendor.ntnCnic || '—'}
+                                </TableCell>
+                                <TableCell sx={ellipsisCell(200)} title={vendor.payeeName || ''}>
+                                  {vendor.payeeName || '—'}
+                                </TableCell>
+                                <TableCell>
+                                  <Chip
+                                    label={vendor.status}
+                                    color={vendor.status === 'Active' ? 'success' : 'error'}
+                                    size="small"
+                                  />
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Tooltip title="View">
+                                    <IconButton size="small" onClick={() => handleView(vendor)}>
+                                      <ViewIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Edit">
+                                    <IconButton size="small" onClick={() => handleEdit(vendor)}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete">
+                                    <IconButton size="small" color="error" onClick={() => handleDelete(vendor._id)}>
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+              </Box>
+            ) : (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>ID</strong></TableCell>
+                      <TableCell><strong>Category</strong></TableCell>
+                      <TableCell><strong>Name</strong></TableCell>
+                      <TableCell><strong>Contact Person</strong></TableCell>
+                      <TableCell><strong>Phone</strong></TableCell>
+                      <TableCell><strong>Email</strong></TableCell>
+                      <TableCell><strong>Payment Terms</strong></TableCell>
+                      <TableCell><strong>Status</strong></TableCell>
+                      <TableCell align="center"><strong>Actions</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {vendors.map((vendor) => (
+                      <TableRow key={vendor._id} hover>
+                        <TableCell>{vendor.supplierId}</TableCell>
+                        <TableCell sx={ellipsisCell(VENDOR_TABLE.category)} title={vendor.vendorCategory || ''}>
+                          {vendor.vendorCategory || '—'}
+                        </TableCell>
+                        <TableCell sx={ellipsisCell(VENDOR_TABLE.name)} title={vendor.name}>
+                          {vendor.name}
+                        </TableCell>
+                        <TableCell sx={ellipsisCell(VENDOR_TABLE.contact)} title={vendor.contactPerson}>
+                          {vendor.contactPerson}
+                        </TableCell>
+                        <TableCell>{vendor.phone}</TableCell>
+                        <TableCell sx={ellipsisCell(VENDOR_TABLE.email)} title={vendor.email}>
+                          {vendor.email}
+                        </TableCell>
+                        <TableCell>{vendor.paymentTerms}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={vendor.status}
+                            color={vendor.status === 'Active' ? 'success' : 'error'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title="View">
+                            <IconButton size="small" onClick={() => handleView(vendor)}>
+                              <ViewIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => handleEdit(vendor)}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton size="small" color="error" onClick={() => handleDelete(vendor._id)}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+            <TablePagination
+              component="div"
+              count={totalItems}
+              page={page}
+              onPageChange={(e, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setRowsPerPage(parseInt(e.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[5, 10, 25, 50, 100, 200]}
+            />
+          </>
+        )}
       </Paper>
 
       {/* Create/Edit Dialog */}
       <Dialog 
         open={formDialog.open} 
         onClose={() => setFormDialog({ open: false, mode: 'create', data: null })}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
@@ -426,6 +636,16 @@ const Vendors = () => {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="AVL category"
+                placeholder="e.g. Cement Vendors"
+                value={formData.vendorCategory}
+                onChange={(e) => setFormData({ ...formData, vendorCategory: e.target.value })}
+                helperText="Section from the approved vendor list (optional)"
               />
             </Grid>
             <Grid item xs={12}>
@@ -465,6 +685,22 @@ const Vendors = () => {
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 required
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="NTN / CNIC"
+                value={formData.ntnCnic}
+                onChange={(e) => setFormData({ ...formData, ntnCnic: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Payee name"
+                value={formData.payeeName}
+                onChange={(e) => setFormData({ ...formData, payeeName: e.target.value })}
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -523,7 +759,7 @@ const Vendors = () => {
       <Dialog 
         open={viewDialog.open} 
         onClose={() => setViewDialog({ open: false, data: null })}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>Vendor Details</DialogTitle>
@@ -537,6 +773,18 @@ const Vendors = () => {
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">Name</Typography>
                 <Typography variant="body1" fontWeight="bold">{viewDialog.data.name}</Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary">AVL category</Typography>
+                <Typography variant="body1">{viewDialog.data.vendorCategory || '—'}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">NTN / CNIC</Typography>
+                <Typography variant="body1">{viewDialog.data.ntnCnic || '—'}</Typography>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="body2" color="text.secondary">Payee name</Typography>
+                <Typography variant="body1">{viewDialog.data.payeeName || '—'}</Typography>
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">Contact Person</Typography>

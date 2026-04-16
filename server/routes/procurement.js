@@ -27,6 +27,58 @@ console.log('✅ Procurement routes loaded successfully');
 
 const router = express.Router();
 
+const PROCUREMENT_MODULE_KEY = 'procurement';
+
+const hasProcurementModuleAccess = (roleDoc) => {
+  if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
+  return roleDoc.permissions.some((permission) => permission?.module === PROCUREMENT_MODULE_KEY);
+};
+
+const hasProcurementAccess = (user) => {
+  if (!user) return false;
+  if (['super_admin', 'admin', 'procurement_manager'].includes(user.role)) return true;
+
+  if (hasProcurementModuleAccess(user.roleRef)) return true;
+  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasProcurementModuleAccess(roleDoc))) return true;
+  return false;
+};
+
+const canManageProcurementAssignments = (user) => {
+  if (!user) return false;
+  if (['super_admin', 'admin', 'procurement_manager'].includes(user.role)) return true;
+
+  const canManageByPermission = (roleDoc) => {
+    if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
+    const procurementPermission = roleDoc.permissions.find((permission) => permission?.module === PROCUREMENT_MODULE_KEY);
+    if (!procurementPermission) return false;
+    const moduleActions = Array.isArray(procurementPermission.actions) ? procurementPermission.actions : [];
+    return moduleActions.includes('manage') || moduleActions.includes('update');
+  };
+
+  if (canManageByPermission(user.roleRef)) return true;
+  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => canManageByPermission(roleDoc))) return true;
+  return false;
+};
+
+/** Mongo id for procurement assignee (works whether assignedTo is populated or raw ObjectId). */
+const procurementAssigneeId = (indent) => {
+  if (!indent?.procurementAssignment?.assignedTo) return null;
+  const raw = indent.procurementAssignment.assignedTo;
+  try {
+    return (raw._id || raw).toString();
+  } catch {
+    return null;
+  }
+};
+
+/** Assignment manager OR the user this requisition is assigned to may operate it in procurement workflows. */
+const canOperateAssignedProcurementRequisition = (user, indent) => {
+  if (!user?.id || !indent) return false;
+  if (canManageProcurementAssignments(user)) return true;
+  const aid = procurementAssigneeId(indent);
+  return Boolean(aid && aid === String(user.id));
+};
+
 // Convert blank string ObjectId-like fields from forms into undefined
 // so Mongoose does not try to cast "" to ObjectId.
 function normalizeInventoryObjectIdFields(payload = {}) {
@@ -1718,7 +1770,8 @@ router.get('/vendors',
       page = 1, 
       limit = 10, 
       search,
-      status 
+      status,
+      category
     } = req.query;
 
     const query = {};
@@ -1727,13 +1780,25 @@ router.get('/vendors',
       query.status = status;
     }
 
-    if (search) {
+    if (category) {
+      query.vendorCategory = category;
+    }
+
+    const trimmedSearch = search != null ? String(search).trim() : '';
+    if (trimmedSearch) {
+      // Literal substring match across entire collection (pagination applies after filter)
+      const escaped = trimmedSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { contactPerson: { $regex: search, $options: 'i' } },
-        { supplierId: { $regex: search, $options: 'i' } }
+        { name: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+        { phone: { $regex: escaped, $options: 'i' } },
+        { contactPerson: { $regex: escaped, $options: 'i' } },
+        { supplierId: { $regex: escaped, $options: 'i' } },
+        { vendorCategory: { $regex: escaped, $options: 'i' } },
+        { payeeName: { $regex: escaped, $options: 'i' } },
+        { ntnCnic: { $regex: escaped, $options: 'i' } },
+        { address: { $regex: escaped, $options: 'i' } },
+        { notes: { $regex: escaped, $options: 'i' } }
       ];
     }
 
@@ -1781,15 +1846,44 @@ router.get('/vendors/statistics',
       }
     ]);
 
+    const categoryBreakdown = await Supplier.aggregate([
+      {
+        $group: {
+          _id: { $ifNull: ['$vendorCategory', ''] },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
     res.json({
       success: true,
       data: {
         totalVendors,
         activeVendors,
         inactiveVendors,
-        paymentTermsBreakdown
+        paymentTermsBreakdown,
+        categoryBreakdown: categoryBreakdown.map((c) => ({
+          category: c._id || 'Uncategorized',
+          count: c.count
+        }))
       }
     });
+  })
+);
+
+// @route   GET /api/procurement/vendors/categories
+// @desc    Distinct vendor categories (AVL sections)
+// @access  Private
+router.get('/vendors/categories',
+  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const raw = await Supplier.distinct('vendorCategory');
+    const categories = raw
+      .map((c) => (c || '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+    res.json({ success: true, data: { categories } });
   })
 );
 
@@ -3464,6 +3558,35 @@ router.post('/requisitions/send-email',
       });
     }
 
+    // Guard: requisition cannot move to quotation/email stage before approval
+    if (indent.status !== 'Approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only approved requisitions can be sent to vendors.'
+      });
+    }
+
+    if (indent.storeRoutingStatus !== 'moved_to_procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Requisition is not yet available in Procurement.'
+      });
+    }
+
+    if (indent.procurementAssignment?.status !== 'assigned' || !indent.procurementAssignment?.assignedTo) {
+      return res.status(400).json({
+        success: false,
+        message: 'Requisition must be assigned by Senior Manager Procurement before sending to vendors.'
+      });
+    }
+
+    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assigned procurement user or an assignment manager can send this requisition to vendors.'
+      });
+    }
+
     // Get vendors
     const vendors = await Supplier.find({ _id: { $in: vendorIds } });
 
@@ -3551,13 +3674,33 @@ router.get('/requisitions',
       limit = 10, 
       status,
       search,
-      department
+      department,
+      assignmentStatus,
+      assignee,
+      mineOnly
     } = req.query;
 
     const filter = { isActive: true };
 
-    if (status) filter.status = status;
+    if (status) {
+      if (['Draft', 'Submitted', 'Under Review', 'Rejected'].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Only approved requisitions can move forward in procurement.'
+        });
+      }
+      filter.status = status;
+    } else {
+      // Default to forward-eligible requisitions only
+      filter.status = { $in: ['Approved', 'Partially Fulfilled', 'Fulfilled'] };
+    }
     if (department) filter.department = department;
+    if (assignmentStatus && ['assigned', 'unassigned'].includes(assignmentStatus)) {
+      filter['procurementAssignment.status'] = assignmentStatus;
+    }
+    if (assignee && mongoose.Types.ObjectId.isValid(assignee)) {
+      filter['procurementAssignment.assignedTo'] = assignee;
+    }
 
     // Exclude indents pending store stock check (only show those moved to procurement)
     filter.$and = [
@@ -3579,12 +3722,19 @@ router.get('/requisitions',
       });
     }
 
+    const isManager = canManageProcurementAssignments(req.user);
+    if (String(mineOnly).toLowerCase() === 'true') {
+      filter['procurementAssignment.assignedTo'] = req.user.id;
+    }
+
     const skip = (page - 1) * limit;
 
     const indents = await Indent.find(filter)
       .populate('department', 'name code')
       .populate('requestedBy', 'firstName lastName email employeeId')
       .populate('approvedBy', 'firstName lastName email')
+      .populate('procurementAssignment.assignedTo', 'firstName lastName email department position role')
+      .populate('procurementAssignment.assignedBy', 'firstName lastName email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -3594,6 +3744,7 @@ router.get('/requisitions',
     res.json({
       success: true,
       data: {
+        canManageAssignments: isManager,
         indents,
         pagination: {
           currentPage: parseInt(page),
@@ -3602,6 +3753,133 @@ router.get('/requisitions',
           itemsPerPage: parseInt(limit)
         }
       }
+    });
+  })
+);
+
+// @route   GET /api/procurement/requisitions/assignees
+// @desc    Get active procurement users available for assignment
+// @access  Private (Procurement and Admin)
+router.get('/requisitions/assignees',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  asyncHandler(async (req, res) => {
+    const users = await User.find({
+      isActive: true,
+      department: { $regex: '^procurement$', $options: 'i' }
+    })
+      .select('firstName lastName email employeeId role roleRef roles department position')
+      .populate('roleRef', 'name displayName permissions isActive')
+      .populate('roles', 'name displayName permissions isActive')
+      .lean();
+
+    const assignees = users
+      .filter((user) => hasProcurementAccess(user))
+      .map((user) => ({
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        employeeId: user.employeeId,
+        role: user.role,
+        department: user.department,
+        position: user.position
+      }));
+
+    res.json({
+      success: true,
+      data: assignees
+    });
+  })
+);
+
+// @route   PUT /api/procurement/requisitions/:id/assign
+// @desc    Assign procurement requisition to a procurement user
+// @access  Private (Assignment manager only)
+router.put('/requisitions/:id/assign',
+  authorize('super_admin', 'admin', 'procurement_manager'),
+  [
+    body('assigneeId').isMongoId().withMessage('Valid assignee ID is required'),
+    body('note').optional().trim()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    if (!canManageProcurementAssignments(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to assign requisitions.'
+      });
+    }
+
+    const { assigneeId, note = '' } = req.body;
+    const indent = await Indent.findById(req.params.id);
+    if (!indent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Requisition not found'
+      });
+    }
+
+    if (!['Approved', 'Partially Fulfilled', 'Fulfilled'].includes(indent.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only approved requisitions can be assigned.'
+      });
+    }
+
+    if (indent.storeRoutingStatus !== 'moved_to_procurement') {
+      return res.status(400).json({
+        success: false,
+        message: 'Requisition is not yet moved to procurement.'
+      });
+    }
+
+    const assignee = await User.findById(assigneeId)
+      .select('firstName lastName email employeeId role roleRef roles department position isActive')
+      .populate('roleRef', 'name displayName permissions isActive')
+      .populate('roles', 'name displayName permissions isActive');
+
+    if (!assignee || !assignee.isActive || !hasProcurementAccess(assignee)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assignee must be an active procurement user.'
+      });
+    }
+
+    indent.procurementAssignment = indent.procurementAssignment || {};
+    indent.procurementAssignment.status = 'assigned';
+    indent.procurementAssignment.assignedTo = assignee._id;
+    indent.procurementAssignment.assignedBy = req.user.id;
+    indent.procurementAssignment.assignedAt = new Date();
+    indent.procurementAssignment.note = note;
+    indent.procurementAssignment.history = Array.isArray(indent.procurementAssignment.history)
+      ? indent.procurementAssignment.history
+      : [];
+    indent.procurementAssignment.history.push({
+      assignedTo: assignee._id,
+      assignedBy: req.user.id,
+      assignedAt: new Date(),
+      note
+    });
+    indent.updatedBy = req.user.id;
+    await indent.save();
+
+    const updated = await Indent.findById(indent._id)
+      .populate('department', 'name code')
+      .populate('requestedBy', 'firstName lastName email employeeId')
+      .populate('procurementAssignment.assignedTo', 'firstName lastName email employeeId department position')
+      .populate('procurementAssignment.assignedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Requisition assigned successfully.',
+      data: updated
     });
   })
 );
@@ -3793,6 +4071,17 @@ router.get('/quotations/by-indent/:indentId',
   asyncHandler(async (req, res) => {
     const { indentId } = req.params;
 
+    const indent = await Indent.findById(indentId).select('procurementAssignment');
+    if (!indent) {
+      return res.status(404).json({ success: false, message: 'Requisition not found' });
+    }
+    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view quotations for requisitions you are assigned to or if you manage procurement assignments.'
+      });
+    }
+
     const quotations = await Quotation.find({ indent: indentId })
       .populate({
         path: 'indent',
@@ -3973,6 +4262,35 @@ router.post('/quotations', [
     });
   }
 
+  // Guard: quotation creation is allowed only after requisition approval
+  if (indent.status !== 'Approved' && indent.status !== 'Partially Fulfilled' && indent.status !== 'Fulfilled') {
+    return res.status(400).json({
+      success: false,
+      message: 'Quotation can only be created for approved requisitions.'
+    });
+  }
+
+  if (indent.storeRoutingStatus !== 'moved_to_procurement') {
+    return res.status(400).json({
+      success: false,
+      message: 'Requisition is not yet available in Procurement.'
+    });
+  }
+
+  if (indent.procurementAssignment?.status !== 'assigned' || !indent.procurementAssignment?.assignedTo) {
+    return res.status(400).json({
+      success: false,
+      message: 'Requisition must be assigned before creating quotations.'
+    });
+  }
+
+  if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Only the assigned procurement user or an assignment manager can create quotations for this requisition.'
+    });
+  }
+
   // Verify vendor exists
   const vendor = await Supplier.findById(req.body.vendor);
   if (!vendor) {
@@ -4041,11 +4359,21 @@ router.put('/quotations/:id', [
     });
   }
 
-  const quotation = await Quotation.findById(req.params.id);
+  const quotation = await Quotation.findById(req.params.id).populate({
+    path: 'indent',
+    select: 'procurementAssignment'
+  });
   if (!quotation) {
     return res.status(404).json({
       success: false,
       message: 'Quotation not found'
+    });
+  }
+
+  if (quotation.indent && !canOperateAssignedProcurementRequisition(req.user, quotation.indent)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Only the assigned procurement user or an assignment manager can update this quotation.'
     });
   }
 
@@ -4202,13 +4530,20 @@ router.post('/quotations/:id/create-po',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const quotation = await Quotation.findById(req.params.id)
-      .populate('indent', 'indentNumber title')
+      .populate({ path: 'indent', select: 'indentNumber title procurementAssignment' })
       .populate('vendor', 'name email phone');
 
     if (!quotation) {
       return res.status(404).json({
         success: false,
         message: 'Quotation not found'
+      });
+    }
+
+    if (quotation.indent && !canOperateAssignedProcurementRequisition(req.user, quotation.indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assigned procurement user or an assignment manager can create a PO from this quotation.'
       });
     }
 
@@ -4266,11 +4601,15 @@ router.post('/quotations/:id/create-po',
 router.get('/indents-with-split-assignments',
   authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
-    const indents = await Indent.find({
+    const splitFilter = {
       isActive: true,
       splitPOAssignments: { $exists: true, $ne: null }
-    })
-      .select('indentNumber title department splitPOAssignments')
+    };
+    if (!canManageProcurementAssignments(req.user)) {
+      splitFilter['procurementAssignment.assignedTo'] = req.user.id;
+    }
+    const indents = await Indent.find(splitFilter)
+      .select('indentNumber title department splitPOAssignments procurementAssignment')
       .populate('department', 'name')
       .sort({ updatedAt: -1 })
       .lean();
@@ -4303,6 +4642,13 @@ router.post('/quotations/by-indent/:indentId/create-split-pos',
     const indent = await Indent.findById(req.params.indentId).lean();
     if (!indent) {
       return res.status(404).json({ success: false, message: 'Indent not found' });
+    }
+
+    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assigned procurement user or an assignment manager can create split POs for this requisition.'
+      });
     }
 
     // Collect unique quotation IDs
@@ -4400,6 +4746,13 @@ router.post('/quotations/by-indent/:indentId/create-split-pos-from-saved',
     const indent = await Indent.findById(req.params.indentId).lean();
     if (!indent) {
       return res.status(404).json({ success: false, message: 'Indent not found' });
+    }
+
+    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the assigned procurement user or an assignment manager can create split POs for this requisition.'
+      });
     }
 
     const vendorAssignments = indent.splitPOAssignments;

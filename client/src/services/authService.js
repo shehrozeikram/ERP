@@ -31,6 +31,14 @@ export const authService = {
     return api.put('/auth/change-password', passwordData);
   },
 
+  uploadDigitalSignature: async (file) => {
+    const formData = new FormData();
+    formData.append('digitalSignature', file);
+    return api.post('/auth/upload-digital-signature', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+
   // Forgot password
   forgotPassword: async (email) => {
     return api.post('/auth/forgot-password', { email });

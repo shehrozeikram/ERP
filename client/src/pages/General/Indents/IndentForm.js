@@ -14,7 +14,6 @@ import {
   Snackbar,
   CircularProgress,
   Autocomplete,
-  Popper,
   Table,
   TableBody,
   TableCell,
@@ -39,20 +38,6 @@ import { useAuth } from '../../../contexts/AuthContext';
 import indentService from '../../../services/indentService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
-
-const WidePopper = (props) => {
-  const { style, ...rest } = props;
-  return (
-    <Popper
-      {...rest}
-      placement="bottom-start"
-      style={{
-        width: typeof window !== 'undefined' && window.innerWidth < 900 ? 'calc(100vw - 32px)' : 720,
-        ...style
-      }}
-    />
-  );
-};
 
 const IndentForm = () => {
   const { id } = useParams();
@@ -83,11 +68,10 @@ const IndentForm = () => {
   const [indentNoChecking, setIndentNoChecking] = useState(false);
   const indentNoDebounceRef = useRef(null);
   const itemOptionsReqSeq = useRef(0);
-  const lastLoadedCategoryRef = useRef('');
   const approverSearchDebounceRef = useRef(null);
 
   const [indentMeta, setIndentMeta] = useState({ status: null, approvalChain: [] });
-  const [approverSlots, setApproverSlots] = useState([null, null, null]);
+  const [approverSlots, setApproverSlots] = useState([null]);
   const [approverSearchOptions, setApproverSearchOptions] = useState([]);
   const [approverSearchLoading, setApproverSearchLoading] = useState(false);
 
@@ -140,6 +124,30 @@ const IndentForm = () => {
     }
   }, [user, isEdit]);
 
+  // Keep requester signature aligned with currently logged-in user.
+  useEffect(() => {
+    if (!user) return;
+    const currentUserName = (user.firstName && user.lastName)
+      ? `${user.firstName} ${user.lastName}`.trim()
+      : (user.fullName || user.email || '').trim();
+
+    if (!currentUserName) return;
+
+    setFormData((prev) => {
+      if (prev.signatures?.requester?.name === currentUserName) return prev;
+      return {
+        ...prev,
+        signatures: {
+          ...prev.signatures,
+          requester: {
+            ...prev.signatures?.requester,
+            name: currentUserName
+          }
+        }
+      };
+    });
+  }, [user]);
+
   const loadDepartmentsForIndent = useCallback(async () => {
     setDepartmentsLoading(true);
     try {
@@ -173,8 +181,8 @@ const IndentForm = () => {
             status: indent.status || null,
             approvalChain: Array.isArray(indent.approvalChain) ? indent.approvalChain : []
           });
-          const draftApprovers = (indent.draftApproverIds || []).slice(0, 3);
-          const slots = [0, 1, 2].map((i) => {
+          const draftApprovers = (indent.draftApproverIds || []).slice(0, 1);
+          const slots = [0].map((i) => {
             const u = draftApprovers[i];
             return u && typeof u === 'object' && u._id ? u : null;
           });
@@ -326,7 +334,6 @@ const IndentForm = () => {
   const fetchItemsForCategory = useCallback(async (category) => {
     if (!category) return;
     const seq = ++itemOptionsReqSeq.current;
-    lastLoadedCategoryRef.current = category;
     try {
       setItemOptionsLoading(true);
       const res = await api.get('/items', { params: { category, limit: 5000 } });
@@ -338,22 +345,6 @@ const IndentForm = () => {
       if (seq === itemOptionsReqSeq.current) setItemOptionsLoading(false);
     }
   }, []);
-
-  const fetchItemOptions = async (q) => {
-    const seq = ++itemOptionsReqSeq.current;
-    try {
-      setItemOptionsLoading(true);
-      const res = await api.get('/items', {
-        params: { category: formData.category, q: q || '', limit: 200 }
-      });
-      if (seq !== itemOptionsReqSeq.current) return;
-      setItemOptions(Array.isArray(res.data?.data) ? res.data.data : []);
-    } catch (e) {
-      // silently ignore - free typing still works
-    } finally {
-      if (seq === itemOptionsReqSeq.current) setItemOptionsLoading(false);
-    }
-  };
 
   const handleItemChange = (index, field, value) => {
     const updatedItems = [...formData.items];
@@ -530,12 +521,8 @@ const IndentForm = () => {
 
     if (submitForApproval) {
       const ids = approverSlots.map((u) => u?._id).filter(Boolean);
-      if (ids.length !== 3) {
-        setError('Submitting for approval requires exactly three approvers (Head of Department, GM/PD, SVP/AVP).');
-        return;
-      }
-      if (new Set(ids.map(String)).size !== 3) {
-        setError('The three approvers must be different people.');
+      if (ids.length !== 1) {
+        setError('Submitting for approval requires Head of Department approver.');
         return;
       }
     }
@@ -586,7 +573,7 @@ const IndentForm = () => {
       }
 
       if (submitForApproval && savedId) {
-        const approverIds = approverSlots.map((u) => u._id);
+        const approverIds = approverSlots.map((u) => u?._id).filter(Boolean);
         await indentService.submitIndent(savedId, { approverIds });
       }
 
@@ -865,59 +852,26 @@ const IndentForm = () => {
                         {(index + 1).toString().padStart(2, '0')}
                       </TableCell>
                       <TableCell sx={{ border: '1px solid #ddd', p: 0.5, minWidth: 360 }}>
-                        <Autocomplete
-                          freeSolo
-                          options={itemOptions}
-                          loading={itemOptionsLoading}
-                          PopperComponent={WidePopper}
-                          getOptionLabel={(opt) => (typeof opt === 'string' ? opt : opt?.name || '')}
-                          isOptionEqualToValue={(opt, val) => {
-                            const optName = typeof opt === 'string' ? opt : opt?.name;
-                            const valName = typeof val === 'string' ? val : val?.name;
-                            return !!optName && !!valName && optName === valName;
-                          }}
+                        <TextField
+                          select
+                          fullWidth
+                          size="small"
                           value={item.itemName || ''}
-                          onChange={(_, newValue) => {
-                            const name = typeof newValue === 'string' ? newValue : newValue?.name || '';
-                            handleItemChange(index, 'itemName', name);
-                          }}
-                          onInputChange={(_, newInputValue, reason) => {
-                            if (reason === 'input') {
-                              handleItemChange(index, 'itemName', newInputValue);
-                              if (!formData.category) return;
-                              // if category list is huge and not loaded for some reason, fetch by search
-                              if (!itemOptions.length || lastLoadedCategoryRef.current !== formData.category) {
-                                fetchItemOptions(newInputValue);
-                              }
-                            }
-                          }}
-                          onOpen={() => {
-                            if (formData.category && lastLoadedCategoryRef.current !== formData.category) {
-                              fetchItemsForCategory(formData.category);
-                            }
-                          }}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              fullWidth
-                              size="small"
-                              placeholder="Item name"
-                              required
-                              variant="standard"
-                              InputProps={{
-                                ...params.InputProps,
-                                disableUnderline: true,
-                                endAdornment: (
-                                  <>
-                                    {itemOptionsLoading ? <CircularProgress color="inherit" size={14} /> : null}
-                                    {params.InputProps.endAdornment}
-                                  </>
-                                )
-                              }}
-                              sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
-                            />
-                          )}
-                        />
+                          onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
+                          required
+                          variant="standard"
+                          InputProps={{ disableUnderline: true }}
+                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                        >
+                          <MenuItem value="" disabled>
+                            {itemOptionsLoading ? 'Loading items...' : 'Select item'}
+                          </MenuItem>
+                          {itemOptions.map((opt) => (
+                            <MenuItem key={opt._id || opt.name} value={opt.name || ''}>
+                              {opt.name || ''}
+                            </MenuItem>
+                          ))}
+                        </TextField>
                       </TableCell>
                       <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
                         <TextField
@@ -1041,20 +995,8 @@ const IndentForm = () => {
           Approvals
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Choose three distinct approvers before submitting. When each person approves in the system, their name and date appear here automatically.
+          Choose Head of Department approver before submitting. Their approval status appears here automatically.
         </Typography>
-        <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              fullWidth
-              label="Sig of Requester"
-              value={formData.signatures.requester.name}
-              onChange={(e) => handleSignatureChange('requester', 'name', e.target.value)}
-              size="small"
-            />
-          </Grid>
-        </Grid>
-
         {isEdit && indentMeta.status && indentMeta.status !== 'Draft' && (indentMeta.approvalChain || []).length > 0 ? (
           <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
             <Table size="small">
@@ -1067,8 +1009,8 @@ const IndentForm = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {['Head of Department', 'Approved by GM/PD', 'SVP/AVP Approval'].map((label, idx) => {
-                  const step = indentMeta.approvalChain[idx];
+                {(indentMeta.approvalChain || []).map((step, idx) => {
+                  const label = idx === 0 ? 'Head of Department' : `Approver ${idx + 1}`;
                   const approver = step?.approver;
                   const name = approver ? approverLabel(approver) : '—';
                   const st = step?.status || 'pending';
@@ -1099,42 +1041,46 @@ const IndentForm = () => {
           </Alert>
         ) : (
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            {[
-              'Head of Department approver',
-              'GM/PD approver',
-              'SVP/AVP approver'
-            ].map((label, index) => (
-              <Grid item xs={12} sm={6} md={4} key={label}>
-                <Autocomplete
-                  options={approverSearchOptions}
-                  loading={approverSearchLoading}
-                  getOptionLabel={(option) => approverLabel(option)}
-                  isOptionEqualToValue={(a, b) => !!a && !!b && a._id === b._id}
-                  value={approverSlots[index]}
-                  onChange={(_, v) => handleApproverSlotChange(index, v)}
-                  onInputChange={(_, input, reason) => {
-                    if (reason === 'input') handleApproverSearchInput(input);
-                  }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label={label}
-                      size="small"
-                      placeholder="Search user…"
-                      InputProps={{
-                        ...params.InputProps,
-                        endAdornment: (
-                          <>
-                            {approverSearchLoading ? <CircularProgress color="inherit" size={16} /> : null}
-                            {params.InputProps.endAdornment}
-                          </>
-                        )
-                      }}
-                    />
-                  )}
-                />
-              </Grid>
-            ))}
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Sig of Requester"
+                value={formData.signatures.requester.name}
+                size="small"
+                InputProps={{ readOnly: true }}
+                helperText="Auto-filled from logged-in user"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Autocomplete
+                options={approverSearchOptions}
+                loading={approverSearchLoading}
+                getOptionLabel={(option) => approverLabel(option)}
+                isOptionEqualToValue={(a, b) => !!a && !!b && a._id === b._id}
+                value={approverSlots[0]}
+                onChange={(_, v) => handleApproverSlotChange(0, v)}
+                onInputChange={(_, input, reason) => {
+                  if (reason === 'input') handleApproverSearchInput(input);
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Head of Department approver"
+                    size="small"
+                    placeholder="Search user…"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {approverSearchLoading ? <CircularProgress color="inherit" size={16} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      )
+                    }}
+                  />
+                )}
+              />
+            </Grid>
           </Grid>
         )}
 

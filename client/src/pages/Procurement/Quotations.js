@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -24,7 +24,11 @@ import {
   Stack,
   Divider,
   Grid,
-  CircularProgress
+  CircularProgress,
+  ListSubheader,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import {
   Description as QuotationIcon,
@@ -37,7 +41,8 @@ import {
   CheckCircle as ApproveIcon,
   ShoppingCart as POIcon,
   Print as PrintIcon,
-  CallSplit as SplitIcon
+  CallSplit as SplitIcon,
+  ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
@@ -56,6 +61,8 @@ const Quotations = () => {
   const [quotations, setQuotations] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [requisitions, setRequisitions] = useState([]);
+  /** When true, requisition dropdown is limited to API `mineOnly` (assigned to current user). */
+  const [requisitionsFilteredToAssignee, setRequisitionsFilteredToAssignee] = useState(false);
   
   // Pagination and filters
   const [page, setPage] = useState(0);
@@ -72,6 +79,7 @@ const Quotations = () => {
   const [indentsWithSplitAssignments, setIndentsWithSplitAssignments] = useState([]);
   const [loadingSplitIndents, setLoadingSplitIndents] = useState(false);
   const [creatingSplitPOForIndent, setCreatingSplitPOForIndent] = useState(null);
+  const [expandedRequisitions, setExpandedRequisitions] = useState({});
   
   // Form data
   const [formData, setFormData] = useState({
@@ -146,7 +154,20 @@ const Quotations = () => {
 
   const loadRequisitions = async () => {
     try {
-      const response = await procurementService.getRequisitions({ limit: 1000, status: 'Approved' });
+      const probe = await procurementService.getRequisitions({
+        page: 1,
+        limit: 1,
+        status: 'Approved'
+      });
+      const canManageAssignments = Boolean(probe?.data?.canManageAssignments);
+      setRequisitionsFilteredToAssignee(!canManageAssignments);
+      const params = {
+        page: 1,
+        limit: 1000,
+        status: 'Approved',
+        ...(canManageAssignments ? {} : { mineOnly: 'true' })
+      };
+      const response = await procurementService.getRequisitions(params);
       if (response.success) {
         setRequisitions(response.data?.indents || []);
       }
@@ -154,6 +175,21 @@ const Quotations = () => {
       console.error('Failed to load requisitions:', err);
     }
   };
+
+  const vendorsByCategory = useMemo(() => {
+    const map = new Map();
+    for (const v of vendors) {
+      const key = (v.vendorCategory || '').trim() || 'Uncategorized';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(v);
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([category, list]) => ({
+        category,
+        list: [...list].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
+      }));
+  }, [vendors]);
 
   const handleCreate = (requisition) => {
     if (requisition) {
@@ -165,6 +201,8 @@ const Quotations = () => {
         status: 'Received',
         items: requisition.items.map(item => ({
           description: item.itemName,
+          specification: item.specification || item.description || '',
+          brand: item.brand || '',
           quantity: item.quantity,
           unit: item.unit || 'Piece',
           unitPrice: 0,
@@ -187,7 +225,7 @@ const Quotations = () => {
         quotationDate: new Date().toISOString().split('T')[0],
         expiryDate: '',
         status: 'Received',
-        items: [{ description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0, amount: 0 }],
+        items: [{ description: '', specification: '', brand: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0, amount: 0 }],
         validityDays: 30,
         deliveryTime: '',
         paymentTerms: '',
@@ -211,7 +249,11 @@ const Quotations = () => {
       quotationDate: new Date(quotation.quotationDate).toISOString().split('T')[0],
       expiryDate: quotation.expiryDate ? new Date(quotation.expiryDate).toISOString().split('T')[0] : '',
       status: quotation.status,
-      items: quotation.items || [],
+      items: (quotation.items || []).map((item) => ({
+        ...item,
+        specification: item.specification || '',
+        brand: item.brand || ''
+      })),
       validityDays: quotation.validityDays || 30,
       deliveryTime: quotation.deliveryTime || '',
       paymentTerms: quotation.paymentTerms || '',
@@ -354,7 +396,7 @@ const Quotations = () => {
   const addItem = () => {
     setFormData({
       ...formData,
-      items: [...formData.items, { description: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0, amount: 0 }]
+      items: [...formData.items, { description: '', specification: '', brand: '', quantity: 1, unit: 'pcs', unitPrice: 0, taxRate: 0, discount: 0, amount: 0 }]
     });
   };
 
@@ -406,6 +448,34 @@ const Quotations = () => {
     } finally {
       setCreatingSplitPOForIndent(null);
     }
+  };
+
+  const groupedQuotations = useMemo(() => {
+    return quotations.reduce((groups, quote) => {
+      const indent = quote.indent || null;
+      const key = indent?._id || 'unassigned';
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          indent,
+          quotations: []
+        };
+      }
+      groups[key].quotations.push(quote);
+      return groups;
+    }, {});
+  }, [quotations]);
+
+  const groupedQuotationList = useMemo(() => {
+    return Object.values(groupedQuotations).sort((a, b) => {
+      const aNum = a.indent?.indentNumber || '';
+      const bNum = b.indent?.indentNumber || '';
+      return aNum.localeCompare(bNum);
+    });
+  }, [groupedQuotations]);
+
+  const handleRequisitionAccordionChange = (groupKey) => (_, isExpanded) => {
+    setExpandedRequisitions((prev) => ({ ...prev, [groupKey]: isExpanded }));
   };
 
   return (
@@ -516,89 +586,114 @@ const Quotations = () => {
           </TextField>
         </Stack>
 
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell><strong>Quote #</strong></TableCell>
-                <TableCell><strong>Requisition</strong></TableCell>
-                <TableCell><strong>Vendor</strong></TableCell>
-                <TableCell><strong>Amount</strong></TableCell>
-                <TableCell><strong>Date</strong></TableCell>
-                <TableCell><strong>Status</strong></TableCell>
-                <TableCell align="center"><strong>Actions</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} align="center">
-                    <Typography>Loading...</Typography>
-                  </TableCell>
-                </TableRow>
-              ) : quotations.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} align="center">
-                    <Typography color="text.secondary">No quotations found</Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                quotations.map((quote) => (
-                  <TableRow key={quote._id} hover>
-                    <TableCell>{quote.quotationNumber}</TableCell>
-                    <TableCell>{quote.indent?.indentNumber || '-'}</TableCell>
-                    <TableCell>{quote.vendor?.name || '-'}</TableCell>
-                    <TableCell>{formatPKR(quote.totalAmount)}</TableCell>
-                    <TableCell>{formatDate(quote.quotationDate)}</TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={quote.status} 
-                        color={getStatusColor(quote.status)} 
-                        size="small" 
+        {loading ? (
+          <Typography align="center">Loading...</Typography>
+        ) : groupedQuotationList.length === 0 ? (
+          <Typography align="center" color="text.secondary">No quotations found</Typography>
+        ) : (
+          <Stack spacing={1.5}>
+            {groupedQuotationList.map((group, index) => {
+              const groupKey = group.key;
+              const isExpanded = expandedRequisitions[groupKey] ?? index === 0;
+              const requisitionLabel = group.indent?.indentNumber || 'No Requisition Linked';
+              const requisitionTitle = group.indent?.title || 'N/A';
+              return (
+                <Accordion
+                  key={groupKey}
+                  expanded={isExpanded}
+                  onChange={handleRequisitionAccordionChange(groupKey)}
+                >
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', pr: 1 }}>
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                          {requisitionLabel}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {requisitionTitle}
+                        </Typography>
+                      </Box>
+                      <Chip
+                        size="small"
+                        color="primary"
+                        label={`${group.quotations.length} quotation${group.quotations.length > 1 ? 's' : ''}`}
                       />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Tooltip title="View Details">
-                        <IconButton size="small" onClick={() => handleView(quote)}>
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {quote.status !== 'Finalized' && quote.status !== 'Rejected' && (
-                        <>
-                          <Tooltip title="Finalize">
-                            <IconButton 
-                              size="small" 
-                              color="success" 
-                              onClick={() => handleFinalize(quote._id)}
-                            >
-                              <ApproveIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit (Negotiating purpose only)">
-                            <IconButton size="small" onClick={() => handleEdit(quote)}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </>
-                      )}
-                      {quote.status === 'Finalized' && (
-                        <Tooltip title="Create PO">
-                          <IconButton 
-                            size="small" 
-                            color="primary" 
-                            onClick={() => navigate('/procurement/purchase-orders', { state: { createFromQuotationId: quote._id } })}
-                          >
-                            <POIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell><strong>Quote #</strong></TableCell>
+                            <TableCell><strong>Vendor</strong></TableCell>
+                            <TableCell><strong>Amount</strong></TableCell>
+                            <TableCell><strong>Date</strong></TableCell>
+                            <TableCell><strong>Status</strong></TableCell>
+                            <TableCell align="center"><strong>Actions</strong></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {group.quotations.map((quote) => (
+                            <TableRow key={quote._id} hover>
+                              <TableCell>{quote.quotationNumber}</TableCell>
+                              <TableCell>{quote.vendor?.name || '-'}</TableCell>
+                              <TableCell>{formatPKR(quote.totalAmount)}</TableCell>
+                              <TableCell>{formatDate(quote.quotationDate)}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={quote.status}
+                                  color={getStatusColor(quote.status)}
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Tooltip title="View Details">
+                                  <IconButton size="small" onClick={() => handleView(quote)}>
+                                    <ViewIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                {quote.status !== 'Finalized' && quote.status !== 'Rejected' && (
+                                  <>
+                                    <Tooltip title="Finalize">
+                                      <IconButton
+                                        size="small"
+                                        color="success"
+                                        onClick={() => handleFinalize(quote._id)}
+                                      >
+                                        <ApproveIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Edit (Negotiating purpose only)">
+                                      <IconButton size="small" onClick={() => handleEdit(quote)}>
+                                        <EditIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </>
+                                )}
+                                {quote.status === 'Finalized' && (
+                                  <Tooltip title="Create PO">
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={() => navigate('/procurement/purchase-orders', { state: { createFromQuotationId: quote._id } })}
+                                    >
+                                      <POIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </AccordionDetails>
+                </Accordion>
+              );
+            })}
+          </Stack>
+        )}
         <TablePagination
           component="div"
           count={totalItems}
@@ -649,6 +744,12 @@ const Quotations = () => {
               label="Requisition"
               value={formData.indent}
               onChange={(e) => setFormData({ ...formData, indent: e.target.value })}
+              helperText={
+                requisitionsFilteredToAssignee
+                  ? 'Only requisitions assigned to you appear here. Managers see all eligible requisitions.'
+                  : 'Approved requisitions you can work on in procurement.'
+              }
+              FormHelperTextProps={{ sx: { mt: 0.5 } }}
             >
               {requisitions.map(req => (
                 <MenuItem key={req._id} value={req._id}>
@@ -663,9 +764,36 @@ const Quotations = () => {
               value={formData.vendor}
               onChange={(e) => setFormData({ ...formData, vendor: e.target.value })}
               required
+              SelectProps={{
+                MenuProps: {
+                  PaperProps: { sx: { maxHeight: 360 } }
+                }
+              }}
             >
-              {vendors.map(v => (
-                <MenuItem key={v._id} value={v._id}>{v.name}</MenuItem>
+              {vendorsByCategory.map(({ category, list }, catIdx) => (
+                <React.Fragment key={category}>
+                  <ListSubheader
+                    disableSticky
+                    sx={{
+                      fontWeight: 600,
+                      fontSize: '0.8rem',
+                      bgcolor: 'action.hover',
+                      color: 'text.secondary',
+                      lineHeight: 1.5,
+                      py: 0.75,
+                      ...(catIdx > 0
+                        ? { borderTop: (theme) => `1px solid ${theme.palette.divider}` }
+                        : {})
+                    }}
+                  >
+                    {category}
+                  </ListSubheader>
+                  {list.map((v) => (
+                    <MenuItem key={v._id} value={v._id} sx={{ pl: 3 }}>
+                      {v.name}
+                    </MenuItem>
+                  ))}
+                </React.Fragment>
               ))}
             </TextField>
             <Grid container spacing={2}>
@@ -723,7 +851,7 @@ const Quotations = () => {
                   )}
                 </Box>
                 <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} md={5}>
+                  <Grid item xs={12} md={4}>
                     <TextField
                       fullWidth
                       size="small"
@@ -731,6 +859,16 @@ const Quotations = () => {
                       placeholder="Leave empty if not quoting this item"
                       value={item.description ?? ''}
                       onChange={(e) => updateItem(idx, 'description', e.target.value)}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={2}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Specification"
+                      placeholder="Technical specs"
+                      value={item.specification ?? ''}
+                      onChange={(e) => updateItem(idx, 'specification', e.target.value)}
                     />
                   </Grid>
                   <Grid item xs={6} md={2}>
@@ -743,7 +881,7 @@ const Quotations = () => {
                       onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
                     />
                   </Grid>
-                  <Grid item xs={6} md={2}>
+                  <Grid item xs={6} md={1}>
                     <TextField
                       fullWidth
                       size="small"
@@ -776,7 +914,16 @@ const Quotations = () => {
                       </span>
                     </Tooltip>
                   </Grid>
-                  <Grid item xs={6} md={3}>
+                  <Grid item xs={12} md={3}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Brand"
+                      value={item.brand ?? ''}
+                      onChange={(e) => updateItem(idx, 'brand', e.target.value)}
+                    />
+                  </Grid>
+                  <Grid item xs={6} md={2}>
                     <TextField
                       fullWidth
                       size="small"
@@ -786,7 +933,7 @@ const Quotations = () => {
                       onChange={(e) => updateItem(idx, 'taxRate', parseFloat(e.target.value) || 0)}
                     />
                   </Grid>
-                  <Grid item xs={6} md={3}>
+                  <Grid item xs={6} md={2}>
                     <TextField
                       fullWidth
                       size="small"
@@ -796,7 +943,7 @@ const Quotations = () => {
                       onChange={(e) => updateItem(idx, 'discount', parseFloat(e.target.value) || 0)}
                     />
                   </Grid>
-                  <Grid item xs={12} md={6}>
+                  <Grid item xs={12} md={4}>
                     <Typography variant="body2" color="text.secondary">
                       Amount: {formatPKR(item.amount)}
                     </Typography>

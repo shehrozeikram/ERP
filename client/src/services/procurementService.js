@@ -78,6 +78,14 @@ const procurementService = {
     const response = await api.get('/procurement/requisitions', { params });
     return response.data;
   },
+  getRequisitionAssignees: async () => {
+    const response = await api.get('/procurement/requisitions/assignees');
+    return response.data;
+  },
+  assignRequisition: async (id, data) => {
+    const response = await api.put(`/procurement/requisitions/${id}/assign`, data);
+    return response.data;
+  },
 
   // Vendors
   getVendors: async (params = {}) => {
@@ -86,6 +94,10 @@ const procurementService = {
   },
   getVendorStats: async () => {
     const response = await api.get('/procurement/vendors/statistics');
+    return response.data;
+  },
+  getVendorCategories: async () => {
+    const response = await api.get('/procurement/vendors/categories');
     return response.data;
   },
   createVendor: async (data) => {

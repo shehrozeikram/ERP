@@ -45,14 +45,16 @@ import {
   Email as EmailIcon,
   Print as PrintIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 import dayjs from 'dayjs';
 
 const Requisitions = () => {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   
   // State management
   const [loading, setLoading] = useState(true);
@@ -67,19 +69,51 @@ const Requisitions = () => {
   const [totalItems, setTotalItems] = useState(0);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [assignmentFilter, setAssignmentFilter] = useState('all');
+  const [canManageAssignments, setCanManageAssignments] = useState(false);
+  const [assignees, setAssignees] = useState([]);
   
   // Dialog states
   const [viewDialog, setViewDialog] = useState({ open: false, data: null, tab: 0 });
   const [deleteDialog, setDeleteDialog] = useState({ open: false, id: null });
   const [emailDialog, setEmailDialog] = useState({ open: false, requisition: null, selectedVendors: [], paymentTerms: '', attachmentFile: null });
+  const [assignDialog, setAssignDialog] = useState({
+    open: false,
+    requisition: null,
+    assigneeId: '',
+    note: '',
+    submitting: false
+  });
   const [quotations, setQuotations] = useState([]);
   const [loadingQuotations, setLoadingQuotations] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('myTasks') === '1') {
+      setAssignmentFilter('mine');
+      setPage(0);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('myTasks');
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Load data on component mount
   useEffect(() => {
     loadRequisitions();
     loadVendors();
-  }, [page, rowsPerPage, search, statusFilter]);
+    loadAssignees();
+  }, [page, rowsPerPage, search, statusFilter, assignmentFilter]);
+
+  const canActOnRequisition = (req) => {
+    if (canManageAssignments) return true;
+    const to = req?.procurementAssignment?.assignedTo;
+    if (!to) return false;
+    const assigneeId = to._id || to;
+    const uid = user?.id || user?._id;
+    return uid && String(assigneeId) === String(uid);
+  };
 
   const loadVendors = async () => {
     try {
@@ -92,6 +126,17 @@ const Requisitions = () => {
     }
   };
 
+  const loadAssignees = async () => {
+    try {
+      const response = await api.get('/procurement/requisitions/assignees');
+      if (response.data.success) {
+        setAssignees(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to load procurement assignees:', err);
+    }
+  };
+
   const loadRequisitions = useCallback(async () => {
     try {
       setLoading(true);
@@ -100,26 +145,76 @@ const Requisitions = () => {
         limit: rowsPerPage,
         search: search || undefined,
         status: statusFilter || 'Approved', // Default to showing only approved requisitions
-        forRequisition: 'true' // Only indents moved to procurement by store (exclude pending store check)
+        forRequisition: 'true', // Only indents moved to procurement by store (exclude pending store check)
+        ...(assignmentFilter !== 'all' ? { assignmentStatus: assignmentFilter } : {}),
+        ...(assignmentFilter === 'mine' ? { mineOnly: 'true' } : {})
       };
       
-      const response = await api.get('/indents', { params });
+      const response = await api.get('/procurement/requisitions', { params });
       if (response.data.success) {
-        const requisitionsData = response.data.data || [];
-        // Ensure we only show approved requisitions (or the selected status)
-        const filteredRequisitions = requisitionsData.filter(req => 
-          req.status === (statusFilter || 'Approved')
+        const requisitionsData = response.data.data?.indents || [];
+        const filteredRequisitions = requisitionsData.filter((req) =>
+          !statusFilter || req.status === statusFilter
         );
         setRequisitions(filteredRequisitions);
-        // Use the total from pagination, but adjust if filtering
-        setTotalItems(statusFilter ? filteredRequisitions.length : response.data.pagination?.total || 0);
+        setCanManageAssignments(Boolean(response.data.data?.canManageAssignments));
+        setTotalItems(response.data.data?.pagination?.totalItems || filteredRequisitions.length);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load requisitions');
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, statusFilter]);
+  }, [page, rowsPerPage, search, statusFilter, assignmentFilter]);
+
+  const getAssignmentStatus = (requisition) => {
+    const assignment = requisition.procurementAssignment || {};
+    if (assignment.status === 'assigned' && assignment.assignedTo) {
+      const assigneeName = `${assignment.assignedTo?.firstName || ''} ${assignment.assignedTo?.lastName || ''}`.trim() || 'Assigned User';
+      return {
+        label: `Assigned to ${assigneeName}`,
+        color: 'success'
+      };
+    }
+    return {
+      label: 'Pending Assignment',
+      color: 'warning'
+    };
+  };
+
+  const handleOpenAssignDialog = (requisition) => {
+    setAssignDialog({
+      open: true,
+      requisition,
+      assigneeId: requisition.procurementAssignment?.assignedTo?._id || '',
+      note: requisition.procurementAssignment?.note || '',
+      submitting: false
+    });
+  };
+
+  const handleAssignRequisition = async () => {
+    if (!assignDialog.requisition?._id || !assignDialog.assigneeId) {
+      setError('Please select a procurement user for assignment.');
+      return;
+    }
+
+    try {
+      setAssignDialog((prev) => ({ ...prev, submitting: true }));
+      const response = await api.put(`/procurement/requisitions/${assignDialog.requisition._id}/assign`, {
+        assigneeId: assignDialog.assigneeId,
+        note: assignDialog.note
+      });
+
+      if (response.data.success) {
+        setSuccess(response.data.message || 'Requisition assigned successfully.');
+        setAssignDialog({ open: false, requisition: null, assigneeId: '', note: '', submitting: false });
+        loadRequisitions();
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to assign requisition');
+      setAssignDialog((prev) => ({ ...prev, submitting: false }));
+    }
+  };
 
   const handleView = async (requisition) => {
     setViewDialog({ open: true, data: requisition, tab: 0 });
@@ -261,13 +356,27 @@ const Requisitions = () => {
             select
             size="small"
             label="Status"
-            value={statusFilter || 'Approved'}
+            value={statusFilter || ''}
             onChange={(e) => setStatusFilter(e.target.value)}
             sx={{ minWidth: 150 }}
           >
+            <MenuItem value="">All Eligible</MenuItem>
             <MenuItem value="Approved">Approved</MenuItem>
             <MenuItem value="Partially Fulfilled">Partially Fulfilled</MenuItem>
             <MenuItem value="Fulfilled">Fulfilled</MenuItem>
+          </TextField>
+          <TextField
+            select
+            size="small"
+            label="Task Assignment"
+            value={assignmentFilter}
+            onChange={(e) => setAssignmentFilter(e.target.value)}
+            sx={{ minWidth: 190 }}
+          >
+            <MenuItem value="all">All</MenuItem>
+            <MenuItem value="assigned">Assigned</MenuItem>
+            <MenuItem value="unassigned">Unassigned</MenuItem>
+            <MenuItem value="mine">My Tasks</MenuItem>
           </TextField>
         </Stack>
 
@@ -280,6 +389,7 @@ const Requisitions = () => {
                 <TableCell><strong>Department</strong></TableCell>
                 <TableCell><strong>Requester</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
+                <TableCell><strong>Task Assignment</strong></TableCell>
                 <TableCell><strong>Priority</strong></TableCell>
                 <TableCell><strong>Date</strong></TableCell>
                 <TableCell align="center"><strong>Actions</strong></TableCell>
@@ -288,13 +398,13 @@ const Requisitions = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={9} align="center">
                     <Typography>Loading...</Typography>
                   </TableCell>
                 </TableRow>
               ) : requisitions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={9} align="center">
                     <Typography color="text.secondary">No requisitions found</Typography>
                   </TableCell>
                 </TableRow>
@@ -314,14 +424,46 @@ const Requisitions = () => {
                         size="small" 
                       />
                     </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const assignmentStatus = getAssignmentStatus(req);
+                        return (
+                          <Stack spacing={0.5} alignItems="flex-start">
+                            <Chip
+                              label={assignmentStatus.label}
+                              color={assignmentStatus.color}
+                              variant={assignmentStatus.color === 'warning' ? 'outlined' : 'filled'}
+                              size="small"
+                            />
+                            {req.procurementAssignment?.assignedAt && (
+                              <Typography variant="caption" color="text.secondary">
+                                {`Assigned ${formatDate(req.procurementAssignment.assignedAt)}`}
+                              </Typography>
+                            )}
+                          </Stack>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell>{req.priority || '-'}</TableCell>
                     <TableCell>{formatDate(req.createdAt)}</TableCell>
                     <TableCell align="center">
-                      <Tooltip title="Send to Vendors">
+                      {canManageAssignments && (
+                        <Tooltip title="Assign Task">
+                          <IconButton
+                            size="small"
+                            color="secondary"
+                            onClick={() => handleOpenAssignDialog(req)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      <Tooltip title={canActOnRequisition(req) ? 'Send to Vendors' : 'Only the assigned procurement user or a manager can send to vendors'}>
                         <IconButton 
                           size="small" 
                           color="primary" 
                           onClick={() => handleSendEmail(req)}
+                          disabled={!req.procurementAssignment?.assignedTo || !canActOnRequisition(req)}
                         >
                           <EmailIcon fontSize="small" />
                         </IconButton>
@@ -621,7 +763,7 @@ const Requisitions = () => {
                 {/* Signatures Section */}
                 <Box sx={{ mb: 3 }}>
                   <Grid container spacing={1.5}>
-                    <Grid item xs={12} sm={6} md={3}>
+                    <Grid item xs={12} sm={6} md={6}>
                       <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
                         <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                           Sig of Requester:
@@ -631,38 +773,13 @@ const Requisitions = () => {
                         </Box>
                       </Box>
                     </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
+                    <Grid item xs={12} sm={6} md={6}>
                       <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
                         <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                           Head of Department:
                         </Typography>
                         <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
                           {viewDialog.data.signatures?.headOfDepartment?.name || '___________'}
-                        </Box>
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
-                          Approved by GM/PD:
-                        </Typography>
-                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                          {viewDialog.data.signatures?.gmPd?.name || '___________'}
-                        </Box>
-                        {viewDialog.data.signatures?.gmPd?.date && (
-                          <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
-                            {formatDateForPrint(viewDialog.data.signatures.gmPd.date)}
-                          </Typography>
-                        )}
-                      </Box>
-                    </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
-                          SVP/AVP Approval:
-                        </Typography>
-                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                          {viewDialog.data.signatures?.svpAvp?.name || '___________'}
                         </Box>
                       </Box>
                     </Grid>
@@ -934,6 +1051,62 @@ const Requisitions = () => {
         </DialogActions>
       </Dialog>
 
+      {/* ASSIGN TASK DIALOG */}
+      <Dialog
+        open={assignDialog.open}
+        onClose={() => setAssignDialog({ open: false, requisition: null, assigneeId: '', note: '', submitting: false })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Assign Procurement Task</DialogTitle>
+        <DialogContent>
+          {assignDialog.requisition && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                <strong>Requisition #:</strong> {assignDialog.requisition.indentNumber}<br />
+                <strong>Title:</strong> {assignDialog.requisition.title}
+              </Typography>
+              <TextField
+                select
+                fullWidth
+                label="Assign To"
+                value={assignDialog.assigneeId}
+                onChange={(e) => setAssignDialog((prev) => ({ ...prev, assigneeId: e.target.value }))}
+                size="small"
+                required
+                sx={{ mb: 2 }}
+              >
+                {assignees.map((assignee) => (
+                  <MenuItem key={assignee._id} value={assignee._id}>
+                    {`${assignee.firstName || ''} ${assignee.lastName || ''}`.trim()} {assignee.position ? `(${assignee.position})` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                label="Assignment Note (Optional)"
+                value={assignDialog.note}
+                onChange={(e) => setAssignDialog((prev) => ({ ...prev, note: e.target.value }))}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssignDialog({ open: false, requisition: null, assigneeId: '', note: '', submitting: false })}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAssignRequisition}
+            disabled={assignDialog.submitting || !assignDialog.assigneeId}
+          >
+            {assignDialog.submitting ? 'Assigning...' : 'Assign Task'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Print Styles for Dialog */}
       <Box
         component="style"
@@ -1114,7 +1287,12 @@ const Requisitions = () => {
           <Button 
             variant="contained" 
             onClick={handleSendEmailToVendors}
-            disabled={loading || emailDialog.selectedVendors.length === 0}
+            disabled={
+              loading
+              || emailDialog.selectedVendors.length === 0
+              || !emailDialog.requisition
+              || !canActOnRequisition(emailDialog.requisition)
+            }
             startIcon={loading ? <CircularProgress size={20} /> : <EmailIcon />}
           >
             Send Email

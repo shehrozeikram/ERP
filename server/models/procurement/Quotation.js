@@ -37,6 +37,18 @@ const quotationSchema = new mongoose.Schema({
       trim: true,
       default: ''
     },
+    specification: {
+      type: String,
+      required: false,
+      trim: true,
+      default: ''
+    },
+    brand: {
+      type: String,
+      required: false,
+      trim: true,
+      default: ''
+    },
     quantity: {
       type: Number,
       required: true,

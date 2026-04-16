@@ -14,9 +14,11 @@ import {
   CircularProgress,
   Snackbar,
   Alert,
-  Tooltip
+  Tooltip,
+  TextField,
+  Button
 } from '@mui/material';
-import { Person as PersonIcon, Email, Phone, Work, LocationOn, CameraAlt as CameraIcon } from '@mui/icons-material';
+import { Person as PersonIcon, Email, Phone, Work, LocationOn, CameraAlt as CameraIcon, Draw as DrawIcon } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { authService } from '../../services/authService';
 import api from '../../services/api';
@@ -24,18 +26,30 @@ import { getImageUrl } from '../../utils/imageService';
 
 const Profile = () => {
   const theme = useTheme();
-  const { user, updateProfile } = useAuth();
+  const { user, updateProfile, changePassword, refreshUser } = useAuth();
   const [profileImage, setProfileImage] = useState(null);
+  const [signaturePreview, setSignaturePreview] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [signatureUploading, setSignatureUploading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const fileInputRef = useRef(null);
+  const signatureInputRef = useRef(null);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   useEffect(() => {
-    // Load profile image if available
     if (user?.profileImage) {
       setProfileImage(getImageUrl(user.profileImage));
     } else {
       setProfileImage(null);
+    }
+    if (user?.digitalSignature) {
+      setSignaturePreview(getImageUrl(user.digitalSignature));
+    } else {
+      setSignaturePreview(null);
     }
   }, [user]);
 
@@ -145,6 +159,80 @@ const Profile = () => {
 
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      setSnackbar({ open: true, message: 'New password must be at least 6 characters', severity: 'error' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSnackbar({ open: true, message: 'New password and confirmation do not match', severity: 'error' });
+      return;
+    }
+    setPasswordSubmitting(true);
+    const result = await changePassword({ currentPassword, newPassword });
+    setPasswordSubmitting(false);
+    if (result.success) {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    }
+  };
+
+  const handleSignatureFileChange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSnackbar({ open: true, message: 'Please select an image file (PNG, JPG, etc.)', severity: 'error' });
+      return;
+    }
+    const maxSize = 2 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setSnackbar({ open: true, message: 'Signature image must be 2MB or smaller', severity: 'error' });
+      return;
+    }
+    try {
+      setSignatureUploading(true);
+      const previewUrl = URL.createObjectURL(file);
+      setSignaturePreview(previewUrl);
+      const response = await authService.uploadDigitalSignature(file);
+      if (response.data?.success) {
+        await refreshUser();
+        setSnackbar({ open: true, message: 'Digital signature saved successfully', severity: 'success' });
+      } else {
+        throw new Error(response.data?.message || 'Upload failed');
+      }
+    } catch (error) {
+      if (user?.digitalSignature) {
+        setSignaturePreview(getImageUrl(user.digitalSignature));
+      } else {
+        setSignaturePreview(null);
+      }
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || error.message || 'Failed to upload signature',
+        severity: 'error'
+      });
+    } finally {
+      setSignatureUploading(false);
+      if (signatureInputRef.current) {
+        signatureInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveSignature = async () => {
+    try {
+      setSignatureUploading(true);
+      const result = await updateProfile({ digitalSignature: '' });
+      if (result.success) {
+        setSignaturePreview(null);
+      }
+    } finally {
+      setSignatureUploading(false);
+    }
   };
 
   const formatEmployeeId = (employeeId) => {
@@ -328,6 +416,119 @@ const Profile = () => {
                   </Box>
                 </Grid>
               </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 2, color: theme.palette.text.primary }}>
+                Change password
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Use your current password and choose a new one (at least 6 characters).
+              </Typography>
+              <Box component="form" onSubmit={handleChangePassword}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Current password"
+                  value={currentPassword}
+                  onChange={(ev) => setCurrentPassword(ev.target.value)}
+                  margin="normal"
+                  autoComplete="current-password"
+                />
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="New password"
+                  value={newPassword}
+                  onChange={(ev) => setNewPassword(ev.target.value)}
+                  margin="normal"
+                  autoComplete="new-password"
+                />
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(ev) => setConfirmPassword(ev.target.value)}
+                  margin="normal"
+                  autoComplete="new-password"
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  sx={{ mt: 2 }}
+                  disabled={passwordSubmitting || !currentPassword || !newPassword || !confirmPassword}
+                >
+                  {passwordSubmitting ? <CircularProgress size={22} color="inherit" /> : 'Update password'}
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <DrawIcon color="primary" />
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: theme.palette.text.primary }}>
+                  Digital signature
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Upload a clear image of your signature (PNG or JPG). It can be used on printouts and approvals where your signature is required.
+              </Typography>
+              <Box
+                sx={{
+                  border: `1px dashed ${alpha(theme.palette.primary.main, 0.4)}`,
+                  borderRadius: 1,
+                  p: 2,
+                  minHeight: 100,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  bgcolor: alpha(theme.palette.primary.main, 0.04),
+                  mb: 2
+                }}
+              >
+                {signaturePreview ? (
+                  <Box
+                    component="img"
+                    src={signaturePreview}
+                    alt="Your signature"
+                    sx={{ maxHeight: 96, maxWidth: '100%', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No signature on file
+                  </Typography>
+                )}
+              </Box>
+              <input
+                ref={signatureInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleSignatureFileChange}
+                style={{ display: 'none' }}
+              />
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  onClick={() => signatureInputRef.current?.click()}
+                  disabled={signatureUploading}
+                >
+                  {signatureUploading ? <CircularProgress size={22} color="inherit" /> : 'Upload signature'}
+                </Button>
+                {user?.digitalSignature ? (
+                  <Button variant="outlined" color="error" onClick={handleRemoveSignature} disabled={signatureUploading}>
+                    Remove
+                  </Button>
+                ) : null}
+              </Box>
             </CardContent>
           </Card>
         </Grid>

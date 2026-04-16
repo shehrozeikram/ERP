@@ -47,6 +47,32 @@ const upload = multer({
   }
 });
 
+const signatureStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'digital-signatures');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename(req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, 'signature-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadSignature = multer({
+  storage: signatureStorage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter(req, file, cb) {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for signatures'), false);
+    }
+  }
+});
+
 // @route   POST /api/auth/register
 // @desc    Register a new user
 // @access  Public
@@ -358,7 +384,7 @@ router.put('/profile', [
     });
   }
 
-  const { firstName, lastName, phone, address, profileImage } = req.body;
+  const { firstName, lastName, phone, address, profileImage, digitalSignature } = req.body;
 
   // Update user profile
   const updateData = {};
@@ -367,6 +393,7 @@ router.put('/profile', [
   if (phone !== undefined) updateData.phone = phone;
   if (address !== undefined) updateData.address = address;
   if (profileImage !== undefined) updateData.profileImage = profileImage;
+  if (digitalSignature !== undefined) updateData.digitalSignature = digitalSignature;
 
   const updatedUser = await User.findByIdAndUpdate(
     req.user.id,
@@ -422,6 +449,49 @@ router.post('/upload-profile-image',
       res.status(500).json({
         success: false,
         message: 'Error uploading profile image',
+        error: error.message
+      });
+    }
+  })
+);
+
+// @route   POST /api/auth/upload-digital-signature
+// @desc    Upload digital signature image for current user (PNG/JPG scan or drawn export)
+// @access  Private
+router.post(
+  '/upload-digital-signature',
+  authMiddleware,
+  uploadSignature.single('digitalSignature'),
+  asyncHandler(async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No signature image provided'
+        });
+      }
+
+      const imagePath = `/uploads/digital-signatures/${req.file.filename}`;
+      const updatedUser = await User.findByIdAndUpdate(
+        req.user.id,
+        { digitalSignature: imagePath },
+        { new: true, runValidators: true }
+      );
+
+      res.json({
+        success: true,
+        message: 'Digital signature saved successfully',
+        data: {
+          imagePath,
+          filename: req.file.filename,
+          user: updatedUser.getProfile()
+        }
+      });
+    } catch (error) {
+      console.error('Error uploading digital signature:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error uploading digital signature',
         error: error.message
       });
     }

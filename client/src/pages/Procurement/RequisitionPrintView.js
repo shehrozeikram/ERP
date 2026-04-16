@@ -299,7 +299,7 @@ const RequisitionPrintView = () => {
         {/* Signatures Section */}
         <Box sx={{ mb: 3 }}>
           <Grid container spacing={1.5}>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={6}>
               <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                   Sig of Requester:
@@ -309,38 +309,13 @@ const RequisitionPrintView = () => {
                 </Box>
               </Box>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={6}>
               <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                   Head of Department:
                 </Typography>
                 <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
                   {requisition.signatures?.headOfDepartment?.name || '___________'}
-                </Box>
-              </Box>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
-                  Approved by GM/PD:
-                </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {requisition.signatures?.gmPd?.name || '___________'}
-                </Box>
-                {requisition.signatures?.gmPd?.date && (
-                  <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
-                    {formatDate(requisition.signatures.gmPd.date)}
-                  </Typography>
-                )}
-              </Box>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
-                  SVP/AVP Approval:
-                </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {requisition.signatures?.svpAvp?.name || '___________'}
                 </Box>
               </Box>
             </Grid>

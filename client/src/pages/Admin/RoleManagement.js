@@ -26,7 +26,8 @@ import {
   Snackbar,
   FormControlLabel,
   Switch,
-  Divider
+  Divider,
+  TablePagination
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -53,6 +54,9 @@ const RoleManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState('all');
   const [showTemplates, setShowTemplates] = useState(false);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalRoles, setTotalRoles] = useState(0);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -61,14 +65,30 @@ const RoleManagement = () => {
   });
 
   useEffect(() => {
-    fetchRoles();
-  }, []);
+    const timer = setTimeout(() => {
+      fetchRoles();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [page, rowsPerPage, searchTerm, filterActive]);
 
   const fetchRoles = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/roles');
-      setRoles(response.data.data?.roles || []);
+      const params = {
+        page: page + 1,
+        limit: rowsPerPage
+      };
+      if (searchTerm.trim()) {
+        params.search = searchTerm.trim();
+      }
+      if (filterActive !== 'all') {
+        params.isActive = filterActive === 'active';
+      }
+      const response = await api.get('/roles', { params });
+      const rolesData = response.data.data?.roles || [];
+      const pagination = response.data.data?.pagination || {};
+      setRoles(rolesData);
+      setTotalRoles(pagination.total || 0);
     } catch (err) {
       setError('Failed to fetch roles');
     } finally {
@@ -180,18 +200,14 @@ const RoleManagement = () => {
     }
   };
 
+  const handleChangePage = (_, newPage) => {
+    setPage(newPage);
+  };
 
-  const filteredRoles = roles.filter(role => {
-    const matchesSearch = role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (role.displayName || role.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (role.description || '').toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesFilter = filterActive === 'all' || 
-                         (filterActive === 'active' && role.isActive) ||
-                         (filterActive === 'inactive' && !role.isActive);
-    
-    return matchesSearch && matchesFilter;
-  });
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
   const resetForm = () => {
     setFormData({
@@ -224,7 +240,10 @@ const RoleManagement = () => {
           variant="outlined"
           size="small"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setPage(0);
+          }}
           sx={{ minWidth: 300 }}
         />
         <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -232,7 +251,10 @@ const RoleManagement = () => {
           <Select
             value={filterActive}
             label="Status"
-            onChange={(e) => setFilterActive(e.target.value)}
+            onChange={(e) => {
+              setFilterActive(e.target.value);
+              setPage(0);
+            }}
           >
             <MenuItem value="all">All</MenuItem>
             <MenuItem value="active">Active</MenuItem>
@@ -254,7 +276,7 @@ const RoleManagement = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredRoles.map((role) => (
+            {roles.map((role) => (
               <TableRow key={role._id}>
                 <TableCell>
                   <Typography variant="body1" fontWeight="medium">
@@ -328,8 +350,24 @@ const RoleManagement = () => {
                 </TableCell>
               </TableRow>
             ))}
+            {!loading && roles.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} align="center">
+                  No roles found
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={totalRoles}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+        />
       </TableContainer>
 
       {/* Create/Edit Role Dialog */}

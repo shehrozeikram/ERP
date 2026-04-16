@@ -109,6 +109,53 @@ const indentSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  procurementAssignment: {
+    status: {
+      type: String,
+      enum: ['unassigned', 'assigned'],
+      default: 'unassigned'
+    },
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    assignedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    assignedAt: {
+      type: Date,
+      default: null
+    },
+    note: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    history: [{
+      assignedTo: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+      },
+      assignedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+      },
+      assignedAt: {
+        type: Date,
+        default: Date.now
+      },
+      note: {
+        type: String,
+        trim: true,
+        default: ''
+      }
+    }]
+  },
   
   // Dates
   requestedDate: {

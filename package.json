@@ -24,7 +24,8 @@
     "test:grni-resolve-from-po": "node tests/grni-resolve-from-po-before-grn.test.js",
     "test:procurement-vendor-billing-multi-grn": "node tests/procurement-vendor-billing-multi-grn-e2e.test.js",
     "clean:test-data": "node scripts/clean-procurement-finance-general-store-data.js --yes",
-    "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js"
+    "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js",
+    "import:procurement-vendors": "node server/scripts/import-procurement-vendors-xlsx.js"
   },
   "keywords": [
     "erp",

@@ -767,11 +767,19 @@ export const MODULES = {
     subItems: [
       { name: 'Procurement Dashboard', path: '/procurement' },
       { name: 'Procurement Requisitions', path: '/procurement/requisitions' },
+      { name: 'Task Assignment', path: '/procurement/task-assignment' },
       { name: 'Quotations', path: '/procurement/quotations' },
       { name: 'Comparative Statements', path: '/procurement/comparative-statements' },
       { name: 'Purchase Orders', path: '/procurement/purchase-orders' },
-      { name: 'Vendors', path: '/procurement/vendors' },
+      {
+        name: 'Vendors',
+        path: '/procurement/vendors',
+        subItems: [
+          { name: 'Approved vendor list', path: '/procurement/vendors' }
+        ]
+      },
       { name: 'Vendor Bills', path: '/procurement/vendor-bills' },
+      { name: 'Reports', path: '/procurement/reports' },
       {
         name: 'Store',
         path: '/procurement/store',

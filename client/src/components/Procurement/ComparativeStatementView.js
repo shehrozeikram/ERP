@@ -82,6 +82,19 @@ const ComparativeStatementView = ({
     }
   };
 
+  const getQuoteItemForIndentItem = (quote, item, itemIndex) => {
+    let quoteItem = quote.items?.[itemIndex];
+    if (!quoteItem && quote.items?.length) {
+      const indentDesc = (item.itemName || item.description || '').trim().toLowerCase();
+      const match = quote.items.find((qi) => {
+        const qDesc = (qi?.description || '').trim().toLowerCase();
+        return indentDesc && qDesc && qDesc === indentDesc;
+      });
+      quoteItem = match || null;
+    }
+    return quoteItem;
+  };
+
   return (
     <Paper
       sx={{
@@ -246,61 +259,78 @@ const ComparativeStatementView = ({
                 {selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => {
                   const assignedQuotationId = vendorAssignments[itemIndex];
                   return (
-                    <tr key={itemIndex} style={{ border: '1px solid #000', backgroundColor: assignedQuotationId ? '#f0fff0' : undefined }}>
-                      <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{itemIndex + 1}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
-                        {item.itemName || item.description || '___________'}
-                        {assignedQuotationId && !readOnly && (
-                          <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', color: '#2e7d32', fontWeight: 600, '@media print': { display: 'none' } }}>
-                            → {quotations.find(q => q._id === assignedQuotationId)?.vendor?.name || 'Vendor'}
-                          </Box>
-                        )}
-                      </td>
-                      <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.unit || 'Nos'}</td>
-                      <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.quantity ?? '___'}</td>
-                      {quotations.map((quote, quoteIdx) => {
-                        let quoteItem = quote.items?.[itemIndex];
-                        if (!quoteItem && quote.items?.length) {
-                          const indentDesc = (item.itemName || item.description || '').trim().toLowerCase();
-                          const match = quote.items.find((qi) => {
-                            const qDesc = (qi?.description || '').trim().toLowerCase();
-                            return indentDesc && qDesc && qDesc === indentDesc;
-                          });
-                          quoteItem = match || null;
-                        }
-                        const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
-                        const itemTotal = !isNotQuoted
-                          ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
-                          : 0;
-                        const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
-                        const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
-                        const canAssign = !isNotQuoted && !readOnly && onCreateSplitPOs;
-                        return (
-                          <React.Fragment key={quoteIdx}>
-                            <td
-                              style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
-                              onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
-                            >
-                              {!isNotQuoted ? formatNumber(quoteItem.unitPrice) : '___________'}
-                            </td>
-                            <Tooltip
-                              title={canAssign ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : isNotQuoted ? 'Vendor did not quote for this item' : ''}
-                              placement="top"
-                            >
+                    <React.Fragment key={itemIndex}>
+                      <tr style={{ border: '1px solid #000', backgroundColor: assignedQuotationId ? '#f0fff0' : undefined }}>
+                        <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{itemIndex + 1}</td>
+                        <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>
+                          {item.itemName || item.description || '___________'}
+                          {assignedQuotationId && !readOnly && (
+                            <Box component="span" sx={{ display: 'block', fontSize: '0.7rem', color: '#2e7d32', fontWeight: 600, '@media print': { display: 'none' } }}>
+                              → {quotations.find(q => q._id === assignedQuotationId)?.vendor?.name || 'Vendor'}
+                            </Box>
+                          )}
+                        </td>
+                        <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.unit || 'Nos'}</td>
+                        <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.quantity ?? '___'}</td>
+                        {quotations.map((quote, quoteIdx) => {
+                          const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
+                          const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
+                          const itemTotal = !isNotQuoted
+                            ? (quoteItem.amount ?? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0)))
+                            : 0;
+                          const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
+                          const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
+                          const canAssign = !isNotQuoted && !readOnly && onCreateSplitPOs;
+                          return (
+                            <React.Fragment key={quoteIdx}>
                               <td
                                 style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
                                 onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
                               >
-                                {!isNotQuoted ? formatNumber(itemTotal) : '___________'}
-                                {isAssignedToThis && !readOnly && (
-                                  <CheckCircleIcon sx={{ fontSize: '0.8rem', ml: 0.5, color: '#2e7d32', verticalAlign: 'middle', '@media print': { display: 'none' } }} />
-                                )}
+                                {!isNotQuoted ? formatNumber(quoteItem.unitPrice) : '___________'}
                               </td>
-                            </Tooltip>
-                          </React.Fragment>
-                        );
-                      })}
-                    </tr>
+                              <Tooltip
+                                title={canAssign ? (isAssignedToThis ? 'Click to unassign' : 'Click to assign this item to this vendor') : isNotQuoted ? 'Vendor did not quote for this item' : ''}
+                                placement="top"
+                              >
+                                <td
+                                  style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', verticalAlign: 'top', fontSize: '0.8rem', backgroundColor: cellBg, cursor: canAssign ? 'pointer' : undefined }}
+                                  onClick={canAssign ? () => handleAssignVendorToItem(itemIndex, quote._id) : undefined}
+                                >
+                                  {!isNotQuoted ? formatNumber(itemTotal) : '___________'}
+                                  {isAssignedToThis && !readOnly && (
+                                    <CheckCircleIcon sx={{ fontSize: '0.8rem', ml: 0.5, color: '#2e7d32', verticalAlign: 'middle', '@media print': { display: 'none' } }} />
+                                  )}
+                                </td>
+                              </Tooltip>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tr>
+                      <tr style={{ border: '1px solid #000', backgroundColor: '#fafafa' }}>
+                        <td colSpan={4} style={{ border: '1px solid #000', padding: '5px 6px', verticalAlign: 'top', fontSize: '0.75rem', fontWeight: 600 }}>
+                          Technical Comparison
+                        </td>
+                        {quotations.map((quote, quoteIdx) => {
+                          const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
+                          const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
+                          return (
+                            <td key={`tech-${quoteIdx}`} colSpan={2} style={{ border: '1px solid #000', padding: '5px 6px', verticalAlign: 'top', fontSize: '0.75rem', textAlign: 'left' }}>
+                              {isNotQuoted ? (
+                                <span style={{ color: '#888' }}>Not quoted</span>
+                              ) : (
+                                <>
+                                  <div><strong>Description:</strong> {quoteItem.description || '—'}</div>
+                                  <div><strong>Specification:</strong> {quoteItem.specification || '—'}</div>
+                                  <div><strong>Brand:</strong> {quoteItem.brand || '—'}</div>
+                                  <div><strong>Unit:</strong> {quoteItem.unit || '—'}</div>
+                                </>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </React.Fragment>
                   );
                 }) : (
                   <tr>

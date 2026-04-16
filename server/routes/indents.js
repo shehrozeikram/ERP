@@ -719,10 +719,10 @@ router.post('/:id/submit',
     const merged = fromBody.length ? fromBody : fromDraft;
     const unique = [...new Set(merged)];
 
-    if (unique.length !== 3) {
+    if (unique.length !== 1) {
       return res.status(400).json({
         success: false,
-        message: 'Exactly three distinct approvers are required. Choose Head of Department, GM/PD, and SVP/AVP approvers.'
+        message: 'Exactly one approver is required. Choose Head of Department approver.'
       });
     }
 
@@ -741,10 +741,10 @@ router.post('/:id/submit',
       .select('_id firstName lastName email')
       .lean();
 
-    if (approverUsers.length !== 3) {
+    if (approverUsers.length !== 1) {
       return res.status(400).json({
         success: false,
-        message: 'All three approvers must be valid active users.'
+        message: 'Selected approver must be a valid active user.'
       });
     }
 
