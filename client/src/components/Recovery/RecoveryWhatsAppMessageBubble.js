@@ -52,6 +52,22 @@ function getBubbleText(m) {
   return toReadableTemplateText(parts[0] || campaignRaw);
 }
 
+function formatMessageDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  const datePart = d.toLocaleDateString('en-PK', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+  const timePart = d.toLocaleTimeString('en-PK', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  return `${datePart}, ${timePart}`;
+}
+
 /**
  * Single bubble for recovery WhatsApp thread (My Tasks / Assignments / Completed).
  * Hover shows Reply / Forward / Delete like WhatsApp Web.
@@ -241,7 +257,7 @@ export default function RecoveryWhatsAppMessageBubble({
           </Tooltip>
         </Box>
         <Typography variant="caption" sx={{ opacity: 0.7, lineHeight: 1 }}>
-          {m.time ? new Date(m.time).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' }) : '—'}
+          {formatMessageDateTime(m.time)}
         </Typography>
         {showReadReceipts && m.direction === 'out' &&
           (m.status === 'read' ? (
