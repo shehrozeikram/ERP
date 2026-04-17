@@ -7,6 +7,42 @@ const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
 
 const router = express.Router();
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sectorExactRegex(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
+}
+
+function buildRuleScopeQuery({ type, sector, minAmount, maxAmount }) {
+  const query = {};
+  const sectorRegex = sectorExactRegex(sector);
+  if (sectorRegex) query.sector = sectorRegex;
+
+  if (type === 'slab') {
+    const min = Number(minAmount) || 0;
+    const max = maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null;
+    query.currentlyDue = max != null ? { $gte: min, $lt: max } : { $gte: min };
+  }
+  return query;
+}
+
+async function reopenCompletedAssignmentsByRuleScope({ type, sector, minAmount, maxAmount }) {
+  const scopeQuery = buildRuleScopeQuery({ type, sector, minAmount, maxAmount });
+  const query = { ...scopeQuery, taskStatus: 'completed' };
+  const result = await RecoveryAssignment.updateMany(
+    query,
+    {
+      $set: { taskStatus: 'pending' },
+      $unset: { taskCompletedAt: '', taskCompletedBy: '' }
+    }
+  );
+  return result?.modifiedCount || 0;
+}
+
 function getProgress(rule) {
   const r = rule?.toObject ? rule.toObject() : rule;
   if (r.targetCount != null && r.targetCount > 0) {
@@ -96,10 +132,20 @@ router.post(
       { path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } }
     ]);
 
+    // Re-open previously completed records if this scope is assigned again.
+    const reopenedCount = await reopenCompletedAssignmentsByRuleScope({
+      type: rule.type,
+      sector: rule.sector,
+      minAmount: rule.minAmount,
+      maxAmount: rule.maxAmount
+    });
+
     res.status(201).json({
       success: true,
-      message: 'Assignment rule created',
-      data: { ...rule.toObject(), progress: getProgress(rule) }
+      message: reopenedCount > 0
+        ? `Assignment rule created. Re-opened ${reopenedCount} completed record(s).`
+        : 'Assignment rule created',
+      data: { ...rule.toObject(), progress: getProgress(rule), reopenedCount }
     });
   })
 );
@@ -136,7 +182,21 @@ router.put(
       { path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } }
     ]);
 
-    res.json({ success: true, data: { ...rule.toObject(), progress: getProgress(rule) } });
+    let reopenedCount = 0;
+    if (rule.isActive && rule.status !== 'cancelled') {
+      reopenedCount = await reopenCompletedAssignmentsByRuleScope({
+        type: rule.type,
+        sector: rule.sector,
+        minAmount: rule.minAmount,
+        maxAmount: rule.maxAmount
+      });
+    }
+
+    res.json({
+      success: true,
+      message: reopenedCount > 0 ? `Rule updated. Re-opened ${reopenedCount} completed record(s).` : undefined,
+      data: { ...rule.toObject(), progress: getProgress(rule), reopenedCount }
+    });
   })
 );
 

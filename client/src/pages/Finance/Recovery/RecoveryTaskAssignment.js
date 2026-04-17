@@ -230,7 +230,7 @@ const RecoveryTaskAssignment = () => {
 
     try {
       setSaving(true);
-      await createRecoveryTaskRule({
+      const res = await createRecoveryTaskRule({
         type: form.type,
         assignedTo: form.assignedTo,
         sector: form.type === 'sector' ? form.sector : (form.sector || ''),
@@ -239,7 +239,15 @@ const RecoveryTaskAssignment = () => {
         targetCount: form.targetCount !== '' ? Number(form.targetCount) : null,
         action: form.action || 'both'
       });
+      const reopenedCount = Number(res?.data?.data?.reopenedCount || 0);
       setSnackbar({ open: true, message: 'Assignment rule added', severity: 'success' });
+      if (reopenedCount > 0) {
+        setSnackbar({
+          open: true,
+          message: `Re-opened ${reopenedCount} completed record(s).`,
+          severity: 'info'
+        });
+      }
       handleCloseAddDialog();
       loadRules();
     } catch (err) {
@@ -282,7 +290,7 @@ const RecoveryTaskAssignment = () => {
     }
     try {
       setSaving(true);
-      await createRecoveryTask({
+      const res = await createRecoveryTask({
         title: taskForm.title?.trim() || undefined,
         assignedTo: taskForm.assignedTo,
         scopeType: taskForm.scopeType,
@@ -295,7 +303,15 @@ const RecoveryTaskAssignment = () => {
         notes: taskForm.notes?.trim() || undefined,
         action: taskForm.action || 'both'
       });
+      const reopenedCount = Number(res?.data?.data?.reopenedCount || 0);
       setSnackbar({ open: true, message: 'Task created', severity: 'success' });
+      if (reopenedCount > 0) {
+        setSnackbar({
+          open: true,
+          message: `Re-opened ${reopenedCount} completed record(s).`,
+          severity: 'info'
+        });
+      }
       handleCloseAddDialog();
       loadTasks();
     } catch (err) {
@@ -339,11 +355,28 @@ const RecoveryTaskAssignment = () => {
     try {
       setProgressSaving(true);
       if (selectedTask) {
-        await updateRecoveryTask(selectedTask._id, payload);
+        const res = await updateRecoveryTask(selectedTask._id, payload);
+        const reopenedCount = Number(res?.data?.data?.reopenedCount || 0);
+        setSnackbar({ open: true, message: 'Progress updated', severity: 'success' });
+        if (reopenedCount > 0) {
+          setSnackbar({
+            open: true,
+            message: `Re-opened ${reopenedCount} completed record(s).`,
+            severity: 'info'
+          });
+        }
       } else {
-        await updateRecoveryTaskRule(selectedRule._id, payload);
+        const res = await updateRecoveryTaskRule(selectedRule._id, payload);
+        const reopenedCount = Number(res?.data?.data?.reopenedCount || 0);
+        setSnackbar({ open: true, message: 'Progress updated', severity: 'success' });
+        if (reopenedCount > 0) {
+          setSnackbar({
+            open: true,
+            message: `Re-opened ${reopenedCount} completed record(s).`,
+            severity: 'info'
+          });
+        }
       }
-      setSnackbar({ open: true, message: 'Progress updated', severity: 'success' });
       handleCloseProgressDialog();
       await Promise.all([loadTasks(), loadRules()]);
     } catch (err) {

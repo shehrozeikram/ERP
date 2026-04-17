@@ -4,8 +4,44 @@ const { authorize } = require('../middleware/auth');
 const RecoveryTask = require('../models/finance/RecoveryTask');
 const RecoveryMember = require('../models/finance/RecoveryMember');
 const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssignmentRule');
+const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
 
 const router = express.Router();
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sectorExactRegex(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
+}
+
+function buildTaskScopeQuery({ scopeType, sector, minAmount, maxAmount }) {
+  const query = {};
+  const sectorRegex = sectorExactRegex(sector);
+  if (sectorRegex) query.sector = sectorRegex;
+  if (scopeType === 'slab') {
+    const min = Number(minAmount) || 0;
+    const max = maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null;
+    query.currentlyDue = max != null ? { $gte: min, $lt: max } : { $gte: min };
+  }
+  return query;
+}
+
+async function reopenCompletedAssignmentsByTaskScope({ scopeType, sector, minAmount, maxAmount }) {
+  const scopeQuery = buildTaskScopeQuery({ scopeType, sector, minAmount, maxAmount });
+  const query = { ...scopeQuery, taskStatus: 'completed' };
+  const result = await RecoveryAssignment.updateMany(
+    query,
+    {
+      $set: { taskStatus: 'pending' },
+      $unset: { taskCompletedAt: '', taskCompletedBy: '' }
+    }
+  );
+  return result?.modifiedCount || 0;
+}
 
 function getProgress(task) {
   const t = task.toObject ? task.toObject() : task;
@@ -110,8 +146,20 @@ router.post(
       console.warn('Failed to ensure matching RecoveryTaskAssignmentRule for task', e.message);
     }
 
+    // If this scope is assigned again, move matching completed records back to pending.
+    const reopenedCount = await reopenCompletedAssignmentsByTaskScope({
+      scopeType: task.scopeType,
+      sector: task.sector,
+      minAmount: task.minAmount,
+      maxAmount: task.maxAmount
+    });
+
     const out = task.toObject();
-    res.status(201).json({ success: true, data: { ...out, progress: getProgress(out) } });
+    res.status(201).json({
+      success: true,
+      message: reopenedCount > 0 ? `Task created. Re-opened ${reopenedCount} completed record(s).` : undefined,
+      data: { ...out, progress: getProgress(out), reopenedCount }
+    });
   })
 );
 
@@ -123,7 +171,61 @@ router.put(
     const task = await RecoveryTask.findById(req.params.id);
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
 
-    const { status, completedCount, progressPercent, notes, title, action } = req.body;
+    const {
+      status,
+      completedCount,
+      progressPercent,
+      notes,
+      title,
+      action,
+      assignedTo,
+      scopeType,
+      sector,
+      minAmount,
+      maxAmount,
+      startDate,
+      endDate,
+      targetCount
+    } = req.body;
+
+    if (assignedTo !== undefined && assignedTo) {
+      const member = await RecoveryMember.findById(assignedTo);
+      if (!member) {
+        return res.status(400).json({ success: false, message: 'Recovery member not found' });
+      }
+      task.assignedTo = assignedTo;
+    }
+
+    if (scopeType !== undefined && ['sector', 'slab'].includes(scopeType)) {
+      task.scopeType = scopeType;
+    }
+
+    if (sector !== undefined) task.sector = sector ? String(sector).trim() : '';
+
+    if (task.scopeType === 'sector' && !String(task.sector || '').trim()) {
+      return res.status(400).json({ success: false, message: 'Sector is required for sector scope' });
+    }
+
+    if (task.scopeType === 'slab') {
+      if (minAmount !== undefined) task.minAmount = Number(minAmount) || 0;
+      if (maxAmount !== undefined) {
+        task.maxAmount = maxAmount === '' || maxAmount == null ? null : Number(maxAmount);
+      }
+      if (task.maxAmount != null && Number(task.maxAmount) < Number(task.minAmount || 0)) {
+        return res.status(400).json({ success: false, message: 'maxAmount must be null or >= minAmount' });
+      }
+    } else {
+      task.minAmount = 0;
+      task.maxAmount = null;
+    }
+
+    if (startDate !== undefined && startDate) task.startDate = new Date(startDate);
+    if (endDate !== undefined && endDate) task.endDate = new Date(endDate);
+    if (task.startDate && task.endDate && new Date(task.endDate) < new Date(task.startDate)) {
+      return res.status(400).json({ success: false, message: 'End date must be on or after start date' });
+    }
+
+    if (targetCount !== undefined) task.targetCount = targetCount === '' || targetCount == null ? null : Number(targetCount);
 
     if (status !== undefined) task.status = status;
     if (action !== undefined && ['whatsapp', 'call', 'both'].includes(action)) task.action = action;
@@ -135,8 +237,23 @@ router.put(
 
     await task.save();
     await task.populate([{ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } }]);
+
+    let reopenedCount = 0;
+    if (task.status !== 'cancelled') {
+      reopenedCount = await reopenCompletedAssignmentsByTaskScope({
+        scopeType: task.scopeType,
+        sector: task.sector,
+        minAmount: task.minAmount,
+        maxAmount: task.maxAmount
+      });
+    }
+
     const out = task.toObject();
-    res.json({ success: true, data: { ...out, progress: getProgress(out) } });
+    res.json({
+      success: true,
+      message: reopenedCount > 0 ? `Task updated. Re-opened ${reopenedCount} completed record(s).` : undefined,
+      data: { ...out, progress: getProgress(out), reopenedCount }
+    });
   })
 );
 
