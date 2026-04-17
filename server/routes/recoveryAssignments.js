@@ -1790,6 +1790,39 @@ router.put(
 
           await RecoveryTask.findByIdAndUpdate(task._id, update);
         }
+
+        // Keep assignment rules progress in sync too (shown on Task Assignment page).
+        const rulesForMember = await RecoveryTaskAssignmentRule.find({
+          isActive: true,
+          assignedTo: assignedToMember._id
+        }).lean();
+
+        for (const rule of rulesForMember) {
+          const q = { taskStatus: 'completed' };
+          if (rule.sector && String(rule.sector).trim()) {
+            q.sector = sectorExactRegex(rule.sector);
+          }
+          if (rule.type === 'slab') {
+            const min = Number(rule.minAmount) || 0;
+            const max = rule.maxAmount != null ? Number(rule.maxAmount) : null;
+            q.currentlyDue = max != null ? { $gte: min, $lt: max } : { $gte: min };
+          }
+
+          const count = await RecoveryAssignment.countDocuments(q);
+          const updateRule = { completedCount: count };
+
+          if (rule.targetCount != null && rule.targetCount > 0) {
+            const pct = Math.min(100, Math.round((count / rule.targetCount) * 100));
+            updateRule.progressPercent = pct;
+            if (count >= rule.targetCount) updateRule.status = 'completed';
+            else if (count > 0 && rule.status === 'pending') updateRule.status = 'in_progress';
+            else if (count === 0 && rule.status !== 'cancelled') updateRule.status = 'pending';
+          } else if (count > 0 && rule.status === 'pending') {
+            updateRule.status = 'in_progress';
+          }
+
+          await RecoveryTaskAssignmentRule.findByIdAndUpdate(rule._id, updateRule);
+        }
       }
     } catch (e) {
       console.warn('Failed to update RecoveryTask progress from completed assignment', e.message);

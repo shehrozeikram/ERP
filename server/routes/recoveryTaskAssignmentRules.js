@@ -43,6 +43,12 @@ async function reopenCompletedAssignmentsByRuleScope({ type, sector, minAmount, 
   return result?.modifiedCount || 0;
 }
 
+async function countCompletedAssignmentsByRuleScope({ type, sector, minAmount, maxAmount }) {
+  const scopeQuery = buildRuleScopeQuery({ type, sector, minAmount, maxAmount });
+  const query = { ...scopeQuery, taskStatus: 'completed' };
+  return RecoveryAssignment.countDocuments(query);
+}
+
 function getProgress(rule) {
   const r = rule?.toObject ? rule.toObject() : rule;
   if (r.targetCount != null && r.targetCount > 0) {
@@ -60,10 +66,48 @@ router.get(
       .populate('assignedTo', 'employee')
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .populate({ path: 'createdBy', select: 'firstName lastName employeeId' })
-      .sort({ type: 1, sector: 1, minAmount: 1 })
-      .lean();
+      .sort({ type: 1, sector: 1, minAmount: 1 });
 
-    res.json({ success: true, data: rules.map((r) => ({ ...r, progress: getProgress(r) })) });
+    // Keep displayed progress in sync with real completed assignment counts.
+    for (const rule of rules) {
+      const completed = await countCompletedAssignmentsByRuleScope({
+        type: rule.type,
+        sector: rule.sector,
+        minAmount: rule.minAmount,
+        maxAmount: rule.maxAmount
+      });
+
+      const nextProgress = rule.targetCount != null && rule.targetCount > 0
+        ? Math.min(100, Math.round((completed / rule.targetCount) * 100))
+        : Math.min(100, Math.max(0, Number(rule.progressPercent) || 0));
+
+      let nextStatus = rule.status;
+      if (rule.status !== 'cancelled') {
+        if (rule.targetCount != null && rule.targetCount > 0) {
+          if (completed >= rule.targetCount) nextStatus = 'completed';
+          else if (completed > 0) nextStatus = 'in_progress';
+          else nextStatus = 'pending';
+        } else if (completed > 0 && rule.status === 'pending') {
+          nextStatus = 'in_progress';
+        }
+      }
+
+      const needsSave =
+        Number(rule.completedCount || 0) !== Number(completed || 0) ||
+        Number(rule.progressPercent || 0) !== Number(nextProgress || 0) ||
+        String(rule.status || '') !== String(nextStatus || '');
+
+      if (needsSave) {
+        rule.completedCount = completed;
+        rule.progressPercent = nextProgress;
+        rule.status = nextStatus;
+        await rule.save();
+      }
+    }
+
+    const leanRules = rules.map((r) => r.toObject());
+
+    res.json({ success: true, data: leanRules.map((r) => ({ ...r, progress: getProgress(r) })) });
   })
 );
 
