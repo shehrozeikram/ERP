@@ -38,7 +38,7 @@ export default function AssetTaggingDashboard() {
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Link physical fixed assets to QR labels, record scans, update custody, and run physical verification counts.
-        Create assets under <strong>Finance → Review → Fixed Assets</strong>, then issue tags here.
+        Open the <strong>Fixed Asset Register (FAR)</strong> for a full ledger-aligned list with QR status, or create and depreciate assets under <strong>Finance → Review → Fixed Assets</strong>.
       </Typography>
 
       <Grid container spacing={2} mb={3}>
@@ -63,10 +63,11 @@ export default function AssetTaggingDashboard() {
       </Grid>
 
       <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 3 }}>
-        <Button variant="contained" onClick={() => navigate('/asset-tagging/assets')}>Tagged Assets</Button>
+        <Button variant="contained" onClick={() => navigate('/asset-tagging/register')}>Fixed Asset Register (FAR)</Button>
+        <Button variant="outlined" onClick={() => navigate('/asset-tagging/assets')}>Tagged Assets</Button>
         <Button variant="outlined" onClick={() => navigate('/asset-tagging/verification')}>Physical Verification</Button>
         <Button variant="outlined" onClick={() => navigate('/asset-tagging/events')}>Tag Events</Button>
-        <Button variant="outlined" onClick={() => navigate('/finance/fixed-assets')}>Fixed Assets (Finance)</Button>
+        <Button variant="outlined" onClick={() => navigate('/finance/fixed-assets')}>Finance — add / depreciate</Button>
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 2 }}>

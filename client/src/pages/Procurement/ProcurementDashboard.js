@@ -39,6 +39,15 @@ import { useNavigate } from 'react-router-dom';
 import procurementService from '../../services/procurementService';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip as RechartTooltip,
+  Cell
+} from 'recharts';
 
 const StatCard = ({ title, value, subtitle, icon, color, onClick }) => (
   <Card
@@ -77,6 +86,49 @@ const StatCard = ({ title, value, subtitle, icon, color, onClick }) => (
     </CardContent>
   </Card>
 );
+
+const MINI_CHART_COLORS = ['#1976d2', '#26a69a', '#ff9800', '#ef5350', '#7e57c2', '#42a5f5'];
+
+const CompactStatusChart = ({ title, icon, data }) => {
+  const chartData = Object.entries(data || {})
+    .map(([name, value]) => ({ name, value: Number(value || 0) }))
+    .filter((entry) => entry.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+
+  return (
+    <Card sx={{ height: '100%' }}>
+      <CardContent>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            {title}
+          </Typography>
+          {icon}
+        </Stack>
+        {chartData.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No data available
+          </Typography>
+        ) : (
+          <Box sx={{ height: 140 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                <RechartTooltip formatter={(v) => [v, 'Count']} />
+                <Bar dataKey="value" radius={[5, 5, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell key={`${entry.name}-${index}`} fill={MINI_CHART_COLORS[index % MINI_CHART_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const ProcurementDashboard = () => {
   const navigate = useNavigate();
@@ -243,6 +295,18 @@ const ProcurementDashboard = () => {
             color="primary.main"
             onClick={() => navigate('/procurement/purchase-orders')}
           />
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={2.5} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={4}>
+          <CompactStatusChart title="Requisition Trend" icon={<Description color="action" />} data={requisitionStatus} />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <CompactStatusChart title="Quotation Trend" icon={<ReceiptLong color="action" />} data={quotationStatus} />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <CompactStatusChart title="PO Trend" icon={<LocalShipping color="action" />} data={poStatus} />
         </Grid>
       </Grid>
 

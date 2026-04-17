@@ -5,6 +5,7 @@ const asyncHandler = require('express-async-handler');
 const { authorize } = require('../middleware/auth');
 const FixedAsset = require('../models/finance/FixedAsset');
 const FinanceHelper = require('../utils/financeHelper');
+const User = require('../models/User');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -30,7 +31,7 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/finance/fixed-assets/:id
-router.get('/:id', asyncHandler(async (req, res) => {
+router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
   const asset = await FixedAsset.findById(req.params.id)
     .populate('assetAccount', 'name accountNumber')
     .populate('accumulatedDeprecAccount', 'name accountNumber')
@@ -39,6 +40,40 @@ router.get('/:id', asyncHandler(async (req, res) => {
     .populate('depreciationSchedule.journalEntry', 'entryNumber date');
   if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
   res.json({ success: true, data: asset });
+}));
+
+// GET /api/finance/fixed-assets/next-serial
+router.get('/next-serial', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
+  const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
+  let max = 0;
+  for (const asset of assets) {
+    const raw = String(asset.serialNumber || '');
+    const match = raw.match(/(\d+)(?!.*\d)/);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (!Number.isNaN(n) && n > max) max = n;
+  }
+  const next = max + 1;
+  const serialNumber = `SN-${String(next).padStart(5, '0')}`;
+  res.json({ success: true, data: { serialNumber, next } });
+}));
+
+// GET /api/finance/fixed-assets/employees
+router.get('/employees', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
+  const users = await User.find({ isActive: true })
+    .select('firstName lastName employeeId department position')
+    .sort({ firstName: 1, lastName: 1 })
+    .lean();
+
+  const employees = users.map((u) => ({
+    _id: u._id,
+    fullName: `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unnamed Employee',
+    employeeId: u.employeeId || '',
+    department: u.department || '',
+    position: u.position || ''
+  }));
+
+  res.json({ success: true, data: employees });
 }));
 
 // POST /api/finance/fixed-assets
@@ -50,7 +85,21 @@ router.post('/', authorize('super_admin', 'admin', 'finance_manager'),
   ],
   validate,
   asyncHandler(async (req, res) => {
-    const asset = await FixedAsset.create({ ...req.body, createdBy: req.user.id });
+    const payload = { ...req.body, createdBy: req.user.id };
+    if (!payload.serialNumber) {
+      const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
+      let max = 0;
+      for (const asset of assets) {
+        const raw = String(asset.serialNumber || '');
+        const match = raw.match(/(\d+)(?!.*\d)/);
+        if (!match) continue;
+        const n = Number(match[1]);
+        if (!Number.isNaN(n) && n > max) max = n;
+      }
+      payload.serialNumber = `SN-${String(max + 1).padStart(5, '0')}`;
+    }
+
+    const asset = await FixedAsset.create(payload);
     res.status(201).json({ success: true, data: asset });
   })
 );

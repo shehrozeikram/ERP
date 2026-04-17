@@ -149,6 +149,7 @@ const Sidebar = () => {
       '/general/ceo-secretariat/payments': 'ceo_secretariat',
 
       '/asset-tagging': 'asset_tagging_dashboard',
+      '/asset-tagging/register': 'asset_tagging_assets',
       '/asset-tagging/assets': 'asset_tagging_assets',
       '/asset-tagging/verification': 'asset_tagging_verification',
       '/asset-tagging/events': 'asset_tagging_events',

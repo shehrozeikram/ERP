@@ -14,6 +14,8 @@ import {
   Schedule as ScheduleIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import storeService from '../../services/storeService';
+import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 
 const CATEGORIES = ['land','building','machinery','vehicle','furniture','computer','equipment','other'];
 const METHODS = [
@@ -21,6 +23,7 @@ const METHODS = [
   { value: 'declining_balance', label: 'Declining Balance' },
   { value: 'none',             label: 'None'               }
 ];
+const HQ_LOCATION = 'Sardar Plaza Head Quarter';
 const STATUS_COLOR = { active: 'success', disposed: 'error', fully_depreciated: 'default' };
 const SCHED_COLOR  = { pending: 'warning', posted: 'success', skipped: 'default' };
 
@@ -31,8 +34,17 @@ const emptyForm = {
   name: '', description: '', category: 'equipment',
   purchaseDate: new Date().toISOString().split('T')[0],
   purchaseCost: '', residualValue: 0,
-  depreciationMethod: 'straight_line', usefulLifeYears: 5,
-  location: '', assignedTo: '', serialNumber: ''
+  depreciationMethod: 'straight_line', usefulLifeYears: 5, depreciationRate: 20,
+  location: '',
+  locationBuilding: HQ_LOCATION,
+  locationFloor: 'Ground Floor',
+  locationRoom: '',
+  locationSubStore: '',
+  locationRack: '',
+  locationShelf: '',
+  locationBin: '',
+  assignedTo: '',
+  serialNumber: ''
 };
 
 function DepreciationScheduleRow({ asset }) {
@@ -110,6 +122,12 @@ export default function FixedAssets() {
   const [editing, setEditing] = useState(null);
   const [form, setForm]     = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [employees, setEmployees] = useState([]);
+  const [mainStores, setMainStores] = useState([]);
+  const [selectedMainStoreId, setSelectedMainStoreId] = useState('');
+  const [selectedSubStores, setSelectedSubStores] = useState([]);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   // Single depreciate dialog
   const [depOpen, setDepOpen]   = useState(false);
@@ -147,15 +165,108 @@ export default function FixedAssets() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openAdd  = () => { setEditing(null); setForm(emptyForm); setOpen(true); };
-  const openEdit = (a) => { setEditing(a); setForm({ ...a, purchaseDate: a.purchaseDate?.split('T')[0] || '' }); setOpen(true); };
+  const loadEmployees = useCallback(async () => {
+    try {
+      const res = await api.get('/finance/fixed-assets/employees');
+      setEmployees(res.data?.data || []);
+    } catch {
+      setEmployees([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
+
+  const loadStores = useCallback(async () => {
+    try {
+      const res = await storeService.getStores({ type: 'main', activeOnly: 'true' });
+      setMainStores(res.data || []);
+    } catch {
+      setMainStores([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStores();
+  }, [loadStores]);
+
+  useEffect(() => {
+    const selectedStore = mainStores.find((s) => String(s.name || '') === String(form.locationBuilding || ''));
+    const mainStoreId = selectedStore?._id || '';
+    setSelectedMainStoreId(mainStoreId);
+    if (!mainStoreId) {
+      setSelectedSubStores([]);
+      return;
+    }
+    storeService.getSubStores(mainStoreId)
+      .then((res) => setSelectedSubStores(res.data || []))
+      .catch(() => setSelectedSubStores([]));
+  }, [mainStores, form.locationBuilding]);
+
+  const openAdd = async () => {
+    setEditing(null);
+    const base = { ...emptyForm };
+    try {
+      const serialRes = await api.get('/finance/fixed-assets/next-serial');
+      base.serialNumber = serialRes.data?.data?.serialNumber || '';
+    } catch {
+      base.serialNumber = '';
+    }
+    setForm(base);
+    setOpen(true);
+  };
+
+  const openEdit = (a) => {
+    const locParts = String(a.location || '').split(',').map((part) => part.trim());
+    const inferredBuilding = locParts[0] || HQ_LOCATION;
+    const isStore = inferredBuilding !== HQ_LOCATION;
+    setEditing(a);
+    setForm({
+      ...a,
+      purchaseDate: a.purchaseDate?.split('T')[0] || '',
+      depreciationRate: a.depreciationRate ?? (a.usefulLifeYears ? (100 / Number(a.usefulLifeYears || 1)) : 0),
+      locationBuilding: inferredBuilding || HQ_LOCATION,
+      locationFloor: !isStore ? (locParts[1] || 'Ground Floor') : '',
+      locationRoom: !isStore ? (locParts[2] || '') : '',
+      locationSubStore: isStore ? (locParts[1] || '') : '',
+      locationRack: isStore ? (locParts[2] || '') : '',
+      locationShelf: isStore ? (locParts[3] || '') : '',
+      locationBin: isStore ? (locParts[4] || '') : ''
+    });
+    setOpen(true);
+  };
 
   const handleSave = async () => {
     if (!form.name || !form.purchaseDate || !form.purchaseCost) { setError('Name, date and cost are required'); return; }
     setSaving(true);
     try {
-      if (editing) await api.put(`/finance/fixed-assets/${editing._id}`, form);
-      else         await api.post('/finance/fixed-assets', form);
+      const isStore = form.locationBuilding !== HQ_LOCATION;
+      const selectedSubStore = selectedSubStores.find((s) => s._id === form.locationSubStore);
+      const subStoreLabel = selectedSubStore?.name || form.locationSubStore || '';
+      const locationParts = isStore
+        ? [form.locationBuilding, subStoreLabel, form.locationRack, form.locationShelf, form.locationBin]
+        : [form.locationBuilding, form.locationFloor, form.locationRoom];
+      const normalizedLocation = locationParts.map((part) => String(part || '').trim()).filter(Boolean).join(', ');
+      const payload = {
+        ...form,
+        depreciationRate:
+          form.depreciationMethod === 'none'
+            ? 0
+            : Number(form.depreciationRate || 0),
+        location: normalizedLocation,
+        assignedTo: form.assignedTo || ''
+      };
+      delete payload.locationBuilding;
+      delete payload.locationFloor;
+      delete payload.locationRoom;
+      delete payload.locationSubStore;
+      delete payload.locationRack;
+      delete payload.locationShelf;
+      delete payload.locationBin;
+
+      if (editing) await api.put(`/finance/fixed-assets/${editing._id}`, payload);
+      else         await api.post('/finance/fixed-assets', payload);
       setSuccess(editing ? 'Asset updated' : 'Asset created');
       setOpen(false);
       load();
@@ -165,6 +276,19 @@ export default function FixedAssets() {
       setSaving(false);
     }
   };
+
+  const residualLifeYears = (() => {
+    const life = Number(form.usefulLifeYears || 0);
+    const purchase = form.purchaseDate ? new Date(form.purchaseDate) : null;
+    if (!life || !purchase || Number.isNaN(purchase.getTime())) return 0;
+    const now = new Date();
+    const elapsed = Math.max(0, (now.getTime() - purchase.getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+    return Math.max(0, life - elapsed).toFixed(1);
+  })();
+
+  const straightLineRate = Number(form.usefulLifeYears || 0) > 0
+    ? (100 / Number(form.usefulLifeYears || 1))
+    : 0;
 
   const runDeprec = async () => {
     setDepLoading(true);
@@ -208,12 +332,23 @@ export default function FixedAssets() {
     }
   };
 
+  const paginatedAssets = assets.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  useEffect(() => {
+    setPage(0);
+  }, [assets.length, rowsPerPage]);
+
   return (
     <Box sx={{ p: 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
-          <AssetIcon color="primary" /> Fixed Assets
-        </Typography>
+        <Box>
+          <Typography variant="h5" fontWeight={700} display="flex" alignItems="center" gap={1}>
+            <AssetIcon color="primary" /> Fixed Assets
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Fixed Asset Register (FAR) — same records as <strong>Asset Tagging → Fixed Asset Register</strong>; manage depreciation and disposal here.
+          </Typography>
+        </Box>
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" color="warning" startIcon={<DepAllIcon />}
             onClick={() => { setBulkResult(null); setBulkOpen(true); }}>
@@ -268,7 +403,7 @@ export default function FixedAssets() {
               {assets.length === 0 && (
                 <TableRow><TableCell colSpan={10} align="center" sx={{ color: 'text.secondary', py: 4 }}>No fixed assets yet.</TableCell></TableRow>
               )}
-              {assets.map(a => (
+              {paginatedAssets.map(a => (
                 <React.Fragment key={a._id}>
                   <DepreciationScheduleRow asset={a} />
                   {/* Action buttons row */}
@@ -304,6 +439,38 @@ export default function FixedAssets() {
           </Table>
         </TableContainer>
       )}
+      {!loading && assets.length > 0 && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+          <TextField
+            select
+            size="small"
+            label="Rows"
+            value={rowsPerPage}
+            onChange={(e) => {
+              setRowsPerPage(Number(e.target.value));
+              setPage(0);
+            }}
+            sx={{ width: 110, mr: 1 }}
+          >
+            {[5, 10, 25, 50].map((n) => (
+              <MenuItem key={n} value={n}>{n}</MenuItem>
+            ))}
+          </TextField>
+          <Button size="small" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
+            Prev
+          </Button>
+          <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
+            Page {page + 1} / {Math.max(1, Math.ceil(assets.length / rowsPerPage))}
+          </Typography>
+          <Button
+            size="small"
+            onClick={() => setPage((p) => p + 1)}
+            disabled={(page + 1) * rowsPerPage >= assets.length}
+          >
+            Next
+          </Button>
+        </Box>
+      )}
 
       {/* Add/Edit Dialog */}
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
@@ -315,7 +482,14 @@ export default function FixedAssets() {
               <TextField select label="Category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} fullWidth size="small">
                 {CATEGORIES.map(c => <MenuItem key={c} value={c} sx={{ textTransform: 'capitalize' }}>{c}</MenuItem>)}
               </TextField>
-              <TextField label="Serial #" value={form.serialNumber || ''} onChange={e => setForm({ ...form, serialNumber: e.target.value })} fullWidth size="small" />
+              <TextField
+                label="Serial # (Auto)"
+                value={form.serialNumber || ''}
+                onChange={e => setForm({ ...form, serialNumber: e.target.value })}
+                fullWidth
+                size="small"
+                helperText="Auto-generated with +1 sequence; you can still edit if required."
+              />
             </Stack>
             <Stack direction="row" gap={2}>
               <TextField label="Purchase Date *" type="date" value={form.purchaseDate} onChange={e => setForm({ ...form, purchaseDate: e.target.value })} fullWidth size="small" InputLabelProps={{ shrink: true }} />
@@ -323,15 +497,162 @@ export default function FixedAssets() {
             </Stack>
             <Stack direction="row" gap={2}>
               <TextField label="Residual Value" type="number" value={form.residualValue} onChange={e => setForm({ ...form, residualValue: e.target.value })} fullWidth size="small" inputProps={{ min: 0 }} />
-              <TextField select label="Depreciation Method" value={form.depreciationMethod} onChange={e => setForm({ ...form, depreciationMethod: e.target.value })} fullWidth size="small">
+              <TextField
+                select
+                label="Depreciation Method"
+                value={form.depreciationMethod}
+                onChange={e => {
+                  const method = e.target.value;
+                  setForm({
+                    ...form,
+                    depreciationMethod: method,
+                    depreciationRate:
+                      method === 'none'
+                        ? 0
+                        : method === 'straight_line'
+                        ? Number(straightLineRate.toFixed(2))
+                        : form.depreciationRate
+                  });
+                }}
+                fullWidth
+                size="small"
+              >
                 {METHODS.map(m => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
               </TextField>
             </Stack>
             <Stack direction="row" gap={2}>
-              <TextField label="Useful Life (Years)" type="number" value={form.usefulLifeYears} onChange={e => setForm({ ...form, usefulLifeYears: e.target.value })} fullWidth size="small" inputProps={{ min: 1 }} />
-              <TextField label="Location" value={form.location || ''} onChange={e => setForm({ ...form, location: e.target.value })} fullWidth size="small" />
+              <TextField
+                label="Useful Life (Years)"
+                type="number"
+                value={form.usefulLifeYears}
+                onChange={e => {
+                  const years = e.target.value;
+                  const yearsNum = Number(years || 0);
+                  setForm({
+                    ...form,
+                    usefulLifeYears: years,
+                    depreciationRate:
+                      form.depreciationMethod === 'straight_line' && yearsNum > 0
+                        ? Number((100 / yearsNum).toFixed(2))
+                        : form.depreciationRate
+                  });
+                }}
+                fullWidth
+                size="small"
+                inputProps={{ min: 1 }}
+              />
+              <TextField
+                label="Residual Life (Years)"
+                value={residualLifeYears}
+                fullWidth
+                size="small"
+                InputProps={{ readOnly: true }}
+                helperText="Remaining useful life from purchase date to end-of-life."
+              />
             </Stack>
-            <TextField label="Assigned To" value={form.assignedTo || ''} onChange={e => setForm({ ...form, assignedTo: e.target.value })} fullWidth size="small" />
+            <TextField
+              label="Depreciation Rate (%)"
+              type="number"
+              value={form.depreciationMethod === 'straight_line' ? Number(straightLineRate.toFixed(2)) : (form.depreciationRate ?? 0)}
+              onChange={e => setForm({ ...form, depreciationRate: e.target.value })}
+              fullWidth
+              size="small"
+              inputProps={{ min: 0, max: 100, step: 0.01 }}
+              disabled={form.depreciationMethod === 'none' || form.depreciationMethod === 'straight_line'}
+              required={form.depreciationMethod === 'declining_balance'}
+              helperText={
+                form.depreciationMethod === 'straight_line'
+                  ? 'Auto-derived from useful life (100 / years).'
+                  : form.depreciationMethod === 'declining_balance'
+                  ? 'Required for declining balance method.'
+                  : 'Depreciation rate is not used when method is None.'
+              }
+            />
+            <TextField
+              select
+              label="Location"
+              value={form.locationBuilding || ''}
+              onChange={e => {
+                const next = e.target.value;
+                setForm({
+                  ...form,
+                  locationBuilding: next,
+                  locationFloor: next === HQ_LOCATION ? (form.locationFloor || 'Ground Floor') : '',
+                  locationRoom: next === HQ_LOCATION ? form.locationRoom : '',
+                  locationSubStore: next === HQ_LOCATION ? '' : form.locationSubStore,
+                  locationRack: next === HQ_LOCATION ? '' : form.locationRack,
+                  locationShelf: next === HQ_LOCATION ? '' : form.locationShelf,
+                  locationBin: next === HQ_LOCATION ? '' : form.locationBin
+                });
+              }}
+              fullWidth
+              size="small"
+            >
+              {[HQ_LOCATION, ...mainStores.map((s) => s.name).filter(Boolean)].map((building) => (
+                <MenuItem key={building} value={building}>{building}</MenuItem>
+              ))}
+            </TextField>
+            {form.locationBuilding !== HQ_LOCATION ? (
+              <>
+                <LocationSelector
+                  mainStoreId={selectedMainStoreId || undefined}
+                  value={{
+                    subStore: form.locationSubStore || '',
+                    rack: form.locationRack || '',
+                    shelf: form.locationShelf || '',
+                    bin: form.locationBin || ''
+                  }}
+                  onChange={(loc) => {
+                    setForm({
+                      ...form,
+                      locationSubStore: loc.subStore || '',
+                      locationRack: loc.rack || '',
+                      locationShelf: loc.shelf || '',
+                      locationBin: loc.bin || ''
+                    });
+                  }}
+                  size="small"
+                />
+                {!selectedMainStoreId && (
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    Selected store is not configured yet in Store Management.
+                  </Alert>
+                )}
+              </>
+            ) : (
+              <Stack direction="row" gap={2}>
+                <TextField
+                  label="Floor"
+                  value={form.locationFloor || ''}
+                  onChange={e => setForm({ ...form, locationFloor: e.target.value })}
+                  fullWidth
+                  size="small"
+                />
+                <TextField
+                  label="Room"
+                  value={form.locationRoom || ''}
+                  onChange={e => setForm({ ...form, locationRoom: e.target.value })}
+                  fullWidth
+                  size="small"
+                />
+              </Stack>
+            )}
+            <FormControl fullWidth size="small">
+              <InputLabel id="assigned-to-label">Assigned To</InputLabel>
+              <Select
+                labelId="assigned-to-label"
+                label="Assigned To"
+                value={form.assignedTo || ''}
+                onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
+              >
+                <MenuItem value=""><em>Not assigned</em></MenuItem>
+                {employees.map((emp) => (
+                  <MenuItem key={emp._id} value={`${emp.fullName}${emp.employeeId ? ` (${emp.employeeId})` : ''}`}>
+                    {`${emp.fullName}${emp.employeeId ? ` (${emp.employeeId})` : ''}`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField label="Description" value={form.description || ''} onChange={e => setForm({ ...form, description: e.target.value })} multiline rows={2} fullWidth size="small" />
           </Stack>
         </DialogContent>

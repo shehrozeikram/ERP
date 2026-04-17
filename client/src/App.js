@@ -70,6 +70,7 @@ import TaxManagement from './pages/Finance/TaxManagement';
 import FixedAssets from './pages/Finance/FixedAssets';
 import AssetTaggingDashboard from './pages/AssetTagging/AssetTaggingDashboard';
 import TaggedAssetsPage from './pages/AssetTagging/TaggedAssetsPage';
+import FixedAssetRegisterPage from './pages/AssetTagging/FixedAssetRegisterPage';
 import VerificationPage from './pages/AssetTagging/VerificationPage';
 import TagEventsPage from './pages/AssetTagging/TagEventsPage';
 import ScanAssetPage from './pages/AssetTagging/ScanAssetPage';
@@ -989,6 +990,7 @@ function App() {
             <Route path="/finance/taxes" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><TaxManagement /></ProtectedRoute>} />
             <Route path="/finance/fixed-assets" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><FixedAssets /></ProtectedRoute>} />
             <Route path="/asset-tagging" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><AssetTaggingDashboard /></ProtectedRoute>} />
+            <Route path="/asset-tagging/register" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><FixedAssetRegisterPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/assets" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><TaggedAssetsPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/verification/:sessionId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/verification" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />

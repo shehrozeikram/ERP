@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, Paper, Button, TextField, CircularProgress, Alert, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Chip, Dialog, DialogTitle, DialogContent,
+  MenuItem,
   DialogActions, Divider
 } from '@mui/material';
 import { FactCheck as VerifyIcon, Add as AddIcon, Refresh as RefreshIcon } from '@mui/icons-material';
@@ -22,6 +23,10 @@ export default function VerificationPage() {
   const [cName, setCName] = useState('');
   const [cLoc, setCLoc] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sessionPage, setSessionPage] = useState(0);
+  const [sessionRowsPerPage, setSessionRowsPerPage] = useState(10);
+  const [linePage, setLinePage] = useState(0);
+  const [lineRowsPerPage, setLineRowsPerPage] = useState(10);
 
   const loadList = useCallback(async () => {
     try {
@@ -53,6 +58,24 @@ export default function VerificationPage() {
     if (sessionId) loadDetail(sessionId);
     else setDetail(null);
   }, [sessionId, loadDetail]);
+
+  const paginatedSessions = sessions.slice(
+    sessionPage * sessionRowsPerPage,
+    sessionPage * sessionRowsPerPage + sessionRowsPerPage
+  );
+  const detailLines = detail?.lines || [];
+  const paginatedLines = detailLines.slice(
+    linePage * lineRowsPerPage,
+    linePage * lineRowsPerPage + lineRowsPerPage
+  );
+
+  useEffect(() => {
+    setSessionPage(0);
+  }, [sessions.length, sessionRowsPerPage]);
+
+  useEffect(() => {
+    setLinePage(0);
+  }, [detail?._id, detailLines.length, lineRowsPerPage]);
 
   const createSession = async () => {
     if (!cName.trim()) return;
@@ -153,7 +176,7 @@ export default function VerificationPage() {
               {sessions.length === 0 && (
                 <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: 'text.secondary' }}>No sessions — create one to count tagged assets.</TableCell></TableRow>
               )}
-              {sessions.map((s) => (
+              {paginatedSessions.map((s) => (
                 <TableRow key={s._id} hover>
                   <TableCell sx={{ fontFamily: 'monospace' }}>{s.sessionNumber}</TableCell>
                   <TableCell>{s.name}</TableCell>
@@ -167,6 +190,34 @@ export default function VerificationPage() {
               ))}
             </TableBody>
           </Table>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+            <TextField
+              select
+              size="small"
+              label="Rows"
+              value={sessionRowsPerPage}
+              onChange={(e) => {
+                setSessionRowsPerPage(Number(e.target.value));
+                setSessionPage(0);
+              }}
+              sx={{ width: 110, mr: 1 }}
+            >
+              {[5, 10, 25, 50].map((n) => (
+                <MenuItem key={n} value={n}>{n}</MenuItem>
+              ))}
+            </TextField>
+            <Button size="small" onClick={() => setSessionPage((p) => Math.max(0, p - 1))} disabled={sessionPage === 0}>Prev</Button>
+            <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
+              Page {sessions.length === 0 ? 0 : sessionPage + 1} / {Math.max(1, Math.ceil(sessions.length / sessionRowsPerPage))}
+            </Typography>
+            <Button
+              size="small"
+              onClick={() => setSessionPage((p) => p + 1)}
+              disabled={(sessionPage + 1) * sessionRowsPerPage >= sessions.length}
+            >
+              Next
+            </Button>
+          </Box>
         </Paper>
       )}
 
@@ -197,7 +248,7 @@ export default function VerificationPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(detail.lines || []).map((line) => {
+                {paginatedLines.map((line) => {
                   const asset = line.asset;
                   const num = asset?.assetNumber || '—';
                   const nm = asset?.name || '';
@@ -216,6 +267,34 @@ export default function VerificationPage() {
                 })}
               </TableBody>
             </Table>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+              <TextField
+                select
+                size="small"
+                label="Rows"
+                value={lineRowsPerPage}
+                onChange={(e) => {
+                  setLineRowsPerPage(Number(e.target.value));
+                  setLinePage(0);
+                }}
+                sx={{ width: 110, mr: 1 }}
+              >
+                {[5, 10, 25, 50].map((n) => (
+                  <MenuItem key={n} value={n}>{n}</MenuItem>
+                ))}
+              </TextField>
+              <Button size="small" onClick={() => setLinePage((p) => Math.max(0, p - 1))} disabled={linePage === 0}>Prev</Button>
+              <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
+                Page {detailLines.length === 0 ? 0 : linePage + 1} / {Math.max(1, Math.ceil(detailLines.length / lineRowsPerPage))}
+              </Typography>
+              <Button
+                size="small"
+                onClick={() => setLinePage((p) => p + 1)}
+                disabled={(linePage + 1) * lineRowsPerPage >= detailLines.length}
+              >
+                Next
+              </Button>
+            </Box>
           </TableContainer>
 
           <Button sx={{ mt: 2 }} onClick={() => navigate('/asset-tagging/verification')}>← All sessions</Button>

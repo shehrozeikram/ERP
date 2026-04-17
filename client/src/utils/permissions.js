@@ -621,7 +621,7 @@ export const MODULES = {
         path: '/finance/inventory-valuation',
         subItems: [
           { name: 'Inventory Valuation', path: '/finance/inventory-valuation' },
-          { name: 'Fixed Assets',        path: '/finance/fixed-assets'        },
+          { name: 'Fixed Assets (FAR)',  path: '/finance/fixed-assets'        },
           { name: 'Budgets',             path: '/finance/budgets'             },
           { name: 'Budget vs Actual',    path: '/finance/budget-vs-actual'    },
         ]
@@ -948,6 +948,7 @@ export const MODULES = {
     roles: ['super_admin', 'admin', 'finance_manager', 'procurement_manager', 'audit_manager', 'higher_management'],
     subItems: [
       { name: 'Dashboard', path: '/asset-tagging' },
+      { name: 'Fixed Asset Register (FAR)', path: '/asset-tagging/register' },
       { name: 'Tagged Assets', path: '/asset-tagging/assets' },
       { name: 'Physical Verification', path: '/asset-tagging/verification' },
       { name: 'Tag Events', path: '/asset-tagging/events' }
@@ -1245,6 +1246,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
 
       // Asset Tagging Module
       '/asset-tagging': 'asset_tagging_dashboard',
+      '/asset-tagging/register': 'asset_tagging_assets',
       '/asset-tagging/assets': 'asset_tagging_assets',
       '/asset-tagging/verification': 'asset_tagging_verification',
       '/asset-tagging/events': 'asset_tagging_events',

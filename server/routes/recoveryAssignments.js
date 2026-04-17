@@ -36,12 +36,26 @@ function resolveAuthUserObjectId(req) {
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
 
+function normalizeSectorValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sectorExactRegex(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
+}
+
 function resolveAssignedMember(record, sectorRules, slabRules) {
-  const sector = (record.sector || '').trim();
+  const sector = normalizeSectorValue(record.sector);
   const due = Number(record.currentlyDue) || 0;
   const actionFromRule = (rule) => rule.action && ['whatsapp', 'call', 'both'].includes(rule.action) ? rule.action : 'both';
 
-  const sectorRule = sectorRules.find((r) => (r.sector || '').trim() === sector);
+  const sectorRule = sectorRules.find((r) => normalizeSectorValue(r.sector) === sector);
   if (sectorRule && sectorRule.assignedTo) {
     const emp = sectorRule.assignedTo.employee;
     const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : '';
@@ -57,7 +71,7 @@ function resolveAssignedMember(record, sectorRules, slabRules) {
   const slabRule = slabRules.find((r) => {
     const min = Number(r.minAmount) || 0;
     const max = r.maxAmount != null && r.maxAmount !== '' ? Number(r.maxAmount) : null;
-    const sectorMatch = !(r.sector && r.sector.trim()) || (r.sector || '').trim() === sector;
+    const sectorMatch = !normalizeSectorValue(r.sector) || normalizeSectorValue(r.sector) === sector;
     const inRange = due >= min && (max === null || due < max);
     return sectorMatch && inRange;
   });
@@ -227,15 +241,17 @@ router.get(
       const slabRulesAll = allRules.filter((r) => r.type === 'slab');
 
       const orConditions = [];
-      const allSectors = [...new Set(sectorRulesAll.map((r) => (r.sector || '').trim()).filter(Boolean))];
-      if (allSectors.length) orConditions.push({ sector: { $in: allSectors } });
+      const allSectors = [...new Set(sectorRulesAll.map((r) => String(r.sector || '').trim()).filter(Boolean))];
+      if (allSectors.length) {
+        orConditions.push({ $or: allSectors.map((s) => ({ sector: sectorExactRegex(s) })) });
+      }
       slabRulesAll.forEach((s) => {
         const min = Number(s.minAmount) || 0;
         const max = s.maxAmount != null && s.maxAmount !== '' ? Number(s.maxAmount) : null;
         const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
         const sectorVal = (s.sector || '').trim();
         if (sectorVal) {
-          orConditions.push({ sector: sectorVal, currentlyDue: dueCondition });
+          orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
         } else {
           orConditions.push({ currentlyDue: dueCondition });
         }
@@ -329,18 +345,20 @@ router.get(
       .populate({ path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } })
       .lean();
 
-    const mySectors = rules.filter((r) => r.type === 'sector').map((r) => (r.sector || '').trim()).filter(Boolean);
+    const mySectors = rules.filter((r) => r.type === 'sector').map((r) => String(r.sector || '').trim()).filter(Boolean);
     const mySlabs = rules.filter((r) => r.type === 'slab');
 
     const orConditions = [];
-    if (mySectors.length) orConditions.push({ sector: { $in: mySectors } });
+    if (mySectors.length) {
+      orConditions.push({ $or: mySectors.map((s) => ({ sector: sectorExactRegex(s) })) });
+    }
     mySlabs.forEach((s) => {
       const min = Number(s.minAmount) || 0;
       const max = s.maxAmount != null && s.maxAmount !== '' ? Number(s.maxAmount) : null;
       const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
       const sectorVal = (s.sector || '').trim();
       if (sectorVal) {
-        orConditions.push({ sector: sectorVal, currentlyDue: dueCondition });
+        orConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
       } else {
         orConditions.push({ currentlyDue: dueCondition });
       }
@@ -446,15 +464,17 @@ router.get(
       const slabRules = rules.filter((r) => r.type === 'slab');
 
       const memberOrConditions = [];
-      const sectors = [...new Set(sectorRules.map((r) => (r.sector || '').trim()).filter(Boolean))];
-      if (sectors.length) memberOrConditions.push({ sector: { $in: sectors } });
+      const sectors = [...new Set(sectorRules.map((r) => String(r.sector || '').trim()).filter(Boolean))];
+      if (sectors.length) {
+        memberOrConditions.push({ $or: sectors.map((s) => ({ sector: sectorExactRegex(s) })) });
+      }
       slabRules.forEach((s) => {
         const min = Number(s.minAmount) || 0;
         const max = s.maxAmount != null && s.maxAmount !== '' ? Number(s.maxAmount) : null;
         const dueCondition = max != null ? { $gte: min, $lt: max } : { $gte: min };
         const sectorVal = (s.sector || '').trim();
         if (sectorVal) {
-          memberOrConditions.push({ sector: sectorVal, currentlyDue: dueCondition });
+          memberOrConditions.push({ sector: sectorExactRegex(sectorVal), currentlyDue: dueCondition });
         } else {
           memberOrConditions.push({ currentlyDue: dueCondition });
         }
@@ -1739,11 +1759,11 @@ router.put(
 
           if (task.scopeType === 'sector') {
             if (task.sector && task.sector.trim()) {
-              q.sector = task.sector.trim();
+              q.sector = sectorExactRegex(task.sector);
             }
           } else if (task.scopeType === 'slab') {
             if (task.sector && task.sector.trim()) {
-              q.sector = task.sector.trim();
+              q.sector = sectorExactRegex(task.sector);
             }
             const min = Number(task.minAmount) || 0;
             const max = task.maxAmount != null ? Number(task.maxAmount) : null;

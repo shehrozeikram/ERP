@@ -81,6 +81,8 @@ const getOrderCodeLabel = (row) =>
   row?.plot?.orderCode ||
   '';
 
+const normalizeSector = (value) => String(value || '').trim().toLowerCase();
+
 function normalizeWhatsAppNumber(mobile) {
   if (!mobile) return '';
   let n = String(mobile).replace(/\D/g, '').trim();
@@ -178,13 +180,13 @@ const MyTasks = () => {
         rows = rows.filter((row) => {
           // Scope filter
           if (t.scopeType === 'sector') {
-            if (t.sector && row.sector !== t.sector) return false;
+            if (t.sector && normalizeSector(row.sector) !== normalizeSector(t.sector)) return false;
           } else if (t.scopeType === 'slab') {
             const due = Number(row.currentlyDue) || 0;
             const min = Number(t.minAmount) || 0;
             const max = t.maxAmount != null ? Number(t.maxAmount) : null;
             if (!(due >= min && (max == null || due < max))) return false;
-            if (t.sector && row.sector !== t.sector) return false;
+            if (t.sector && normalizeSector(row.sector) !== normalizeSector(t.sector)) return false;
           }
 
           // Date filter (by assignment createdAt)

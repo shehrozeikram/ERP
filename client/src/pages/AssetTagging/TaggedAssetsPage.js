@@ -10,8 +10,11 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import storeService from '../../services/storeService';
+import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const HQ_LOCATION = 'Sardar Plaza Head Quarter';
 
 export default function TaggedAssetsPage() {
   const navigate = useNavigate();
@@ -25,9 +28,21 @@ export default function TaggedAssetsPage() {
   const [voidOpen, setVoidOpen] = useState(false);
   const [sel, setSel] = useState(null);
   const [location, setLocation] = useState('');
+  const [locationBuilding, setLocationBuilding] = useState(HQ_LOCATION);
+  const [locationFloor, setLocationFloor] = useState('Ground Floor');
+  const [locationRoom, setLocationRoom] = useState('');
+  const [locationSubStore, setLocationSubStore] = useState('');
+  const [locationRack, setLocationRack] = useState('');
+  const [locationShelf, setLocationShelf] = useState('');
+  const [locationBin, setLocationBin] = useState('');
+  const [mainStores, setMainStores] = useState([]);
+  const [selectedMainStoreId, setSelectedMainStoreId] = useState('');
+  const [selectedSubStores, setSelectedSubStores] = useState([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [voidReason, setVoidReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,7 +60,32 @@ export default function TaggedAssetsPage() {
     }
   }, [search, tagStatus]);
 
+  const paginatedRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  useEffect(() => {
+    setPage(0);
+  }, [rows.length, rowsPerPage]);
+
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    storeService.getStores({ type: 'main', activeOnly: 'true' })
+      .then((res) => setMainStores(res.data || []))
+      .catch(() => setMainStores([]));
+  }, []);
+
+  useEffect(() => {
+    const selectedStore = mainStores.find((s) => String(s.name || '') === String(locationBuilding || ''));
+    const mainStoreId = selectedStore?._id || '';
+    setSelectedMainStoreId(mainStoreId);
+    if (!mainStoreId) {
+      setSelectedSubStores([]);
+      return;
+    }
+    storeService.getSubStores(mainStoreId)
+      .then((res) => setSelectedSubStores(res.data || []))
+      .catch(() => setSelectedSubStores([]));
+  }, [mainStores, locationBuilding]);
 
   const issueTag = async (asset) => {
     setBusy(true);
@@ -62,6 +102,16 @@ export default function TaggedAssetsPage() {
   const openTransfer = (asset) => {
     setSel(asset);
     setLocation(asset.location || '');
+    const parts = String(asset.location || '').split(',').map((p) => p.trim()).filter(Boolean);
+    const inferredBuilding = parts[0] || HQ_LOCATION;
+    const isStore = inferredBuilding !== HQ_LOCATION;
+    setLocationBuilding(inferredBuilding);
+    setLocationFloor(!isStore ? (parts[1] || 'Ground Floor') : '');
+    setLocationRoom(!isStore ? (parts[2] || '') : '');
+    setLocationSubStore(isStore ? (parts[1] || '') : '');
+    setLocationRack(isStore ? (parts[2] || '') : '');
+    setLocationShelf(isStore ? (parts[3] || '') : '');
+    setLocationBin(isStore ? (parts[4] || '') : '');
     setAssignedTo(asset.assignedTo || '');
     setTransferOpen(true);
   };
@@ -70,7 +120,15 @@ export default function TaggedAssetsPage() {
     if (!sel) return;
     setBusy(true);
     try {
-      await api.put(`/asset-tagging/assets/${sel._id}/custody`, { location, assignedTo });
+      const isStore = locationBuilding !== HQ_LOCATION;
+      const selectedSubStore = selectedSubStores.find((s) => s._id === locationSubStore);
+      const subStoreLabel = selectedSubStore?.name || locationSubStore || '';
+      const locationParts = isStore
+        ? [locationBuilding, subStoreLabel, locationRack, locationShelf, locationBin]
+        : [locationBuilding, locationFloor, locationRoom];
+      const normalizedLocation = locationParts.map((part) => String(part || '').trim()).filter(Boolean).join(', ');
+      setLocation(normalizedLocation);
+      await api.put(`/asset-tagging/assets/${sel._id}/custody`, { location: normalizedLocation, assignedTo });
       setTransferOpen(false);
       await load();
     } catch (e) {
@@ -121,75 +179,158 @@ export default function TaggedAssetsPage() {
       {loading ? (
         <Box py={6} textAlign="center"><CircularProgress /></Box>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: 'grey.50' }}>
-                <TableCell><b>Asset #</b></TableCell>
-                <TableCell><b>Name</b></TableCell>
-                <TableCell><b>Location</b></TableCell>
-                <TableCell><b>Custodian</b></TableCell>
-                <TableCell><b>Book value</b></TableCell>
-                <TableCell><b>Tag code</b></TableCell>
-                <TableCell align="right"><b>Actions</b></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.length === 0 && (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
-              )}
-              {rows.map((a) => (
-                <TableRow key={a._id} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
-                  <TableCell>{a.name}</TableCell>
-                  <TableCell>{a.location || '—'}</TableCell>
-                  <TableCell>{a.assignedTo || '—'}</TableCell>
-                  <TableCell align="right">{fmt(a.currentBookValue)}</TableCell>
-                  <TableCell>
-                    {a.currentTag ? (
-                      <Chip size="small" label={a.currentTag.tagCode} color="success" variant="outlined" />
-                    ) : (
-                      <Chip size="small" label="No tag" color="warning" variant="outlined" />
-                    )}
-                  </TableCell>
-                  <TableCell align="right">
-                    {!a.currentTag && a.status !== 'disposed' && (
-                      <Button size="small" variant="contained" disabled={busy} onClick={() => issueTag(a)}>Issue tag</Button>
-                    )}
-                    {a.currentTag && (
-                      <>
-                        <Tooltip title="Scan / lookup">
-                          <IconButton size="small" onClick={() => navigate(`/asset-tagging/scan/${encodeURIComponent(a.currentTag.tagCode)}`)}>
-                            <OpenIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Print label">
-                          <IconButton size="small" onClick={() => navigate(`/asset-tagging/label/${a._id}`)}>
-                            <PrintIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Transfer location / custodian">
-                          <IconButton size="small" onClick={() => openTransfer(a)}><TransferIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                        <Tooltip title="Void tag">
-                          <IconButton size="small" color="error" onClick={() => { setSel(a); setVoidOpen(true); }}>
-                            <VoidIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </>
-                    )}
-                  </TableCell>
+        <Box>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell><b>Asset #</b></TableCell>
+                  <TableCell><b>Name</b></TableCell>
+                  <TableCell><b>Location</b></TableCell>
+                  <TableCell><b>Custodian</b></TableCell>
+                  <TableCell><b>Book value</b></TableCell>
+                  <TableCell><b>Tag code</b></TableCell>
+                  <TableCell align="right"><b>Actions</b></TableCell>
                 </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.length === 0 && (
+                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>No assets — add fixed assets in Finance first.</TableCell></TableRow>
+                )}
+                {paginatedRows.map((a) => (
+                  <TableRow key={a._id} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
+                    <TableCell>{a.name}</TableCell>
+                    <TableCell>{a.location || '—'}</TableCell>
+                    <TableCell>{a.assignedTo || '—'}</TableCell>
+                    <TableCell align="right">{fmt(a.currentBookValue)}</TableCell>
+                    <TableCell>
+                      {a.currentTag ? (
+                        <Chip size="small" label={a.currentTag.tagCode} color="success" variant="outlined" />
+                      ) : (
+                        <Chip size="small" label="No tag" color="warning" variant="outlined" />
+                      )}
+                    </TableCell>
+                    <TableCell align="right">
+                      {!a.currentTag && a.status !== 'disposed' && (
+                        <Button size="small" variant="contained" disabled={busy} onClick={() => issueTag(a)}>Issue tag</Button>
+                      )}
+                      {a.currentTag && (
+                        <>
+                          <Tooltip title="Scan / lookup">
+                            <IconButton size="small" onClick={() => navigate(`/asset-tagging/scan/${encodeURIComponent(a.currentTag.tagCode)}`)}>
+                              <OpenIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Print label">
+                            <IconButton size="small" onClick={() => navigate(`/asset-tagging/label/${a._id}`)}>
+                              <PrintIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Transfer location / custodian">
+                            <IconButton size="small" onClick={() => openTransfer(a)}><TransferIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                          <Tooltip title="Void tag">
+                            <IconButton size="small" color="error" onClick={() => { setSel(a); setVoidOpen(true); }}>
+                              <VoidIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+            <TextField
+              select
+              size="small"
+              label="Rows"
+              value={rowsPerPage}
+              onChange={(e) => {
+                setRowsPerPage(Number(e.target.value));
+                setPage(0);
+              }}
+              sx={{ width: 110, mr: 1 }}
+            >
+              {[5, 10, 25, 50].map((n) => (
+                <MenuItem key={n} value={n}>{n}</MenuItem>
               ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            </TextField>
+            <Button size="small" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0}>
+              Prev
+            </Button>
+            <Typography variant="body2" sx={{ px: 1.5, alignSelf: 'center' }}>
+              Page {rows.length === 0 ? 0 : page + 1} / {Math.max(1, Math.ceil(rows.length / rowsPerPage))}
+            </Typography>
+            <Button
+              size="small"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={(page + 1) * rowsPerPage >= rows.length}
+            >
+              Next
+            </Button>
+          </Box>
+        </Box>
       )}
 
       <Dialog open={transferOpen} onClose={() => setTransferOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Transfer — {sel?.assetNumber}</DialogTitle>
         <DialogContent>
-          <TextField fullWidth margin="normal" label="Location" value={location} onChange={(e) => setLocation(e.target.value)} />
+          <TextField
+            select
+            fullWidth
+            margin="normal"
+            label="Location"
+            value={locationBuilding}
+            onChange={(e) => {
+              const next = e.target.value;
+              setLocationBuilding(next);
+              if (next === HQ_LOCATION) {
+                setLocationFloor('Ground Floor');
+                setLocationRoom('');
+                setLocationSubStore('');
+                setLocationRack('');
+                setLocationShelf('');
+                setLocationBin('');
+              } else {
+                setLocationFloor('');
+                setLocationRoom('');
+              }
+            }}
+          >
+            {[HQ_LOCATION, ...mainStores.map((s) => s.name).filter(Boolean)].map((loc) => (
+              <MenuItem key={loc} value={loc}>{loc}</MenuItem>
+            ))}
+          </TextField>
+          {locationBuilding !== HQ_LOCATION ? (
+            <>
+              <LocationSelector
+                mainStoreId={selectedMainStoreId || undefined}
+                value={{
+                  subStore: locationSubStore || '',
+                  rack: locationRack || '',
+                  shelf: locationShelf || '',
+                  bin: locationBin || ''
+                }}
+                onChange={(loc) => {
+                  setLocationSubStore(loc.subStore || '');
+                  setLocationRack(loc.rack || '');
+                  setLocationShelf(loc.shelf || '');
+                  setLocationBin(loc.bin || '');
+                }}
+                size="small"
+              />
+            </>
+          ) : (
+            <Stack direction="row" spacing={1.5} sx={{ mt: 1 }}>
+              <TextField fullWidth label="Floor" value={locationFloor} onChange={(e) => setLocationFloor(e.target.value)} />
+              <TextField fullWidth label="Room" value={locationRoom} onChange={(e) => setLocationRoom(e.target.value)} />
+            </Stack>
+          )}
           <TextField fullWidth margin="normal" label="Assigned to (custodian)" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} />
         </DialogContent>
         <DialogActions>

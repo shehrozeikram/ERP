@@ -8,6 +8,7 @@ import api from '../../services/api';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-PK') : '—');
 
 export default function ScanAssetPage() {
   const { tagCode: tagCodeParam } = useParams();
@@ -57,6 +58,7 @@ export default function ScanAssetPage() {
   }
 
   const asset = data?.asset;
+  const transferHistory = data?.transferHistory || [];
 
   return (
     <Box sx={{ p: 3, maxWidth: 560, mx: 'auto' }}>
@@ -89,6 +91,46 @@ export default function ScanAssetPage() {
           <Button fullWidth variant="contained" sx={{ mt: 2 }} startIcon={<QrIcon />} onClick={logScan} disabled={scanning}>
             {scanning ? 'Saving…' : 'Log scan event'}
           </Button>
+
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+            Transfer History
+          </Typography>
+          {transferHistory.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No transfer history yet.
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              {transferHistory.map((ev) => {
+                const prevLocation = ev?.meta?.previous?.location || '—';
+                const currLocation = ev?.meta?.current?.location || '—';
+                const prevCustodian = ev?.meta?.previous?.assignedTo || '—';
+                const currCustodian = ev?.meta?.current?.assignedTo || '—';
+                const changedBy = ev?.user
+                  ? `${ev.user.firstName || ''} ${ev.user.lastName || ''}`.trim() || ev.user.email || '—'
+                  : '—';
+                return (
+                  <Paper key={ev._id} variant="outlined" sx={{ p: 1.25 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {fmtDateTime(ev.createdAt)} • by {changedBy}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Location:</strong> {prevLocation} → {currLocation}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Custodian:</strong> {prevCustodian} → {currCustodian}
+                    </Typography>
+                    {ev.note ? (
+                      <Typography variant="caption" color="text.secondary">
+                        Note: {ev.note}
+                      </Typography>
+                    ) : null}
+                  </Paper>
+                );
+              })}
+            </Stack>
+          )}
         </Paper>
       )}
 

@@ -63,8 +63,14 @@ router.get('/dashboard-stats', authorize(...TAG_ROLES), asyncHandler(async (req,
 router.get('/assets', authorize(...TAG_ROLES), asyncHandler(async (req, res) => {
   const { status, search, tagStatus } = req.query;
   const filter = {};
-  if (status) filter.status = status;
-  else filter.status = { $in: ['active', 'fully_depreciated'] };
+  const allowedStatus = ['active', 'disposed', 'fully_depreciated', 'all'];
+  if (status === 'all') {
+    // full register (all ledger statuses)
+  } else if (status && allowedStatus.includes(String(status))) {
+    filter.status = status;
+  } else {
+    filter.status = { $in: ['active', 'fully_depreciated'] };
+  }
 
   let assets = await FixedAsset.find(filter)
     .populate('costCenter', 'name code')
@@ -129,12 +135,22 @@ router.get('/resolve/:tagCode', authorize(...TAG_ROLES), asyncHandler(async (req
   if (!tag) return res.status(404).json({ success: false, message: 'Tag not found or void' });
 
   const asset = await FixedAsset.findById(tag.asset._id || tag.asset).populate('costCenter', 'name code');
+  const transferHistory = await AssetTagEvent.find({
+    asset: asset._id,
+    eventType: 'transfer'
+  })
+    .sort({ createdAt: -1 })
+    .limit(30)
+    .populate('user', 'firstName lastName email')
+    .lean();
+
   res.json({
     success: true,
     data: {
       tag: { tagCode: tag.tagCode, issuedAt: tag.issuedAt },
       asset,
-      scanUrl: scanUrlForTag(tag.tagCode)
+      scanUrl: scanUrlForTag(tag.tagCode),
+      transferHistory
     }
   });
 }));
@@ -257,9 +273,16 @@ router.put(
     const asset = await FixedAsset.findById(req.params.assetId);
     if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
 
-    const prev = { location: asset.location, assignedTo: asset.assignedTo };
+    const prev = { location: asset.location || '', assignedTo: asset.assignedTo || '' };
     if (req.body.location !== undefined) asset.location = String(req.body.location).trim();
     if (req.body.assignedTo !== undefined) asset.assignedTo = String(req.body.assignedTo).trim();
+    const current = { location: asset.location || '', assignedTo: asset.assignedTo || '' };
+    const changed = prev.location !== current.location || prev.assignedTo !== current.assignedTo;
+
+    if (!changed) {
+      return res.json({ success: true, data: asset, message: 'No custody changes detected' });
+    }
+
     asset.updatedBy = req.user.id;
     await asset.save();
 
@@ -271,7 +294,7 @@ router.put(
       user: req.user._id,
       location: asset.location,
       note: req.body.note || '',
-      meta: { previous: prev, current: { location: asset.location, assignedTo: asset.assignedTo } }
+      meta: { previous: prev, current }
     });
 
     res.json({ success: true, data: asset });
