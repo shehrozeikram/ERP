@@ -92,6 +92,17 @@ const formatTaskPeriod = (task) => {
   return `${s} – ${e}`;
 };
 
+const getProgressPercent = (item) => {
+  const target = Number(item?.targetCount);
+  if (!Number.isNaN(target) && target > 0) {
+    const completed = Math.max(0, Number(item?.completedCount) || 0);
+    return Math.min(100, Math.round((completed / target) * 100));
+  }
+  const percent = Number(item?.progressPercent);
+  if (Number.isNaN(percent)) return 0;
+  return Math.min(100, Math.max(0, Math.round(percent)));
+};
+
 const STATUS_LABELS = { pending: 'Pending', in_progress: 'In progress', completed: 'Completed', cancelled: 'Cancelled' };
 const ACTION_LABELS = { whatsapp: 'WhatsApp message', call: 'Call', both: 'Both' };
 
@@ -472,8 +483,8 @@ const RecoveryTaskAssignment = () => {
         targetCount: r.targetCount,
         progress:
           r.targetCount != null && r.targetCount > 0
-            ? `${r.completedCount ?? 0}/${r.targetCount} (${r.progress ?? 0}%)`
-            : `${r.progress ?? 0}%`,
+            ? `${r.completedCount ?? 0}/${r.targetCount} (${getProgressPercent(r)}%)`
+            : `${getProgressPercent(r)}%`,
         status: r.status || 'pending',
         rule: r,
         monthYear: getMonthYearKey(r.createdAt) || '—',
@@ -499,8 +510,8 @@ const RecoveryTaskAssignment = () => {
         targetCount: r.targetCount,
         progress:
           r.targetCount != null && r.targetCount > 0
-            ? `${r.completedCount ?? 0}/${r.targetCount} (${r.progress ?? 0}%)`
-            : `${r.progress ?? 0}%`,
+            ? `${r.completedCount ?? 0}/${r.targetCount} (${getProgressPercent(r)}%)`
+            : `${getProgressPercent(r)}%`,
         status: r.status || 'pending',
         rule: r,
         monthYear: getMonthYearKey(r.createdAt) || '—',
@@ -517,8 +528,8 @@ const RecoveryTaskAssignment = () => {
       period: formatTaskPeriod(t),
       progress:
         t.targetCount != null && t.targetCount > 0
-          ? `${t.completedCount ?? 0}/${t.targetCount} (${t.progress ?? 0}%)`
-          : `${t.progress ?? 0}%`,
+          ? `${t.completedCount ?? 0}/${t.targetCount} (${getProgressPercent(t)}%)`
+          : `${getProgressPercent(t)}%`,
       status: t.status,
       targetCount: t.targetCount,
       task: t,
