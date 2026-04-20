@@ -15,6 +15,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import indentService from '../../../services/indentService';
 import dayjs from 'dayjs';
+import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 
 const IndentPrintView = () => {
   const { id } = useParams();
@@ -83,6 +84,8 @@ const IndentPrintView = () => {
     const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
     return indent.signatures?.[keys[index]]?.date;
   };
+
+  const chainStep = (index) => indent.approvalChain?.[index];
 
   return (
     <>
@@ -320,9 +323,22 @@ const IndentPrintView = () => {
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                   Sig of Requester:
                 </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {indent.signatures?.requester?.name || '___________'}
+                {indent.requestedBy?.digitalSignature ? (
+                  <Box sx={{ mb: 0.5 }}>
+                    <DigitalSignatureImage userOrPath={indent.requestedBy} alt="Requester" sx={{ mx: 0 }} />
+                  </Box>
+                ) : null}
+                <Box sx={{ mt: 0.5, minHeight: '24px', fontSize: '0.9rem' }}>
+                  {indent.signatures?.requester?.name ||
+                    (indent.requestedBy?.firstName && indent.requestedBy?.lastName
+                      ? `${indent.requestedBy.firstName} ${indent.requestedBy.lastName}`
+                      : '___________')}
                 </Box>
+                {(indent.signatures?.requester?.date || indent.requestedDate || indent.createdAt) && (
+                  <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontSize: '0.75rem' }}>
+                    {formatDate(indent.signatures?.requester?.date || indent.requestedDate || indent.createdAt)}
+                  </Typography>
+                )}
               </Box>
             </Grid>
             <Grid item xs={12} sm={6} md={3}>
@@ -330,7 +346,12 @@ const IndentPrintView = () => {
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                   Head of Department:
                 </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                {chainStep(0)?.status === 'approved' && chainStep(0)?.approver?.digitalSignature ? (
+                  <Box sx={{ mb: 0.5 }}>
+                    <DigitalSignatureImage userOrPath={chainStep(0).approver} alt="Head of Department" sx={{ mx: 0 }} />
+                  </Box>
+                ) : null}
+                <Box sx={{ mt: 0.5, minHeight: '24px', fontSize: '0.9rem' }}>
                   {approvalNameFromChain(0) || '___________'}
                 </Box>
                 {approvalDateFromChain(0) && (
@@ -345,7 +366,12 @@ const IndentPrintView = () => {
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                   Approved by GM/PD:
                 </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                {chainStep(1)?.status === 'approved' && chainStep(1)?.approver?.digitalSignature ? (
+                  <Box sx={{ mb: 0.5 }}>
+                    <DigitalSignatureImage userOrPath={chainStep(1).approver} alt="GM/PD" sx={{ mx: 0 }} />
+                  </Box>
+                ) : null}
+                <Box sx={{ mt: 0.5, minHeight: '24px', fontSize: '0.9rem' }}>
                   {approvalNameFromChain(1) || '___________'}
                 </Box>
                 {approvalDateFromChain(1) && (
@@ -360,7 +386,12 @@ const IndentPrintView = () => {
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
                   SVP/AVP Approval:
                 </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
+                {chainStep(2)?.status === 'approved' && chainStep(2)?.approver?.digitalSignature ? (
+                  <Box sx={{ mb: 0.5 }}>
+                    <DigitalSignatureImage userOrPath={chainStep(2).approver} alt="SVP/AVP" sx={{ mx: 0 }} />
+                  </Box>
+                ) : null}
+                <Box sx={{ mt: 0.5, minHeight: '24px', fontSize: '0.9rem' }}>
                   {approvalNameFromChain(2) || '___________'}
                 </Box>
                 {approvalDateFromChain(2) && (

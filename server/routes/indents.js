@@ -8,11 +8,71 @@ const Department = require('../models/hr/Department');
 const User = require('../models/User');
 const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const Quotation = require('../models/procurement/Quotation');
+const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 const router = express.Router();
 
 const APPROVAL_SIGNATURE_KEYS = ['headOfDepartment', 'gmPd', 'svpAvp'];
 const LEGACY_APPROVER_ROLES = ['super_admin', 'admin', 'hr_manager'];
+const INDENT_TARGET_ROUTES = {
+  storeDashboard: '/procurement/store/dashboard',
+  procurementRequisitions: '/procurement/requisitions'
+};
+
+const getActiveUserIdsByDepartment = async (departmentName) => {
+  const users = await User.find({
+    isActive: true,
+    department: { $regex: `^${String(departmentName)}$`, $options: 'i' }
+  }).select('_id');
+  return users.map((u) => String(u._id));
+};
+
+const getActiveUserIdsByRoles = async (roles = []) => {
+  const users = await User.find({
+    isActive: true,
+    role: { $in: roles }
+  }).select('_id');
+  return users.map((u) => String(u._id));
+};
+
+const getStoreWorkflowRecipients = async () => {
+  const byStoreDept = await getActiveUserIdsByDepartment('store');
+  const byProcurementDept = await getActiveUserIdsByDepartment('procurement');
+  const byStoreRoles = await getActiveUserIdsByRoles(['procurement_manager', 'admin', 'super_admin']);
+  return [...new Set([...byStoreDept, ...byProcurementDept, ...byStoreRoles])];
+};
+
+const getProcurementWorkflowRecipients = async () => {
+  const byProcurementDept = await getActiveUserIdsByDepartment('procurement');
+  const byProcurementRoles = await getActiveUserIdsByRoles(['procurement_manager', 'admin', 'super_admin']);
+  return [...new Set([...byProcurementDept, ...byProcurementRoles])];
+};
+
+const notifyIndentTransition = async ({
+  recipientIds = [],
+  actorId,
+  title,
+  message,
+  actionUrl,
+  indentId
+}) => {
+  await createAndEmitNotification({
+    recipientIds,
+    title,
+    message,
+    priority: 'high',
+    type: 'info',
+    category: 'approval',
+    actionUrl,
+    createdBy: actorId,
+    excludeUserId: actorId,
+    metadata: {
+      module: 'procurement',
+      entityId: indentId,
+      entityType: 'Indent'
+    }
+  });
+};
 
 function syncSignatureSlotFromApprover(indent, chainIndex, approverUser) {
   if (!indent.signatures) indent.signatures = {};
@@ -83,10 +143,10 @@ router.get('/',
     // Get indents
     const indents = await Indent.find(filter)
       .populate('department', 'name code')
-      .populate('requestedBy', 'firstName lastName email employeeId')
-      .populate('approvedBy', 'firstName lastName email')
-      .populate('approvalChain.approver', 'firstName lastName email employeeId')
-      .populate('draftApproverIds', 'firstName lastName email employeeId')
+      .populate('requestedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvedBy', 'firstName lastName email digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
       .sort({ createdAt: -1 })
@@ -260,7 +320,7 @@ router.get('/dashboard',
     // Get recent indents
     const recentIndents = await Indent.find({ isActive: true })
       .populate('department', 'name code')
-      .populate('requestedBy', 'firstName lastName email')
+      .populate('requestedBy', 'firstName lastName email digitalSignature')
       .sort({ createdAt: -1 })
       .limit(10);
 
@@ -273,7 +333,7 @@ router.get('/dashboard',
       ]
     })
       .populate('department', 'name code')
-      .populate('requestedBy', 'firstName lastName email')
+      .populate('requestedBy', 'firstName lastName email digitalSignature')
       .sort({ createdAt: -1 })
       .limit(10);
 
@@ -336,10 +396,10 @@ router.get('/:id',
   asyncHandler(async (req, res) => {
     const indent = await Indent.findById(req.params.id)
       .populate('department', 'name code')
-      .populate('requestedBy', 'firstName lastName email employeeId department')
-      .populate('approvedBy', 'firstName lastName email')
-      .populate('approvalChain.approver', 'firstName lastName email employeeId')
-      .populate('draftApproverIds', 'firstName lastName email employeeId')
+      .populate('requestedBy', 'firstName lastName email employeeId department digitalSignature')
+      .populate('approvedBy', 'firstName lastName email digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature')
       .populate('createdBy', 'firstName lastName email')
       .populate('updatedBy', 'firstName lastName email')
       .populate('comments.user', 'firstName lastName email');
@@ -447,7 +507,7 @@ router.post('/',
     await indent.save();
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
     await indent.populate('createdBy', 'firstName lastName email');
 
     res.status(201).json({
@@ -557,7 +617,7 @@ router.put('/:id',
     await indent.save();
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
     await indent.populate('updatedBy', 'firstName lastName email');
 
     res.json({
@@ -599,7 +659,7 @@ router.put('/:id/comparative-statement-approvals',
     await indent.save();
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
     await indent.populate('updatedBy', 'firstName lastName email');
 
     res.json({
@@ -758,8 +818,26 @@ router.post('/:id/submit',
     await indent.save();
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
-    await indent.populate('approvalChain.approver', 'firstName lastName email employeeId');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
+    await indent.populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature');
+
+    const approver = approverUsers[0];
+    await createAndEmitNotification({
+      recipientIds: [approver._id],
+      title: 'Indent submitted for your approval',
+      message: `Indent ${indent.indentNumber || ''} has been submitted and is awaiting your approval.`,
+      priority: 'high',
+      type: 'info',
+      category: 'approval',
+      actionUrl: '/general/indents',
+      createdBy: req.user.id,
+      excludeUserId: req.user.id,
+      metadata: {
+        module: 'procurement',
+        entityId: indent._id,
+        entityType: 'Indent'
+      }
+    });
 
     res.json({
       success: true,
@@ -822,9 +900,21 @@ router.post('/:id/approve',
       await indent.save();
 
       await indent.populate('department', 'name code');
-      await indent.populate('requestedBy', 'firstName lastName email');
-      await indent.populate('approvedBy', 'firstName lastName email');
-      await indent.populate('approvalChain.approver', 'firstName lastName email employeeId');
+      await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
+      await indent.populate('approvedBy', 'firstName lastName email digitalSignature');
+      await indent.populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature');
+
+      if (allApproved) {
+        const storeRecipients = await getStoreWorkflowRecipients();
+        await notifyIndentTransition({
+          recipientIds: storeRecipients,
+          actorId: req.user.id,
+          title: 'Indent sent to Store Dashboard',
+          message: `Indent ${indent.indentNumber || ''} is approved and now pending Store stock check.`,
+          actionUrl: INDENT_TARGET_ROUTES.storeDashboard,
+          indentId: indent._id
+        });
+      }
 
       return res.json({
         success: true,
@@ -850,8 +940,18 @@ router.post('/:id/approve',
     await indent.save();
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
-    await indent.populate('approvedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
+    await indent.populate('approvedBy', 'firstName lastName email digitalSignature');
+
+    const storeRecipients = await getStoreWorkflowRecipients();
+    await notifyIndentTransition({
+      recipientIds: storeRecipients,
+      actorId: req.user.id,
+      title: 'Indent sent to Store Dashboard',
+      message: `Indent ${indent.indentNumber || ''} is approved and now pending Store stock check.`,
+      actionUrl: INDENT_TARGET_ROUTES.storeDashboard,
+      indentId: indent._id
+    });
 
     res.json({
       success: true,
@@ -910,9 +1010,19 @@ router.post('/:id/move-to-procurement',
     await indent.save({ validateBeforeSave: false });
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
-    await indent.populate('approvedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
+    await indent.populate('approvedBy', 'firstName lastName email digitalSignature');
     await indent.populate('movedToProcurementBy', 'firstName lastName');
+
+    const procurementRecipients = await getProcurementWorkflowRecipients();
+    await notifyIndentTransition({
+      recipientIds: procurementRecipients,
+      actorId: req.user.id,
+      title: 'Indent moved to Procurement Requisitions',
+      message: `Indent ${indent.indentNumber || ''} has been moved from Store to Procurement.`,
+      actionUrl: INDENT_TARGET_ROUTES.procurementRequisitions,
+      indentId: indent._id
+    });
 
     res.json({
       success: true,
@@ -978,8 +1088,8 @@ router.post('/:id/reject',
       await indent.save();
 
       await indent.populate('department', 'name code');
-      await indent.populate('requestedBy', 'firstName lastName email');
-      await indent.populate('approvalChain.approver', 'firstName lastName email employeeId');
+      await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
+      await indent.populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature');
 
       return res.json({
         success: true,
@@ -1001,7 +1111,7 @@ router.post('/:id/reject',
     await indent.save();
 
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
 
     res.json({
       success: true,
@@ -1047,7 +1157,7 @@ router.post('/:id/comment',
 
     await indent.populate('comments.user', 'firstName lastName email');
     await indent.populate('department', 'name code');
-    await indent.populate('requestedBy', 'firstName lastName email');
+    await indent.populate('requestedBy', 'firstName lastName email digitalSignature');
 
     res.json({
       success: true,

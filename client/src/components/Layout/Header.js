@@ -173,7 +173,7 @@ const Header = () => {
             sx: { width: 400, maxHeight: 600 }
           }}
         >
-          <Notifications />
+          <Notifications onClose={handleMenuClose} />
         </Menu>
 
         {/* User Profile Menu */}

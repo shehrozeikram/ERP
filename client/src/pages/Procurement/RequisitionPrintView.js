@@ -16,6 +16,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import dayjs from 'dayjs';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 
 const RequisitionPrintView = () => {
   const { id } = useParams();
@@ -70,6 +71,26 @@ const RequisitionPrintView = () => {
       </Box>
     );
   }
+
+  const approvalNameFromChain = (index) => {
+    const step = requisition.approvalChain?.[index];
+    if (step?.approver) {
+      const n = [step.approver.firstName, step.approver.lastName].filter(Boolean).join(' ').trim();
+      if (n) return n;
+      if (step.approver.email) return step.approver.email;
+    }
+    const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
+    return requisition.signatures?.[keys[index]]?.name || '';
+  };
+
+  const approvalDateFromChain = (index) => {
+    const step = requisition.approvalChain?.[index];
+    if (step?.actedAt && step?.status === 'approved') return step.actedAt;
+    const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
+    return requisition.signatures?.[keys[index]]?.date;
+  };
+
+  const chainStep = (index) => requisition.approvalChain?.[index];
 
   return (
     <>
@@ -296,27 +317,130 @@ const RequisitionPrintView = () => {
           </Box>
         </Box>
 
-        {/* Signatures Section */}
+        {/* Signatures — large image area inside fixed 150px-tall boxes (screen + print) */}
         <Box sx={{ mb: 3 }}>
           <Grid container spacing={1.5}>
             <Grid item xs={12} sm={6} md={6}>
-              <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+              <Box
+                sx={{
+                  border: '1px solid #ccc',
+                  p: 0.75,
+                  height: 150,
+                  minHeight: 150,
+                  maxHeight: 150,
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  textAlign: 'left',
+                  '@media print': { height: 150, minHeight: 150, maxHeight: 150 }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.8rem', lineHeight: 1.15, flexShrink: 0 }}>
                   Sig of Requester:
                 </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {requisition.signatures?.requester?.name || '___________'}
+                {requisition.requestedBy?.digitalSignature ? (
+                  <Box
+                    sx={{
+                      flex: '1 1 0',
+                      minHeight: 0,
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      overflow: 'hidden',
+                      py: 0.25,
+                      pl: 0.25
+                    }}
+                  >
+                    <DigitalSignatureImage
+                      userOrPath={requisition.requestedBy}
+                      alt="Requester"
+                      sx={{
+                        maxHeight: '100%',
+                        maxWidth: '100%',
+                        width: 'auto',
+                        height: '100%',
+                        mx: 0,
+                        alignSelf: 'center',
+                        objectFit: 'contain',
+                        objectPosition: 'left center',
+                        '@media print': { maxHeight: '100%', maxWidth: '100%', objectPosition: 'left center' }
+                      }}
+                    />
+                  </Box>
+                ) : null}
+                <Box sx={{ flexShrink: 0, mt: 0.25, minHeight: '18px', fontSize: '0.8rem', lineHeight: 1.2 }}>
+                  {requisition.signatures?.requester?.name ||
+                    (requisition.requestedBy?.firstName && requisition.requestedBy?.lastName
+                      ? `${requisition.requestedBy.firstName} ${requisition.requestedBy.lastName}`
+                      : '___________')}
                 </Box>
+                {(requisition.signatures?.requester?.date || requisition.requestedDate || requisition.createdAt) && (
+                  <Typography variant="caption" sx={{ mt: 0.125, display: 'block', fontSize: '0.7rem', lineHeight: 1.1, flexShrink: 0 }}>
+                    {formatDate(requisition.signatures?.requester?.date || requisition.requestedDate || requisition.createdAt)}
+                  </Typography>
+                )}
               </Box>
             </Grid>
             <Grid item xs={12} sm={6} md={6}>
-              <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+              <Box
+                sx={{
+                  border: '1px solid #ccc',
+                  p: 0.75,
+                  height: 150,
+                  minHeight: 150,
+                  maxHeight: 150,
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                  textAlign: 'left',
+                  '@media print': { height: 150, minHeight: 150, maxHeight: 150 }
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.8rem', lineHeight: 1.15, flexShrink: 0 }}>
                   Head of Department:
                 </Typography>
-                <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                  {requisition.signatures?.headOfDepartment?.name || '___________'}
+                {chainStep(0)?.status === 'approved' && chainStep(0)?.approver?.digitalSignature ? (
+                  <Box
+                    sx={{
+                      flex: '1 1 0',
+                      minHeight: 0,
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      overflow: 'hidden',
+                      py: 0.25,
+                      pl: 0.25
+                    }}
+                  >
+                    <DigitalSignatureImage
+                      userOrPath={chainStep(0).approver}
+                      alt="Head of Department"
+                      sx={{
+                        maxHeight: '100%',
+                        maxWidth: '100%',
+                        width: 'auto',
+                        height: '100%',
+                        mx: 0,
+                        alignSelf: 'center',
+                        objectFit: 'contain',
+                        objectPosition: 'left center',
+                        '@media print': { maxHeight: '100%', maxWidth: '100%', objectPosition: 'left center' }
+                      }}
+                    />
+                  </Box>
+                ) : null}
+                <Box sx={{ flexShrink: 0, mt: 0.25, minHeight: '18px', fontSize: '0.8rem', lineHeight: 1.2 }}>
+                  {approvalNameFromChain(0) || '___________'}
                 </Box>
+                {approvalDateFromChain(0) && (
+                  <Typography variant="caption" sx={{ mt: 0.125, display: 'block', fontSize: '0.7rem', lineHeight: 1.1, flexShrink: 0 }}>
+                    {formatDate(approvalDateFromChain(0))}
+                  </Typography>
+                )}
               </Box>
             </Grid>
           </Grid>

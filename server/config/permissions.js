@@ -141,21 +141,6 @@ const SUBMODULES = {
     'it_reports'
   ],
   [MODULES.TAJ_RESIDENCIA]: [
-    'land_acquisition',
-    'land_identification',
-    'record_verification',
-    'khasra_mapping',
-    'demarcation',
-    'owner_due_diligence',
-    'negotiation_bayana',
-    'registry',
-    'mutation',
-    'society_internal_processing',
-    'gis_map_alignment',
-    'land_conversion',
-    'compensation_management',
-    'encroachment_dispute',
-    'reporting_framework',
     'complains_tickets'
   ],
   general: [

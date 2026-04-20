@@ -22,6 +22,7 @@ const QuotationInvitation = require('../models/procurement/QuotationInvitation')
 const Indent = require('../models/general/Indent');
 const Project = require('../models/hr/Project');
 const User = require('../models/User');
+const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 
 console.log('✅ Procurement routes loaded successfully');
 
@@ -98,6 +99,91 @@ const canConfigureProcurementAssignmentManagers = (user) => {
   return false;
 };
 
+const normalizeIds = (ids = []) => [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+
+const getUserIdsByRoles = async (roles = []) => {
+  const users = await User.find({
+    isActive: true,
+    role: { $in: roles }
+  }).select('_id');
+  return users.map((u) => String(u._id));
+};
+
+const getUserIdsByDepartment = async (departmentName) => {
+  if (!departmentName) return [];
+  const users = await User.find({
+    isActive: true,
+    department: { $regex: `^${String(departmentName)}$`, $options: 'i' }
+  }).select('_id');
+  return users.map((u) => String(u._id));
+};
+
+const getStoreWorkflowRecipients = async () => {
+  const byStoreDept = await getUserIdsByDepartment('store');
+  const byProcurementDept = await getUserIdsByDepartment('procurement');
+  const byStoreRoles = await getUserIdsByRoles(['procurement_manager', 'admin', 'super_admin']);
+  return [...new Set([...byStoreDept, ...byProcurementDept, ...byStoreRoles])];
+};
+
+const notifyDocumentRecipients = async ({
+  recipientIds = [],
+  actorId = null,
+  title,
+  message,
+  actionUrl,
+  entityId,
+  entityType = 'Document',
+  module = 'procurement'
+}) => {
+  const ids = normalizeIds(recipientIds).filter((id) => id !== String(actorId || ''));
+  if (ids.length === 0) return;
+
+  await createAndEmitNotification({
+    recipientIds: ids,
+    title,
+    message,
+    type: 'info',
+    category: 'approval',
+    priority: 'high',
+    actionUrl,
+    createdBy: actorId,
+    excludeUserId: actorId,
+    metadata: {
+      module,
+      entityId,
+      entityType
+    }
+  });
+};
+
+const STORE_SUBMODULE_ROUTES = {
+  dashboard: '/procurement/store/dashboard',
+  qualityAssurance: '/procurement/store/quality-assurance',
+  goodsReceive: '/procurement/store/goods-receive',
+  inventory: '/procurement/store/inventory'
+};
+
+const notifyStoreUsers = async ({
+  actorId = null,
+  title,
+  message,
+  actionUrl = STORE_SUBMODULE_ROUTES.dashboard,
+  entityId,
+  entityType = 'PurchaseOrder'
+}) => {
+  const storeRecipients = await getStoreWorkflowRecipients();
+  await notifyDocumentRecipients({
+    recipientIds: storeRecipients,
+    actorId,
+    title,
+    message,
+    actionUrl,
+    entityId,
+    entityType,
+    module: 'procurement'
+  });
+};
+
 /** Mongo id for procurement assignee (works whether assignedTo is populated or raw ObjectId). */
 const procurementAssigneeId = (indent) => {
   if (!indent?.procurementAssignment?.assignedTo) return null;
@@ -115,6 +201,22 @@ const canOperateAssignedProcurementRequisition = (user, indent) => {
   if (canManageProcurementAssignments(user)) return true;
   const aid = procurementAssigneeId(indent);
   return Boolean(aid && aid === String(user.id));
+};
+
+/** Pre-Audit / audit roles: read quotations for any requisition they need to review */
+const isAuditReadRole = (user) => {
+  if (!user) return false;
+  const n = String(user.role || '').toLowerCase().replace(/\s+/g, '_');
+  return n === 'audit_manager' || n === 'auditor' || n === 'audit_director' || user.role === 'Audit Director';
+};
+
+/** Read-only access to quotations by indent (GET) for exec / audit without being assignee */
+const canViewQuotationsByIndentRead = (user, indent) => {
+  if (!user?.id || !indent) return false;
+  if (canOperateAssignedProcurementRequisition(user, indent)) return true;
+  if (isAuditReadRole(user)) return true;
+  if (user.role === 'higher_management') return true;
+  return false;
 };
 
 // Convert blank string ObjectId-like fields from forms into undefined
@@ -346,36 +448,38 @@ router.get('/purchase-orders/ceo-secretariat',
 
 // @route   GET /api/procurement/purchase-orders/:id
 // @desc    Get purchase order by ID
-// @access  Private (Procurement, Admin, CEO Secretariat, CEO)
+// @access  Private (Procurement, Admin, HR, Higher Management, Pre-Audit / Audit roles)
 router.get('/purchase-orders/:id', 
-  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'higher_management'), 
+  authorize('super_admin', 'admin', 'procurement_manager', 'hr_manager', 'higher_management', 'audit_manager', 'auditor', 'audit_director'), 
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
       .populate('vendor', 'name email phone contactPerson address')
       .populate({
         path: 'indent',
-        select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes comparativeStatementApprovals',
+        select: 'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes comparativeStatementApprovals approvalChain',
         populate: [
           { path: 'department', select: 'name code' },
-          { path: 'requestedBy', select: 'firstName lastName email' }
+          { path: 'requestedBy', select: 'firstName lastName email digitalSignature' },
+          { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' }
         ]
       })
       .populate('quotation', 'quotationNumber quotationDate')
-      .populate('createdBy', 'firstName lastName email')
-      .populate('approvedBy', 'firstName lastName email')
-      .populate('receivedBy', 'firstName lastName email')
-      .populate('qaCheckedBy', 'firstName lastName')
-      .populate('auditApprovedBy', 'firstName lastName email')
-      .populate('auditReturnedBy', 'firstName lastName email')
-      .populate('auditRejectedBy', 'firstName lastName email')
-      .populate('ceoForwardedBy', 'firstName lastName email')
-      .populate('ceoApprovedBy', 'firstName lastName email')
-      .populate('ceoRejectedBy', 'firstName lastName email')
-      .populate('ceoReturnedBy', 'firstName lastName email')
-      .populate('auditObservations.addedBy', 'firstName lastName email')
-      .populate('auditObservations.answeredBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email')
-      .populate('updatedBy', 'firstName lastName email');
+      .populate('createdBy', 'firstName lastName email digitalSignature')
+      .populate('approvedBy', 'firstName lastName email digitalSignature')
+      .populate('receivedBy', 'firstName lastName email digitalSignature')
+      .populate('qaCheckedBy', 'firstName lastName digitalSignature')
+      .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
+      .populate('auditReturnedBy', 'firstName lastName email digitalSignature')
+      .populate('auditRejectedBy', 'firstName lastName email digitalSignature')
+      .populate('ceoForwardedBy', 'firstName lastName email digitalSignature')
+      .populate('ceoApprovedBy', 'firstName lastName email digitalSignature')
+      .populate('ceoRejectedBy', 'firstName lastName email digitalSignature')
+      .populate('ceoReturnedBy', 'firstName lastName email digitalSignature')
+      .populate('financeApprovedBy', 'firstName lastName email digitalSignature')
+      .populate('auditObservations.addedBy', 'firstName lastName email digitalSignature')
+      .populate('auditObservations.answeredBy', 'firstName lastName email digitalSignature')
+      .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature')
+      .populate('updatedBy', 'firstName lastName email digitalSignature');
 
     if (!purchaseOrder) {
       return res.status(404).json({
@@ -397,11 +501,11 @@ router.get('/purchase-orders/:id',
     const indentId = purchaseOrder.indent && (purchaseOrder.indent._id || purchaseOrder.indent);
     if (indentId) {
       const indent = await Indent.findById(indentId)
-        .populate('createdBy', 'firstName lastName email')
-        .populate('updatedBy', 'firstName lastName email')
-        .populate('approvedBy', 'firstName lastName email')
-        .populate('requestedBy', 'firstName lastName email')
-        .populate('movedToProcurementBy', 'firstName lastName email')
+        .populate('createdBy', 'firstName lastName email digitalSignature')
+        .populate('updatedBy', 'firstName lastName email digitalSignature')
+        .populate('approvedBy', 'firstName lastName email digitalSignature')
+        .populate('requestedBy', 'firstName lastName email digitalSignature')
+        .populate('movedToProcurementBy', 'firstName lastName email digitalSignature')
         .lean();
       if (indent) {
         const indentEntries = buildIndentWorkflowHistory(indent);
@@ -499,7 +603,7 @@ router.post('/purchase-orders', [
   const populatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
     .populate('vendor', 'name email phone')
     .populate('createdBy', 'firstName lastName email')
-    .populate('workflowHistory.changedBy', 'firstName lastName email');
+    .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
 
   res.status(201).json({
     success: true,
@@ -597,7 +701,7 @@ router.put('/purchase-orders/:id/approve',
 
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('approvedBy', 'firstName lastName email');
+      .populate('approvedBy', 'firstName lastName email digitalSignature');
 
     res.json({
       success: true,
@@ -907,7 +1011,7 @@ router.put('/purchase-orders/:id/send-to-audit',
       .populate('updatedBy', 'firstName lastName email')
       .populate('auditObservations.addedBy', 'firstName lastName email')
       .populate('auditObservations.answeredBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email');
+      .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
     res.json({
       success: true,
       message: 'Purchase order sent to audit successfully',
@@ -917,22 +1021,29 @@ router.put('/purchase-orders/:id/send-to-audit',
 );
 
 // @route   PUT /api/procurement/purchase-orders/:id/audit-approve
-// @desc    Audit module approves purchase order (status -> Send to CEO Office)
-// @access  Private (Super Admin, Audit Manager, Auditor)
+// @desc    Audit Director approves PO after it was forwarded to them (status -> Send to CEO Office). Super Admin may approve from Pending Audit for operations.
+// @access  Private (Super Admin, Audit Director)
 router.put('/purchase-orders/:id/audit-approve',
-  authorize('super_admin', 'audit_manager', 'auditor'),
+  authorize('super_admin', 'audit_director'),
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id);
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    if (purchaseOrder.status !== 'Pending Audit') {
+    const isSuperAdmin = req.user.role === 'super_admin';
+    const canApproveFrom =
+      purchaseOrder.status === 'Forwarded to Audit Director' ||
+      (isSuperAdmin && purchaseOrder.status === 'Pending Audit');
+    if (!canApproveFrom) {
       return res.status(400).json({
         success: false,
-        message: 'Only purchase orders in Pending Audit can be audit-approved'
+        message: isSuperAdmin
+          ? 'Purchase order must be in Pending Audit or Forwarded to Audit Director to audit-approve'
+          : 'Forward the purchase order to the Audit Director first. Only the Audit Director can approve it after it has been forwarded.'
       });
     }
-    pushPOWorkflowHistory(purchaseOrder, 'Pending Audit', 'Send to CEO Office', req.user.id, req.body.approvalComments || req.body.comments || '', 'Pre-Audit');
+    const fromAuditStatus = purchaseOrder.status;
+    pushPOWorkflowHistory(purchaseOrder, fromAuditStatus, 'Send to CEO Office', req.user.id, req.body.approvalComments || req.body.comments || '', 'Pre-Audit');
     purchaseOrder.status = 'Send to CEO Office';
     purchaseOrder.auditApprovedBy = req.user.id;
     purchaseOrder.auditApprovedAt = new Date();
@@ -941,8 +1052,8 @@ router.put('/purchase-orders/:id/audit-approve',
     await purchaseOrder.save();
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('auditApprovedBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email');
+      .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
+      .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
     res.json({
       success: true,
       message: 'Purchase order audit-approved successfully and sent to CEO Office',
@@ -962,13 +1073,13 @@ router.put('/purchase-orders/:id/audit-reject',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    if (purchaseOrder.status !== 'Pending Audit') {
+    if (!['Pending Audit', 'Forwarded to Audit Director'].includes(purchaseOrder.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only purchase orders in Pending Audit can be audit-rejected'
+        message: 'Only purchase orders in Pending Audit or Forwarded to Audit Director can be audit-rejected'
       });
     }
-    pushPOWorkflowHistory(purchaseOrder, 'Pending Audit', 'Rejected', req.user.id, rejectionComments || 'Rejected with observations', 'Pre-Audit');
+    pushPOWorkflowHistory(purchaseOrder, purchaseOrder.status, 'Rejected', req.user.id, rejectionComments || 'Rejected with observations', 'Pre-Audit');
     purchaseOrder.status = 'Rejected';
     purchaseOrder.auditRejectedBy = req.user.id;
     purchaseOrder.auditRejectedAt = new Date();
@@ -1018,13 +1129,13 @@ router.put('/purchase-orders/:id/audit-return',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    if (purchaseOrder.status !== 'Pending Audit') {
+    if (!['Pending Audit', 'Forwarded to Audit Director'].includes(purchaseOrder.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only purchase orders in Pending Audit can be returned from audit'
+        message: 'Only purchase orders in Pending Audit or Forwarded to Audit Director can be returned from audit'
       });
     }
-    pushPOWorkflowHistory(purchaseOrder, 'Pending Audit', 'Returned from Audit', req.user.id, req.body.returnComments || '', 'Pre-Audit');
+    pushPOWorkflowHistory(purchaseOrder, purchaseOrder.status, 'Returned from Audit', req.user.id, req.body.returnComments || '', 'Pre-Audit');
     purchaseOrder.status = 'Returned from Audit';
     purchaseOrder.auditReturnedBy = req.user.id;
     purchaseOrder.auditReturnedAt = new Date();
@@ -1034,7 +1145,7 @@ router.put('/purchase-orders/:id/audit-return',
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
       .populate('auditReturnedBy', 'firstName lastName email')
-      .populate('workflowHistory.changedBy', 'firstName lastName email');
+      .populate('workflowHistory.changedBy', 'firstName lastName email digitalSignature');
     res.json({
       success: true,
       message: 'Purchase order returned from audit successfully',
@@ -1135,7 +1246,7 @@ router.put('/purchase-orders/:id/ceo-approve',
 
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('ceoApprovedBy', 'firstName lastName email');
+      .populate('ceoApprovedBy', 'firstName lastName email digitalSignature');
     res.json({
       success: true,
       message: sendToFinance
@@ -1240,7 +1351,7 @@ router.put('/purchase-orders/:id/finance-approve',
 
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
-      .populate('financeApprovedBy', 'firstName lastName email');
+      .populate('financeApprovedBy', 'firstName lastName email digitalSignature');
     res.json({
       success: true,
       message: 'Purchase order approved by Finance successfully',
@@ -1343,6 +1454,15 @@ router.put('/purchase-orders/:id/send-to-store',
     const updatedOrder = await PurchaseOrder.findById(purchaseOrder._id)
       .populate('vendor', 'name email phone')
       .populate('updatedBy', 'firstName lastName email');
+
+    await notifyStoreUsers({
+      actorId: req.user.id,
+      title: 'PO sent to Store',
+      message: `Purchase Order ${purchaseOrder.poNumber || ''} is awaiting store action.`,
+      actionUrl: STORE_SUBMODULE_ROUTES.dashboard,
+      entityId: purchaseOrder._id,
+      entityType: 'PurchaseOrder'
+    });
     
     res.json({
       success: true,
@@ -1592,6 +1712,27 @@ router.post('/store/po/:id/qa-check',
     po.updatedBy = req.user.id;
     await po.save();
     await po.populate('qaCheckedBy', 'firstName lastName');
+
+    if (status === 'Passed') {
+      await notifyStoreUsers({
+        actorId: req.user.id,
+        title: 'PO passed QA',
+        message: `Purchase Order ${po.poNumber || ''} passed QA and is ready for Goods Receive.`,
+        actionUrl: STORE_SUBMODULE_ROUTES.goodsReceive,
+        entityId: po._id,
+        entityType: 'PurchaseOrder'
+      });
+    } else {
+      await notifyStoreUsers({
+        actorId: req.user.id,
+        title: 'PO QA rejected',
+        message: `Purchase Order ${po.poNumber || ''} failed QA. Review required in Store QA.`,
+        actionUrl: STORE_SUBMODULE_ROUTES.qualityAssurance,
+        entityId: po._id,
+        entityType: 'PurchaseOrder'
+      });
+    }
+
     res.json({
       success: true,
       message: `Quality Assurance: ${status}`,
@@ -1631,6 +1772,17 @@ router.post('/store/po/:id/send-to-procurement',
     await po.save();
     await po.populate('vendor', 'name email phone contactPerson');
     await po.populate('indent', 'indentNumber title');
+    const procurementRecipients = await getUserIdsByRoles(['procurement_manager', 'admin', 'super_admin']);
+    await notifyDocumentRecipients({
+      recipientIds: procurementRecipients,
+      actorId: req.user.id,
+      title: 'PO sent to Procurement',
+      message: `Purchase Order ${po.poNumber || ''} has been sent from Store to Procurement.`,
+      actionUrl: '/procurement/store/dashboard',
+      entityId: po._id,
+      entityType: 'PurchaseOrder',
+      module: 'procurement'
+    });
     res.json({
       success: true,
       message: 'Purchase order sent to Procurement with GRN',
@@ -1672,6 +1824,17 @@ router.post('/store/po/:id/send-to-audit',
     await po.save();
     await po.populate('vendor', 'name email phone contactPerson');
     await po.populate('indent', 'indentNumber title');
+    const auditRecipients = await getUserIdsByRoles(['audit_manager', 'admin', 'super_admin']);
+    await notifyDocumentRecipients({
+      recipientIds: auditRecipients,
+      actorId: req.user.id,
+      title: 'PO sent to Audit',
+      message: `Purchase Order ${po.poNumber || ''} requires your audit review.`,
+      actionUrl: '/audit',
+      entityId: po._id,
+      entityType: 'PurchaseOrder',
+      module: 'procurement'
+    });
     res.json({
       success: true,
       message: 'Purchase order sent to Audit for review',
@@ -1714,6 +1877,17 @@ router.post('/store/po/:id/send-to-finance',
     await po.save();
     await po.populate('vendor', 'name email phone contactPerson address');
     await po.populate('indent', 'indentNumber title department requestedBy comparativeStatementApprovals');
+    const financeRecipients = await getUserIdsByRoles(['finance_manager', 'admin', 'super_admin']);
+    await notifyDocumentRecipients({
+      recipientIds: financeRecipients,
+      actorId: req.user.id,
+      title: 'PO sent to Finance',
+      message: `Purchase Order ${po.poNumber || ''} is ready for finance processing.`,
+      actionUrl: '/finance/accounts-payable',
+      entityId: po._id,
+      entityType: 'PurchaseOrder',
+      module: 'procurement'
+    });
     res.json({
       success: true,
       message: 'Purchase order sent to Finance for billing',
@@ -2969,6 +3143,15 @@ router.post('/goods-receive',
           module: 'Store'
         });
         await poDoc.save();
+
+        await notifyStoreUsers({
+          actorId: req.user.id,
+          title: 'GRN created in Store',
+          message: `GRN ${receive.receiveNumber || ''} has been created for PO ${poDoc.poNumber || poDoc.orderNumber || ''}.`,
+          actionUrl: STORE_SUBMODULE_ROUTES.goodsReceive,
+          entityId: poDoc._id,
+          entityType: 'PurchaseOrder'
+        });
       }
     }
 
@@ -3785,8 +3968,9 @@ router.get('/requisitions',
 
     const indents = await Indent.find(filter)
       .populate('department', 'name code')
-      .populate('requestedBy', 'firstName lastName email employeeId')
-      .populate('approvedBy', 'firstName lastName email')
+      .populate('requestedBy', 'firstName lastName email employeeId digitalSignature')
+      .populate('approvedBy', 'firstName lastName email digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
       .populate('procurementAssignment.assignedTo', 'firstName lastName email department position role')
       .populate('procurementAssignment.assignedBy', 'firstName lastName email')
       .sort(sortSpec)
@@ -3936,6 +4120,17 @@ router.put('/requisitions/:id/assign',
       .populate('requestedBy', 'firstName lastName email employeeId')
       .populate('procurementAssignment.assignedTo', 'firstName lastName email employeeId department position')
       .populate('procurementAssignment.assignedBy', 'firstName lastName email');
+
+    await notifyDocumentRecipients({
+      recipientIds: [assignee._id],
+      actorId: req.user.id,
+      title: 'New requisition assigned',
+      message: `Requisition ${indent.indentNumber || ''} has been assigned to you.`,
+      actionUrl: '/procurement/requisitions',
+      entityId: indent._id,
+      entityType: 'Indent',
+      module: 'procurement'
+    });
 
     res.json({
       success: true,
@@ -4227,9 +4422,8 @@ router.post('/public-quotation/:token', [
 
 // @route   GET /api/procurement/quotations/by-indent/:indentId
 // @desc    Get all quotations for a specific indent/requisition
-// @access  Private (Procurement and Admin)
+// @access  Private (Assignee, procurement managers/admins, audit read roles, higher management)
 router.get('/quotations/by-indent/:indentId',
-  authorize('super_admin', 'admin', 'procurement_manager'),
   asyncHandler(async (req, res) => {
     const { indentId } = req.params;
 
@@ -4237,7 +4431,7 @@ router.get('/quotations/by-indent/:indentId',
     if (!indent) {
       return res.status(404).json({ success: false, message: 'Requisition not found' });
     }
-    if (!canOperateAssignedProcurementRequisition(req.user, indent)) {
+    if (!canViewQuotationsByIndentRead(req.user, indent)) {
       return res.status(403).json({
         success: false,
         message: 'You can only view quotations for requisitions you are assigned to or if you manage procurement assignments.'

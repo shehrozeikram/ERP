@@ -262,7 +262,7 @@ router.get('/',
     // Fetch Purchase Orders sent to audit (Pending Audit, Pending Finance, Returned from Audit, Sent to Audit)
     try {
       const PurchaseOrder = require('../models/procurement/PurchaseOrder');
-      const auditStatuses = ['Pending Audit', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
+      const auditStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
       const poQuery = { status: { $in: auditStatuses } };
       if (search) {
         poQuery.$and = [
@@ -279,12 +279,14 @@ router.get('/',
         .populate('vendor', 'name email phone')
         .populate('createdBy', 'firstName lastName email')
         .populate('auditObservations.addedBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email')
         .sort({ createdAt: -1 })
         .lean();
       for (const doc of poDocs) {
         let preAuditStatus = 'pending';
         if (doc.status === 'Pending Finance') preAuditStatus = 'approved';
         else if (doc.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (doc.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
         else if (doc.status === 'Sent to Audit') preAuditStatus = 'pending'; // post-GRN audit queue
         workflowDocs.push({
           _id: doc._id,
@@ -299,8 +301,9 @@ router.get('/',
           amount: doc.totalAmount || 0,
           referenceNumber: doc.orderNumber || '',
           status: preAuditStatus,
+          workflowStatus: doc.status,
           priority: (doc.priority || 'Medium').toLowerCase(),
-          isWorkflowDocument: true,
+          isWorkflowDocument: false,
           isPurchaseOrder: true,
           // distinguish post-GRN audit POs from pre-approval ones
           isPostGrnAudit: doc.status === 'Sent to Audit',
@@ -308,7 +311,7 @@ router.get('/',
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
           createdBy: doc.createdBy,
-          workflowHistory: [],
+          workflowHistory: doc.workflowHistory || [],
           auditObservations: doc.auditObservations || []
         });
       }
@@ -398,12 +401,14 @@ router.get('/:id',
         .populate('auditReturnedBy', 'firstName lastName email')
         .populate('auditObservations.addedBy', 'firstName lastName email')
         .populate('auditObservations.answeredBy', 'firstName lastName email')
+        .populate('workflowHistory.changedBy', 'firstName lastName email')
         .lean();
-      const auditVisibleStatuses = ['Pending Audit', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
+      const auditVisibleStatuses = ['Pending Audit', 'Forwarded to Audit Director', 'Pending Finance', 'Returned from Audit', 'Sent to Audit'];
       if (po && auditVisibleStatuses.includes(po.status)) {
         let preAuditStatus = 'pending';
         if (po.status === 'Pending Finance') preAuditStatus = 'approved';
         else if (po.status === 'Returned from Audit') preAuditStatus = 'returned_with_observations';
+        else if (po.status === 'Forwarded to Audit Director') preAuditStatus = 'forwarded_to_director';
         return res.json({
           success: true,
           data: {
@@ -418,7 +423,8 @@ router.get('/:id',
             amount: po.totalAmount,
             referenceNumber: po.orderNumber,
             status: preAuditStatus,
-            isWorkflowDocument: true,
+            workflowStatus: po.status,
+            isWorkflowDocument: false,
             isPurchaseOrder: true,
             isPostGrnAudit: po.status === 'Sent to Audit',
             originalDocument: po,
@@ -521,10 +527,10 @@ router.post('/',
 
 // @route   PUT /api/pre-audit/:id/forward
 // @desc    Forward a pre-audit document to Audit Director (works for both Pre Audit and workflow documents)
-// @access  Private (Audit Manager only)
+// @access  Private (Super Admin, Audit Manager, Auditor — not Audit Director; they approve after forward)
 router.put('/:id/forward',
   authMiddleware,
-  authorize('super_admin', 'audit_manager'),
+  authorize('super_admin', 'audit_manager', 'auditor'),
   asyncHandler(async (req, res) => {
     const { forwardComments } = req.body;
 
@@ -557,16 +563,41 @@ router.put('/:id/forward',
       }
     }
 
-    // Check if it's a Purchase Order (Pending Audit)
+    // Purchase Order in pre-audit: forward Pending Audit -> Forwarded to Audit Director
     if (!isWorkflowDocument) {
       const PurchaseOrderModel = require('../models/procurement/PurchaseOrder');
       const po = await PurchaseOrderModel.findById(req.params.id);
-      if (po && po.status === 'Pending Audit') {
-        // For Purchase Orders, we can't forward them the same way
-        // They would need to be handled differently or we skip forwarding for POs
-        return res.status(400).json({
-          success: false,
-          message: 'Purchase orders cannot be forwarded to Audit Director. Please approve or return them directly.'
+      if (po && ['Pending Audit', 'Forwarded to Audit Director'].includes(po.status)) {
+        if (po.status === 'Forwarded to Audit Director') {
+          return res.status(400).json({
+            success: false,
+            message: 'Document is already forwarded to Audit Director'
+          });
+        }
+        po.workflowHistory = po.workflowHistory || [];
+        po.workflowHistory.push({
+          fromStatus: 'Pending Audit',
+          toStatus: 'Forwarded to Audit Director',
+          changedBy: req.user.id,
+          changedAt: new Date(),
+          comments: forwardComments || 'Forwarded to Audit Director for approval',
+          module: 'Pre-Audit'
+        });
+        po.status = 'Forwarded to Audit Director';
+        po.updatedBy = req.user.id;
+        await po.save();
+        const updated = await PurchaseOrderModel.findById(po._id)
+          .populate('workflowHistory.changedBy', 'firstName lastName email');
+        return res.json({
+          success: true,
+          message: 'Document forwarded to Audit Director successfully',
+          data: {
+            _id: po._id,
+            isWorkflowDocument: false,
+            isPurchaseOrder: true,
+            status: 'Forwarded to Audit Director',
+            workflowStatus: updated.status
+          }
         });
       }
     }
@@ -701,8 +732,17 @@ router.put('/:id/approve',
     }
 
     if (isWorkflowDocument) {
+      const wfStatus = workflowDocument[workflowConfig.workflowStatusField];
+      // In initial audit queue: only forward; approval happens after Forwarded to Audit Director (super_admin may bypass)
+      if (wfStatus === 'Send to Audit' && req.user.role !== 'super_admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Forward this document to the Audit Director first. Only the Audit Director can approve after it has been forwarded.'
+        });
+      }
+
       // For workflow documents, check if forwarded and only Audit Director can approve
-      if (workflowDocument[workflowConfig.workflowStatusField] === 'Forwarded to Audit Director') {
+      if (wfStatus === 'Forwarded to Audit Director') {
         const userRole = req.user.role;
         const normalizedRole = String(userRole).toLowerCase().replace(/\s+/g, '_');
         if (userRole !== 'super_admin' && normalizedRole !== 'audit_director' && userRole !== 'Audit Director') {
@@ -773,6 +813,13 @@ router.put('/:id/approve',
       return res.status(400).json({
         success: false,
         message: 'Document is already approved'
+      });
+    }
+
+    if ((document.status === 'pending' || document.status === 'under_review') && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Forward this document to the Audit Director first. Only the Audit Director can approve after it has been forwarded.'
       });
     }
 
@@ -895,10 +942,10 @@ router.put('/:id/add-observation',
       });
     }
 
-    // Check if it's a Purchase Order (Pending Audit)
+    // Purchase Order in pre-audit queue (before or after forward to director)
     const PurchaseOrderModel = require('../models/procurement/PurchaseOrder');
     const po = await PurchaseOrderModel.findById(req.params.id);
-    if (po && po.status === 'Pending Audit') {
+    if (po && ['Pending Audit', 'Forwarded to Audit Director'].includes(po.status)) {
       po.auditObservations = po.auditObservations || [];
       po.auditObservations.push({
         observation,
@@ -1036,14 +1083,14 @@ router.put('/:id/return',
       });
     }
 
-    // Check if it's a Purchase Order (Pending Audit)
     const PurchaseOrderForReturn = require('../models/procurement/PurchaseOrder');
     const poForReturn = await PurchaseOrderForReturn.findById(req.params.id);
-    if (poForReturn && poForReturn.status === 'Pending Audit') {
+    if (poForReturn && ['Pending Audit', 'Forwarded to Audit Director'].includes(poForReturn.status)) {
+      const fromPoStatus = poForReturn.status;
       // Workflow history for display in Pre-Audit
       poForReturn.workflowHistory = poForReturn.workflowHistory || [];
       poForReturn.workflowHistory.push({
-        fromStatus: 'Pending Audit',
+        fromStatus: fromPoStatus,
         toStatus: 'Returned from Audit',
         changedBy: req.user.id,
         changedAt: new Date(),

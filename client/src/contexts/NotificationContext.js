@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import NotificationService from '../services/notificationService';
+import { io } from 'socket.io-client';
 
 // Optimized notification state structure
 const initialState = {
@@ -193,6 +194,36 @@ export const NotificationProvider = ({ children }) => {
     
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchNotifications, clearAll]);
+
+  // Real-time socket updates for new notifications
+  React.useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const token = localStorage.getItem('token');
+    if (!token) return undefined;
+
+    const baseURL = process.env.NODE_ENV === 'production'
+      ? window.location.origin
+      : (process.env.REACT_APP_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
+
+    const socket = io(baseURL, {
+      path: '/socket-notifications',
+      transports: ['websocket', 'polling'],
+      auth: { token }
+    });
+
+    socket.on('notification:new', (notification) => {
+      if (notification && notification._id) {
+        addNotification(notification);
+      } else {
+        fetchNotifications(true);
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [isAuthenticated, addNotification, fetchNotifications]);
 
   // Context value memoized to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({

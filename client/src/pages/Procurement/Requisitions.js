@@ -49,6 +49,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
+import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { formatPKR } from '../../utils/currency';
 import dayjs from 'dayjs';
 
@@ -218,22 +219,50 @@ const Requisitions = () => {
 
   const handleView = async (requisition) => {
     setViewDialog({ open: true, data: requisition, tab: 0 });
-    // Load quotations for comparative statement
-    if (requisition._id) {
-      setLoadingQuotations(true);
-      try {
-        const response = await api.get(`/procurement/quotations/by-indent/${requisition._id}`);
-        if (response.data.success) {
-          setQuotations(response.data.data || []);
-        }
-      } catch (err) {
-        console.error('Failed to load quotations:', err);
-        setQuotations([]);
-      } finally {
-        setLoadingQuotations(false);
+    if (!requisition._id) return;
+    setLoadingQuotations(true);
+    try {
+      const [detailRes, quotesRes] = await Promise.all([
+        api.get(`/indents/${requisition._id}`),
+        api.get(`/procurement/quotations/by-indent/${requisition._id}`)
+      ]);
+      if (detailRes.data?.success && detailRes.data.data) {
+        setViewDialog((prev) =>
+          prev.open ? { ...prev, data: detailRes.data.data } : prev
+        );
       }
+      if (quotesRes.data.success) {
+        setQuotations(quotesRes.data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to load requisition detail or quotations:', err);
+      setQuotations([]);
+    } finally {
+      setLoadingQuotations(false);
     }
   };
+
+  const indentApprovalNameFromChain = (ind, index) => {
+    if (!ind) return '';
+    const step = ind.approvalChain?.[index];
+    if (step?.approver) {
+      const n = [step.approver.firstName, step.approver.lastName].filter(Boolean).join(' ').trim();
+      if (n) return n;
+      if (step.approver.email) return step.approver.email;
+    }
+    const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
+    return ind.signatures?.[keys[index]]?.name || '';
+  };
+
+  const indentApprovalDateFromChain = (ind, index) => {
+    if (!ind) return null;
+    const step = ind.approvalChain?.[index];
+    if (step?.actedAt && step?.status === 'approved') return step.actedAt;
+    const keys = ['headOfDepartment', 'gmPd', 'svpAvp'];
+    return ind.signatures?.[keys[index]]?.date;
+  };
+
+  const indentChainStep = (ind, index) => ind?.approvalChain?.[index];
 
   const handleTabChange = (event, newValue) => {
     setViewDialog({ ...viewDialog, tab: newValue });
@@ -760,27 +789,147 @@ const Requisitions = () => {
                   </Box>
                 </Box>
 
-                {/* Signatures Section */}
+                {/* Signatures — fixed-height boxes; image uses all space between label and name/date */}
                 <Box sx={{ mb: 3 }}>
                   <Grid container spacing={1.5}>
                     <Grid item xs={12} sm={6} md={6}>
-                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+                      <Box
+                        sx={{
+                          border: '1px solid #ccc',
+                          p: 0.75,
+                          height: 150,
+                          minHeight: 150,
+                          maxHeight: 150,
+                          boxSizing: 'border-box',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          overflow: 'hidden',
+                          textAlign: 'left'
+                        }}
+                      >
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          sx={{ mb: 0.25, fontSize: '0.8rem', lineHeight: 1.15, flexShrink: 0 }}
+                        >
                           Sig of Requester:
                         </Typography>
-                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                          {viewDialog.data.signatures?.requester?.name || '___________'}
+                        {viewDialog.data.requestedBy?.digitalSignature ? (
+                          <Box
+                            sx={{
+                              flex: '1 1 0',
+                              minHeight: 0,
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'flex-start',
+                              overflow: 'hidden',
+                              py: 0.25,
+                              pl: 0.25
+                            }}
+                          >
+                            <DigitalSignatureImage
+                              userOrPath={viewDialog.data.requestedBy}
+                              alt="Requester"
+                              sx={{
+                                maxHeight: '100%',
+                                maxWidth: '100%',
+                                width: 'auto',
+                                height: '100%',
+                                mx: 0,
+                                alignSelf: 'center',
+                                objectFit: 'contain',
+                                objectPosition: 'left center'
+                              }}
+                            />
+                          </Box>
+                        ) : null}
+                        <Box sx={{ flexShrink: 0, mt: 0.25, minHeight: '18px', fontSize: '0.8rem', lineHeight: 1.2 }}>
+                          {viewDialog.data.signatures?.requester?.name ||
+                            (viewDialog.data.requestedBy?.firstName && viewDialog.data.requestedBy?.lastName
+                              ? `${viewDialog.data.requestedBy.firstName} ${viewDialog.data.requestedBy.lastName}`
+                              : '___________')}
                         </Box>
+                        {(viewDialog.data.signatures?.requester?.date ||
+                          viewDialog.data.requestedDate ||
+                          viewDialog.data.createdAt) && (
+                          <Typography
+                            variant="caption"
+                            sx={{ mt: 0.125, display: 'block', fontSize: '0.7rem', lineHeight: 1.1, flexShrink: 0 }}
+                          >
+                            {formatDateForPrint(
+                              viewDialog.data.signatures?.requester?.date ||
+                                viewDialog.data.requestedDate ||
+                                viewDialog.data.createdAt
+                            )}
+                          </Typography>
+                        )}
                       </Box>
                     </Grid>
                     <Grid item xs={12} sm={6} md={6}>
-                      <Box sx={{ border: '1px solid #ccc', p: 1.5, minHeight: '90px', textAlign: 'left' }}>
-                        <Typography variant="body2" fontWeight={600} sx={{ mb: 1, fontSize: '0.85rem' }}>
+                      <Box
+                        sx={{
+                          border: '1px solid #ccc',
+                          p: 0.75,
+                          height: 150,
+                          minHeight: 150,
+                          maxHeight: 150,
+                          boxSizing: 'border-box',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          overflow: 'hidden',
+                          textAlign: 'left'
+                        }}
+                      >
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          sx={{ mb: 0.25, fontSize: '0.8rem', lineHeight: 1.15, flexShrink: 0 }}
+                        >
                           Head of Department:
                         </Typography>
-                        <Box sx={{ mt: 2, minHeight: '35px', fontSize: '0.9rem' }}>
-                          {viewDialog.data.signatures?.headOfDepartment?.name || '___________'}
+                        {indentChainStep(viewDialog.data, 0)?.status === 'approved' &&
+                        indentChainStep(viewDialog.data, 0)?.approver?.digitalSignature ? (
+                          <Box
+                            sx={{
+                              flex: '1 1 0',
+                              minHeight: 0,
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'flex-start',
+                              overflow: 'hidden',
+                              py: 0.25,
+                              pl: 0.25
+                            }}
+                          >
+                            <DigitalSignatureImage
+                              userOrPath={indentChainStep(viewDialog.data, 0).approver}
+                              alt="Head of Department"
+                              sx={{
+                                maxHeight: '100%',
+                                maxWidth: '100%',
+                                width: 'auto',
+                                height: '100%',
+                                mx: 0,
+                                alignSelf: 'center',
+                                objectFit: 'contain',
+                                objectPosition: 'left center'
+                              }}
+                            />
+                          </Box>
+                        ) : null}
+                        <Box sx={{ flexShrink: 0, mt: 0.25, minHeight: '18px', fontSize: '0.8rem', lineHeight: 1.2 }}>
+                          {indentApprovalNameFromChain(viewDialog.data, 0) || '___________'}
                         </Box>
+                        {indentApprovalDateFromChain(viewDialog.data, 0) ? (
+                          <Typography
+                            variant="caption"
+                            sx={{ mt: 0.125, display: 'block', fontSize: '0.7rem', lineHeight: 1.1, flexShrink: 0 }}
+                          >
+                            {formatDateForPrint(indentApprovalDateFromChain(viewDialog.data, 0))}
+                          </Typography>
+                        ) : null}
                       </Box>
                     </Grid>
                   </Grid>

@@ -10,6 +10,7 @@ import {
   Tooltip
 } from '@mui/material';
 import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon, CallSplit as SplitIcon } from '@mui/icons-material';
+import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 
 /**
  * Shared Comparative Statement view. Used in Procurement (Comparative Statements page) and Pre-Audit (PO view tab).
@@ -171,6 +172,37 @@ const ComparativeStatementView = ({
             </tr>
           </tbody>
         </table>
+        {selectedRequisition &&
+          (selectedRequisition.requestedBy?.digitalSignature ||
+            (selectedRequisition.approvalChain || []).some(
+              (s) => s.status === 'approved' && s.approver?.digitalSignature
+            )) && (
+          <Box sx={{ mt: 2, '@media print': { pageBreakInside: 'avoid' } }}>
+            <Typography variant="caption" fontWeight={600} color="text.secondary" display="block" sx={{ mb: 1 }}>
+              Purchase request — electronic signatures on file
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'flex-end' }}>
+              {selectedRequisition.requestedBy?.digitalSignature ? (
+                <Box sx={{ textAlign: 'center' }}>
+                  <DigitalSignatureImage userOrPath={selectedRequisition.requestedBy} alt="Requester" />
+                  <Typography variant="caption" display="block">
+                    Requester
+                  </Typography>
+                </Box>
+              ) : null}
+              {(selectedRequisition.approvalChain || []).map((step, idx) =>
+                step.status === 'approved' && step.approver?.digitalSignature ? (
+                  <Box key={step.approver?._id || idx} sx={{ textAlign: 'center' }}>
+                    <DigitalSignatureImage userOrPath={step.approver} alt={`Approver ${idx + 1}`} />
+                    <Typography variant="caption" display="block">
+                      Approver {idx + 1}
+                    </Typography>
+                  </Box>
+                ) : null
+              )}
+            </Box>
+          </Box>
+        )}
         {!readOnly && onSaveApprovals && (
           <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'flex-end', '@media print': { display: 'none' } }}>
             <Button variant="contained" color="primary" size="small" startIcon={savingApprovals ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />} onClick={onSaveApprovals} disabled={savingApprovals}>

@@ -96,7 +96,6 @@ const auditFindingsRoutes = require('./routes/auditFindings');
 const auditTrailRoutes = require('./routes/auditTrail');
 const subRoleRoutes = require('./routes/subRoles');
 const userSubRoleRoutes = require('./routes/userSubRoles');
-const tajResidenciaRoutes = require('./routes/tajResidencia');
 const tajResidenciaComplaintsRoutes = require('./routes/tajResidenciaComplaints');
 const tajRentalManagementRoutes = require('./routes/tajRentalManagement');
 const camChargesRoutes = require('./routes/camCharges');
@@ -149,6 +148,7 @@ const attendanceService = require('./services/attendanceService');
 const ChangeStreamService = require('./services/changeStreamService');
 const ZKBioTimeWebSocketProxy = require('./services/zkbioTimeWebSocketProxy');
 const itNotificationService = require('./services/itNotificationService');
+const realtimeNotificationGateway = require('./services/realtimeNotificationGateway');
 
 // Initialize services
 let changeStreamService = null;
@@ -617,8 +617,7 @@ app.use('/api/sub-roles', subRoleRoutes);
 app.use('/api/user-sub-roles', userSubRoleRoutes);
 app.use('/api/roles', authMiddleware, activityLogger, require('./routes/roles'));
 
-// Taj Residencia routes
-app.use('/api/taj-residencia', authMiddleware, activityLogger, tajResidenciaRoutes);
+// Taj Residencia routes (complaints public/listing; land acquisition API removed)
 app.use('/api', tajResidenciaComplaintsRoutes);
 app.use('/api/taj-utilities/rental-management', authMiddleware, activityLogger, tajRentalManagementRoutes);
 app.use('/api/taj-utilities/cam-charges', authMiddleware, activityLogger, camChargesRoutes);
@@ -678,6 +677,9 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const PORT = process.env.PORT || 5001;
+
+// Initialize user-targeted notification socket gateway
+realtimeNotificationGateway.initialize(server);
 
 // Initialize Change Stream service after MongoDB connection
 mongoose.connection.once('open', async () => {

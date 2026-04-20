@@ -405,11 +405,11 @@ const StoreItemCatalog = () => {
               <Table size="small">
                 <TableHead>
                   <TableRow>
+                    <TableCell align="right"><strong>Sr #</strong></TableCell>
                     <TableCell><strong>Type</strong></TableCell>
                     <TableCell><strong>Category</strong></TableCell>
                     <TableCell><strong>Category path</strong></TableCell>
                     <TableCell><strong>Item name</strong></TableCell>
-                    <TableCell align="right"><strong>Sr #</strong></TableCell>
                     <TableCell><strong>Status</strong></TableCell>
                     <TableCell align="right"><strong>Actions</strong></TableCell>
                   </TableRow>
@@ -432,6 +432,7 @@ const StoreItemCatalog = () => {
                   ) : (
                     pagedRows.map((r) => (
                       <TableRow key={r._id} hover>
+                        <TableCell align="right">{r.isCategoryRoot ? '—' : r.srNo}</TableCell>
                         <TableCell>
                           {r.isCategoryRoot ? (
                             <Chip size="small" label="Category" color="primary" variant="outlined" />
@@ -444,7 +445,6 @@ const StoreItemCatalog = () => {
                         <TableCell sx={{ maxWidth: 280, wordBreak: 'break-word' }}>
                           {r.isCategoryRoot ? '—' : r.name}
                         </TableCell>
-                        <TableCell align="right">{r.isCategoryRoot ? '—' : r.srNo}</TableCell>
                         <TableCell>
                           <Chip
                             size="small"

@@ -54,6 +54,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../services/api';
 import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
+import { ProcurementDigitalSignaturesRow } from '../../components/common/DigitalSignatureImage';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
@@ -586,6 +587,7 @@ const PurchaseOrders = () => {
       'Draft': 'default',
       'Pending Approval': 'warning',
       'Pending Audit': 'warning',
+      'Forwarded to Audit Director': 'primary',
       'Pending Finance': 'info',
       'Send to CEO Office': 'info',
       'Forwarded to CEO': 'primary',
@@ -750,6 +752,7 @@ const PurchaseOrders = () => {
               <MenuItem value="Draft">Draft</MenuItem>
               <MenuItem value="Pending Approval">Pending Approval</MenuItem>
               <MenuItem value="Pending Audit">Pending Audit</MenuItem>
+              <MenuItem value="Forwarded to Audit Director">Forwarded to Audit Director</MenuItem>
               <MenuItem value="Pending Finance">Pending Finance</MenuItem>
               <MenuItem value="Send to CEO Office">Send to CEO Office</MenuItem>
               <MenuItem value="Forwarded to CEO">Forwarded to CEO</MenuItem>
@@ -973,6 +976,7 @@ const PurchaseOrders = () => {
                 >
                   <MenuItem value="Draft">Draft</MenuItem>
                   <MenuItem value="Pending Audit">Pending Audit</MenuItem>
+                  <MenuItem value="Forwarded to Audit Director">Forwarded to Audit Director</MenuItem>
                   <MenuItem value="Pending Finance">Pending Finance</MenuItem>
                   <MenuItem value="Send to CEO Office">Send to CEO Office</MenuItem>
                   <MenuItem value="Forwarded to CEO">Forwarded to CEO</MenuItem>
@@ -1776,6 +1780,7 @@ const PurchaseOrders = () => {
                       </tr>
                     </tbody>
                   </table>
+                  <ProcurementDigitalSignaturesRow purchaseOrder={viewDialog.data} />
                 </Box>
               </Paper>
             </Box>

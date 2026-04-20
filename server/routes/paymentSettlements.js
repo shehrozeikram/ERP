@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const permissions = require('../middleware/permissions');
+const { asyncHandler } = require('../middleware/errorHandler');
+const { checkSubRoleAccess } = require('../config/permissions');
 const PaymentSettlement = require('../models/hr/PaymentSettlement');
 const {
   getPaymentSettlements,
@@ -21,6 +23,44 @@ const {
 // Apply authentication middleware to all routes
 router.use(authMiddleware);
 
+/** Payment settlements that appear in Pre-Audit: audit users may read single doc without Admin submodule role */
+function isPaymentSettlementInAuditQueue(workflowStatus) {
+  if (!workflowStatus || typeof workflowStatus !== 'string') return false;
+  if (['Send to Audit', 'Forwarded to Audit Director', 'Returned from Audit'].includes(workflowStatus)) return true;
+  if (/^Approved \(from Send to Audit/.test(workflowStatus)) return true;
+  if (/^Approved \(from Forwarded to Audit Director/.test(workflowStatus)) return true;
+  if (/^Rejected \(from Send to Audit/.test(workflowStatus)) return true;
+  return false;
+}
+
+const paymentSettlementReadGate = asyncHandler(async (req, res, next) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+  const settlement = await PaymentSettlement.findById(req.params.id).select('workflowStatus').lean();
+  if (!settlement) {
+    return res.status(404).json({ success: false, message: 'Payment settlement not found' });
+  }
+  const norm = String(user.role || '').toLowerCase().replace(/\s+/g, '_');
+  const isAuditRole =
+    norm === 'audit_manager' ||
+    norm === 'auditor' ||
+    norm === 'audit_director' ||
+    user.role === 'Audit Director';
+  if ((user.role === 'super_admin' || isAuditRole) && isPaymentSettlementInAuditQueue(settlement.workflowStatus)) {
+    return next();
+  }
+  const hasAccess = await checkSubRoleAccess(user.id, 'admin', 'payment_settlement', 'read');
+  if (!hasAccess) {
+    return res.status(403).json({
+      success: false,
+      message: 'Insufficient sub-role permissions to perform this action'
+    });
+  }
+  return next();
+});
+
 // @desc    Get settlement statistics
 // @route   GET /api/payment-settlements/stats
 // @access  Private (Admin)
@@ -33,8 +73,8 @@ router.get('/', permissions.checkSubRolePermission('admin', 'payment_settlement'
 
 // @desc    Get single payment settlement by ID
 // @route   GET /api/payment-settlements/:id
-// @access  Private (Admin)
-router.get('/:id', permissions.checkSubRolePermission('admin', 'payment_settlement', 'read'), getPaymentSettlement);
+// @access  Private (Admin payment_settlement read, or Pre-Audit roles when doc is in audit workflow)
+router.get('/:id', paymentSettlementReadGate, getPaymentSettlement);
 
 // @desc    Create new payment settlement
 // @route   POST /api/payment-settlements

@@ -193,14 +193,13 @@ const PreAudit = () => {
       setError(null);
       const doc = approveDialog.document;
       
-      // If document is forwarded to director, always use pre-audit approve route
-      // This route handles both PreAudit and workflow documents without sub-role permission checks
-      if (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') {
-        await api.put(`/pre-audit/${doc._id}/approve`, {
+      // Pre-GRN PO: Audit Director approves via procurement after forward (super_admin may approve from Pending on server)
+      if (doc.isPurchaseOrder && !doc.isPostGrnAudit) {
+        await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
           approvalComments
         });
-      } else if (doc.isPurchaseOrder) {
-        await api.put(`/procurement/purchase-orders/${doc._id}/audit-approve`, {
+      } else if (doc.status === 'forwarded_to_director' || doc.workflowStatus === 'Forwarded to Audit Director') {
+        await api.put(`/pre-audit/${doc._id}/approve`, {
           approvalComments
         });
       } else if (doc.isWorkflowDocument) {
@@ -1351,8 +1350,8 @@ const PreAudit = () => {
                                                       )
                                                     ) : (
                                                       <>
-                                                        {/* Audit Manager: Can forward to Audit Director */}
-                                                        {(user?.role === 'audit_manager' || user?.role === 'super_admin') && (
+                                                        {/* Audit staff: forward to Audit Director (director approves after forward) */}
+                                                        {(user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
                                                           <Tooltip title="Forward to Audit Director">
                                                             <IconButton
                                                               size="small"
@@ -1363,8 +1362,8 @@ const PreAudit = () => {
                                                             </IconButton>
                                                           </Tooltip>
                                                         )}
-                                                        {/* Approve button - available to audit_manager, super_admin, and auditor */}
-                                                        {(user?.role === 'audit_manager' || user?.role === 'super_admin' || user?.role === 'auditor') && (
+                                                        {/* Approve from queue without forward: super_admin only (director uses Forwarded tab) */}
+                                                        {user?.role === 'super_admin' && (
                                                           <Tooltip title="Approve">
                                                             <IconButton
                                                               size="small"

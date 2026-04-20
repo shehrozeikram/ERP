@@ -87,7 +87,7 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const { getModuleCount } = useNotifications();
+  const { getModuleCount, markModuleAsRead } = useNotifications();
   const [openSubmenu, setOpenSubmenu] = useState({});
   const [candidateHiredCount, setCandidateHiredCount] = useState(0);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
@@ -273,21 +273,7 @@ const Sidebar = () => {
       '/it/reports': 'it_reports',
       
       // Taj Residencia Module
-      '/taj-residencia/land-acquisition': 'land_acquisition',
-      '/taj-residencia/land-acquisition/land-identification': 'land_identification',
-      '/taj-residencia/land-acquisition/record-verification': 'record_verification',
-      '/taj-residencia/land-acquisition/khasra-mapping': 'khasra_mapping',
-      '/taj-residencia/land-acquisition/demarcation': 'demarcation',
-      '/taj-residencia/land-acquisition/owner-due-diligence': 'owner_due_diligence',
-      '/taj-residencia/land-acquisition/negotiation-bayana': 'negotiation_bayana',
-      '/taj-residencia/land-acquisition/registry': 'registry',
-      '/taj-residencia/land-acquisition/mutation': 'mutation',
-      '/taj-residencia/land-acquisition/society-internal-processing': 'society_internal_processing',
-      '/taj-residencia/land-acquisition/gis-map-alignment': 'gis_map_alignment',
-      '/taj-residencia/land-acquisition/land-conversion': 'land_conversion',
-      '/taj-residencia/land-acquisition/compensation-management': 'compensation_management',
-      '/taj-residencia/land-acquisition/encroachment-dispute': 'encroachment_dispute',
-      '/taj-residencia/land-acquisition/reporting-framework': 'reporting_framework'
+      '/taj-residencia/complains-tickets': 'complains_tickets'
     };
     return pathToSubmoduleMap[path];
   };
@@ -695,6 +681,28 @@ const Sidebar = () => {
     
     return () => clearInterval(interval);
   }, [fetchCandidateHiredCount]);
+
+  // Auto-clear module notifications when user visits that module page.
+  useEffect(() => {
+    const path = location.pathname || '';
+    let moduleToClear = null;
+
+    if (path.startsWith('/procurement') || path.startsWith('/general/indents')) {
+      moduleToClear = 'procurement';
+    } else if (path.startsWith('/hr')) {
+      moduleToClear = 'hr';
+    } else if (path.startsWith('/finance')) {
+      moduleToClear = 'finance';
+    } else if (path.startsWith('/crm')) {
+      moduleToClear = 'crm';
+    } else if (path.startsWith('/sales')) {
+      moduleToClear = 'sales';
+    }
+
+    if (moduleToClear && getModuleCount(moduleToClear) > 0) {
+      markModuleAsRead(moduleToClear);
+    }
+  }, [location.pathname, getModuleCount, markModuleAsRead]);
 
   const handleSubmenuToggle = (text, subItems) => {
     setOpenSubmenu(prev => {

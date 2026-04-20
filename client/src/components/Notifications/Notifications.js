@@ -30,13 +30,15 @@ import {
 } from '@mui/icons-material';
 import { formatDistanceToNow } from 'date-fns';
 import { useNotifications } from '../../contexts/NotificationContext';
+import { useNavigate } from 'react-router-dom';
 
-const Notifications = ({ onNotificationAction }) => {
+const Notifications = ({ onNotificationAction, onClose }) => {
   const { 
     getNotifications, 
     markAsRead, 
     isLoading 
   } = useNotifications();
+  const navigate = useNavigate();
   
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
@@ -77,6 +79,24 @@ const Notifications = ({ onNotificationAction }) => {
       }
     } catch (err) {
       console.error('Error deleting notification:', err);
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification?._id) return;
+    try {
+      await markAsRead([notification._id], [notification?.metadata?.module].filter(Boolean));
+      if (onClose) {
+        onClose();
+      }
+      if (notification.actionUrl) {
+        navigate(notification.actionUrl);
+      }
+      if (onNotificationAction) {
+        onNotificationAction();
+      }
+    } catch (err) {
+      console.error('Error handling notification click:', err);
     }
   };
 
@@ -177,8 +197,10 @@ const Notifications = ({ onNotificationAction }) => {
         {notifications.map((notification, index) => (
           <React.Fragment key={notification._id}>
             <ListItem 
+              onClick={() => handleNotificationClick(notification)}
               sx={{ 
                 py: 1.5,
+                cursor: 'pointer',
                 '&:hover': { bgcolor: 'action.hover' }
               }}
             >
@@ -215,7 +237,10 @@ const Notifications = ({ onNotificationAction }) => {
               <ListItemSecondaryAction>
                 <IconButton
                   size="small"
-                  onClick={(e) => handleMenuOpen(e, notification)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMenuOpen(e, notification);
+                  }}
                 >
                   <MoreVert />
                 </IconButton>

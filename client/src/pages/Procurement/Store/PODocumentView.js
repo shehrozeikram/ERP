@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Typography, Paper, Divider, Chip, alpha, useTheme } from '@mui/material';
+import { ProcurementDigitalSignaturesRow } from '../../../components/common/DigitalSignatureImage';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
@@ -337,6 +338,8 @@ const PODocumentView = ({ data }) => {
           </tbody>
         </table>
       </Box>
+
+      <ProcurementDigitalSignaturesRow purchaseOrder={data} />
     </Paper>
   );
 };
