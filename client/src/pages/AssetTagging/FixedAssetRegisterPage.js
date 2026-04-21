@@ -9,6 +9,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { formatAssetLocationForDisplay } from '../../utils/assetLocationDisplay';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -167,7 +168,7 @@ export default function FixedAssetRegisterPage() {
                   <TableCell>{a.name}</TableCell>
                   <TableCell sx={{ textTransform: 'capitalize' }}>{a.category || '—'}</TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{a.serialNumber || '—'}</TableCell>
-                  <TableCell>{a.location || '—'}</TableCell>
+                  <TableCell>{formatAssetLocationForDisplay(a.location) || '—'}</TableCell>
                   <TableCell>{a.assignedTo || '—'}</TableCell>
                   <TableCell>
                     {a.costCenter

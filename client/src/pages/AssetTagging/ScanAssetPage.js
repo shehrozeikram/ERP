@@ -5,6 +5,7 @@ import {
 import { QrCode2 as QrIcon, Sensors as ScanIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { formatAssetLocationLabeledRows } from '../../utils/assetLocationDisplay';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -59,6 +60,7 @@ export default function ScanAssetPage() {
 
   const asset = data?.asset;
   const transferHistory = data?.transferHistory || [];
+  const assetLocationRows = asset ? formatAssetLocationLabeledRows(asset.location) : [];
 
   return (
     <Box sx={{ p: 3, maxWidth: 560, mx: 'auto' }}>
@@ -82,7 +84,22 @@ export default function ScanAssetPage() {
           <Typography variant="h6" fontWeight={800}>{asset.assetNumber}</Typography>
           <Typography variant="body1" gutterBottom>{asset.name}</Typography>
           <Typography variant="body2" color="text.secondary">Category: {asset.category}</Typography>
-          <Typography variant="body2" color="text.secondary">Location: {asset.location || '—'}</Typography>
+          <Box sx={{ color: 'text.secondary', mb: 1 }}>
+            <Typography variant="body2" color="text.secondary" fontWeight={600} gutterBottom>
+              Location
+            </Typography>
+            {assetLocationRows.length ? (
+              <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2.5, typography: 'body2' }}>
+                {assetLocationRows.map((row, idx) => (
+                  <Typography key={`loc-${idx}-${row.label}`} component="li" variant="body2" color="text.secondary">
+                    <strong>{row.label}:</strong> {row.value}
+                  </Typography>
+                ))}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">—</Typography>
+            )}
+          </Box>
           <Typography variant="body2" color="text.secondary">Custodian: {asset.assignedTo || '—'}</Typography>
           <Typography variant="body2" color="text.secondary">Serial: {asset.serialNumber || '—'}</Typography>
           <Typography variant="body2" sx={{ mt: 1 }}>Book value: PKR {fmt(asset.currentBookValue)} · Purchased {fmtDate(asset.purchaseDate)}</Typography>
@@ -103,8 +120,14 @@ export default function ScanAssetPage() {
           ) : (
             <Stack spacing={1}>
               {transferHistory.map((ev) => {
-                const prevLocation = ev?.meta?.previous?.location || '—';
-                const currLocation = ev?.meta?.current?.location || '—';
+                const rawPrev = ev?.meta?.previous?.location;
+                const rawCurr = ev?.meta?.current?.location;
+                const prevRows = rawPrev != null && String(rawPrev).trim()
+                  ? formatAssetLocationLabeledRows(rawPrev)
+                  : [];
+                const currRows = rawCurr != null && String(rawCurr).trim()
+                  ? formatAssetLocationLabeledRows(rawCurr)
+                  : [];
                 const prevCustodian = ev?.meta?.previous?.assignedTo || '—';
                 const currCustodian = ev?.meta?.current?.assignedTo || '—';
                 const changedBy = ev?.user
@@ -115,10 +138,43 @@ export default function ScanAssetPage() {
                     <Typography variant="caption" color="text.secondary">
                       {fmtDateTime(ev.createdAt)} • by {changedBy}
                     </Typography>
-                    <Typography variant="body2">
-                      <strong>Location:</strong> {prevLocation} → {currLocation}
+                    <Typography variant="body2" fontWeight={600} sx={{ mt: 0.75, mb: 0.5 }}>
+                      Location
                     </Typography>
-                    <Typography variant="body2">
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems="flex-start">
+                      <Box flex={1} sx={{ minWidth: 0 }}>
+                        <Typography variant="caption" color="text.secondary">From</Typography>
+                        {prevRows.length ? (
+                          <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2, typography: 'body2' }}>
+                            {prevRows.map((row, idx) => (
+                              <Typography key={`pf-${ev._id}-${idx}`} component="li" variant="body2">
+                                <strong>{row.label}:</strong> {row.value}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2">—</Typography>
+                        )}
+                      </Box>
+                      <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' }, pt: 1.25, color: 'text.secondary' }} aria-hidden>
+                        →
+                      </Typography>
+                      <Box flex={1} sx={{ minWidth: 0 }}>
+                        <Typography variant="caption" color="text.secondary">To</Typography>
+                        {currRows.length ? (
+                          <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2, typography: 'body2' }}>
+                            {currRows.map((row, idx) => (
+                              <Typography key={`pt-${ev._id}-${idx}`} component="li" variant="body2">
+                                <strong>{row.label}:</strong> {row.value}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2">—</Typography>
+                        )}
+                      </Box>
+                    </Stack>
+                    <Typography variant="body2" sx={{ mt: 1 }}>
                       <strong>Custodian:</strong> {prevCustodian} → {currCustodian}
                     </Typography>
                     {ev.note ? (

@@ -12,9 +12,13 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
 import LocationSelector from '../../components/Procurement/Store/LocationSelector';
+import {
+  ASSET_TAGGING_HQ_BUILDING as HQ_LOCATION,
+  normalizeHqRoomSegment,
+  formatAssetLocationForDisplay
+} from '../../utils/assetLocationDisplay';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const HQ_LOCATION = 'Sardar Plaza Head Quarter';
 
 export default function TaggedAssetsPage() {
   const navigate = useNavigate();
@@ -125,7 +129,7 @@ export default function TaggedAssetsPage() {
       const subStoreLabel = selectedSubStore?.name || locationSubStore || '';
       const locationParts = isStore
         ? [locationBuilding, subStoreLabel, locationRack, locationShelf, locationBin]
-        : [locationBuilding, locationFloor, locationRoom];
+        : [locationBuilding, locationFloor, normalizeHqRoomSegment(locationRoom)];
       const normalizedLocation = locationParts.map((part) => String(part || '').trim()).filter(Boolean).join(', ');
       setLocation(normalizedLocation);
       await api.put(`/asset-tagging/assets/${sel._id}/custody`, { location: normalizedLocation, assignedTo });
@@ -201,7 +205,7 @@ export default function TaggedAssetsPage() {
                   <TableRow key={a._id} hover>
                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{a.assetNumber}</TableCell>
                     <TableCell>{a.name}</TableCell>
-                    <TableCell>{a.location || '—'}</TableCell>
+                    <TableCell>{formatAssetLocationForDisplay(a.location) || '—'}</TableCell>
                     <TableCell>{a.assignedTo || '—'}</TableCell>
                     <TableCell align="right">{fmt(a.currentBookValue)}</TableCell>
                     <TableCell>

@@ -5,6 +5,7 @@ import {
 import { Print as PrintIcon, ArrowBack as BackIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
+import { formatAssetLocationForDisplay } from '../../utils/assetLocationDisplay';
 
 export default function LabelPrintPage() {
   const { assetId } = useParams();
@@ -62,7 +63,9 @@ export default function LabelPrintPage() {
           <Typography variant="body2" color="text.secondary">SGC ERP — Fixed Asset</Typography>
           <Typography variant="h5" fontWeight={900} sx={{ my: 1 }}>{asset.assetNumber}</Typography>
           <Typography variant="body1" fontWeight={600} gutterBottom>{asset.name}</Typography>
-          <Typography variant="caption" display="block" sx={{ mb: 1 }}>Location: {asset.location || '—'}</Typography>
+          <Typography variant="caption" display="block" sx={{ mb: 1 }}>
+            Location: {formatAssetLocationForDisplay(asset.location) || '—'}
+          </Typography>
           <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: 200, height: 200, mx: 'auto', display: 'block' }} />
           <Typography variant="h6" sx={{ fontFamily: 'monospace', mt: 1 }}>{tag.tagCode}</Typography>
           <Divider sx={{ my: 2 }} />
