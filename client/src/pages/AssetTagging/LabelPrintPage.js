@@ -13,7 +13,7 @@ export default function LabelPrintPage() {
   const [asset, setAsset] = useState(null);
   const [tag, setTag] = useState(null);
   const [qr, setQr] = useState(null);
-  const [slot, setSlot] = useState(1);
+  const [slot, setSlot] = useState(() => Number(localStorage.getItem('assetTagLabelSlot') || 1));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -42,12 +42,45 @@ export default function LabelPrintPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    localStorage.setItem('assetTagLabelSlot', String(slot));
+  }, [slot]);
+
   if (loading) {
     return <Box p={4} textAlign="center"><CircularProgress /></Box>;
   }
 
   return (
-    <Box sx={{ p: 2, bgcolor: 'background.default', '@media print': { bgcolor: '#fff' } }}>
+    <Box className="print-label-root" sx={{ p: 2, minHeight: '100vh', bgcolor: '#fff', '@media print': { bgcolor: '#fff', p: 0, minHeight: '100vh' } }}>
+      <Box
+        component="style"
+      >{`
+        @media print {
+          @page {
+            size: auto;
+            margin: 0;
+          }
+          html, body, #root {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            min-height: 100% !important;
+          }
+          .print-label-root {
+            background: #fff !important;
+            min-height: 100vh !important;
+          }
+          .print-label-root * {
+            box-shadow: none !important;
+            text-shadow: none !important;
+          }
+          .print-label-root .MuiPaper-root {
+            border: 0 !important;
+            outline: 0 !important;
+            background: #fff !important;
+          }
+        }
+      `}</Box>
       <Stack direction="row" className="print-hide-toolbar" justifyContent="space-between" alignItems="center" mb={2}>
         <Button startIcon={<BackIcon />} onClick={() => navigate('/asset-tagging/assets')}>Back</Button>
         <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>Print label</Button>
@@ -63,12 +96,12 @@ export default function LabelPrintPage() {
         <Box
           sx={{
             display: 'flex',
-            justifyContent: 'center',
+            justifyContent: 'flex-start',
             flexDirection: 'column',
-            alignItems: 'center'
+            alignItems: 'flex-start'
           }}
         >
-          <Stack className="print-hide-toolbar" direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2, width: '100%', maxWidth: 420 }}>
+          <Stack className="print-hide-toolbar" direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2, width: '100%', maxWidth: 320 }}>
             <FormControl size="small" fullWidth>
               <InputLabel id="label-slot-select-label">Sheet position</InputLabel>
               <Select
@@ -87,7 +120,7 @@ export default function LabelPrintPage() {
           </Stack>
 
           <Paper
-            className="print-hide-toolbar"
+            className="print-preview-label"
             sx={{
               width: '98mm',
               height: '56mm',
@@ -98,17 +131,14 @@ export default function LabelPrintPage() {
               justifyContent: 'center',
               alignItems: 'center',
               boxSizing: 'border-box',
-              mx: 'auto',
               bgcolor: '#fff',
               '@media print': {
-                boxShadow: 'none',
-                backgroundColor: '#fff',
-                border: '1px solid #ddd'
+                display: 'none'
               }
             }}
           >
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
-              Sardar Group Of Companies
+              Sardar group of companies
             </Typography>
             <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: '34mm', height: '34mm', display: 'block' }} />
             <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5, fontSize: '0.75rem' }}>
@@ -125,7 +155,7 @@ export default function LabelPrintPage() {
                 gridTemplateColumns: 'repeat(2, 98mm)',
                 gridTemplateRows: 'repeat(5, 56mm)',
                 gap: '2mm',
-                justifyContent: 'center'
+                justifyContent: 'start'
               }
             }}
           >
@@ -139,7 +169,6 @@ export default function LabelPrintPage() {
                     height: '56mm',
                     boxSizing: 'border-box',
                     p: 1,
-                    border: '1px solid transparent',
                     bgcolor: '#fff',
                     display: 'flex',
                     flexDirection: 'column',
@@ -150,7 +179,7 @@ export default function LabelPrintPage() {
                   {isSelected ? (
                     <>
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, lineHeight: 1.1 }}>
-                        Sardar Group Of Companies
+                        Sardar group of companies
                       </Typography>
                       <Box component="img" src={qr.dataUrl} alt="QR" sx={{ width: '34mm', height: '34mm', display: 'block' }} />
                       <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5, fontSize: '0.75rem' }}>
