@@ -18,7 +18,12 @@ const validate = (req, res, next) => {
 };
 
 function clientOrigin() {
-  return process.env.CLIENT_URL || process.env.REACT_APP_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:3000';
+  return (
+    process.env.ASSET_TAGGING_SCAN_BASE_URL ||
+    process.env.CLIENT_URL ||
+    process.env.REACT_APP_API_URL?.replace(/\/api\/?$/, '') ||
+    (process.env.NODE_ENV === 'production' ? 'https://tovus.net' : 'http://localhost:3000')
+  );
 }
 
 function scanUrlForTag(tagCode) {
