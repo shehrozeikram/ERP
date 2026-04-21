@@ -1,5 +1,5 @@
 import React, { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Typography, Button } from '@mui/material';
 import { useAuth } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
@@ -432,6 +432,21 @@ const NetworkErrorScreen = ({ error, onRetry }) => (
 
 function App() {
   const { user, loading, token, error, retryAuth } = useAuth();
+  const location = useLocation();
+  const isScanOnlyPath = /^\/asset-tagging\/scan\/[^/]+/.test(location.pathname);
+
+  // Scan-only mode: always render this route without ERP chrome/sidebar,
+  // regardless of auth state, for mobile-friendly QR access.
+  if (isScanOnlyPath) {
+    return (
+      <NoChromeLayout>
+        <Routes>
+          <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
+          <Route path="*" element={<Navigate to={location.pathname} replace />} />
+        </Routes>
+      </NoChromeLayout>
+    );
+  }
 
   if (loading) return <LoadingScreen />;
   

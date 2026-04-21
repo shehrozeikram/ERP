@@ -71,16 +71,16 @@ export default function ScanAssetPage() {
   const assetLocationRows = asset ? formatAssetLocationLabeledRows(asset.location) : [];
 
   return (
-    <Box sx={{ p: 3, maxWidth: 560, mx: 'auto' }}>
+    <Box sx={{ p: { xs: 1.5, sm: 3 }, maxWidth: { xs: '100%', sm: 560 }, mx: 'auto' }}>
       <Stack direction="row" alignItems="center" gap={1} mb={2}>
         <ScanIcon color="primary" />
-        <Typography variant="h5" fontWeight={700}>Asset lookup</Typography>
+        <Typography variant="h5" fontWeight={700} sx={{ fontSize: { xs: '1.2rem', sm: '1.5rem' } }}>Asset lookup</Typography>
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {asset && (
-        <Paper variant="outlined" sx={{ p: 2 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1}>
             <Box>
               <Typography variant="overline" color="text.secondary">Tag</Typography>
