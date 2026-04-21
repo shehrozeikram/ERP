@@ -328,6 +328,14 @@ export const SUBMODULES = {
   [MODULE_KEYS.TAJ_RESIDENCIA]: [
     'complains_tickets'
   ],
+  [MODULE_KEYS.ASSET_TAGGING]: [
+    'asset_tagging_dashboard',
+    'asset_tagging_assets',
+    'asset_tagging_verification',
+    'asset_tagging_events',
+    'asset_tagging_scan',
+    'asset_tagging_label'
+  ],
   [MODULE_KEYS.GENERAL]: [
     'document_tracking',
     'indents',

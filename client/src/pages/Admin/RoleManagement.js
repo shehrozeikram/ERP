@@ -218,6 +218,25 @@ const RoleManagement = () => {
     setShowTemplates(false);
   };
 
+  const formatSubmodulesForView = (submodules = []) => {
+    if (!Array.isArray(submodules) || submodules.length === 0) return 'None';
+    return submodules.map((sm) => {
+      if (typeof sm === 'string') return sm;
+      if (sm && typeof sm === 'object') return sm.submodule || 'Unknown';
+      return 'Unknown';
+    }).join(', ');
+  };
+
+  const formatActionsForView = (permission = {}) => {
+    const moduleActions = Array.isArray(permission.actions) ? permission.actions : [];
+    if (moduleActions.length > 0) return moduleActions.join(', ');
+    const submodules = Array.isArray(permission.submodules) ? permission.submodules : [];
+    const uniqueSubmoduleActions = [...new Set(
+      submodules.flatMap((sm) => (Array.isArray(sm?.actions) ? sm.actions : []))
+    )];
+    return uniqueSubmoduleActions.length > 0 ? uniqueSubmoduleActions.join(', ') : 'None';
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -477,10 +496,10 @@ const RoleManagement = () => {
                       {permission.module}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Submodules: {(permission.submodules || []).join(', ') || 'None'}
+                      Submodules: {formatSubmodulesForView(permission.submodules)}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Actions: {(permission.actions || []).join(', ') || 'None'}
+                      Actions: {formatActionsForView(permission)}
                     </Typography>
                   </Box>
                 ))}
