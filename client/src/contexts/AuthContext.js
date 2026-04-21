@@ -260,7 +260,7 @@ export const AuthProvider = ({ children }) => {
   }, [state.token, state.user]);
 
   // Shared auth flow for login/register
-  const handleAuthFlow = useCallback(async (authFn, successMsg, errorMsg) => {
+  const handleAuthFlow = useCallback(async (authFn, successMsg, errorMsg, redirectTo = null) => {
     try {
       dispatch({ type: 'LOGIN_START' });
       const response = await authFn();
@@ -270,7 +270,7 @@ export const AuthProvider = ({ children }) => {
       dispatch({ type: 'LOGIN_SUCCESS', payload: { user, token } });
 
       toast.success(successMsg);
-      navigate(getRedirectPath(user.role));
+      navigate(redirectTo || getRedirectPath(user.role));
       return { success: true };
     } catch (error) {
       const message = getErrorMessage(error, errorMsg);
@@ -291,10 +291,11 @@ export const AuthProvider = ({ children }) => {
   }, [navigate]);
 
   const login = useCallback(
-    (credentials) => handleAuthFlow(
+    (credentials, options = {}) => handleAuthFlow(
       () => authService.login(credentials),
       'Login successful!',
-      'Login failed'
+      'Login failed',
+      options.redirectTo || null
     ),
     [handleAuthFlow]
   );

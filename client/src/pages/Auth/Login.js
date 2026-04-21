@@ -23,6 +23,7 @@ import {
 import { useFormik } from 'formik';
 import * as yup from 'yup';
 import { useAuth } from '../../contexts/AuthContext';
+import { useLocation } from 'react-router-dom';
 
 const validationSchema = yup.object({
   email: yup
@@ -37,9 +38,13 @@ const validationSchema = yup.object({
 
 const Login = () => {
   const { login } = useAuth();
+  const location = useLocation();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [logoRotating, setLogoRotating] = useState(true);
+  const redirectTo = location.state?.from
+    ? `${location.state.from.pathname || ''}${location.state.from.search || ''}${location.state.from.hash || ''}`
+    : null;
 
   // Stop logo rotation after 3 seconds
   useEffect(() => {
@@ -59,7 +64,7 @@ const Login = () => {
     onSubmit: async (values) => {
       setLoading(true);
       try {
-        const result = await login(values);
+        const result = await login(values, { redirectTo });
         if (!result.success) {
           // Error is handled by the auth context
         }

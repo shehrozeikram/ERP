@@ -561,6 +561,7 @@ app.use('/api/job-postings/apply', require('./routes/publicJobPostings'));
 app.use('/api/applications/public', require('./routes/publicApplications'));
 app.use('/api/applications/easy-apply', easyApplyRoutes);
 app.use('/api/public-approvals', require('./routes/publicApprovals')); // Public approval endpoints
+app.use('/api/public/asset-tagging', require('./routes/publicAssetTagging'));
 app.use('/api/hiring', hiringRoutes); // Hiring system endpoints (includes public routes)
 app.use('/api/employee-onboarding', employeeOnboardingRoutes); // Employee onboarding endpoints
 

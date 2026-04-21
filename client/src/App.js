@@ -455,6 +455,7 @@ function App() {
           <Route path="/taj-complaints" element={<TajComplaintsPortal />} />
           <Route path="/taj-complaints/register" element={<RegisterComplaint />} />
           <Route path="/taj-complaints/my" element={<MyComplaints />} />
+          <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
@@ -974,7 +975,7 @@ function App() {
             <Route path="/asset-tagging/verification/:sessionId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/verification" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><VerificationPage /></ProtectedRoute>} />
             <Route path="/asset-tagging/events" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><TagEventsPage /></ProtectedRoute>} />
-            <Route path="/asset-tagging/scan/:tagCode" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><ScanAssetPage /></ProtectedRoute>} />
+            <Route path="/asset-tagging/scan/:tagCode" element={<ScanAssetPage />} />
             <Route path="/asset-tagging/label/:assetId" element={<ProtectedRoute requiredRole={["super_admin", "admin", "higher_management", "finance_manager", "procurement_manager", "audit_manager"]}><LabelPrintPage /></ProtectedRoute>} />
             <Route path="/finance/bank-reconciliation" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><BankReconciliation /></ProtectedRoute>} />
             <Route path="/finance/vendor-statement" element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager", "procurement_manager"]}><VendorStatement /></ProtectedRoute>} />

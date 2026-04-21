@@ -6,6 +6,7 @@ import { QrCode2 as QrIcon, Sensors as ScanIcon } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatAssetLocationLabeledRows } from '../../utils/assetLocationDisplay';
+import { useAuth } from '../../contexts/AuthContext';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
@@ -14,6 +15,7 @@ const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-PK') : '—');
 export default function ScanAssetPage() {
   const { tagCode: tagCodeParam } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -28,7 +30,9 @@ export default function ScanAssetPage() {
     setError('');
     try {
       const enc = encodeURIComponent(tagCode);
-      const res = await api.get(`/asset-tagging/resolve/${enc}`);
+      const res = user
+        ? await api.get(`/asset-tagging/resolve/${enc}`)
+        : await api.get(`/public/asset-tagging/resolve/${enc}`);
       setData(res.data.data);
     } catch (e) {
       setError(e.response?.data?.message || 'Tag not found');
@@ -36,14 +40,18 @@ export default function ScanAssetPage() {
     } finally {
       setLoading(false);
     }
-  }, [tagCode]);
+  }, [tagCode, user]);
 
   useEffect(() => { load(); }, [load]);
 
   const logScan = async () => {
     setScanning(true);
     try {
-      await api.post('/asset-tagging/scan', { tagCode, note });
+      if (user) {
+        await api.post('/asset-tagging/scan', { tagCode, note });
+      } else {
+        await api.post('/public/asset-tagging/scan', { tagCode, note });
+      }
       await load();
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to log scan');
@@ -102,7 +110,11 @@ export default function ScanAssetPage() {
           </Box>
           <Typography variant="body2" color="text.secondary">Custodian: {asset.assignedTo || '—'}</Typography>
           <Typography variant="body2" color="text.secondary">Serial: {asset.serialNumber || '—'}</Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>Book value: PKR {fmt(asset.currentBookValue)} · Purchased {fmtDate(asset.purchaseDate)}</Typography>
+          {user ? (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              Book value: PKR {fmt(asset.currentBookValue)} · Purchased {fmtDate(asset.purchaseDate)}
+            </Typography>
+          ) : null}
 
           <TextField fullWidth size="small" label="Scan note (optional)" value={note} onChange={(e) => setNote(e.target.value)} sx={{ mt: 2 }} />
           <Button fullWidth variant="contained" sx={{ mt: 2 }} startIcon={<QrIcon />} onClick={logScan} disabled={scanning}>
@@ -190,7 +202,9 @@ export default function ScanAssetPage() {
         </Paper>
       )}
 
-      <Button sx={{ mt: 2 }} onClick={() => navigate('/asset-tagging/assets')}>← Tagged assets</Button>
+      {user ? (
+        <Button sx={{ mt: 2 }} onClick={() => navigate('/asset-tagging/assets')}>← Tagged assets</Button>
+      ) : null}
     </Box>
   );
 }
