@@ -5,7 +5,7 @@ const asyncHandler = require('express-async-handler');
 const { authorize } = require('../middleware/auth');
 const FixedAsset = require('../models/finance/FixedAsset');
 const FinanceHelper = require('../utils/financeHelper');
-const User = require('../models/User');
+const Employee = require('../models/hr/Employee');
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -30,19 +30,7 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({ success: true, data: assets, count: assets.length });
 }));
 
-// GET /api/finance/fixed-assets/:id
-router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
-  const asset = await FixedAsset.findById(req.params.id)
-    .populate('assetAccount', 'name accountNumber')
-    .populate('accumulatedDeprecAccount', 'name accountNumber')
-    .populate('depreciationExpenseAccount', 'name accountNumber')
-    .populate('costCenter', 'name code')
-    .populate('depreciationSchedule.journalEntry', 'entryNumber date');
-  if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
-  res.json({ success: true, data: asset });
-}));
-
-// GET /api/finance/fixed-assets/next-serial
+// GET /api/finance/fixed-assets/next-serial (before /:id so path is not captured as id)
 router.get('/next-serial', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
   const assets = await FixedAsset.find({ serialNumber: { $exists: true, $ne: '' } }).select('serialNumber').lean();
   let max = 0;
@@ -58,22 +46,36 @@ router.get('/next-serial', authorize('super_admin', 'admin', 'finance_manager'),
   res.json({ success: true, data: { serialNumber, next } });
 }));
 
-// GET /api/finance/fixed-assets/employees
+// GET /api/finance/fixed-assets/employees — HR Employee master (not only User logins)
 router.get('/employees', authorize('super_admin', 'admin', 'finance_manager'), asyncHandler(async (req, res) => {
-  const users = await User.find({ isActive: true })
-    .select('firstName lastName employeeId department position')
-    .sort({ firstName: 1, lastName: 1 })
+  const rows = await Employee.find({ isDeleted: false })
+    .select('firstName lastName employeeId placementDepartment placementDesignation isActive employmentStatus')
+    .populate('placementDepartment', 'name')
+    .populate('placementDesignation', 'title')
+    .sort({ isActive: -1, firstName: 1, lastName: 1 })
     .lean();
 
-  const employees = users.map((u) => ({
-    _id: u._id,
-    fullName: `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unnamed Employee',
-    employeeId: u.employeeId || '',
-    department: u.department || '',
-    position: u.position || ''
+  const employees = rows.map((e) => ({
+    _id: e._id,
+    fullName: `${e.firstName || ''} ${e.lastName || ''}`.trim() || 'Employee',
+    employeeId: e.employeeId || '',
+    department: e.placementDepartment?.name || '',
+    position: e.placementDesignation?.title || ''
   }));
 
   res.json({ success: true, data: employees });
+}));
+
+// GET /api/finance/fixed-assets/:id
+router.get('/:id([0-9a-fA-F]{24})', asyncHandler(async (req, res) => {
+  const asset = await FixedAsset.findById(req.params.id)
+    .populate('assetAccount', 'name accountNumber')
+    .populate('accumulatedDeprecAccount', 'name accountNumber')
+    .populate('depreciationExpenseAccount', 'name accountNumber')
+    .populate('costCenter', 'name code')
+    .populate('depreciationSchedule.journalEntry', 'entryNumber date');
+  if (!asset) return res.status(404).json({ success: false, message: 'Asset not found' });
+  res.json({ success: true, data: asset });
 }));
 
 // POST /api/finance/fixed-assets

@@ -206,6 +206,7 @@ export default function FixedAssets() {
 
   const openAdd = async () => {
     setEditing(null);
+    loadEmployees();
     const base = { ...emptyForm };
     try {
       const serialRes = await api.get('/finance/fixed-assets/next-serial');
@@ -218,6 +219,7 @@ export default function FixedAssets() {
   };
 
   const openEdit = (a) => {
+    loadEmployees();
     const locParts = String(a.location || '').split(',').map((part) => part.trim());
     const inferredBuilding = locParts[0] || HQ_LOCATION;
     const isStore = inferredBuilding !== HQ_LOCATION;
