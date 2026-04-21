@@ -47,14 +47,7 @@ export default function LabelPrintPage() {
   }
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Box
-        component="style"
-        className="print-sheet-style"
-        sx={{ display: 'none', '@media print': { display: 'block' } }}
-      >
-        {`@page { size: A4 portrait; margin: 8mm; }`}
-      </Box>
+    <Box sx={{ p: 2, bgcolor: 'background.default', '@media print': { bgcolor: '#fff' } }}>
       <Stack direction="row" className="print-hide-toolbar" justifyContent="space-between" alignItems="center" mb={2}>
         <Button startIcon={<BackIcon />} onClick={() => navigate('/asset-tagging/assets')}>Back</Button>
         <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>Print label</Button>
@@ -106,8 +99,10 @@ export default function LabelPrintPage() {
               alignItems: 'center',
               boxSizing: 'border-box',
               mx: 'auto',
+              bgcolor: '#fff',
               '@media print': {
                 boxShadow: 'none',
+                backgroundColor: '#fff',
                 border: '1px solid #ddd'
               }
             }}
@@ -145,6 +140,7 @@ export default function LabelPrintPage() {
                     boxSizing: 'border-box',
                     p: 1,
                     border: '1px solid transparent',
+                    bgcolor: '#fff',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'center',
