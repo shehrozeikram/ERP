@@ -15,7 +15,7 @@ const router = express.Router();
 const APPROVAL_SIGNATURE_KEYS = ['headOfDepartment', 'gmPd', 'svpAvp'];
 const LEGACY_APPROVER_ROLES = ['super_admin', 'admin', 'hr_manager'];
 const INDENT_TARGET_ROUTES = {
-  storeDashboard: '/procurement/store/dashboard',
+  storeDashboard: '/procurement/store',
   procurementRequisitions: '/procurement/requisitions'
 };
 

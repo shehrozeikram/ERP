@@ -157,7 +157,7 @@ const notifyDocumentRecipients = async ({
 };
 
 const STORE_SUBMODULE_ROUTES = {
-  dashboard: '/procurement/store/dashboard',
+  dashboard: '/procurement/store',
   qualityAssurance: '/procurement/store/quality-assurance',
   goodsReceive: '/procurement/store/goods-receive',
   inventory: '/procurement/store/inventory'
@@ -1778,7 +1778,7 @@ router.post('/store/po/:id/send-to-procurement',
       actorId: req.user.id,
       title: 'PO sent to Procurement',
       message: `Purchase Order ${po.poNumber || ''} has been sent from Store to Procurement.`,
-      actionUrl: '/procurement/store/dashboard',
+      actionUrl: '/procurement/purchase-orders',
       entityId: po._id,
       entityType: 'PurchaseOrder',
       module: 'procurement'

@@ -1293,6 +1293,10 @@ function App() {
               path="/procurement/store" 
               element={<ProtectedRoute><StoreDashboard /></ProtectedRoute>} 
             />
+            <Route
+              path="/procurement/store/dashboard"
+              element={<Navigate to="/procurement/store" replace />}
+            />
             <Route 
               path="/procurement/store/quality-assurance" 
               element={<ProtectedRoute><QualityAssurance /></ProtectedRoute>} 
