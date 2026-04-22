@@ -427,6 +427,11 @@ const IndentDetail = () => {
                   <Typography variant="body1">
                     {indent.category || '—'}
                   </Typography>
+                  {indent.category === 'Others' && indent.categoryOtherDescription?.trim() && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap' }}>
+                      {indent.categoryOtherDescription.trim()}
+                    </Typography>
+                  )}
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography variant="body2" color="text.secondary">

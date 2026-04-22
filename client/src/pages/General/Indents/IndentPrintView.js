@@ -230,6 +230,20 @@ const IndentPrintView = () => {
               </Typography>
             </Box>
           </Box>
+          {(indent.category || indent.categoryOtherDescription) && (
+            <Box sx={{ mt: 1 }}>
+              <Typography component="span" fontWeight={600}>Category:</Typography>
+              <Typography component="span" sx={{ ml: 1, textTransform: 'uppercase' }}>
+                {indent.category || '___________'}
+              </Typography>
+              {indent.category === 'Others' && indent.categoryOtherDescription?.trim() && (
+                <Typography component="div" sx={{ mt: 0.5, ml: 0, whiteSpace: 'pre-wrap', textTransform: 'none' }}>
+                  <Typography component="span" fontWeight={600}>Specified need: </Typography>
+                  {indent.categoryOtherDescription.trim()}
+                </Typography>
+              )}
+            </Box>
+          )}
         </Box>
 
         {/* Items Table */}

@@ -305,7 +305,14 @@ const indentSchema = new mongoose.Schema({
     trim: true,
     maxlength: [200, 'Category cannot exceed 200 characters']
   },
-  
+  /** Required when category is "Others"; cleared when category is catalog */
+  categoryOtherDescription: {
+    type: String,
+    trim: true,
+    default: '',
+    maxlength: [500, 'Category detail cannot exceed 500 characters']
+  },
+
   // Attachments
   attachments: [{
     filename: {

@@ -39,6 +39,19 @@ import indentService from '../../../services/indentService';
 import api from '../../../services/api';
 import dayjs from 'dayjs';
 
+/** Catalog bucket for requests outside item master categories; requires categoryOtherDescription */
+const OTHERS_CATEGORY = 'Others';
+
+const newEmptyIndentItem = () => ({
+  itemName: '',
+  description: '',
+  brand: '',
+  quantity: 1,
+  unit: 'Piece',
+  purpose: '',
+  estimatedCost: 0
+});
+
 const IndentForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -87,6 +100,7 @@ const IndentForm = () => {
     justification: '',
     priority: 'Medium',
     category: '',
+    categoryOtherDescription: '',
     signatures: {
       requester: { name: '', date: '' },
       headOfDepartment: { name: '', date: '' },
@@ -205,7 +219,8 @@ const IndentForm = () => {
             })) || [],
             justification: indent.justification || '',
             priority: indent.priority || 'Medium',
-            category: indent.category || 'Other',
+            category: indent.category || '',
+            categoryOtherDescription: indent.categoryOtherDescription || '',
             signatures: indent.signatures || {
               requester: { name: '', date: '' },
               headOfDepartment: { name: '', date: '' },
@@ -258,10 +273,24 @@ const IndentForm = () => {
   }, [departments]);
 
   const handleChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    if (field === 'category') {
+      setFormData((prev) => {
+        const categoryOtherDescription = value === OTHERS_CATEGORY ? prev.categoryOtherDescription : '';
+        const needsItemRow =
+          value === OTHERS_CATEGORY && (!prev.items || prev.items.length === 0);
+        return {
+          ...prev,
+          category: value,
+          categoryOtherDescription,
+          items: needsItemRow ? [newEmptyIndentItem()] : prev.items
+        };
+      });
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [field]: value
+      }));
+    }
 
     if (field === 'erpRef') {
       setErpRefError('');
@@ -316,13 +345,22 @@ const IndentForm = () => {
     try {
       setCategoriesLoading(true);
       const res = await api.get('/items/categories');
-      const cats = Array.isArray(res.data?.data) ? res.data.data.filter(Boolean) : [];
+      const raw = Array.isArray(res.data?.data) ? res.data.data.filter(Boolean) : [];
+      const cats = raw.includes(OTHERS_CATEGORY)
+        ? raw
+        : [...raw, OTHERS_CATEGORY];
       setItemCategories(cats);
       if (!isEdit) {
-        setFormData((prev) => ({
-          ...prev,
-          category: prev.category || cats[0] || ''
-        }));
+        setFormData((prev) => {
+          const nextCat = prev.category || cats[0] || '';
+          const needsItemRow =
+            nextCat === OTHERS_CATEGORY && (!prev.items || prev.items.length === 0);
+          return {
+            ...prev,
+            category: nextCat,
+            items: needsItemRow ? [newEmptyIndentItem()] : prev.items
+          };
+        });
       }
     } catch (e) {
       // ignore; user can still type category manually if needed
@@ -332,8 +370,12 @@ const IndentForm = () => {
   }, [isEdit]);
 
   const fetchItemsForCategory = useCallback(async (category) => {
-    if (!category) return;
     const seq = ++itemOptionsReqSeq.current;
+    if (!category || category === OTHERS_CATEGORY) {
+      setItemOptions([]);
+      setItemOptionsLoading(false);
+      return;
+    }
     try {
       setItemOptionsLoading(true);
       const res = await api.get('/items', { params: { category, limit: 5000 } });
@@ -361,18 +403,7 @@ const IndentForm = () => {
   const handleAddItem = () => {
     setFormData(prev => ({
       ...prev,
-      items: [
-        ...prev.items,
-        {
-          itemName: '',
-          description: '',
-          brand: '',
-          quantity: 1,
-          unit: 'Piece',
-          purpose: '',
-          estimatedCost: 0
-        }
-      ]
+      items: [...prev.items, newEmptyIndentItem()]
     }));
   };
 
@@ -403,6 +434,16 @@ const IndentForm = () => {
       fetchItemsForCategory(formData.category);
     }
   }, [formData.category, fetchItemsForCategory]);
+
+  // Others has no catalog lines — keep at least one editable row so submit is not blocked
+  useEffect(() => {
+    if (formData.category !== OTHERS_CATEGORY) return;
+    if ((formData.items?.length ?? 0) > 0) return;
+    setFormData((prev) => {
+      if (prev.category !== OTHERS_CATEGORY || (prev.items?.length ?? 0) > 0) return prev;
+      return { ...prev, items: [newEmptyIndentItem()] };
+    });
+  }, [formData.category, formData.items?.length]);
 
   useEffect(() => {
     fetchCategories();
@@ -472,12 +513,20 @@ const IndentForm = () => {
       setError('Category is required');
       return false;
     }
+    if (formData.category === OTHERS_CATEGORY && !formData.categoryOtherDescription?.trim()) {
+      setError('When category is Others, describe what is required');
+      return false;
+    }
     if (!formData.originator.trim()) {
       setError('Originator is required');
       return false;
     }
     if (formData.items.length === 0) {
-      setError('At least one item is required');
+      setError(
+        formData.category === OTHERS_CATEGORY
+          ? 'Add at least one line in Items (use Add Item). For Others, item name is free text; fill description, brand, qty, purpose, and estimated cost.'
+          : 'At least one item is required'
+      );
       return false;
     }
     for (let i = 0; i < formData.items.length; i++) {
@@ -541,6 +590,8 @@ const IndentForm = () => {
         department: formData.department,
         priority: formData.priority,
         category: formData.category,
+        categoryOtherDescription:
+          formData.category === OTHERS_CATEGORY ? formData.categoryOtherDescription.trim() : '',
         items: formData.items.map(item => ({
           itemName: item.itemName,
           description: item.description || '',
@@ -805,6 +856,21 @@ const IndentForm = () => {
               </Select>
             </FormControl>
           </Grid>
+          {formData.category === OTHERS_CATEGORY && (
+            <Grid item xs={12} sm={6} md={9}>
+              <TextField
+                fullWidth
+                required
+                size="small"
+                label="Specify what is required"
+                value={formData.categoryOtherDescription}
+                onChange={(e) => handleChange('categoryOtherDescription', e.target.value)}
+                placeholder="Describe the category or items needed (not in the list above)"
+                inputProps={{ maxLength: 500 }}
+                helperText={`Describe the overall need. You still need at least one row in Items below with line-level details. ${(formData.categoryOtherDescription || '').length}/500`}
+              />
+            </Grid>
+          )}
         </Grid>
 
         <Divider sx={{ my: 3 }} />
@@ -814,6 +880,11 @@ const IndentForm = () => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6" fontWeight={600}>
               Items <span style={{ color: 'red', fontWeight: 400, fontSize: '0.875rem' }}>(all fields required)</span>
+              {formData.category === OTHERS_CATEGORY && (
+                <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block', fontWeight: 400, mt: 0.5 }}>
+                  For Others, item name is typed manually; other columns are still required for each line.
+                </Typography>
+              )}
             </Typography>
             <Button
               variant="outlined"
@@ -852,26 +923,40 @@ const IndentForm = () => {
                         {(index + 1).toString().padStart(2, '0')}
                       </TableCell>
                       <TableCell sx={{ border: '1px solid #ddd', p: 0.5, minWidth: 360 }}>
-                        <TextField
-                          select
-                          fullWidth
-                          size="small"
-                          value={item.itemName || ''}
-                          onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
-                          required
-                          variant="standard"
-                          InputProps={{ disableUnderline: true }}
-                          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
-                        >
-                          <MenuItem value="" disabled>
-                            {itemOptionsLoading ? 'Loading items...' : 'Select item'}
-                          </MenuItem>
-                          {itemOptions.map((opt) => (
-                            <MenuItem key={opt._id || opt.name} value={opt.name || ''}>
-                              {opt.name || ''}
+                        {formData.category === OTHERS_CATEGORY ? (
+                          <TextField
+                            fullWidth
+                            size="small"
+                            value={item.itemName || ''}
+                            onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
+                            required
+                            placeholder="Enter item name"
+                            variant="standard"
+                            InputProps={{ disableUnderline: true }}
+                            sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                          />
+                        ) : (
+                          <TextField
+                            select
+                            fullWidth
+                            size="small"
+                            value={item.itemName || ''}
+                            onChange={(e) => handleItemChange(index, 'itemName', e.target.value)}
+                            required
+                            variant="standard"
+                            InputProps={{ disableUnderline: true }}
+                            sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+                          >
+                            <MenuItem value="" disabled>
+                              {itemOptionsLoading ? 'Loading items...' : 'Select item'}
                             </MenuItem>
-                          ))}
-                        </TextField>
+                            {itemOptions.map((opt) => (
+                              <MenuItem key={opt._id || opt.name} value={opt.name || ''}>
+                                {opt.name || ''}
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                        )}
                       </TableCell>
                       <TableCell sx={{ border: '1px solid #ddd', p: 0.5 }}>
                         <TextField

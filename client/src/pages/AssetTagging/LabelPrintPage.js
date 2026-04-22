@@ -51,13 +51,13 @@ export default function LabelPrintPage() {
   }
 
   return (
-    <Box className="print-label-root" sx={{ p: 2, minHeight: '100vh', bgcolor: '#fff', '@media print': { bgcolor: '#fff', p: 0, minHeight: '100vh' } }}>
+    <Box className="print-label-root" sx={{ p: 2, minHeight: '100vh', bgcolor: '#fff', '@media print': { bgcolor: '#fff', p: 0, minHeight: 'auto' } }}>
       <Box
         component="style"
       >{`
         @media print {
           @page {
-            size: auto;
+            size: A4 portrait;
             margin: 0;
           }
           html, body, #root {
@@ -68,7 +68,11 @@ export default function LabelPrintPage() {
           }
           .print-label-root {
             background: #fff !important;
-            min-height: 100vh !important;
+            min-height: auto !important;
+            height: 297mm !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           .print-label-root * {
             box-shadow: none !important;
@@ -78,6 +82,10 @@ export default function LabelPrintPage() {
             border: 0 !important;
             outline: 0 !important;
             background: #fff !important;
+          }
+          .print-only-sheet {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
         }
       `}</Box>

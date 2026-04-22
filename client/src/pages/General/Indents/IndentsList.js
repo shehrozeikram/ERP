@@ -579,6 +579,7 @@ const IndentsList = () => {
                   <MenuItem value="Raw Materials">Raw Materials</MenuItem>
                   <MenuItem value="Services">Services</MenuItem>
                   <MenuItem value="Other">Other</MenuItem>
+                  <MenuItem value="Others">Others</MenuItem>
                 </Select>
               </FormControl>
             </Grid>

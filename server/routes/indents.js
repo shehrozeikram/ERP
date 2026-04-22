@@ -431,6 +431,7 @@ router.post('/',
     body('justification').trim().notEmpty().withMessage('Justification is required'),
     body('priority').notEmpty().withMessage('Priority is required').isIn(['Low', 'Medium', 'High', 'Urgent']).withMessage('Invalid priority'),
     body('category').trim().notEmpty().withMessage('Category is required').isLength({ max: 200 }).withMessage('Category cannot exceed 200 characters'),
+    body('categoryOtherDescription').optional().trim().isLength({ max: 500 }).withMessage('Category detail cannot exceed 500 characters'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
     body('items.*.itemName').trim().notEmpty().withMessage('Item name is required'),
     body('items.*.description').trim().notEmpty().withMessage('Item description is required'),
@@ -501,6 +502,20 @@ router.post('/',
           message: `ERP Ref "${indentData.erpRef}" is already used by indent ${erpRefExists.indentNumber}. Please choose a different ERP Ref.`
         });
       }
+    }
+
+    const cat = String(indentData.category || '').trim();
+    const otherDesc = String(indentData.categoryOtherDescription || '').trim();
+    if (cat === 'Others') {
+      if (!otherDesc) {
+        return res.status(400).json({
+          success: false,
+          message: 'When category is Others, describe what is required.'
+        });
+      }
+      indentData.categoryOtherDescription = otherDesc;
+    } else {
+      indentData.categoryOtherDescription = '';
     }
 
     const indent = new Indent(indentData);
@@ -612,6 +627,26 @@ router.put('/:id',
         indent[key] = req.body[key];
       }
     });
+
+    const cat = String(indent.category || '').trim();
+    const otherDesc = String(indent.categoryOtherDescription || '').trim();
+    if (cat === 'Others') {
+      if (!otherDesc) {
+        return res.status(400).json({
+          success: false,
+          message: 'When category is Others, describe what is required.'
+        });
+      }
+      if (otherDesc.length > 500) {
+        return res.status(400).json({
+          success: false,
+          message: 'Category detail cannot exceed 500 characters.'
+        });
+      }
+      indent.categoryOtherDescription = otherDesc;
+    } else {
+      indent.categoryOtherDescription = '';
+    }
 
     indent.updatedBy = req.user.id;
     await indent.save();
