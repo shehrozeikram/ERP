@@ -181,6 +181,26 @@ export default function FixedAssets() {
       const res = await api.get('/finance/fixed-assets/projects');
       setProjects(res.data?.data || []);
     } catch (e) {
+      // Compatibility fallback: some production builds may still expose project
+      // master under /api/projects while fixed-assets/projects is not deployed yet.
+      if (e?.response?.status === 404) {
+        try {
+          const fallbackRes = await api.get('/projects');
+          const rows = fallbackRes.data?.data || [];
+          setProjects(Array.isArray(rows) ? rows : []);
+          return;
+        } catch (fallbackErr) {
+          setProjects([]);
+          const fbMsg = fallbackErr?.response?.data?.message || 'Failed to load projects';
+          if (fallbackErr?.response?.status === 403) {
+            setError('You do not have access to fetch project dropdown data.');
+          } else {
+            setError(fbMsg);
+          }
+          return;
+        }
+      }
+
       setProjects([]);
       const msg = e?.response?.data?.message || 'Failed to load projects';
       if (e?.response?.status === 403) {
