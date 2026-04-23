@@ -243,6 +243,13 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
     return storeNameCache[key];
   };
 
+  let defaultStoreCached = undefined;
+  const getDefaultStore = async () => {
+    if (defaultStoreCached !== undefined) return defaultStoreCached;
+    defaultStoreCached = await Store.findOne({ isActive: true }).sort({ type: 1, createdAt: 1 }).select('_id name').lean();
+    return defaultStoreCached;
+  };
+
   for (let idx = 0; idx < items.length; idx++) {
     const item = items[idx] && typeof items[idx].toObject === 'function' ? items[idx].toObject() : items[idx];
     if (!item || item.quantity == null) continue;
@@ -253,9 +260,14 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
 
       // Resolve sub-store: item-level subStore overrides GRN-level store
       const subStoreId = item.subStore?._id || item.subStore || null;
-      const txStoreId = subStoreId || storeId;
+      let txStoreId = subStoreId || storeId;
       const subStoreSnapshot = subStoreId ? await resolveStoreName(subStoreId) : '';
       const qty = Number(item.quantity) || 0;
+      if (!txStoreId && qty > 0) {
+        const ds = await getDefaultStore();
+        if (ds) txStoreId = ds._id;
+      }
+      const ledgerStoreSnapshot = subStoreSnapshot || (txStoreId ? await resolveStoreName(txStoreId) : '') || storeSnapshot;
 
       // ── Linked store item: add stock to existing master item (matches finance GRN journal) ──
       if (linkedId) {
@@ -267,6 +279,9 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
         if (storeId) {
           inv.store = storeId;
           inv.storeSnapshot = storeSnapshot;
+        } else if (txStoreId) {
+          inv.store = txStoreId;
+          inv.storeSnapshot = ledgerStoreSnapshot || storeSnapshot;
         }
         if (subStoreId) {
           inv.subStore = subStoreId;
@@ -292,7 +307,7 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
           const balanceAfter = currentBalance + qty;
           await StockTransaction.create({
             store: txStoreId,
-            storeSnapshot: subStoreSnapshot || storeSnapshot,
+            storeSnapshot: ledgerStoreSnapshot,
             project: projectId,
             item: inv._id,
             itemCode: inv.itemCode,
@@ -331,6 +346,9 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
           if (storeId) {
             resolvedInv.store = storeId;
             resolvedInv.storeSnapshot = storeSnapshot;
+          } else if (txStoreId) {
+            resolvedInv.store = txStoreId;
+            resolvedInv.storeSnapshot = ledgerStoreSnapshot || storeSnapshot;
           }
           if (subStoreId) {
             resolvedInv.subStore = subStoreId;
@@ -356,7 +374,7 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
             const balanceAfter = currentBalance + qty;
             await StockTransaction.create({
               store: txStoreId,
-              storeSnapshot: subStoreSnapshot || storeSnapshot,
+              storeSnapshot: ledgerStoreSnapshot,
               project: projectId,
               item: resolvedInv._id,
               itemCode: resolvedInv.itemCode,
@@ -407,8 +425,8 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
         unitPrice: Number(item.unitPrice) || 0,
         barcode: barcodeValue,
         barcodeType: 'CODE128',
-        store: storeId || undefined,
-        storeSnapshot: storeSnapshot,
+        store: storeId || txStoreId || undefined,
+        storeSnapshot: storeId ? storeSnapshot : (ledgerStoreSnapshot || storeSnapshot),
         subStore: subStoreId || undefined,
         subStoreSnapshot: subStoreSnapshot,
         location: {
@@ -434,7 +452,7 @@ goodsReceiveSchema.statics.syncItemsToInventory = async function(grnDoc) {
 
         await StockTransaction.create({
           store: txStoreId,
-          storeSnapshot: subStoreSnapshot || storeSnapshot,
+          storeSnapshot: ledgerStoreSnapshot,
           project: projectId,
           item: inv._id,
           itemCode: uniqueCode,

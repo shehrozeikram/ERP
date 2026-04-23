@@ -233,11 +233,18 @@ goodsIssueSchema.post('save', async function(doc) {
     
     const Inventory = mongoose.model('Inventory');
     const StockTransaction = mongoose.model('StockTransaction');
-    // store is now an ObjectId; fall back gracefully if not yet set
+    const Store = mongoose.model('Store');
+    // store is now an ObjectId; fall back to inventory row store (matches GRN / SIN validation)
     const storeId = doc.store?._id || doc.store;
     const projectId = doc.project._id || doc.project;
     const issueNumber = doc.issueNumber || doc.sinNumber || 'SIN';
     const qtyToDeduct = (item) => item.qtyIssued ?? item.quantity ?? 0;
+    let defaultStoreForOut = undefined;
+    const ensureDefaultStoreOut = async () => {
+      if (defaultStoreForOut !== undefined) return defaultStoreForOut;
+      defaultStoreForOut = await Store.findOne({ isActive: true }).sort({ type: 1, createdAt: 1 }).select('_id name').lean();
+      return defaultStoreForOut;
+    };
 
     for (const item of doc.items) {
       const qty = qtyToDeduct(item);
@@ -262,8 +269,12 @@ goodsIssueSchema.post('save', async function(doc) {
             });
           }
 
-          // Resolve sub-store: item-level overrides document-level
-          const txStoreId = item.subStore?._id || item.subStore || storeId;
+          const invStoreId = inventory.store?._id || inventory.store;
+          let txStoreId = item.subStore?._id || item.subStore || storeId || invStoreId;
+          if (!txStoreId) {
+            const ds = await ensureDefaultStoreOut();
+            txStoreId = ds ? ds._id : null;
+          }
           if (!txStoreId) continue;
 
           const currentBalance = await StockTransaction.getBalance(txStoreId, projectId, inventory._id);

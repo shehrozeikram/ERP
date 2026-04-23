@@ -3563,21 +3563,14 @@ router.post('/goods-issue',
       return res.status(400).json({ success: false, message: 'Invalid project ID' });
     }
 
-    // Resolve store: `store` is now an ObjectId string. Fallback for stock-balance check.
     const Store = require('../models/procurement/Store');
-    let resolvedStoreId = store || undefined;
-    let storeSnapshot = issuingLocation || 'Main Store';
-    if (resolvedStoreId) {
-      const storeDoc = await Store.findById(resolvedStoreId).select('name').lean();
-      if (storeDoc) storeSnapshot = storeDoc.name;
-    } else {
-      // Default to first active store for balance checking
-      const defaultStore = await Store.findOne({ isActive: true }).sort({ type: 1, createdAt: 1 }).select('_id name').lean();
-      if (defaultStore) {
-        resolvedStoreId = defaultStore._id;
-        storeSnapshot = defaultStore.name;
-      }
-    }
+    const storeFromBody = (store && String(store).trim() !== '') ? store : undefined;
+    let defaultStoreDoc = undefined;
+    const ensureDefaultStore = async () => {
+      if (defaultStoreDoc !== undefined) return defaultStoreDoc;
+      defaultStoreDoc = await Store.findOne({ isActive: true }).sort({ type: 1, createdAt: 1 }).select('_id name').lean();
+      return defaultStoreDoc;
+    };
 
     if (normalizedCostCenter) {
       const costCenterDoc = await CostCenter.findById(normalizedCostCenter);
@@ -3597,8 +3590,13 @@ router.post('/goods-issue',
           throw new Error(`Quantity issued must be greater than 0 for ${inventory.name}`);
         }
 
-        // Use item-level subStore if provided, else fall back to document-level store
-        const itemStoreId = item.subStore || resolvedStoreId;
+        // Store + project + item must match GRN ledger; use inventory.store when header store is blank (avoids wrong "first active" store).
+        const invStoreId = inventory.store?._id || inventory.store;
+        let itemStoreId = item.subStore || storeFromBody || invStoreId;
+        if (!itemStoreId) {
+          const ds = await ensureDefaultStore();
+          itemStoreId = ds ? ds._id : undefined;
+        }
 
         // Check project-wise stock balance
         if (itemStoreId) {
@@ -3634,10 +3632,20 @@ router.post('/goods-issue',
             bin: item.location?.bin || ''
           },
           unit,
-          notes: item.notes
+          notes: item.notes,
+          __itemStoreId: itemStoreId
         };
       })
     );
+
+    const docStoreId = storeFromBody || itemsWithDetails.find((r) => r.__itemStoreId)?.__itemStoreId;
+    let storeSnapshot = issuingLocation || 'Main Store';
+    if (docStoreId) {
+      const storeDoc = await Store.findById(docStoreId).select('name').lean();
+      if (storeDoc) storeSnapshot = storeDoc.name;
+    }
+
+    const itemsForIssue = itemsWithDetails.map(({ __itemStoreId, ...rest }) => rest);
 
     const issuedByName = req.user.firstName && req.user.lastName
       ? `${req.user.firstName} ${req.user.lastName}`.trim()
@@ -3646,7 +3654,7 @@ router.post('/goods-issue',
     const issue = new GoodsIssue({
       issueDate: issueDate || new Date(),
       issuingLocation: issuingLocation || undefined,
-      store: resolvedStoreId || undefined,
+      store: docStoreId || undefined,
       storeSnapshot,
       project: project,
       referenceIndent: referenceIndent || undefined,
@@ -3667,7 +3675,7 @@ router.post('/goods-issue',
       approvedByName: approvedByName || undefined,
       issuedByName,
       receivedByName: receivedByName || undefined,
-      items: itemsWithDetails,
+      items: itemsForIssue,
       purpose,
       notes,
       issuedBy: req.user.id,
