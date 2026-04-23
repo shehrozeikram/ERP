@@ -3,9 +3,6 @@ import {
   Box,
   Typography,
   Button,
-  Card,
-  CardContent,
-  CardActions,
   Chip,
   IconButton,
   Dialog,
@@ -32,12 +29,9 @@ import {
   Divider,
   Alert,
   Skeleton,
-  alpha,
   useTheme,
-  Tooltip,
   Avatar,
-  Stack,
-  CalendarMonth
+  Stack
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -46,27 +40,20 @@ import {
   Visibility as ViewIcon,
   MoreVert as MoreVertIcon,
   Search as SearchIcon,
-  FilterList as FilterIcon,
   Download as DownloadIcon,
-  Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  Info as InfoIcon,
   Schedule as ScheduleIcon,
-  Person as PersonIcon,
   CalendarToday as CalendarTodayIcon,
-  Assignment as AssignmentIcon,
   Group as GroupIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 
 const AuditSchedules = () => {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -4,13 +4,6 @@ import {
   Typography,
   Paper,
   Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
   TextField,
   MenuItem,
   Alert,
@@ -23,15 +16,10 @@ import {
   DialogActions
 } from '@mui/material';
 import {
-  Print as PrintIcon,
-  Search as SearchIcon,
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Save as SaveIcon
+  CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
-import { formatDate } from '../../utils/dateUtils';
-import dayjs from 'dayjs';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import { useAuth } from '../../contexts/AuthContext';
 import { canEditComparativeAuthorityUsers } from '../../utils/comparativeStatementAuthority';
@@ -328,11 +316,6 @@ const ComparativeStatements = () => {
     } finally {
       setRejectingComparative(false);
     }
-  };
-
-  const formatDateForPrint = (date) => {
-    if (!date) return '';
-    return dayjs(date).format('DD/MM/YYYY');
   };
 
   const formatNumber = (num) => {

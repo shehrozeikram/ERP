@@ -81,9 +81,6 @@ const QualityAssurance = () => {
 
   const formatDate = (date) => (date ? dayjs(date).format('DD-MMM-YYYY') : 'N/A');
 
-  const formatNumber = (num) =>
-    new Intl.NumberFormat('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(num || 0);
-
   const getPriorityColor = (p) => ({ Low: 'info', Medium: 'default', High: 'warning', Urgent: 'error' }[p] || 'default');
   const getQaStatusColor = (s) => ({ Pending: 'warning', Passed: 'success', Rejected: 'error' }[s || 'Pending'] || 'default');
   const getQaStatusLabel = (s) => (s === 'Passed' ? 'Approved' : (s || 'Pending'));

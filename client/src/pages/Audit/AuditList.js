@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -45,15 +45,12 @@ import {
   Security as SecurityIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
-import { formatPKR } from '../../utils/currency';
 
 const AuditList = () => {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { user } = useAuth();
   
   const [audits, setAudits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,11 +71,7 @@ const AuditList = () => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedAudit, setSelectedAudit] = useState(null);
 
-  useEffect(() => {
-    fetchAudits();
-  }, [page, rowsPerPage, searchQuery, filters]);
-
-  const fetchAudits = async () => {
+  const fetchAudits = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -102,7 +95,11 @@ const AuditList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, rowsPerPage, searchQuery, filters]);
+
+  useEffect(() => {
+    fetchAudits();
+  }, [fetchAudits]);
 
   const handleSearch = (event) => {
     setSearchQuery(event.target.value);

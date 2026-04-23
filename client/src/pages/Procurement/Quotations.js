@@ -25,14 +25,12 @@ import {
   Divider,
   Grid,
   CircularProgress,
-  ListSubheader,
   Accordion,
   AccordionSummary,
   AccordionDetails,
   Autocomplete
 } from '@mui/material';
 import {
-  Description as QuotationIcon,
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -177,21 +175,6 @@ const Quotations = () => {
     }
   };
 
-  const vendorsByCategory = useMemo(() => {
-    const map = new Map();
-    for (const v of vendors) {
-      const key = (v.vendorCategory || '').trim() || 'Uncategorized';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(v);
-    }
-    return [...map.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([category, list]) => ({
-        category,
-        list: [...list].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
-      }));
-  }, [vendors]);
-
   const handleCreate = (requisition) => {
     if (requisition) {
       setFormData({
@@ -294,10 +277,6 @@ const Quotations = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return '0.00';
     return parseFloat(num).toFixed(2);
-  };
-
-  const handleDelete = (id) => {
-    setDeleteDialog({ open: true, id });
   };
 
   const handleFinalize = async (id) => {

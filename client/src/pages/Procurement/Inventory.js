@@ -46,16 +46,13 @@ import {
   Search as SearchIcon,
   Refresh as RefreshIcon,
   TrendingUp as AddStockIcon,
-  TrendingDown as RemoveStockIcon,
-  SwapHoriz as AdjustIcon
+  TrendingDown as RemoveStockIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 
 const Inventory = () => {
-  const navigate = useNavigate();
   const theme = useTheme();
   
   // State management

@@ -3,9 +3,6 @@ import {
   Box,
   Typography,
   Button,
-  Card,
-  CardContent,
-  CardActions,
   Chip,
   IconButton,
   Dialog,
@@ -32,11 +29,8 @@ import {
   Divider,
   Alert,
   Skeleton,
-  alpha,
   useTheme,
-  Tooltip,
   Avatar,
-  Stack,
   LinearProgress
 } from '@mui/material';
 import {
@@ -46,27 +40,21 @@ import {
   Visibility as ViewIcon,
   MoreVert as MoreVertIcon,
   Search as SearchIcon,
-  FilterList as FilterIcon,
   Download as DownloadIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  Info as InfoIcon,
   Assignment as AssignmentIcon,
-  Person as PersonIcon,
-  Schedule as ScheduleIcon,
   Verified as VerifiedIcon,
   Pending as PendingIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 
 const CorrectiveActions = () => {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -5,7 +5,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardActions,
   Chip,
   Grid,
   Paper,
@@ -24,20 +23,14 @@ import {
   Assessment as AssessmentIcon,
   Download as DownloadIcon,
   Print as PrintIcon,
-  Share as ShareIcon,
-  TrendingUp as TrendingUpIcon,
-  TrendingDown as TrendingDownIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
-import { formatDate } from '../../utils/dateUtils';
 
 const AuditReports = () => {
   const theme = useTheme();
-  const { user } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

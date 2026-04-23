@@ -33,14 +33,11 @@ import {
   Tab
 } from '@mui/material';
 import {
-  Assignment as RequisitionIcon,
-  Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
   Search as SearchIcon,
   Refresh as RefreshIcon,
-  CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
   Email as EmailIcon,
   Print as PrintIcon
@@ -50,7 +47,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
-import { formatPKR } from '../../utils/currency';
 import dayjs from 'dayjs';
 
 const Requisitions = () => {

@@ -5,7 +5,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardActions,
   Chip,
   IconButton,
   Dialog,
@@ -26,10 +25,6 @@ import {
   TableHead,
   TableRow,
   TablePagination,
-  Menu,
-  ListItemIcon,
-  ListItemText,
-  Divider,
   Alert,
   Skeleton,
   alpha,
@@ -37,14 +32,12 @@ import {
   Tooltip,
   Avatar,
   Stack,
-  LinearProgress,
   Accordion,
   AccordionSummary,
   AccordionDetails
 } from '@mui/material';
 import {
   Search as SearchIcon,
-  FilterList as FilterIcon,
   Download as DownloadIcon,
   ExpandMore as ExpandMoreIcon,
   Visibility as ViewIcon,
@@ -55,20 +48,13 @@ import {
   Error as ErrorIcon,
   Info as InfoIcon,
   Person as PersonIcon,
-  Computer as ComputerIcon,
-  LocationOn as LocationIcon,
-  Schedule as ScheduleIcon,
   Business as BusinessIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 
 const AuditTrail = () => {
   const theme = useTheme();
-  const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [trails, setTrails] = useState([]);
   const [loading, setLoading] = useState(true);

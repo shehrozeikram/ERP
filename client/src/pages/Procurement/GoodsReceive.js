@@ -5,13 +5,12 @@ import {
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, Alert, CircularProgress,
   Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox, FormControlLabel, Radio, RadioGroup, Tooltip,
-  Collapse, Stack
+  Stack
 } from '@mui/material';
 import {
   LocalShipping as ReceiveIcon, Add as AddIcon, Visibility as ViewIcon,
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
-  Inventory as InventoryIcon, QrCode as QrCodeIcon, LocationOn as LocationIcon,
-  ExpandMore as ExpandMoreIcon, Receipt as BillIcon
+  Inventory as InventoryIcon, QrCode as QrCodeIcon, Receipt as BillIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
@@ -62,7 +61,6 @@ const GoodsReceive = () => {
   const [mainStores, setMainStores] = useState([]);
   const [barcodePrintOpen, setBarcodePrintOpen] = useState(false);
   const [barcodePrintItems, setBarcodePrintItems] = useState([]);
-  const [savedGrnId, setSavedGrnId] = useState(null);
   const [formData, setFormData] = useState({
     receiveDate: new Date().toISOString().split('T')[0],
     supplier: '',
@@ -283,7 +281,6 @@ const GoodsReceive = () => {
       items: [makeEmptyItem()],
       notes: ''
     });
-    setSavedGrnId(null);
     setFormDialog({ open: true });
   };
 
@@ -333,7 +330,6 @@ const GoodsReceive = () => {
       setLoading(true);
       const res = await api.post('/procurement/goods-receive', payload);
       const savedGrn = res.data?.data;
-      setSavedGrnId(savedGrn?._id);
       setSuccess('GRN created successfully and inventory updated');
       setFormDialog({ open: false });
       loadReceives();

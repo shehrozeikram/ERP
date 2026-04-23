@@ -18,16 +18,13 @@ import {
   alpha,
   useTheme,
   Divider,
-  Chip,
   Avatar,
-  IconButton,
-  Tooltip
+  IconButton
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
-  Upload as UploadIcon,
   Description as DescriptionIcon,
   Warning as WarningIcon,
   Info as InfoIcon,
@@ -140,26 +137,6 @@ const AddAuditFinding = () => {
 
   const handleCancel = () => {
     navigate('/audit/findings');
-  };
-
-  const getSeverityColor = (severity) => {
-    switch (severity) {
-      case 'critical': return 'error';
-      case 'high': return 'warning';
-      case 'medium': return 'info';
-      case 'low': return 'success';
-      default: return 'default';
-    }
-  };
-
-  const getSeverityIcon = (severity) => {
-    switch (severity) {
-      case 'critical': return <ErrorIcon />;
-      case 'high': return <WarningIcon />;
-      case 'medium': return <InfoIcon />;
-      case 'low': return <CheckCircleIcon />;
-      default: return <InfoIcon />;
-    }
   };
 
   const FormSkeleton = () => (

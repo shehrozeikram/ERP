@@ -3,14 +3,13 @@ import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, Alert, CircularProgress,
-  Avatar, useTheme, alpha, Chip, Grid, Divider
+  Avatar, useTheme, alpha, Chip, Grid
 } from '@mui/material';
 import {
   AccountTree as CostCenterIcon, Add as AddIcon, Edit as EditIcon,
   Delete as DeleteIcon, Visibility as ViewIcon, Search as SearchIcon, Refresh as RefreshIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
-import { formatDate } from '../../utils/dateUtils';
 import { formatPKR } from '../../utils/currency';
 
 const CostCenters = () => {

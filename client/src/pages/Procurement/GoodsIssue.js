@@ -3,18 +3,16 @@ import {
   Box, Typography, Paper, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TablePagination, IconButton, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, MenuItem, Alert, CircularProgress,
-  Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox, Stack
+  Avatar, useTheme, alpha, Chip, Grid, Divider, Checkbox
 } from '@mui/material';
 import {
   ExitToApp as IssueIcon, Add as AddIcon, Visibility as ViewIcon,
   Search as SearchIcon, Refresh as RefreshIcon, Close as CloseIcon, Print as PrintIcon,
-  QrCodeScanner as ScanIcon
 } from '@mui/icons-material';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import api from '../../services/api';
 import storeService from '../../services/storeService';
 import { formatDate } from '../../utils/dateUtils';
-import { useAuth } from '../../contexts/AuthContext';
 import BarcodeScanner from '../../components/Procurement/Store/BarcodeScanner';
 import LocationSelector from '../../components/Procurement/Store/LocationSelector';
 
@@ -28,7 +26,6 @@ const formatSINDate = (d) => {
 
 const GoodsIssue = () => {
   const theme = useTheme();
-  const { user } = useAuth();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -523,7 +520,6 @@ const GoodsIssue = () => {
     setFormData({ ...formData, items: newItems });
   };
 
-  const issuedByName = user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}`.trim() : (user?.email || '');
 
   const [projectStockBalances, setProjectStockBalances] = useState({});
 

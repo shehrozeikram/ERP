@@ -15,7 +15,6 @@ import {
   DialogActions,
   IconButton,
   Tooltip,
-  Divider,
   useTheme,
   alpha,
   CircularProgress,
@@ -175,51 +174,6 @@ const StoreDashboard = () => {
   const formatDate = (date) => {
     if (!date) return 'N/A';
     return dayjs(date).format('DD-MMM-YYYY');
-  };
-
-  // Number to words converter
-  const numberToWords = (num) => {
-    if (!num || num === 0) return 'Zero Rupees Only';
-    
-    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    
-    const convert = (n) => {
-      if (n === 0) return '';
-      if (n < 10) return ones[n];
-      if (n < 20) return teens[n - 10];
-      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
-      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + convert(n % 100) : '');
-      if (n < 100000) return convert(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + convert(n % 1000) : '');
-      if (n < 10000000) return convert(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + convert(n % 100000) : '');
-      return convert(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + convert(n % 10000000) : '');
-    };
-    
-    const amount = Math.floor(num);
-    const paise = Math.round((num - amount) * 100);
-    
-    let result = convert(amount) + ' Rupees';
-    if (paise > 0) {
-      result += ' and ' + convert(paise) + ' Paise';
-    }
-    result += ' Only';
-    
-    return result;
-  };
-
-  const formatDateForPrint = (date) => {
-    if (!date) return '';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const d = new Date(date);
-    return `${d.getDate()}-${months[d.getMonth()]}-${d.getFullYear()}`;
-  };
-
-  const formatNumber = (num) => {
-    return new Intl.NumberFormat('en-PK', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2
-    }).format(num || 0);
   };
 
   const getStatusColor = (status) => {

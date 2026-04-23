@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Typography,
@@ -63,7 +63,7 @@ const AuditForm = () => {
   const [success, setSuccess] = useState('');
 
   // Lazy load departments when dropdown is opened
-  const loadDepartments = async () => {
+  const loadDepartments = useCallback(async () => {
     if (departmentsLoaded || loadingDepartments) return;
     
     try {
@@ -78,10 +78,10 @@ const AuditForm = () => {
     } finally {
       setLoadingDepartments(false);
     }
-  };
+  }, [departmentsLoaded, loadingDepartments]);
 
   // Lazy load employees when dropdown is opened
-  const loadEmployees = async () => {
+  const loadEmployees = useCallback(async () => {
     if (employeesLoaded || loadingEmployees) return;
     
     try {
@@ -97,9 +97,9 @@ const AuditForm = () => {
     } finally {
       setLoadingEmployees(false);
     }
-  };
+  }, [employeesLoaded, loadingEmployees]);
 
-  const fetchAudit = async () => {
+  const fetchAudit = useCallback(async () => {
     try {
       // Pre-load departments and employees for edit mode so dropdowns work
       await Promise.all([loadDepartments(), loadEmployees()]);
@@ -126,7 +126,7 @@ const AuditForm = () => {
       setError(err.response?.data?.message || 'Failed to load audit details');
       setLoading(false);
     }
-  };
+  }, [auditId, loadDepartments, loadEmployees]);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -144,7 +144,7 @@ const AuditForm = () => {
     };
 
     loadInitialData();
-  }, [auditId, isEdit]);
+  }, [isEdit, fetchAudit]);
 
   const handleChange = (field) => (event) => {
     setFormData((prev) => ({

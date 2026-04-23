@@ -29,19 +29,15 @@ import {
   Timeline,
   Download,
   Refresh,
-  Dashboard as DashboardIcon,
   BugReport as FindingsIcon,
   Assignment as CARIcon,
-  History as TrailIcon,
   Visibility
 } from '@mui/icons-material';
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
-import { useAuth } from '../../contexts/AuthContext';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import api from '../../services/api';
 
 const AuditDashboard = () => {
   const theme = useTheme();
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState(null);
   const [recentActivities, setRecentActivities] = useState([]);

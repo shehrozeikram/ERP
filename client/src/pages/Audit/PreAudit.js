@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -25,21 +25,15 @@ import {
   TableHead,
   TableRow,
   TablePagination,
-  Menu,
-  ListItemIcon,
-  ListItemText,
   Divider,
   Alert,
   Skeleton,
-  LinearProgress,
   alpha,
   useTheme,
   Tabs,
   Tab,
   Stack,
   Tooltip,
-  Badge,
-  Avatar,
   CircularProgress,
   Accordion,
   AccordionSummary,
@@ -47,33 +41,23 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
-  MoreVert as MoreVertIcon,
   Search as SearchIcon,
   CheckCircle as CheckCircleIcon,
   Comment as CommentIcon,
   Send as SendIcon,
   Description as DescriptionIcon,
   Business as BusinessIcon,
-  Warning as WarningIcon,
   Error as ErrorIcon,
   Schedule as ScheduleIcon,
   AttachFile as AttachFileIcon,
-  Download as DownloadIcon,
   Cancel as CancelIcon,
-  Payment as PaymentIcon,
-  AccountBalance as AccountBalanceIcon,
-  Person as PersonIcon,
-  Assignment as AssignmentIcon,
-  AttachMoney as AttachMoneyIcon,
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
   History as HistoryIcon,
   Print as PrintIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import paymentSettlementService from '../../services/paymentSettlementService';
@@ -84,11 +68,9 @@ import WorkflowHistoryDialog from '../../components/WorkflowHistoryDialog';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
-import dayjs from 'dayjs';
 
 const PreAudit = () => {
   const theme = useTheme();
-  const navigate = useNavigate();
   const { user } = useAuth();
   
   const [documents, setDocuments] = useState([]);
@@ -146,11 +128,7 @@ const PreAudit = () => {
       doc?.reviewedAt
     );
 
-  useEffect(() => {
-    fetchDocuments();
-  }, [page, rowsPerPage, searchQuery, filters, tabValue]);
-
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -190,7 +168,11 @@ const PreAudit = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, rowsPerPage, searchQuery, filters, tabValue]);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
 
   const handleForward = async () => {
     try {
@@ -396,14 +378,6 @@ const PreAudit = () => {
       critical: 'error'
     };
     return colors[severity] || 'default';
-  };
-
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   // Format date to match Payment Settlement style (22-Dec-25)
