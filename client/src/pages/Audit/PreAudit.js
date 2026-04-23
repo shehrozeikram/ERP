@@ -143,8 +143,7 @@ const PreAudit = () => {
       doc?.initialAuditApproved ||
       doc?.initialAuditApprovedAt ||
       doc?.preAuditInitialApprovedAt ||
-      doc?.reviewedAt ||
-      doc?.status === 'under_review'
+      doc?.reviewedAt
     );
 
   useEffect(() => {
