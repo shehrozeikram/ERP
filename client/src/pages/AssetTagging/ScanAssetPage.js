@@ -42,7 +42,7 @@ export default function ScanAssetPage() {
         (nextAsset.project.name || nextAsset.project.code || nextAsset.project.projectId)
       );
 
-      if (nextAsset && !hasProjectObject) {
+      if (user && nextAsset && !hasProjectObject) {
         try {
           const financeRes = await api.get(`/finance/fixed-assets/${nextAsset._id}`);
           const financeProject = financeRes?.data?.data?.project || null;
