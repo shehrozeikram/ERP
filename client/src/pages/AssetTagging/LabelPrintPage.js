@@ -24,7 +24,19 @@ export default function LabelPrintPage() {
     try {
       const res = await api.get(`/asset-tagging/assets/${assetId}`);
       const { asset: a, currentTag: t } = res.data.data;
-      setAsset(a);
+      let nextAsset = a;
+      if (!a?.project && assetId) {
+        try {
+          const financeRes = await api.get(`/finance/fixed-assets/${assetId}`);
+          const fallbackProject = financeRes?.data?.data?.project || null;
+          if (fallbackProject) {
+            nextAsset = { ...a, project: fallbackProject };
+          }
+        } catch {
+          // Keep label usable even if fallback lookup fails.
+        }
+      }
+      setAsset(nextAsset);
       setTag(t);
       if (t?.tagCode) {
         const enc = encodeURIComponent(t.tagCode);
