@@ -4806,20 +4806,19 @@ router.post('/requisitions/:id/comparative-reject',
   })
 );
 
-// @route   PUT /api/procurement/requisitions/:id/reject
+// @route   PUT/POST /api/procurement/requisitions/:id/reject
 // @desc    Reject requisition in procurement stage with observation
 // @access  Private (Assignment manager only)
-router.put('/requisitions/:id/reject',
-  authMiddleware,
-  [
-    body('observation')
-      .trim()
-      .notEmpty()
-      .withMessage('Observation is required')
-      .isLength({ max: 1000 })
-      .withMessage('Observation cannot exceed 1000 characters')
-  ],
-  asyncHandler(async (req, res) => {
+const rejectRequisitionValidators = [
+  body('observation')
+    .trim()
+    .notEmpty()
+    .withMessage('Observation is required')
+    .isLength({ max: 1000 })
+    .withMessage('Observation cannot exceed 1000 characters')
+];
+
+const rejectRequisitionHandler = asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -4901,13 +4900,15 @@ router.put('/requisitions/:id/reject',
       module: 'procurement'
     });
 
-    res.json({
-      success: true,
-      message: 'Requisition rejected with observation.',
-      data: updated
-    });
-  })
-);
+  res.json({
+    success: true,
+    message: 'Requisition rejected with observation.',
+    data: updated
+  });
+});
+
+router.put('/requisitions/:id/reject', authMiddleware, rejectRequisitionValidators, rejectRequisitionHandler);
+router.post('/requisitions/:id/reject', authMiddleware, rejectRequisitionValidators, rejectRequisitionHandler);
 
 // @route   GET /api/procurement/requisitions/assignment-managers
 // @desc    Get procurement users and their assignment-manager rights
